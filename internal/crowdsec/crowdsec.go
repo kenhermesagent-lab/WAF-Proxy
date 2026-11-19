@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -90,9 +91,25 @@ func (m *Manager) Status() map[string]any {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return map[string]any{
-		"configured": true, "last_poll": m.lastPoll, "last_error": m.lastErr, "applied": m.applied,
+	var lastPoll any
+	if !m.lastPoll.IsZero() {
+		lastPoll = m.lastPoll
 	}
+	return map[string]any{
+		"configured": true, "lapi": redactURL(m.base), "mode": "stream",
+		"last_poll": lastPoll, "last_error": m.lastErr, "applied": m.applied,
+	}
+}
+
+// redactURL keeps the LAPI endpoint visible for troubleshooting without
+// leaking credentials embedded in the URL.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	u.User = nil
+	return u.String()
 }
 
 func (m *Manager) poll(ctx context.Context, startup bool) error {

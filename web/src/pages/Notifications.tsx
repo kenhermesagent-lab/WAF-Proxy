@@ -4,19 +4,29 @@ import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
 
 type Settings = Record<string, string>;
 type Alert = { id: number; channel: string; kind: string; payload: string; state: string; created_at: string; sent_at?: string | null };
+type EventKind = { kind: string; label: string };
+
+const FALLBACK_KINDS: EventKind[] = [
+  { kind: "ban", label: "Temporary ban" },
+  { kind: "permanent_ban", label: "Permanent ban" },
+  { kind: "gate", label: "Access gate lockout" },
+  { kind: "cert", label: "Certificate expiry" },
+];
 
 export default function Notifications({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [settings, setSettings] = useState<Settings>({});
   const [channels, setChannels] = useState<Record<string, boolean>>({});
   const [recent, setRecent] = useState<Alert[]>([]);
+  const [kinds, setKinds] = useState<EventKind[]>(FALLBACK_KINDS);
 
   const load = () =>
     api
-      .get<{ settings: Settings; channels: Record<string, boolean>; recent: Alert[] }>("/api/notifications")
+      .get<{ settings: Settings; channels: Record<string, boolean>; recent: Alert[]; event_kinds?: EventKind[] }>("/api/notifications")
       .then((r) => {
         setSettings(r.settings || {});
         setChannels(r.channels || {});
         setRecent(r.recent || []);
+        if (r.event_kinds?.length) setKinds(r.event_kinds);
       })
       .catch((e) => onError(errText(e)));
 
@@ -25,6 +35,22 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
   }, []);
 
   const set = (k: string, v: string) => setSettings((s) => ({ ...s, [k]: v }));
+
+  const rawEvents = (settings.events ?? "").trim();
+  const allEvents = rawEvents === "";
+  const noEvents = rawEvents === "none";
+  const chosen = new Set(
+    allEvents || noEvents ? [] : rawEvents.split(",").map((v) => v.trim()).filter(Boolean),
+  );
+  const eventOn = (kind: string) => allEvents || (!noEvents && chosen.has(kind));
+
+  const toggleEvent = (kind: string, on: boolean) => {
+    const next = new Set(allEvents ? kinds.map((k) => k.kind) : noEvents ? [] : [...chosen]);
+    if (on) next.add(kind);
+    else next.delete(kind);
+    const value = next.size === 0 ? "none" : next.size === kinds.length ? "" : [...next].join(",");
+    set("events", value);
+  };
 
   const save = async () => {
     try {
@@ -106,6 +132,26 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
           </div>
         </Card>
       </div>
+
+      <Card title="Event routing">
+        <div className="grid cols-4">
+          {kinds.map((k) => (
+            <label key={k.kind} style={{ display: "flex", gap: 9, alignItems: "center", textTransform: "none", letterSpacing: 0, margin: 0 }}>
+              <input
+                type="checkbox"
+                style={{ width: "auto" }}
+                checked={eventOn(k.kind)}
+                onChange={(e) => toggleEvent(k.kind, e.target.checked)}
+              />
+              {k.label}
+            </label>
+          ))}
+        </div>
+        <p className="muted" style={{ fontSize: 12 }}>
+          Every event is delivered by default. Untick a class to suppress it on all channels;
+          explicit channel test messages are always sent.
+        </p>
+      </Card>
 
       <div className="row" style={{ justifyContent: "space-between" }}>
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>

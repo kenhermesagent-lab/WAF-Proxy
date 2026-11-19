@@ -6,12 +6,14 @@ import { Me, SetupStatus } from "./types";
 import Dashboard from "./pages/Dashboard";
 import Proxies from "./pages/Proxies";
 import Policies from "./pages/Policies";
+import Sources from "./pages/Sources";
 import Intel from "./pages/Intel";
 import Certs from "./pages/Certs";
 import Access from "./pages/Access";
 import Notifications from "./pages/Notifications";
 import Logs from "./pages/Logs";
 import SettingsPage from "./pages/Settings";
+import Account from "./pages/Account";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 
@@ -19,12 +21,14 @@ const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "◎" },
   { id: "proxies", label: "Proxies", icon: "⇄" },
   { id: "policies", label: "Policies", icon: "⛨" },
+  { id: "sources", label: "Sources", icon: "◉" },
   { id: "intel", label: "Threat intel", icon: "☣" },
   { id: "certs", label: "Certificates", icon: "▣" },
   { id: "access", label: "Access gate", icon: "⚿" },
   { id: "notifications", label: "Notifications", icon: "✉" },
   { id: "logs", label: "Logs", icon: "≡" },
   { id: "settings", label: "Settings", icon: "⚙" },
+  { id: "account", label: "Account", icon: "⊙" },
 ];
 
 type Enrolment = { username: string; secret: string; url: string; codes: string[] };
@@ -154,12 +158,20 @@ export default function App() {
           {page === "dashboard" && <Dashboard onError={notify} home={home} />}
           {page === "proxies" && <Proxies onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
           {page === "policies" && <Policies onError={notify} onOK={notify} />}
+          {page === "sources" && <Sources onError={notify} onOK={notify} />}
           {page === "intel" && <Intel onError={notify} onOK={notify} />}
           {page === "certs" && <Certs onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
           {page === "access" && <Access onError={notify} onOK={notify} />}
           {page === "notifications" && <Notifications onError={notify} onOK={notify} />}
           {page === "logs" && <Logs onError={notify} />}
           {page === "settings" && <SettingsPage onError={notify} onOK={notify} />}
+          {page === "account" && (
+            <Account
+              onError={notify}
+              onOK={notify}
+              onSignedOut={() => { setCSRF(""); setMe(null); setPhase("login"); }}
+            />
+          )}
         </div>
       </main>
       {toast && (

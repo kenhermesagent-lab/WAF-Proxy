@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -52,6 +54,35 @@ type EventFilter struct {
 
 // QueryEvents returns matching events newest first.
 func (s *Store) QueryEvents(f EventFilter) ([]model.Event, int, error) {
+	conds, args := eventWhere(f)
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE `+conds, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	limit := f.Limit
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	args = append(args, limit, maxInt(f.Offset, 0))
+	rows, err := s.db.Query(`SELECT id, ts, proxy_id, host, src_ip, country, asn, lat, lon, method, path, status,
+		bytes_in, bytes_out, latency_ms, stage, rule_id, rule_msg, action, ua, sample
+		FROM events WHERE `+conds+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []model.Event{}
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, *e)
+	}
+	return out, total, rows.Err()
+}
+
+func eventWhere(f EventFilter) (string, []any) {
 	where := []string{"ts >= ?", "ts <= ?"}
 	args := []any{stamp(orTime(f.From, time.Now().Add(-24*time.Hour))), stamp(orTime(f.To, time.Now()))}
 	if f.ProxyID != nil {
@@ -81,32 +112,106 @@ func (s *Store) QueryEvents(f EventFilter) ([]model.Event, int, error) {
 	if f.BlockedOnly {
 		where = append(where, "action IN ('block','ban','challenge')")
 	}
-	conds := strings.Join(where, " AND ")
-	var total int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE `+conds, args...).Scan(&total); err != nil {
-		return nil, 0, err
+	return strings.Join(where, " AND "), args
+}
+
+// ExportEvents returns up to limit matching events for a CSV download. It uses
+// the same filters as the log view but bypasses the interactive page cap.
+func (s *Store) ExportEvents(f EventFilter, limit int) ([]model.Event, error) {
+	if limit <= 0 {
+		limit = 10000
 	}
-	limit := f.Limit
-	if limit <= 0 || limit > 1000 {
-		limit = 100
+	if limit > 100000 {
+		limit = 100000
 	}
-	args = append(args, limit, maxInt(f.Offset, 0))
+	conds, args := eventWhere(f)
+	args = append(args, limit)
 	rows, err := s.db.Query(`SELECT id, ts, proxy_id, host, src_ip, country, asn, lat, lon, method, path, status,
 		bytes_in, bytes_out, latency_ms, stage, rule_id, rule_msg, action, ua, sample
-		FROM events WHERE `+conds+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
+		FROM events WHERE `+conds+` ORDER BY id DESC LIMIT ?`, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 	out := []model.Event{}
 	for rows.Next() {
 		e, err := scanEvent(rows)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		out = append(out, *e)
 	}
-	return out, total, rows.Err()
+	return out, rows.Err()
+}
+
+// IPSummary aggregates one source address for the IP explorer.
+type IPSummary struct {
+	IP        string    `json:"ip"`
+	Country   string    `json:"country"`
+	ASN       int       `json:"asn"`
+	Requests  int64     `json:"requests"`
+	Blocked   int64     `json:"blocked"`
+	BytesOut  int64     `json:"bytes_out"`
+	Hosts     int       `json:"hosts"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
+}
+
+const ipAggregate = `SELECT src_ip, MAX(country), MAX(asn), COUNT(*),
+	COALESCE(SUM(CASE WHEN action IN ('block','ban','challenge') THEN 1 ELSE 0 END),0),
+	COALESCE(SUM(bytes_out),0), COUNT(DISTINCT host), MIN(ts), MAX(ts)
+	FROM events WHERE `
+
+func scanIPSummary(row interface{ Scan(...any) error }) (IPSummary, error) {
+	var out IPSummary
+	var first, last string
+	err := row.Scan(&out.IP, &out.Country, &out.ASN, &out.Requests, &out.Blocked,
+		&out.BytesOut, &out.Hosts, &first, &last)
+	if err != nil {
+		return IPSummary{}, err
+	}
+	out.FirstSeen = parseStamp(first)
+	out.LastSeen = parseStamp(last)
+	return out, nil
+}
+
+// IPSummaries lists the busiest matching source addresses. q is an IP prefix.
+func (s *Store) IPSummaries(f EventFilter, q string, limit int) ([]IPSummary, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	conds, args := eventWhere(f)
+	if q = strings.TrimSpace(q); q != "" {
+		esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q)
+		conds += ` AND src_ip LIKE ? ESCAPE '\'`
+		args = append(args, esc+"%")
+	}
+	args = append(args, limit)
+	rows, err := s.db.Query(ipAggregate+conds+` GROUP BY src_ip ORDER BY COUNT(*) DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []IPSummary{}
+	for rows.Next() {
+		sum, err := scanIPSummary(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sum)
+	}
+	return out, rows.Err()
+}
+
+// IPSummary aggregates exactly one address; a missing address yields a zero
+// summary so the detail view can still show ban state.
+func (s *Store) IPSummary(ip string, from, to time.Time) (IPSummary, error) {
+	conds, args := eventWhere(EventFilter{From: from, To: to, SrcIP: ip})
+	sum, err := scanIPSummary(s.db.QueryRow(ipAggregate+conds+` GROUP BY src_ip`, args...))
+	if errors.Is(err, sql.ErrNoRows) {
+		return IPSummary{IP: ip}, nil
+	}
+	return sum, err
 }
 
 func scanEvent(row interface{ Scan(...any) error }) (*model.Event, error) {

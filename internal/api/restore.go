@@ -103,6 +103,13 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 					problems = append(problems, "settings: invalid "+k+" skipped")
 					continue
 				}
+			case "decoy_hosts":
+				clean, msg := s.cleanDecoyHosts(v)
+				if msg != "" {
+					problems = append(problems, "settings: "+msg+" skipped")
+					continue
+				}
+				v = clean
 			}
 			next[k] = v
 			result["settings"]++

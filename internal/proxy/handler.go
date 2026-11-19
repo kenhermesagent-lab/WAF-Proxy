@@ -22,6 +22,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	rw := &responseWriter{ResponseWriter: w, strict: true, requestID: newRequestID()}
 	if e == nil {
+		// A configured decoy hostname is a deliberate scan target: ban the source
+		// before falling back to the silent unknown-host blackhole.
+		if s.d.Policy.DecoyHost(host) {
+			ip := clientAddr(r)
+			loc := s.d.Geo.Lookup(ip)
+			// Only write the ban once; a banned scanner keeps hitting this branch
+			// because there is no proxy to run the normal permanent-ban check on.
+			if _, banned := s.d.Bans.Match(ip); !banned {
+				go func() {
+					_, _ = s.d.Bans.Add(ip.String(), "decoy hostname requested: "+host, "decoy", "policy", 0)
+				}()
+			}
+			s.record(model.Event{TS: start, Host: host, SrcIP: ip.String(),
+				Country: loc.Country, ASN: loc.ASN, Lat: loc.Lat, Lon: loc.Lon,
+				Method: r.Method, Path: r.URL.Path, Stage: "decoy-host", RuleID: "decoy-host",
+				RuleMsg: "decoy hostname", Action: "ban", Status: http.StatusForbidden,
+				UA: r.UserAgent(), Sample: 1})
+			uniformError(rw, http.StatusForbidden)
+			return
+		}
 		s.blackhole(w, r, host, start)
 		return
 	}
@@ -42,7 +62,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		event.BytesOut = rw.Size()
 		event.LatencyMS = time.Since(start).Milliseconds()
 		if blocked {
-			event.Action = "block"
+			// Preserve the specific outcome (ban, challenge) so the log does not
+			// flatten every rejection into "block".
+			if event.Action == "" || event.Action == "allow" {
+				event.Action = "block"
+			}
 		} else if event.Action == "" {
 			event.Action = "allow"
 		}
@@ -216,16 +240,20 @@ func respondVerdict(w http.ResponseWriter, v model.Verdict) {
 
 func (s *Server) blackhole(w http.ResponseWriter, r *http.Request, host string, start time.Time) {
 	// Unknown hosts and the bare apex are closed without a response so scanners
-	// cannot fingerprint a default vhost.
+	// cannot fingerprint a default vhost. HTTP/2 has no hijack, so the fallback
+	// still logs the event even though it must answer with a status code.
+	event := model.Event{TS: start, Host: host, SrcIP: clientAddr(r).String(),
+		Method: r.Method, Path: r.URL.Path, Stage: "unknown-host",
+		RuleID: "blackhole", Action: "block", Status: 444, UA: r.UserAgent(), Sample: 1}
 	if hj, ok := w.(http.Hijacker); ok {
 		if conn, _, err := hj.Hijack(); err == nil {
 			_ = conn.Close()
-			s.record(model.Event{TS: start, Host: host, SrcIP: clientAddr(r).String(),
-				Method: r.Method, Path: r.URL.Path, Stage: "unknown-host",
-				RuleID: "blackhole", Action: "block", Status: 444, UA: r.UserAgent(), Sample: 1})
+			s.record(event)
 			return
 		}
 	}
+	event.Status = http.StatusMisdirectedRequest
+	s.record(event)
 	w.Header().Set("Connection", "close")
 	w.WriteHeader(http.StatusMisdirectedRequest)
 }

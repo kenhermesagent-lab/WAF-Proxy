@@ -11,6 +11,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.1.0] — 2026-11-19
+
+Closes the remaining 1.0.0 feature gaps and adds executable pipeline coverage plus CI.
+
+### Added
+
+- **Administrator credential rotation** (`Account` page): password change requiring the
+  current password and authenticator code, two-phase authenticator rotation that only
+  commits after a new code is confirmed, fresh recovery codes, and “sign out everywhere”.
+  Rotations revoke every other session while keeping the current one.
+- **Decoy hostnames** configured in Settings. Requests for a listed name that is not an
+  active proxy are logged as `decoy-host`, answered uniformly and permanently banned;
+  names already used by a proxy are refused at save time.
+- **Per-event notification routing**: independent toggles for temporary bans, permanent
+  bans, access-gate lockouts and certificate expiry, including an explicit “none” state.
+- **CrowdSec status** in the GUI and `GET /api/crowdsec/status`: configured state, LAPI
+  endpoint (credentials redacted), last successful poll, applied decision count and the
+  last error.
+- **CSV export** of the filtered event log (`GET /api/events/export.csv`), capped at
+  100,000 rows with spreadsheet-formula neutralisation.
+- **Source IP explorer** (`Sources` page): prefix search over a selectable window with
+  request/blocked counts, distinct hosts, first/last seen, ban state, per-IP request
+  history and one-click 24 h ban/unban.
+- **In-process pipeline tests**: real store, ban engine, policy pipeline, gate, bot guard,
+  Coraza and ReverseProxy against an `httptest` upstream. Covers allow + logging, decoy
+  path and decoy host bans, temporary bans, unknown-host blackholes, gate login, cache
+  hits, spoofed forwarding headers, body limits and a CRS SQLi block. Account rotation and
+  session revocation are covered by API tests.
+- **GitHub Actions CI** (`.github/workflows/ci.yml`): gofmt, `go vet`, race tests, Go build,
+  SPA typecheck/build, production dependency audit and a Docker image build.
+
+### Changed
+
+- Ban events are recorded with action `ban` instead of being flattened to `block`.
+- Unknown-host drops are logged on HTTP/2 too, where hijacking is unavailable.
+- Notification navigation now exposes the Account and Sources pages.
+
 ## [1.0.0] — 2026-11-19
 
 The ten planned phases were implemented together and shipped as the first release, so the

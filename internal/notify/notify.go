@@ -20,6 +20,21 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
+// EventKind describes one routable notification category.
+type EventKind struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+}
+
+// EventKinds is the set of per-event toggles the API exposes. An empty
+// notify_events setting means every kind is delivered.
+var EventKinds = []EventKind{
+	{Kind: "ban", Label: "Temporary ban"},
+	{Kind: "permanent_ban", Label: "Permanent ban"},
+	{Kind: "gate", Label: "Access gate lockout"},
+	{Kind: "cert", Label: "Certificate expiry"},
+}
+
 // Manager owns channel configuration and delivery.
 type Manager struct {
 	st   *store.Store
@@ -65,9 +80,12 @@ func (m *Manager) Enqueue(kind, text, dedupe string, immediate bool) {
 	if len(channels) == 0 {
 		return
 	}
-	// Optional per-event routing: an empty list means every event is sent.
+	// Optional per-event routing: an empty list means every event is sent,
+	// while the explicit sentinel "none" disables all event classes.
 	if kv, err := m.st.Settings(); err == nil {
-		if raw := strings.TrimSpace(kv["notify_events"]); raw != "" {
+		if raw := strings.TrimSpace(kv["notify_events"]); raw == "none" {
+			return
+		} else if raw != "" {
 			enabled := false
 			for _, part := range strings.Split(raw, ",") {
 				if strings.TrimSpace(part) == kind {

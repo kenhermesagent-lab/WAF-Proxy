@@ -4,7 +4,8 @@ A self-hosted reverse proxy with an integrated WAF, IPS-style ban engine, bot pr
 GeoIP policy, live attack visualisation, and a modern dark GUI. Greenfield Go + React
 implementation, inspired by Zoraxy, deployed as a single Docker Compose stack.
 
-**Status:** implemented and released as `1.0.0` (all ten phases delivered in one stack).
+**Status:** implemented and released as `1.0.0`; `1.1.0` closes the remaining feature gaps
+(credential rotation, decoy hostnames, event routing, CrowdSec status, CSV export, IP explorer).
 **Plan version:** 1 (2026-11-19)
 
 ---

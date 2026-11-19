@@ -8,14 +8,17 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crowdsec"
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
@@ -43,6 +46,7 @@ type Server struct {
 	bans    *ban.Engine
 	feeds   *intel.Manager
 	certs   *acme.Manager
+	cs      *crowdsec.Manager
 	metrics *metrics.Collector
 	notify  *notify.Manager
 	geo     *geoip.Geo
@@ -50,16 +54,28 @@ type Server struct {
 	limiter *auth.Limiter
 	mux     *http.ServeMux
 	started time.Time
+
+	// Pending TOTP rotations are held server-side and keyed by session, so a
+	// stolen session cannot confirm an authenticator of its own choosing.
+	totpMu      sync.Mutex
+	totpPending map[string]pendingTOTP
+}
+
+type pendingTOTP struct {
+	secret  string
+	userID  int64
+	expires time.Time
 }
 
 // New builds the API and registers every route.
 func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Server, pol *policy.Engine,
-	bans *ban.Engine, feeds *intel.Manager, certs *acme.Manager, met *metrics.Collector,
-	nt *notify.Manager, geo *geoip.Geo, log *slog.Logger) *Server {
+	bans *ban.Engine, feeds *intel.Manager, certs *acme.Manager, cs *crowdsec.Manager,
+	met *metrics.Collector, nt *notify.Manager, geo *geoip.Geo, log *slog.Logger) *Server {
 	s := &Server{
 		st: st, box: box, cfg: cfg, proxy: px, policy: pol, bans: bans, feeds: feeds,
-		certs: certs, metrics: met, notify: nt, geo: geo, log: log,
+		certs: certs, cs: cs, metrics: met, notify: nt, geo: geo, log: log,
 		limiter: auth.NewLimiter(), mux: http.NewServeMux(), started: time.Now(),
+		totpPending: map[string]pendingTOTP{},
 	}
 	s.routes()
 	return s
@@ -75,6 +91,10 @@ func (s *Server) routes() {
 
 	m.HandleFunc("POST /api/logout", s.authed(s.logout))
 	m.HandleFunc("GET /api/me", s.authed(s.me))
+	m.HandleFunc("POST /api/account/password", s.authed(s.changePassword))
+	m.HandleFunc("POST /api/account/totp", s.authed(s.beginTOTP))
+	m.HandleFunc("POST /api/account/totp/confirm", s.authed(s.confirmTOTP))
+	m.HandleFunc("POST /api/account/logout-all", s.authed(s.logoutAll))
 
 	m.HandleFunc("GET /api/settings", s.authed(s.getSettings))
 	m.HandleFunc("PUT /api/settings", s.authed(s.putSettings))
@@ -115,6 +135,10 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/metrics", s.authed(s.getMetrics))
 	m.HandleFunc("GET /api/events", s.authed(s.listEvents))
+	m.HandleFunc("GET /api/events/export.csv", s.authed(s.exportEventsCSV))
+	m.HandleFunc("GET /api/ips", s.authed(s.listIPs))
+	m.HandleFunc("GET /api/ips/{ip}", s.authed(s.getIP))
+	m.HandleFunc("GET /api/crowdsec/status", s.authed(s.crowdsecStatus))
 	m.HandleFunc("GET /api/globe", s.authed(s.getGlobe))
 	m.HandleFunc("GET /api/audit", s.authed(s.listAudit))
 
@@ -486,7 +510,7 @@ var publicSettingKeys = []string{
 	"base_domain", "wan_ip", "wan_port", "lan_ip", "gui_port", "wan_iface", "lan_iface",
 	"dos_rps", "dos_burst", "asn_block", "stealth_drop", "stealth_ping", "retention_days",
 	"sample_above_rps", "max_body", "protection_enabled", "acme_staging", "acme_email",
-	"gate_ttl_hours", "home_lat", "home_lon",
+	"gate_ttl_hours", "home_lat", "home_lon", "decoy_hosts",
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -533,6 +557,13 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, k+" must be 1-65535")
 				return
 			}
+		case "decoy_hosts":
+			clean, msg := s.cleanDecoyHosts(v)
+			if msg != "" {
+				writeError(w, http.StatusBadRequest, msg)
+				return
+			}
+			v = clean
 		}
 		switch k {
 		case "dos_rps", "dos_burst", "retention_days", "sample_above_rps", "max_body", "gate_ttl_hours":
@@ -584,6 +615,36 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "settings.update", strings.Join(keys(next), ","), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// cleanDecoyHosts normalizes a comma list and refuses entries that collide with
+// a real proxy hostname, so saving the setting can never ban legitimate traffic.
+func (s *Server) cleanDecoyHosts(raw string) (string, string) {
+	hosts := []string{}
+	seen := map[string]bool{}
+	proxies, _ := s.st.ListProxies()
+	real := map[string]bool{}
+	for _, p := range proxies {
+		real[p.Hostname] = true
+	}
+	for _, part := range strings.Split(raw, ",") {
+		host := policy.NormalizeHost(part)
+		if host == "" {
+			continue
+		}
+		if !policy.ValidDecoyHost(host) {
+			return "", "invalid decoy hostname: " + part
+		}
+		if real[host] {
+			return "", "decoy hostname is an active proxy: " + host
+		}
+		if !seen[host] {
+			seen[host] = true
+			hosts = append(hosts, host)
+		}
+	}
+	sort.Strings(hosts)
+	return strings.Join(hosts, ","), ""
 }
 
 func keys(m map[string]string) []string {

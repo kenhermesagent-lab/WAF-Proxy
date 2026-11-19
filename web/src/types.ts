@@ -166,6 +166,40 @@ export interface GateUser {
   created_at: string;
 }
 
+export interface IPSummary {
+  ip: string;
+  country: string;
+  asn: number;
+  requests: number;
+  blocked: number;
+  bytes_out: number;
+  hosts: number;
+  first_seen: string;
+  last_seen: string;
+  banned: boolean;
+  permanent: boolean;
+  ban_id?: number;
+  ban_reason?: string;
+  ban_source?: string;
+  ban_expires?: string | null;
+}
+
+export interface IPDetail {
+  summary: IPSummary;
+  events: Event[];
+  total: number;
+}
+
+export interface CrowdSecStatus {
+  configured: boolean;
+  lapi_configured?: boolean;
+  lapi?: string;
+  mode?: string;
+  last_poll?: string;
+  last_error?: string;
+  applied: number;
+}
+
 export interface AuditEntry {
   id: number;
   ts: string;

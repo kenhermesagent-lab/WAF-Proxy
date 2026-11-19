@@ -38,6 +38,17 @@ export default function Logs({ onError }: { onError: (m: string) => void }) {
     load(0);
   }, []);
 
+  const exportHref = () => {
+    const q = new URLSearchParams();
+    q.set("limit", "50000");
+    if (filters.ip) q.set("ip", filters.ip);
+    if (filters.host) q.set("host", filters.host);
+    if (filters.stage) q.set("stage", filters.stage);
+    if (filters.action) q.set("action", filters.action);
+    if (filters.blocked) q.set("blocked", "1");
+    return `/api/events/export.csv?${q.toString()}`;
+  };
+
   return (
     <div className="grid" style={{ gap: 14 }}>
       <Card title="Filters">
@@ -52,6 +63,7 @@ export default function Logs({ onError }: { onError: (m: string) => void }) {
               <option value="country-block">country-block</option>
               <option value="asn-block">asn-block</option>
               <option value="decoy">decoy</option>
+              <option value="decoy-host">decoy-host</option>
               <option value="dos">dos</option>
               <option value="temp-ban">temp-ban</option>
               <option value="permanent-ban">permanent-ban</option>
@@ -80,6 +92,7 @@ export default function Logs({ onError }: { onError: (m: string) => void }) {
         title={`Events (${total.toLocaleString()})`}
         actions={
           <div className="row">
+            <a href={exportHref()}><button className="small">Export CSV</button></a>
             <button className="small" disabled={offset === 0} onClick={() => load(Math.max(0, offset - PAGE))}>Newer</button>
             <button className="small" disabled={offset + PAGE >= total} onClick={() => load(offset + PAGE)}>Older</button>
           </div>

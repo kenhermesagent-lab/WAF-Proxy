@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Field, errText } from "../ui";
+import { Badge, Card, Field, errText, fmtAgo } from "../ui";
+import type { CrowdSecStatus } from "../types";
 
 type Settings = Record<string, string>;
 
 export default function SettingsPage({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [s, setS] = useState<Settings>({});
   const [saving, setSaving] = useState(false);
+  const [cs, setCs] = useState<CrowdSecStatus | null>(null);
   const file = useRef<HTMLInputElement>(null);
 
   const load = () =>
@@ -14,6 +16,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
 
   useEffect(() => {
     load();
+    api.get<CrowdSecStatus>("/api/crowdsec/status").then(setCs).catch(() => undefined);
   }, []);
 
   const set = (k: string, v: string) => setS((prev) => ({ ...prev, [k]: v }));
@@ -107,9 +110,18 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
             <input type="checkbox" style={{ width: "auto" }} checked={s.stealth_ping === "1"} onChange={(e) => set("stealth_ping", e.target.checked ? "1" : "0")} />
             Ignore ICMP echo on the WAN interface
           </label>
+          <Field label="Decoy hostnames (comma separated, instant ban)">
+            <textarea
+              value={s.decoy_hosts ?? ""}
+              onChange={(e) => set("decoy_hosts", e.target.value)}
+              placeholder="admin.kendk.duckdns.org, test, old-panel"
+            />
+          </Field>
           <p className="muted" style={{ fontSize: 12 }}>
-            ASN blocking needs an ASN database; without one the stage is skipped and reported as unavailable. Country rules need a
-            GeoIP database in the data directory.
+            Requests for these names never reach a real proxy and permanently ban the source. A
+            name already used by a proxy is refused. ASN blocking needs an ASN database; without
+            one the stage is skipped and reported as unavailable. Country rules need a GeoIP
+            database in the data directory.
           </p>
         </Card>
       </div>
@@ -135,6 +147,28 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
             <div>GeoIP database</div>
             <div>{s.geoip === "true" ? <Badge tone="ok">loaded</Badge> : <Badge tone="warn">not loaded</Badge>}</div>
           </div>
+          <div className="bar-row">
+            <div>CrowdSec bouncer</div>
+            <div>
+              {cs?.configured
+                ? <Badge tone="ok">stream · {cs.applied} applied</Badge>
+                : <Badge tone="warn">{cs?.lapi_configured ? "configured, not connected" : "disabled"}</Badge>}
+            </div>
+          </div>
+          {cs?.configured && (
+            <div className="bar-row">
+              <div>LAPI last poll</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {cs.last_poll ? fmtAgo(cs.last_poll) : "waiting"} · <span className="mono">{cs.lapi}</span>
+              </div>
+            </div>
+          )}
+          {cs?.last_error && (
+            <div className="bar-row">
+              <div>CrowdSec last error</div>
+              <div className="err-text" style={{ margin: 0 }}>{cs.last_error}</div>
+            </div>
+          )}
           <div className="bar-row">
             <div>Configuration backup</div>
             <div><a href="/api/backup"><button className="small">Download JSON</button></a></div>

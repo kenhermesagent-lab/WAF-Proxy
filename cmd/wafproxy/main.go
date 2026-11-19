@@ -133,13 +133,21 @@ func run() error {
 
 	bans.OnAdd = func(rec ban.Record) {
 		kind := "Temporary ban"
+		event := "ban"
 		immediate := false
 		if rec.Permanent {
 			kind = "Permanent ban"
+			event = "permanent_ban"
 			immediate = true
 		}
 		text := fmt.Sprintf("%s: %s — %s (source: %s)", kind, rec.CIDR, rec.Reason, rec.Source)
-		notifier.Enqueue("ban", text, "ban:"+rec.CIDR, immediate)
+		// A temporary ban must not suppress the permanent-ban alert for the same
+		// address through the 24 hour dedupe window.
+		dedupe := "ban:" + rec.CIDR
+		if rec.Permanent {
+			dedupe = "permanent-ban:" + rec.CIDR
+		}
+		notifier.Enqueue(event, text, dedupe, immediate)
 	}
 
 	gateEngine := gate.New(st, box, bans, log)
@@ -179,7 +187,7 @@ func run() error {
 		return err
 	}
 
-	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, met, notifier, geo, log)
+	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
 	gui := http.NewServeMux()
 	gui.Handle("/api/", apiServer.Handler())
 	// The SPA lives outside the API mux, so apply the same hardening headers.

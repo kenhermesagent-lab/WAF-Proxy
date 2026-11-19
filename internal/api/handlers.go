@@ -14,7 +14,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
-	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
 )
 
 // ---------- proxies ----------
@@ -312,6 +312,13 @@ func (s *Server) validateHostname(host string) string {
 	label := strings.TrimSuffix(host, "."+base)
 	if strings.Contains(label, ".") {
 		return "use a single-label subdomain"
+	}
+	if raw, _ := s.st.GetSetting("decoy_hosts"); raw != "" {
+		for _, d := range strings.Split(raw, ",") {
+			if strings.EqualFold(strings.TrimSpace(d), host) {
+				return "hostname is configured as a decoy"
+			}
+		}
 	}
 	return ""
 }
@@ -881,49 +888,7 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	f := store.EventFilter{Limit: 100}
-	if v := q.Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Limit = n
-		}
-	}
-	if v := q.Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Offset = n
-		}
-	}
-	if v := q.Get("ip"); v != "" {
-		f.SrcIP = v
-	}
-	if v := q.Get("country"); v != "" {
-		f.Country = v
-	}
-	if v := q.Get("stage"); v != "" {
-		f.Stage = v
-	}
-	if v := q.Get("action"); v != "" {
-		f.Action = v
-	}
-	if v := q.Get("host"); v != "" {
-		f.Host = v
-	}
-	if v := q.Get("proxy_id"); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			f.ProxyID = &n
-		}
-	}
-	f.BlockedOnly = q.Get("blocked") == "1"
-	if v := q.Get("from"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			f.From = t
-		}
-	}
-	if v := q.Get("to"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			f.To = t
-		}
-	}
+	f := eventFilterFromQuery(r.URL.Query())
 	events, total, err := s.st.QueryEvents(f)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
@@ -961,6 +926,7 @@ func (s *Server) getNotifications(w http.ResponseWriter, r *http.Request) {
 	recent, _ := s.st.RecentAlerts(50)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"settings": settings, "channels": s.notify.Channels(), "recent": recent,
+		"event_kinds": notify.EventKinds,
 	})
 }
 

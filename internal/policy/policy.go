@@ -33,6 +33,7 @@ type Settings struct {
 	SampleAboveRPS int
 	MaxBody        int64
 	Enabled        bool
+	DecoyHosts     map[string]bool
 }
 
 // Request is everything the pipeline needs about an incoming request.
@@ -283,6 +284,7 @@ func parseSettings(kv map[string]string) Settings {
 	s.StealthDrop = kv["stealth_drop"] != "0"
 	s.StealthPing = kv["stealth_ping"] == "1"
 	s.Enabled = kv["protection_enabled"] != "0"
+	s.DecoyHosts = parseDecoyHosts(kv["decoy_hosts"])
 	if v, err := strconv.Atoi(kv["retention_days"]); err == nil && v >= 1 && v <= 30 {
 		s.RetentionDays = v
 	}
@@ -293,6 +295,51 @@ func parseSettings(kv map[string]string) Settings {
 		s.MaxBody = v
 	}
 	return s
+}
+
+// NormalizeHost lowercases a hostname and removes a trailing dot, matching the
+// normalization the proxy applies before routing.
+func NormalizeHost(h string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(h)), ".")
+}
+
+// ValidDecoyHost accepts a DNS label sequence. Single labels are allowed so an
+// operator can trap scans for names like "admin" that never resolve publicly.
+func ValidDecoyHost(h string) bool {
+	if len(h) == 0 || len(h) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(h, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func parseDecoyHosts(raw string) map[string]bool {
+	out := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		host := NormalizeHost(part)
+		if ValidDecoyHost(host) {
+			out[host] = true
+		}
+	}
+	return out
+}
+
+// DecoyHost reports whether a hostname is configured as a decoy. It is checked
+// before the unknown-host blackhole so a scan for these names is banned rather
+// than silently dropped.
+func (e *Engine) DecoyHost(host string) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.settings.DecoyHosts[NormalizeHost(host)]
 }
 
 // CurrentSettings returns a copy of the cached settings.

@@ -4,7 +4,7 @@ Self-hosted reverse proxy with an integrated WAF, IPS-style ban engine, CrowdSec
 bot challenge, GeoIP/ASN policy, threat feeds, live attack globe, notifications and a
 per-proxy access gate. One Go binary, one React SPA, one Docker Compose stack.
 
-**Status: `1.0.0`.** The full design lives in [PLAN.md](PLAN.md); this README describes what
+**Status: `1.1.0`.** The full design lives in [PLAN.md](PLAN.md); this README describes what
 is actually in the release. See [Scope notes](#scope-notes) for deliberately excluded items.
 
 ## What it does
@@ -13,21 +13,21 @@ is actually in the release. See [Scope notes](#scope-notes) for deliberately exc
 |---|---|
 | Reverse proxy | HTTPS/HTTP2 with SNI + Host routing, WebSocket passthrough, weighted round-robin, active health checks, redirects/aliases, gzip, conservative GET cache, streaming. |
 | TLS | DNS-01 wildcard certificates via lego (DuckDNS, Cloudflare, Route53, DigitalOcean, Hetzner, OVH, GoDaddy, RFC2136), per-proxy assignment, auto-renew at 30 days, serialised orders. |
-| Request pipeline | Permanent ban → whitelist → country → ASN → decoy → threat feed → temporary ban → rate limit → method → bot challenge → access gate → WAF → upstream. |
+| Request pipeline | Permanent ban → whitelist → country → ASN → decoy path/host → threat feed → temporary ban → rate limit → method → bot challenge → access gate → WAF → upstream. |
 | Bans | Temporary and permanent, reason + source required, nftables DROP (IPv4/IPv6), kernel expiry, promotion, GUI lists, CLI unban. |
 | WAF | Coraza v3 + embedded OWASP CRS, five profiles, per-proxy `off/detect/block`, paranoia/anomaly tuning, method allowlists, per-rule exceptions. |
 | Threat intel | Nine built-in feeds plus custom feeds, ETag caching, CIDR aggregation, 5× growth freeze, last-good retention. |
-| CrowdSec | LAPI decision stream → local bans, removals honoured, optional sidecar with access-log acquisition. |
+| CrowdSec | LAPI decision stream → local bans, removals honoured, connectivity/status panel, optional sidecar with access-log acquisition. |
 | Bot protection | JavaScript proof-of-work challenge, four levels, 24 h cookie, auto-ban after repeated failures. |
 | Access gate | Per-proxy passphrase, accounts or accounts+TOTP, per-proxy allowlist, escalation ladder and account lockout. |
-| Observability | WAN/LAN bps/pps, conntrack sessions, per-proxy counters, SSE live stream, canvas attack globe, filterable events, audit log, hourly rollups. |
-| Notifications | Telegram, SMTP/Gmail, generic webhook; 5-minute ban digest, instant critical alerts, dedupe and retry. |
-| Admin security | LAN-only GUI, argon2id, mandatory TOTP, recovery codes, CSRF, login limits, session idle/absolute expiry, CSP, encrypted secrets at rest. |
+| Observability | WAN/LAN bps/pps, conntrack sessions, per-proxy counters, SSE live stream, canvas attack globe, filterable events, source-IP explorer, CSV export, audit log, hourly rollups. |
+| Notifications | Telegram, SMTP/Gmail, generic webhook; 5-minute ban digest, instant critical alerts, per-event routing toggles, dedupe and retry. |
+| Admin security | LAN-only GUI, argon2id, mandatory TOTP, recovery codes, CSRF, login limits, session idle/absolute expiry, password/TOTP rotation, sign-out-everywhere, CSP, encrypted secrets at rest. |
 | Backup | Additive JSON export/import of settings, proxies, routes, policies, feeds and bans (secrets excluded by design). |
 
 The GUI is a dark single-page app: Dashboard (metrics + globe), Proxies, Policies (bans,
-countries, ASN, decoys), Threat intel, Certificates, Access gate, Notifications, Logs and
-Settings.
+countries, ASN, decoys), Sources (per-IP history and bans), Threat intel, Certificates,
+Access gate, Notifications, Logs, Settings and Account.
 
 ## Requirements
 
@@ -90,14 +90,14 @@ There is no command that disables the WAF or gate globally; use the GUI on the L
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — runbook, troubleshooting, capacity
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology
 - [CHANGELOG.md](CHANGELOG.md) — release history
-- [VERSION](VERSION) — `1.0.0`
+- [VERSION](VERSION) — `1.1.0`
 
 ## Scope notes
 
-Deliberately **not** in 1.0.0 (tracked in PLAN.md §13): AbuseIPDB enrichment, decoy
-hostnames, tarpit, HTTP basic auth/mTLS per proxy, brotli, per-proxy bandwidth charts,
-CSV export, encrypted backup archives, exotic notification channels beyond the generic
-webhook, full packet IPS, HTTP/3, HA and multi-user roles.
+Deliberately **not** in 1.1.0 (tracked in PLAN.md §13): AbuseIPDB enrichment, tarpit, HTTP
+basic auth/mTLS per proxy, brotli, per-proxy bandwidth charts, encrypted backup archives,
+exotic notification channels beyond the generic webhook, full packet IPS, HTTP/3, HA and
+multi-user roles.
 
 Two honesty notes that matter operationally:
 
@@ -117,4 +117,6 @@ make vet         # go vet ./...
 make run         # run from source with ./data
 ```
 
-The Docker build compiles the SPA first, then embeds it in the Go binary.
+The Docker build compiles the SPA first, then embeds it in the Go binary. CI
+(`.github/workflows/ci.yml`) runs gofmt, `go vet`, race tests, the Go build, the SPA
+typecheck/build, a production dependency audit and a container image build.
