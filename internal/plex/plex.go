@@ -54,6 +54,7 @@ type Status struct {
 	Active     int64  `json:"active"`
 	Total      uint64 `json:"total"`
 	Blocked    uint64 `json:"blocked"`
+	Banned     uint64 `json:"banned"`
 	LastError  string `json:"last_error"`
 }
 
@@ -192,7 +193,12 @@ type Manager struct {
 	active  atomic.Int64
 	total   atomic.Uint64
 	blocked atomic.Uint64
+	banned  atomic.Uint64
 	lastErr atomic.Value // string
+	// bans reports whether a source address is currently banned. It is an
+	// atomic value because the ban engine is attached after construction and
+	// read from the accept loop.
+	bans atomic.Value // func(netip.Addr) bool
 }
 
 // New creates a manager with the forwarder stopped.
@@ -200,6 +206,23 @@ func New(log *slog.Logger) *Manager {
 	m := &Manager{log: log}
 	m.lastErr.Store("")
 	return m
+}
+
+// SetBans attaches the ban lookup. The relay is not an HTTP request, so the
+// proxy pipeline never runs for it: without this hook an address banned on 443
+// could still stream through the Plex port.
+func (m *Manager) SetBans(fn func(netip.Addr) bool) {
+	if fn == nil {
+		return
+	}
+	m.bans.Store(fn)
+}
+
+func (m *Manager) isBanned(addr netip.Addr) bool {
+	if fn, ok := m.bans.Load().(func(netip.Addr) bool); ok && fn != nil {
+		return fn(addr)
+	}
+	return false
 }
 
 // Apply stops the current listener and starts a new one when cfg.Enabled.
@@ -265,7 +288,7 @@ func (m *Manager) Status() Status {
 	return Status{
 		Config: cfg, Bound: bound, ListenAddr: addr,
 		Active: m.active.Load(), Total: m.total.Load(), Blocked: m.blocked.Load(),
-		LastError: last,
+		Banned: m.banned.Load(), LastError: last,
 	}
 }
 
@@ -318,8 +341,19 @@ func (m *Manager) accept(done chan struct{}, ln net.Listener, cfg Config, allow 
 			_ = conn.Close()
 			continue
 		}
-		if !allowed(allow, conn.RemoteAddr()) {
+		addr, ok := remoteAddr(conn.RemoteAddr())
+		if !ok {
 			m.blocked.Add(1)
+			_ = conn.Close()
+			continue
+		}
+		if !allowed(allow, addr) {
+			m.blocked.Add(1)
+			_ = conn.Close()
+			continue
+		}
+		if m.isBanned(addr) {
+			m.banned.Add(1)
 			_ = conn.Close()
 			continue
 		}
@@ -334,25 +368,28 @@ func (m *Manager) accept(done chan struct{}, ln net.Listener, cfg Config, allow 
 	}
 }
 
-func allowed(allow []netip.Prefix, remote net.Addr) bool {
+func allowed(allow []netip.Prefix, addr netip.Addr) bool {
 	if len(allow) == 0 {
 		return true
 	}
-	tcp, ok := remote.(*net.TCPAddr)
-	if !ok {
-		return false
-	}
-	addr, ok := netip.AddrFromSlice(tcp.IP)
-	if !ok {
-		return false
-	}
-	addr = addr.Unmap()
 	for _, p := range allow {
 		if p.Contains(addr) {
 			return true
 		}
 	}
 	return false
+}
+
+func remoteAddr(remote net.Addr) (netip.Addr, bool) {
+	tcp, ok := remote.(*net.TCPAddr)
+	if !ok {
+		return netip.Addr{}, false
+	}
+	addr, ok := netip.AddrFromSlice(tcp.IP)
+	if !ok {
+		return netip.Addr{}, false
+	}
+	return addr.Unmap(), true
 }
 
 func (m *Manager) handle(client net.Conn, cfg Config) {

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strconv"
@@ -189,6 +190,12 @@ func run() error {
 	}
 
 	plexMgr := plex.New(log)
+	// The relay bypasses the request pipeline, so banned addresses have to be
+	// refused here as well or they could still stream through the Plex port.
+	plexMgr.SetBans(func(addr netip.Addr) bool {
+		_, banned := bans.Match(addr)
+		return banned
+	})
 	if err := plexMgr.Apply(plexConfigFromSettings(kv)); err != nil {
 		log.Warn("plex forwarder not started", "err", err)
 	}

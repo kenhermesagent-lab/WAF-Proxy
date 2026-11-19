@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 )
@@ -109,6 +110,53 @@ func TestForwarderAllowListBlocks(t *testing.T) {
 	}
 	if st := m.Status(); st.Blocked != 1 || st.Total != 0 {
 		t.Fatalf("status = %+v, want one blocked and no accepted connections", st)
+	}
+}
+
+func TestForwarderRefusesBannedSources(t *testing.T) {
+	upstream := echoServer(t)
+	defer upstream.Close()
+	m := New(discardLogger())
+	defer m.Close()
+
+	banned := netip.MustParseAddr("127.0.0.1")
+	m.SetBans(func(addr netip.Addr) bool { return addr == banned })
+
+	port := freePort(t)
+	if err := m.Apply(Config{Enabled: true, ListenIP: "127.0.0.1", Port: port, Upstream: upstream.Addr().String()}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial forwarder: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("a banned source was not refused")
+	}
+	if st := m.Status(); st.Banned != 1 || st.Total != 0 {
+		t.Fatalf("status = %+v, want one ban refusal and no accepted connection", st)
+	}
+
+	// Lifting the ban lets the same address through again.
+	m.SetBans(func(netip.Addr) bool { return false })
+	conn2, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial after unban: %v", err)
+	}
+	defer conn2.Close()
+	_ = conn2.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := conn2.Write([]byte("still-here")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, len("still-here"))
+	if _, err := io.ReadFull(conn2, buf); err != nil {
+		t.Fatalf("read after unban: %v", err)
+	}
+	if string(buf) != "still-here" {
+		t.Fatalf("echo = %q", buf)
 	}
 }
 
