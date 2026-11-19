@@ -1,0 +1,24 @@
+# Build output
+/bin/
+/dist/
+web/dist/
+web/node_modules/
+node_modules/
+
+# Runtime data
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.mmdb
+*.pem
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Scratch
+.probe/
+*.log
+.DS_Store
