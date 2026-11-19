@@ -48,6 +48,25 @@ Closes the remaining 1.0.0 feature gaps and adds executable pipeline coverage pl
 - Unknown-host drops are logged on HTTP/2 too, where hijacking is unavailable.
 - Notification navigation now exposes the Account and Sources pages.
 
+### Fixed
+
+- **Recovery codes now work.** The code hashes are encrypted at rest like the TOTP secret,
+  but they were compared against the ciphertext, so the documented way back in after a
+  lost authenticator was always rejected. The compare and the rewrite now go through the
+  crypto box, and a code is still spent on first use.
+- Password and authenticator rotation accept a recovery code as the second factor, so an
+  operator who signed in with one can restore a working authenticator. The Account page
+  exposes the field on both forms.
+- Unconfirmed authenticator rotations are discarded on password change, sign-out and
+  sign-out-everywhere instead of lingering for five minutes.
+- A request for a decoy hostname from an address already holding a temporary ban upgrades
+  it to permanent; previously the escalation was skipped.
+- CSV export streams rows instead of materialising up to 100,000 events in memory, and
+  neutralises every attacker-influenced text column (`host`, `method`, `action`, `stage`,
+  `rule_id`, `country`) against spreadsheet formula injection, not only path and UA.
+- The Source IP explorer indexes active bans only.
+- Manual ban deletions are recorded in the audit log.
+
 ## [1.0.0] — 2026-11-19
 
 The ten planned phases were implemented together and shipped as the first release, so the
