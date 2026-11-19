@@ -11,11 +11,11 @@ export default function Account({
   onOK: (m: string) => void;
   onSignedOut: () => void;
 }) {
-  const [pw, setPw] = useState({ current: "", next: "", confirm: "", totp: "" });
+  const [pw, setPw] = useState({ current: "", next: "", confirm: "", totp: "", recovery: "" });
   const [pwBusy, setPwBusy] = useState(false);
 
   const [totpStep, setTotpStep] = useState<"idle" | "enrol">("idle");
-  const [totpForm, setTotpForm] = useState({ current: "", totp: "" });
+  const [totpForm, setTotpForm] = useState({ current: "", totp: "", recovery: "" });
   const [pending, setPending] = useState<{ secret: string; url: string } | null>(null);
   const [newCode, setNewCode] = useState("");
   const [codes, setCodes] = useState<string[]>([]);
@@ -32,8 +32,9 @@ export default function Account({
         current_password: pw.current,
         new_password: pw.next,
         totp: pw.totp,
+        recovery: pw.recovery,
       });
-      setPw({ current: "", next: "", confirm: "", totp: "" });
+      setPw({ current: "", next: "", confirm: "", totp: "", recovery: "" });
       onOK(r.other_sessions_revoked
         ? "Password changed; other sessions were signed out"
         : "Password changed; sign out other browsers manually");
@@ -50,6 +51,7 @@ export default function Account({
       const r = await api.post<{ secret: string; otpauth_url: string }>("/api/account/totp", {
         current_password: totpForm.current,
         totp: totpForm.totp,
+        recovery: totpForm.recovery,
       });
       setPending({ secret: r.secret, url: r.otpauth_url });
       setTotpStep("enrol");
@@ -72,7 +74,7 @@ export default function Account({
       setCodes(r.recovery_codes || []);
       setPending(null);
       setNewCode("");
-      setTotpForm({ current: "", totp: "" });
+      setTotpForm({ current: "", totp: "", recovery: "" });
       setTotpStep("idle");
       onOK(r.other_sessions_revoked
         ? "Authenticator rotated; save the new recovery codes"
@@ -110,6 +112,9 @@ export default function Account({
           <Field label="Authenticator code (if enrolled)">
             <input value={pw.totp} onChange={(e) => setPw({ ...pw, totp: e.target.value })} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" />
           </Field>
+          <Field label="Or a recovery code">
+            <input value={pw.recovery} onChange={(e) => setPw({ ...pw, recovery: e.target.value })} autoComplete="off" placeholder="AAAA-BBBB-CCCC" />
+          </Field>
           <button className="primary" onClick={changePassword} disabled={pwBusy || !pw.current || !pw.next}>
             {pwBusy ? "Saving…" : "Change password"}
           </button>
@@ -131,7 +136,10 @@ export default function Account({
               <Field label="Current authenticator code">
                 <input value={totpForm.totp} onChange={(e) => setTotpForm({ ...totpForm, totp: e.target.value })} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" />
               </Field>
-              <button onClick={beginTOTP} disabled={totpBusy || !totpForm.current || !totpForm.totp}>
+              <Field label="Or a recovery code (if the authenticator is lost)">
+                <input value={totpForm.recovery} onChange={(e) => setTotpForm({ ...totpForm, recovery: e.target.value })} autoComplete="off" placeholder="AAAA-BBBB-CCCC" />
+              </Field>
+              <button onClick={beginTOTP} disabled={totpBusy || !totpForm.current || (!totpForm.totp && !totpForm.recovery)}>
                 {totpBusy ? "Checking…" : "Start rotation"}
               </button>
             </>

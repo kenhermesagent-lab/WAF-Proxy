@@ -10,11 +10,31 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
+// consumeRecoveryCode spends one single-use recovery code. The code hashes are
+// encrypted at rest like the TOTP secret, so both the comparison and the rewrite
+// have to go through the box; comparing the ciphertext directly would reject
+// every code.
+func (s *Server) consumeRecoveryCode(user *store.User, candidate string) bool {
+	plain, err := s.box.Open(user.Recovery)
+	if err != nil {
+		return false
+	}
+	remaining, used := auth.ConsumeRecoveryCode(plain, candidate)
+	if !used {
+		return false
+	}
+	sealed, err := s.box.Seal(remaining)
+	if err != nil {
+		return false
+	}
+	return s.st.UpdateUserRecovery(user.ID, sealed) == nil
+}
+
 // verifyAdminSecret checks the current password and, when enrolled, a live
-// authenticator code. Recovery codes are deliberately not accepted here: an
-// operator who lost the authenticator signs in with a recovery code and then
-// rotates the factor from this page.
-func (s *Server) verifyAdminSecret(user *store.User, password, totp string) bool {
+// authenticator code. A recovery code is accepted as a fallback and consumed,
+// because otherwise an operator who signed in with a recovery code could never
+// rotate the lost factor from this page.
+func (s *Server) verifyAdminSecret(user *store.User, password, totp, recovery string) bool {
 	if user == nil || !auth.VerifyPassword(user.PasswordHash, password) {
 		return false
 	}
@@ -22,10 +42,22 @@ func (s *Server) verifyAdminSecret(user *store.User, password, totp string) bool
 		return true
 	}
 	secret, err := s.box.Open(user.TOTPSecret)
-	if err != nil {
+	if err == nil && auth.ValidateTOTP(secret, totp, time.Now()) {
+		return true
+	}
+	recovery = strings.TrimSpace(recovery)
+	if recovery == "" {
 		return false
 	}
-	return auth.ValidateTOTP(secret, totp, time.Now())
+	return s.consumeRecoveryCode(user, recovery)
+}
+
+// clearPendingTOTP drops an unconfirmed rotation for a session. Credential
+// changes and sign-outs must not leave a usable pending secret behind.
+func (s *Server) clearPendingTOTP(sessionID string) {
+	s.totpMu.Lock()
+	delete(s.totpPending, sessionID)
+	s.totpMu.Unlock()
 }
 
 func (s *Server) accountUser(w http.ResponseWriter, r *http.Request) (*store.User, *store.Session, bool) {
@@ -46,6 +78,7 @@ type passwordChange struct {
 	CurrentPassword string `json:"current_password"`
 	NewPassword     string `json:"new_password"`
 	TOTP            string `json:"totp"`
+	Recovery        string `json:"recovery"`
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
@@ -62,8 +95,8 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if !s.verifyAdminSecret(user, in.CurrentPassword, strings.TrimSpace(in.TOTP)) {
-		writeError(w, http.StatusUnauthorized, "current password or authenticator code is incorrect")
+	if !s.verifyAdminSecret(user, in.CurrentPassword, strings.TrimSpace(in.TOTP), in.Recovery) {
+		writeError(w, http.StatusUnauthorized, "current password, authenticator code or recovery code is incorrect")
 		return
 	}
 	if in.NewPassword == in.CurrentPassword {
@@ -79,6 +112,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot update password")
 		return
 	}
+	s.clearPendingTOTP(sess.ID)
 	// Credential rotations invalidate every other browser. The current session
 	// survives so the operator is not bounced out mid-change.
 	revoked := true
@@ -94,6 +128,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 type totpBegin struct {
 	CurrentPassword string `json:"current_password"`
 	TOTP            string `json:"totp"`
+	Recovery        string `json:"recovery"`
 }
 
 // beginTOTP verifies the current factor and returns a new secret. Nothing is
@@ -113,8 +148,8 @@ func (s *Server) beginTOTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if !s.verifyAdminSecret(user, in.CurrentPassword, strings.TrimSpace(in.TOTP)) {
-		writeError(w, http.StatusUnauthorized, "current password or authenticator code is incorrect")
+	if !s.verifyAdminSecret(user, in.CurrentPassword, strings.TrimSpace(in.TOTP), in.Recovery) {
+		writeError(w, http.StatusUnauthorized, "current password, authenticator code or recovery code is incorrect")
 		return
 	}
 	secret, err := auth.NewTOTPSecret()
@@ -212,6 +247,9 @@ func (s *Server) logoutAll(w http.ResponseWriter, r *http.Request) {
 	if err := s.st.DeleteUserSessions(user.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot revoke sessions")
 		return
+	}
+	if sess := sessionFrom(r); sess != nil {
+		s.clearPendingTOTP(sess.ID)
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode})

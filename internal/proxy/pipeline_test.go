@@ -247,6 +247,11 @@ func TestPipelineDecoyHostBans(t *testing.T) {
 	if err := h.pol.Reload(); err != nil {
 		t.Fatal(err)
 	}
+	// An address already on a temporary ban must be upgraded, not skipped: a
+	// decoy hostname is proof of scanning, so the ban has to become permanent.
+	if _, err := h.bans.Add(testIP, "rate limit", "manual", "test", time.Hour); err != nil {
+		t.Fatal(err)
+	}
 	rec := h.request(http.MethodGet, "admin.example.com", "/", "", nil)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rec.Code)
@@ -254,12 +259,12 @@ func TestPipelineDecoyHostBans(t *testing.T) {
 	h.waitEvent(t, func(e model.Event) bool { return e.Stage == "decoy-host" && e.Action == "ban" })
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, ok := h.bans.Match(netip.MustParseAddr(testIP)); ok {
+		if rec, ok := h.bans.Match(netip.MustParseAddr(testIP)); ok && rec.Permanent && rec.ExpiresAt == nil {
 			return
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
-	t.Fatal("decoy host did not create a ban")
+	t.Fatal("decoy host did not upgrade the temporary ban to permanent")
 }
 
 func TestPipelineAccessGate(t *testing.T) {

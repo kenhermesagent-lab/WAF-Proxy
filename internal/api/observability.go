@@ -88,30 +88,39 @@ func (s *Server) exportEventsCSV(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	events, err := s.st.ExportEvents(f, limit)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "query failed")
-		return
-	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition",
 		fmt.Sprintf("attachment; filename=\"wafproxy-events-%s.csv\"", time.Now().UTC().Format("20060102-150405")))
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 	_ = cw.Write(csvHeader)
-	for _, e := range events {
-		_ = cw.Write([]string{
-			e.TS.UTC().Format(time.RFC3339), e.SrcIP, e.Country, strconv.Itoa(e.ASN), e.Host,
-			e.Method, csvSafe(e.Path), strconv.Itoa(e.Status), e.Action, e.Stage, e.RuleID,
-			csvSafe(e.RuleMsg), strconv.FormatInt(e.BytesIn, 10), strconv.FormatInt(e.BytesOut, 10),
+	flusher, canFlush := w.(http.Flusher)
+	n := 0
+	if err := s.st.EachEvent(f, limit, func(e model.Event) error {
+		if err := cw.Write([]string{
+			e.TS.UTC().Format(time.RFC3339), e.SrcIP, csvSafe(e.Country), strconv.Itoa(e.ASN), csvSafe(e.Host),
+			csvSafe(e.Method), csvSafe(e.Path), strconv.Itoa(e.Status), csvSafe(e.Action), csvSafe(e.Stage),
+			csvSafe(e.RuleID), csvSafe(e.RuleMsg), strconv.FormatInt(e.BytesIn, 10), strconv.FormatInt(e.BytesOut, 10),
 			strconv.FormatInt(e.LatencyMS, 10), csvSafe(e.UA),
-		})
+		}); err != nil {
+			return err
+		}
+		// Flush in blocks so a long export reaches the client instead of sitting
+		// in a proxy buffer until the response ends.
+		if n++; canFlush && n%500 == 0 {
+			cw.Flush()
+			flusher.Flush()
+		}
+		return cw.Error()
+	}); err != nil {
+		// The 200 and header row are already on the wire, so the download is
+		// simply truncated; log it rather than corrupting the status line.
+		s.log.Warn("csv export aborted", "rows", n, "err", err)
 	}
 }
 
-// ipView is an IP summary with the active ban, if any.
-type ipView struct {
-	store.IPSummary
+// banInfo is the ban state attached to an IP summary.
+type banInfo struct {
 	Banned     bool       `json:"banned"`
 	Permanent  bool       `json:"permanent"`
 	BanID      int64      `json:"ban_id,omitempty"`
@@ -120,9 +129,15 @@ type ipView struct {
 	BanExpires *time.Time `json:"ban_expires,omitempty"`
 }
 
+// ipView is an IP summary with the active ban, if any.
+type ipView struct {
+	store.IPSummary
+	banInfo
+}
+
 func (s *Server) banIndex() map[string]model.Ban {
 	out := map[string]model.Ban{}
-	list, err := s.bans.List(true)
+	list, err := s.bans.List(false)
 	if err != nil {
 		return out
 	}
@@ -132,20 +147,21 @@ func (s *Server) banIndex() map[string]model.Ban {
 	return out
 }
 
-func (s *Server) banView(ip string, index map[string]model.Ban) (bool, bool, int64, string, string, *time.Time) {
+func (s *Server) banView(ip string, index map[string]model.Ban) banInfo {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
-		return false, false, 0, "", "", nil
+		return banInfo{}
 	}
 	rec, ok := s.bans.Match(addr)
 	if !ok {
-		return false, false, 0, "", "", nil
+		return banInfo{}
 	}
-	id := int64(0)
+	info := banInfo{Banned: true, Permanent: rec.Permanent, BanReason: rec.Reason,
+		BanSource: rec.Source, BanExpires: rec.ExpiresAt}
 	if b, found := index[rec.CIDR]; found {
-		id = b.ID
+		info.BanID = b.ID
 	}
-	return true, rec.Permanent, id, rec.Reason, rec.Source, rec.ExpiresAt
+	return info
 }
 
 func (s *Server) listIPs(w http.ResponseWriter, r *http.Request) {
@@ -165,10 +181,7 @@ func (s *Server) listIPs(w http.ResponseWriter, r *http.Request) {
 	index := s.banIndex()
 	out := make([]ipView, 0, len(list))
 	for _, sum := range list {
-		v := ipView{IPSummary: sum}
-		v.Banned, v.Permanent, v.BanID, v.BanReason, v.BanSource, v.BanExpires =
-			s.banView(sum.IP, index)
-		out = append(out, v)
+		out = append(out, ipView{IPSummary: sum, banInfo: s.banView(sum.IP, index)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ips": out, "from": f.From, "to": f.To})
 }
@@ -192,8 +205,7 @@ func (s *Server) getIP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	v := ipView{IPSummary: sum}
-	v.Banned, v.Permanent, v.BanID, v.BanReason, v.BanSource, v.BanExpires = s.banView(ip, s.banIndex())
+	v := ipView{IPSummary: sum, banInfo: s.banView(ip, s.banIndex())}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"summary": v, "events": events, "total": total, "from": f.From, "to": f.To,
 	})

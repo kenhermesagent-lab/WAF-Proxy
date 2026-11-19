@@ -445,11 +445,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		secret, derr := s.box.Open(user.TOTPSecret)
 		ok := derr == nil && auth.ValidateTOTP(secret, req.TOTP, time.Now())
 		if !ok && req.Recovery != "" {
-			if remaining, used := auth.ConsumeRecoveryCode(user.Recovery, req.Recovery); used {
-				if err := s.st.UpdateUserRecovery(user.ID, remaining); err == nil {
-					ok = true
-				}
-			}
+			ok = s.consumeRecoveryCode(user, req.Recovery)
 		}
 		if !ok {
 			writeError(w, http.StatusUnauthorized, "invalid credentials")
@@ -485,6 +481,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	if sess != nil {
+		s.clearPendingTOTP(sess.ID)
 		_ = s.st.DeleteSession(sess.ID)
 		s.st.AddAudit(sess.Username, "logout", "", clientIP(r))
 	}

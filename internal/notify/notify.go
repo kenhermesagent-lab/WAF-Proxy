@@ -27,7 +27,8 @@ type EventKind struct {
 }
 
 // EventKinds is the set of per-event toggles the API exposes. An empty
-// notify_events setting means every kind is delivered.
+// notify_events setting means every kind is delivered; the sentinel "none"
+// suppresses every event class while keeping channels configured.
 var EventKinds = []EventKind{
 	{Kind: "ban", Label: "Temporary ban"},
 	{Kind: "permanent_ban", Label: "Permanent ban"},
@@ -77,9 +78,6 @@ func (m *Manager) Channels() map[string]bool {
 // digest so a ban wave becomes one message instead of hundreds.
 func (m *Manager) Enqueue(kind, text, dedupe string, immediate bool) {
 	channels := m.Channels()
-	if len(channels) == 0 {
-		return
-	}
 	// Optional per-event routing: an empty list means every event is sent,
 	// while the explicit sentinel "none" disables all event classes.
 	if kv, err := m.st.Settings(); err == nil {

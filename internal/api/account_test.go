@@ -20,13 +20,14 @@ import (
 )
 
 type accountHarness struct {
-	srv    *Server
-	st     *store.Store
-	box    *wfcrypto.Box
-	userID int64
-	token  string
-	csrf   string
-	secret string
+	srv      *Server
+	st       *store.Store
+	box      *wfcrypto.Box
+	userID   int64
+	token    string
+	csrf     string
+	secret   string
+	recovery string
 }
 
 func newAccountHarness(t *testing.T) *accountHarness {
@@ -52,7 +53,7 @@ func newAccountHarness(t *testing.T) *accountHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, stored, err := auth.NewRecoveryCodes()
+	codes, stored, err := auth.NewRecoveryCodes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,8 @@ func newAccountHarness(t *testing.T) *accountHarness {
 	}
 	srv := New(st, box, &config.Config{}, nil, nil, bans, nil, nil, nil, metrics.New("", ""), nil, nil, log)
 	t.Cleanup(func() { _ = st.Close() })
-	return &accountHarness{srv: srv, st: st, box: box, userID: uid, token: token, csrf: csrf, secret: secret}
+	return &accountHarness{srv: srv, st: st, box: box, userID: uid, token: token, csrf: csrf,
+		secret: secret, recovery: codes[0]}
 }
 
 func (h *accountHarness) post(t *testing.T, path string, body any) *httptest.ResponseRecorder {
@@ -200,6 +202,71 @@ func TestTOTPRotationAndRecoveryCodes(t *testing.T) {
 	// Rotation also invalidates the extra session.
 	if n, _ := h.st.CountUserSessions(h.userID); n != 1 {
 		t.Fatalf("sessions after TOTP rotation = %d, want 1", n)
+	}
+}
+
+// Recovery codes are the documented way back in when the authenticator is
+// lost, so signing in with one must work and must burn it.
+func TestLoginWithRecoveryCodeIsSingleUse(t *testing.T) {
+	h := newAccountHarness(t)
+	body := map[string]string{
+		"username": "admin", "password": "correct horse battery", "recovery": h.recovery,
+	}
+	rec := h.post(t, "/api/login", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("recovery login status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(rec.Result().Cookies()) == 0 {
+		t.Fatal("recovery login did not issue a session cookie")
+	}
+	rec = h.post(t, "/api/login", body)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("reused recovery login status = %d, want 401", rec.Code)
+	}
+}
+
+// A recovery code must be able to rotate the lost second factor; otherwise an
+// operator who signed in with a recovery code could never regain a working
+// authenticator, and every use of the code must still be single-use.
+func TestRecoveryCodeRotatesTOTPOnce(t *testing.T) {
+	h := newAccountHarness(t)
+	rec := h.post(t, "/api/account/totp", map[string]string{
+		"current_password": "correct horse battery", "recovery": h.recovery,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("begin with recovery code status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var begin struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &begin); err != nil {
+		t.Fatal(err)
+	}
+	if begin.Secret == "" || begin.Secret == h.secret {
+		t.Fatalf("recovery rotation returned a bad secret: %q", begin.Secret)
+	}
+
+	// The same code is spent: it cannot authorise a second credential change.
+	replay := h.post(t, "/api/account/password", map[string]string{
+		"current_password": "correct horse battery", "new_password": "another long passphrase",
+		"recovery": h.recovery,
+	})
+	if replay.Code != http.StatusUnauthorized {
+		t.Fatalf("reused recovery code status = %d, want 401", replay.Code)
+	}
+
+	rec = h.post(t, "/api/account/totp/confirm", map[string]string{
+		"secret": begin.Secret, "code": totp(begin.Secret),
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("confirm status = %d: %s", rec.Code, rec.Body.String())
+	}
+	user, err := h.st.UserByID(h.userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain, err := h.box.Open(user.TOTPSecret); err != nil || plain != begin.Secret {
+		t.Fatalf("stored TOTP secret = %q (%v), want the rotated secret", plain, err)
 	}
 }
 

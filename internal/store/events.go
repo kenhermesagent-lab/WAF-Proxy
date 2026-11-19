@@ -115,9 +115,10 @@ func eventWhere(f EventFilter) (string, []any) {
 	return strings.Join(where, " AND "), args
 }
 
-// ExportEvents returns up to limit matching events for a CSV download. It uses
-// the same filters as the log view but bypasses the interactive page cap.
-func (s *Store) ExportEvents(f EventFilter, limit int) ([]model.Event, error) {
+// EachEvent streams up to limit matching events to fn for a CSV download. It
+// uses the same filters as the log view but bypasses the interactive page cap,
+// so a 100k-row export never has to exist in memory at once.
+func (s *Store) EachEvent(f EventFilter, limit int, fn func(model.Event) error) error {
 	if limit <= 0 {
 		limit = 10000
 	}
@@ -130,18 +131,19 @@ func (s *Store) ExportEvents(f EventFilter, limit int) ([]model.Event, error) {
 		bytes_in, bytes_out, latency_ms, stage, rule_id, rule_msg, action, ua, sample
 		FROM events WHERE `+conds+` ORDER BY id DESC LIMIT ?`, args...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	out := []model.Event{}
 	for rows.Next() {
 		e, err := scanEvent(rows)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		out = append(out, *e)
+		if err := fn(*e); err != nil {
+			return err
+		}
 	}
-	return out, rows.Err()
+	return rows.Err()
 }
 
 // IPSummary aggregates one source address for the IP explorer.

@@ -27,9 +27,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if s.d.Policy.DecoyHost(host) {
 			ip := clientAddr(r)
 			loc := s.d.Geo.Lookup(ip)
-			// Only write the ban once; a banned scanner keeps hitting this branch
-			// because there is no proxy to run the normal permanent-ban check on.
-			if _, banned := s.d.Bans.Match(ip); !banned {
+			// Only write the ban once, but upgrade an existing temporary ban:
+			// a decoy hostname must always end in a permanent ban.
+			if rec, banned := s.d.Bans.Match(ip); !banned || !rec.Permanent {
 				go func() {
 					_, _ = s.d.Bans.Add(ip.String(), "decoy hostname requested: "+host, "decoy", "policy", 0)
 				}()

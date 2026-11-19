@@ -1,6 +1,8 @@
 package store
 
 import (
+	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -48,11 +50,24 @@ func TestIPSummariesAndExport(t *testing.T) {
 		t.Fatalf("missing IP summary = %+v (%v)", empty, err)
 	}
 
-	exported, err := st.ExportEvents(EventFilter{From: f.From, To: f.To, Stage: "decoy"}, 100)
+	exported := []model.Event{}
+	err = st.EachEvent(EventFilter{From: f.From, To: f.To, Stage: "decoy"}, 100, func(e model.Event) error {
+		exported = append(exported, e)
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(exported) != 1 || exported[0].Path != "/.env" {
 		t.Fatalf("exported = %+v", exported)
+	}
+	// A callback error stops the walk instead of buffering the rest.
+	calls := 0
+	err = st.EachEvent(f, 100, func(model.Event) error {
+		calls++
+		return io.ErrUnexpectedEOF
+	})
+	if !errors.Is(err, io.ErrUnexpectedEOF) || calls != 1 {
+		t.Fatalf("callback abort = %d calls, %v", calls, err)
 	}
 }

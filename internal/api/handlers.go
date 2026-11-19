@@ -633,6 +633,8 @@ func (s *Server) deleteBan(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "cannot remove ban")
 				return
 			}
+			sess := sessionFrom(r)
+			s.st.AddAudit(sess.Username, "ban.delete", b.CIDR+" "+b.Reason, clientIP(r))
 			return
 		}
 	}
