@@ -90,13 +90,16 @@ export default function Plex({ onError, onOK }: { onError: (m: string) => void; 
   };
 
   const bound = status?.bound ?? false;
+  // The badges describe what is saved and running, not what the form currently
+  // holds, so an edited-but-unsaved toggle is never shown as listening.
+  const savedEnabled = status?.enabled ?? false;
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <div className="grid cols-2">
+      <div className="split" style={{ alignItems: "start" }}>
         <Card
           title="Plex forwarding"
-          actions={<Badge tone={form.enabled ? (bound ? "ok" : "warn") : ""}>{form.enabled ? (bound ? "listening" : "enabled, not bound") : "off"}</Badge>}
+          actions={<Badge tone={savedEnabled ? (bound ? "ok" : "warn") : ""}>{savedEnabled ? (bound ? "listening" : "enabled, not bound") : "off"}</Badge>}
         >
           <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, textTransform: "none", letterSpacing: 0 }}>
             <input
@@ -152,13 +155,14 @@ export default function Plex({ onError, onOK }: { onError: (m: string) => void; 
         </Card>
 
         <Card title="Status">
+          <div style={{ maxWidth: 520 }}>
           <div className="bar-row">
             <div>Listener</div>
             <div>
               {bound ? (
                 <Badge tone="ok">{status?.listen_addr}</Badge>
               ) : (
-                <Badge tone="warn">{form.enabled ? "not bound" : "disabled"}</Badge>
+                <Badge tone="warn">{savedEnabled ? "not bound" : "disabled"}</Badge>
               )}
             </div>
           </div>
@@ -175,7 +179,7 @@ export default function Plex({ onError, onOK }: { onError: (m: string) => void; 
             <div>{(status?.total ?? 0).toLocaleString()}</div>
           </div>
           <div className="bar-row">
-            <div>Refused (allow list / limit)</div>
+            <div>Refused (allow list / cap)</div>
             <div>{(status?.blocked ?? 0).toLocaleString()}</div>
           </div>
           <div className="bar-row">
@@ -190,6 +194,7 @@ export default function Plex({ onError, onOK }: { onError: (m: string) => void; 
               </div>
             </div>
           )}
+          </div>
         </Card>
       </div>
 
