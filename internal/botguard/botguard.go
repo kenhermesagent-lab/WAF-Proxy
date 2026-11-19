@@ -18,6 +18,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/safepath"
 )
 
 const (
@@ -163,7 +164,7 @@ func (g *Guard) solve(w http.ResponseWriter, r *http.Request, p *model.Proxy, ip
 		Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode,
 		Expires: time.Unix(exp, 0),
 	})
-	next := sanitizeNext(r.PostFormValue("next"))
+	next := safepath.Next(r.PostFormValue("next"))
 	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 
@@ -195,7 +196,7 @@ func Verify(nonce, solution string, difficulty int) bool {
 
 func (g *Guard) render(w http.ResponseWriter, r *http.Request, p *model.Proxy, nonce string, difficulty int) {
 	host := html.EscapeString(p.Hostname)
-	next := html.EscapeString(sanitizeNext(r.URL.RequestURI()))
+	next := html.EscapeString(safepath.Next(r.URL.RequestURI()))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -227,11 +228,4 @@ document.getElementById("p").style.width="100%%";setTimeout(()=>document.getElem
 if((n&1023)===0){document.getElementById("p").style.width=Math.min(95,n/20000)+"%%";
 await new Promise(r=>setTimeout(r,0))}n++}})();
 </script></body></html>`, host, SolvePath, next, nonce, nonce, difficulty)
-}
-
-func sanitizeNext(next string) string {
-	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
-		return "/"
-	}
-	return next
 }

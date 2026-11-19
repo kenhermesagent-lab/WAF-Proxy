@@ -115,7 +115,7 @@ export default function Logs({ onError }: { onError: (m: string) => void }) {
                     <td className="muted">{e.host}</td>
                     <td className="mono" style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.method} {e.path}</td>
                     <td><Badge tone={e.action === "allow" ? "" : e.action === "log" ? "info" : "bad"}>{e.stage || "—"}</Badge></td>
-                    <td className="muted" style={{ maxWidth: 240 }}>{e.rule_msg || e.rule_id || "—"}</td>
+                    <td className="muted" title={e.rule_msg || e.rule_id} style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.rule_msg || e.rule_id || "—"}</td>
                     <td className="num">{e.status}</td>
                     <td className="num">{e.latency_ms} ms</td>
                     <td className="num">{e.bytes_out}</td>

@@ -21,6 +21,9 @@ type Store struct {
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrAlreadySetup is returned when the initial administrator already exists.
+var ErrAlreadySetup = errors.New("setup already completed")
+
 // Open opens (creating if needed) the database inside dir and applies the schema.
 func Open(dir string) (*Store, error) {
 	path := filepath.Join(dir, "wafproxy.db")
@@ -61,6 +64,7 @@ CREATE TABLE IF NOT EXISTS users (
   totp_secret TEXT NOT NULL DEFAULT '',
   totp_enabled INTEGER NOT NULL DEFAULT 0,
   recovery_codes TEXT NOT NULL DEFAULT '',
+  totp_last_step INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -266,14 +270,66 @@ CREATE TABLE IF NOT EXISTS gate_sessions (
 CREATE INDEX IF NOT EXISTS idx_gate_sessions_exp ON gate_sessions(expires_at);
 `
 
+// schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
+// can tell which additive migrations a database has seen.
+const schemaVersion = "2"
+
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
+	}
+	if err := s.migrateAddColumns(); err != nil {
+		return err
 	}
 	if err := s.seedProfiles(); err != nil {
 		return err
 	}
 	return s.seedFeeds()
+}
+
+// migrateAddColumns adds columns introduced after the first release. The base
+// schema uses CREATE TABLE IF NOT EXISTS, which never alters an existing table,
+// so every new column needs an explicit, idempotent step here.
+func (s *Store) migrateAddColumns() error {
+	steps := []struct{ table, column, ddl string }{
+		{"users", "totp_last_step", `ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, step := range steps {
+		has, err := s.hasColumn(step.table, step.column)
+		if err != nil {
+			return fmt.Errorf("inspect %s.%s: %w", step.table, step.column, err)
+		}
+		if has {
+			continue
+		}
+		if _, err := s.db.Exec(step.ddl); err != nil {
+			return fmt.Errorf("migrate %s.%s: %w", step.table, step.column, err)
+		}
+	}
+	_, err := s.db.Exec(`INSERT INTO schema_meta(key, value) VALUES('version', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, schemaVersion)
+	return err
+}
+
+func (s *Store) hasColumn(table, column string) (bool, error) {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // ---------- helpers ----------
@@ -395,6 +451,27 @@ func (s *Store) CreateUser(username, hash, totpSecret, recovery string, totpEnab
 	return res.LastInsertId()
 }
 
+// CreateFirstUser inserts the initial administrator only while the users table
+// is empty, so two setup requests racing on a fresh instance cannot both claim
+// it. The insert is a single statement, so the check and the write cannot be
+// separated by a concurrent request.
+func (s *Store) CreateFirstUser(username, hash, totpSecret, recovery string, totpEnabled bool) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, totp_secret, totp_enabled, recovery_codes, created_at)
+		SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)`,
+		username, hash, totpSecret, b2i(totpEnabled), recovery, stamp(time.Now()))
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, ErrAlreadySetup
+	}
+	return res.LastInsertId()
+}
+
 func scanUser(row interface {
 	Scan(dest ...any) error
 }) (*User, error) {
@@ -484,6 +561,23 @@ func (s *Store) TouchSession(id string, expires time.Time) error {
 func (s *Store) UpdateUserRecovery(id int64, recovery string) error {
 	_, err := s.db.Exec(`UPDATE users SET recovery_codes = ? WHERE id = ?`, recovery, id)
 	return err
+}
+
+// ClaimTOTPStep records the time step of an accepted authenticator code and
+// reports whether it was still unused. The UPDATE is conditional, so two
+// concurrent logins cannot spend the same code, and a code captured from the
+// wire is useless after the legitimate login has used it.
+func (s *Store) ClaimTOTPStep(userID, step int64) (bool, error) {
+	res, err := s.db.Exec(`UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ?`,
+		step, userID, step)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
 }
 
 // DeleteSession removes one session.

@@ -112,11 +112,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// A solved challenge cookie satisfies a feed challenge too; otherwise a
 		// challenged visitor would loop forever on the same feed entry.
 		if verdict.Stage == "feed" && s.d.Bots.Verified(r) {
+			// The visitor already solved a challenge: carry on and let the
+			// deferred logger record the request as allowed.
 			blocked = false
+			event.Action = ""
 		} else if s.d.Bots.HandleChallenge(rw, r, &e.proxy, ip.String()) {
 			return
 		} else {
-			blocked = false
+			// A challenge that cannot be served (bot protection is off for this
+			// proxy) must not silently downgrade the feed rule to "allow".
+			event.Action = "block"
+			uniformError(rw, http.StatusForbidden)
+			return
 		}
 	}
 	if verdict.Action == "block" || verdict.Action == "ban" {

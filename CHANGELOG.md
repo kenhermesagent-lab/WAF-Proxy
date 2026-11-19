@@ -11,6 +11,81 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.1.1] — 2026-11-19
+
+Fixes the decoy defaults that could ban real users, closes a round of security gaps, and
+adds Plex forwarding as an add-on inside the 1.1 series.
+
+### Added
+
+- **Plex forwarding** (`Plex` page, `GET/PUT /api/plex`): a transparent TCP relay for a Plex
+  Media Server behind the gateway, on a custom WAN address and port. It binds immediately on
+  save, supports a source-CIDR allowlist and a concurrent-connection cap, and reports live
+  counters plus the last error. Because TLS passes straight through, Plex's `*.plex.direct`
+  certificates keep working and the server sees every client as the proxy's LAN address —
+  the single entry its “allowed without auth” whitelist needs.
+- `POST /api/system/restart` and a restart button on the Plex page. It exits the process so
+  the container's restart policy rebuilds the listeners; host networking needs no port
+  publishing, so saving the forwarder alone is normally enough.
+- The Plex settings are mirrored into the compose env file (`PLEX_ENABLED`, `PLEX_PORT`,
+  `PLEX_LISTEN_IP`, `PLEX_UPSTREAM`) when `WAFPROXY_ENV_FILE` or `deploy/.env` is visible.
+  Merging preserves comments and unrelated keys, and a missing file is reported in the UI
+  rather than failing the save.
+- `urlguard` package: one place that validates outbound URLs (proxy upstreams, threat feeds,
+  notification webhooks), refusing non-HTTP schemes and literal cloud metadata endpoints
+  including the IPv6 and `0.0.0.0` spellings.
+- `safepath` package: shared post-login redirect sanitiser used by both the access gate and
+  the bot challenge, so the two cannot drift apart again.
+- Docs: Plex firewall/whitelist walkthrough in `docs/INSTALL.md`, decoy and Plex honesty
+  notes in the README, `PLEX_*` and `WAFPROXY_ENV_FILE` documented in `.env.example`.
+
+### Changed
+
+- **Plex is a byte relay, not an inspected proxy.** The WAF, ban engine and access gate do
+  not see that traffic; only the source allowlist and the connection cap apply. This is
+  documented on the page and in the README instead of being implied.
+- Wildcard `EXPOSE` lines in the Dockerfile now declare all three listeners (`443`, `8080`,
+  `8443`), matching the ports the binary actually binds.
+
+### Fixed
+
+- **Decoy paths no longer ban real users by default.** The default list included
+  `/wp-login.php`, `/wp-admin`, `/xmlrpc.php`, `/phpmyadmin` and `/actuator`, which real
+  sites serve; a single visit from a legitimate visitor, crawler or uptime check caused a
+  permanent ban. The defaults are now only paths no application serves (`.env`, `.git`,
+  `.ssh`, backup and config files). Application-specific paths remain available per proxy
+  under Policies → Decoy paths.
+- **Open redirect after the access gate and bot challenge.** `next` values are pinned to a
+  same-origin absolute path: protocol-relative (`//host`), backslash (`/\\host`), scheme
+  (`https:`) and control-character forms all fall back to `/`.
+- **Bot challenge bypass.** With bot protection off, a stale challenge cookie or a crafted
+  request could skip the WAF stage for that request; the challenge result is now only
+  honoured when the challenge actually ran.
+- **Gate lockout foot-guns.** The passphrase attempt counter is reset on a correct passphrase
+  and per-account lockouts always expire instead of accumulating across mode changes; an
+  invalid gate mode is rejected at save time rather than silently weakening the proxy.
+- **WAF panic failed open.** A Coraza panic during inspection returned the request to the
+  upstream; it now fails closed with a 500 and an audit entry.
+- **First-run setup race.** Two simultaneous setup requests could both create an
+  administrator; user creation is now a single conditional insert that reports
+  `ErrAlreadySetup`.
+- **CSRF comparison** now uses `crypto/subtle` instead of `==`.
+- **Cached responses dropped `Vary`.** Variants beyond `Accept-Encoding` (for example
+  `Accept-Language`, cookies, auth headers) are no longer stored, because a cache hit would
+  otherwise serve one variant to every client.
+- **Restore path SSRF parity.** Backup restore now applies the same upstream rules as the
+  editor, so a hand-edited export cannot install a metadata endpoint or a non-HTTP target.
+- **TOTP codes are single-use.** The accepted time step is recorded (`users.totp_last_step`)
+  and a replayed code, including one captured from the wire, is refused. Fresh installs get
+  the column from the base schema; existing databases receive it through a new idempotent
+  additive migration that records its version in `schema_meta`.
+- **Invalid WAF modes on a protection profile** are refused instead of being stored and
+  skipped at request time.
+- **UI overflow**: long hostnames and rule IDs no longer stretch the layout; badge rows wrap
+  and wide tables scroll inside their card.
+- **API error handling**: a non-JSON error body (proxy or upstream HTML) now surfaces the
+  HTTP status instead of a parse error.
+
 ## [1.1.0] — 2026-11-19
 
 Closes the remaining 1.0.0 feature gaps and adds executable pipeline coverage plus CI.

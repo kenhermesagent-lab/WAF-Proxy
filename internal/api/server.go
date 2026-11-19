@@ -3,7 +3,9 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -24,6 +26,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/plex"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
@@ -38,22 +41,24 @@ const sessionKey ctxKey = 1
 
 // Server is the admin API.
 type Server struct {
-	st      *store.Store
-	box     *wfcrypto.Box
-	cfg     *config.Config
-	proxy   *proxy.Server
-	policy  *policy.Engine
-	bans    *ban.Engine
-	feeds   *intel.Manager
-	certs   *acme.Manager
-	cs      *crowdsec.Manager
-	metrics *metrics.Collector
-	notify  *notify.Manager
-	geo     *geoip.Geo
-	log     *slog.Logger
-	limiter *auth.Limiter
-	mux     *http.ServeMux
-	started time.Time
+	st        *store.Store
+	box       *wfcrypto.Box
+	cfg       *config.Config
+	proxy     *proxy.Server
+	policy    *policy.Engine
+	bans      *ban.Engine
+	feeds     *intel.Manager
+	certs     *acme.Manager
+	cs        *crowdsec.Manager
+	metrics   *metrics.Collector
+	notify    *notify.Manager
+	geo       *geoip.Geo
+	log       *slog.Logger
+	limiter   *auth.Limiter
+	mux       *http.ServeMux
+	started   time.Time
+	plex      *plex.Manager
+	restartFn func()
 
 	// Pending TOTP rotations are held server-side and keyed by session, so a
 	// stolen session cannot confirm an authenticator of its own choosing.
@@ -154,7 +159,18 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/backup", s.authed(s.exportBackup))
 	m.HandleFunc("POST /api/backup/restore", s.authed(s.restoreBackup))
 	m.HandleFunc("GET /api/stream", s.authed(s.stream))
+
+	m.HandleFunc("GET /api/plex", s.authed(s.getPlex))
+	m.HandleFunc("PUT /api/plex", s.authed(s.putPlex))
+	m.HandleFunc("POST /api/system/restart", s.authed(s.restartProcess))
 }
+
+// SetPlex attaches the Plex forwarder manager. A nil manager keeps the page
+// readable and disables the controls that would change it.
+func (s *Server) SetPlex(m *plex.Manager) { s.plex = m }
+
+// SetRestart installs the callback used by POST /api/system/restart.
+func (s *Server) SetRestart(fn func()) { s.restartFn = fn }
 
 // Start prunes expired login-limit buckets.
 func (s *Server) Start(ctx context.Context) {
@@ -220,7 +236,7 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			if r.Header.Get("X-CSRF-Token") != sess.CSRF {
+			if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(sess.CSRF)) != 1 {
 				writeError(w, http.StatusForbidden, "invalid csrf token")
 				return
 			}
@@ -361,7 +377,11 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "encryption error")
 		return
 	}
-	if _, err := s.st.CreateUser(req.Username, hash, sealedSecret, sealedCodes, true); err != nil {
+	if _, err := s.st.CreateFirstUser(req.Username, hash, sealedSecret, sealedCodes, true); err != nil {
+		if errors.Is(err, store.ErrAlreadySetup) {
+			writeError(w, http.StatusConflict, "setup already completed")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "cannot create administrator")
 		return
 	}
@@ -443,7 +463,15 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	if user.TOTPEnabled {
 		secret, derr := s.box.Open(user.TOTPSecret)
-		ok := derr == nil && auth.ValidateTOTP(secret, req.TOTP, time.Now())
+		ok := false
+		if derr == nil {
+			if step, valid := auth.ValidateTOTPStep(secret, req.TOTP, time.Now()); valid {
+				// Spend the step: a code observed on the wire, or replayed from
+				// a previous login, is rejected once it has been used.
+				claimed, cerr := s.st.ClaimTOTPStep(user.ID, step)
+				ok = cerr == nil && claimed
+			}
+		}
 		if !ok && req.Recovery != "" {
 			ok = s.consumeRecoveryCode(user, req.Recovery)
 		}

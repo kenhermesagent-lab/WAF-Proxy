@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/urlguard"
 )
 
 // backupProxy is one proxy with its children, as stored in an export file.
@@ -150,9 +151,8 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		}
 		var ups []model.Upstream
 		for _, u := range bp.Upstreams {
-			parsed, perr := url.Parse(strings.TrimSpace(u.URL))
-			if perr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-				problems = append(problems, "proxy "+host+": bad upstream "+u.URL)
+			if err := urlguard.Check(u.URL, urlguard.Upstream); err != nil {
+				problems = append(problems, "proxy "+host+": bad upstream "+u.URL+": "+err.Error())
 				continue
 			}
 			ups = append(ups, model.Upstream{URL: strings.TrimSpace(u.URL), Weight: u.Weight, Enabled: u.Enabled})

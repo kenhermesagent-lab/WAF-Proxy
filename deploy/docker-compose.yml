@@ -5,10 +5,10 @@ services:
     build:
       context: ..
       args:
-        VERSION: ${VERSION:-1.1.0}
+        VERSION: ${VERSION:-1.1.1}
         COMMIT: ${COMMIT:-unknown}
         BUILD_DATE: ${BUILD_DATE:-unknown}
-    image: wafproxy:${VERSION:-1.1.0}
+    image: wafproxy:${VERSION:-1.1.1}
     container_name: wafproxy
     # Host networking is required: the proxy binds the WAN/LAN addresses chosen
     # in the setup wizard, sees real client IPs, and manages nftables directly.
@@ -33,6 +33,9 @@ services:
       WAFPROXY_CROWDSEC_URL: ${WAFPROXY_CROWDSEC_URL:-}
       WAFPROXY_CROWDSEC_KEY: ${WAFPROXY_CROWDSEC_KEY:-}
       TZ: ${TZ:-UTC}
+      # Optional: lets the Plex page mirror its settings into the compose env
+      # file. The path must already exist on the host; see docs/INSTALL.md.
+      WAFPROXY_ENV_FILE: ${WAFPROXY_ENV_FILE:-}
     volumes:
       - data:/data
       - accesslogs:/logs

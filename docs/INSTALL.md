@@ -122,7 +122,46 @@ docker compose -f deploy/docker-compose.yml up -d wafproxy
 The access log written to `/logs/access.log` is tailed by the sidecar with the stock nginx
 parser. Decisions arrive over the LAPI stream and are applied as `source=crowdsec` bans.
 
-## 8. Upgrade
+## 8. Optional Plex
+
+Plex clients validate certificates for the `*.plex.direct` names that encode the server's
+address, which this gateway cannot mint. The Plex page therefore runs a **transparent TCP
+relay** on its own WAN port instead of an HTTP reverse proxy: TLS passes through untouched
+and the Plex server sees every client as coming from the proxy's LAN address. That single
+address is what goes in Plex's whitelist, so “allow only this, refuse everything else” stays
+intact.
+
+1. GUI → **Plex** → enable.
+2. **Listen address** = the WAN address (`192.168.191.2`), **port** = the port clients will
+   use (`32400` by default, any free port works), **Plex server** = `192.168.101.10:32400`.
+3. **Allowed sources** is optional. Leave it empty to accept any client the firewall lets
+   through; set a CIDR to restrict further. **Max connections** caps concurrent streams.
+4. **Save and apply** binds the port immediately. There is no Docker restart to do while the
+   stack uses `network_mode: host`.
+5. On the Firewalla: WAN `32400/tcp` → `192.168.191.2:32400`, **DNAT only, no SNAT**. The
+   proxy's own WAN address must not appear as the source, or Plex cannot whitelist it.
+6. In Plex: Settings → Network → *List of IP addresses and networks that are allowed without
+   auth* → add `192.168.101.2/32` (this proxy's LAN address). Keep the list strict.
+
+Everything the relay carries is encrypted end to end, so the WAF, ban engine and access gate
+do not apply to it; only the source allowlist and the connection cap do. Keep HTTP apps on
+their own hostnames for inspection.
+
+`deploy/.env` is not mounted into the container by default, so the GUI cannot rewrite it in
+the shipped stack. To let it mirror `PLEX_*` values there, mount the file and point the
+container at it (the file must already exist):
+
+```yaml
+    environment:
+      WAFPROXY_ENV_FILE: /config/.env
+    volumes:
+      - ./.env:/config/.env
+```
+
+The Plex page can also restart the container (`POST /api/system/restart`), which is only
+needed when the port is published by Docker rather than with host networking.
+
+## 9. Upgrade
 
 Back up first (Settings → Download JSON exports configuration without secrets).
 
@@ -136,7 +175,7 @@ The schema is applied idempotently on boot. Restore the JSON if a configuration 
 gate modes are reset to `off` and certificates must be re-issued because private keys are
 not exported.
 
-## 9. Uninstall
+## 10. Uninstall
 
 ```bash
 docker compose -f deploy/docker-compose.yml down

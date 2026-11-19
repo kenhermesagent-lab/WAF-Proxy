@@ -140,8 +140,13 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
               </div>
             </div>
             <div>
-              <div className="muted" style={{ fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase" }}>Dual NIC</div>
-              <div>{metrics?.dual_nic ? <span className="badge ok">WAN + LAN separated</span> : <span className="badge warn">single interface</span>}</div>
+              <div className="muted" style={{ fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase" }}>WAN → LAN</div>
+              <div className="mono" style={{ fontSize: 12 }}>
+                {metrics?.wan.name || "—"} <span className="muted">→</span> {metrics?.lan.name || "—"}
+              </div>
+              <div className="muted" style={{ fontSize: 11 }}>
+                {metrics?.dual_nic ? "separate counters" : "same interface"}
+              </div>
             </div>
           </div>
         </Card>
@@ -169,6 +174,7 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
         {events.length === 0 ? (
           <Empty>Nothing blocked yet. Traffic that trips a policy will appear here.</Empty>
         ) : (
+          <div style={{ overflowX: "auto" }}>
           <table>
             <thead>
               <tr>
@@ -189,12 +195,13 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
                   <td className="muted">{e.host}</td>
                   <td className="mono" style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.method} {e.path}</td>
                   <td><span className="badge bad">{e.stage}</span></td>
-                  <td className="muted" style={{ maxWidth: 240 }}>{e.rule_msg || e.rule_id || "—"}</td>
+                  <td className="muted" title={e.rule_msg || e.rule_id} style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.rule_msg || e.rule_id || "—"}</td>
                   <td className="num">{e.status}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
     </div>

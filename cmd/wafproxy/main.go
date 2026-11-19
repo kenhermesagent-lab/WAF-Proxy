@@ -27,6 +27,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/plex"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
@@ -187,7 +188,21 @@ func run() error {
 		return err
 	}
 
+	plexMgr := plex.New(log)
+	if err := plexMgr.Apply(plexConfigFromSettings(kv)); err != nil {
+		log.Warn("plex forwarder not started", "err", err)
+	}
+	defer plexMgr.Close()
+
 	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
+	apiServer.SetPlex(plexMgr)
+	restartCh := make(chan struct{}, 1)
+	apiServer.SetRestart(func() {
+		select {
+		case restartCh <- struct{}{}:
+		default:
+		}
+	})
 	gui := http.NewServeMux()
 	gui.Handle("/api/", apiServer.Handler())
 	// The SPA lives outside the API mux, so apply the same hardening headers.
@@ -230,6 +245,10 @@ func run() error {
 	select {
 	case s := <-sig:
 		log.Info("shutting down", "signal", s.String())
+	case <-restartCh:
+		// Docker's restart policy (unless-stopped in the shipped compose file)
+		// starts the container again with the listeners rebuilt.
+		log.Info("restart requested; exiting for the container supervisor")
 	case err := <-proxyErr:
 		if err != nil {
 			log.Error("proxy listener failed", "err", err)
@@ -240,6 +259,32 @@ func run() error {
 	defer done()
 	_ = guiSrv.Shutdown(shutdownCtx)
 	return nil
+}
+
+// plexConfigFromSettings rebuilds the saved Plex forwarder configuration.
+func plexConfigFromSettings(kv map[string]string) plex.Config {
+	port := plex.DefaultPort
+	if v, err := strconv.Atoi(kv["plex_port"]); err == nil && v > 0 {
+		port = v
+	}
+	maxConns := plex.DefaultMaxConns
+	if v, err := strconv.Atoi(kv["plex_max_conns"]); err == nil && v > 0 {
+		maxConns = v
+	}
+	allow := []string{}
+	for _, part := range strings.Split(kv["plex_allow"], ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			allow = append(allow, part)
+		}
+	}
+	return plex.Config{
+		Enabled:  kv["plex_enabled"] == "1",
+		ListenIP: kv["plex_listen_ip"],
+		Port:     port,
+		Upstream: kv["plex_upstream"],
+		Allow:    allow,
+		MaxConns: maxConns,
+	}
 }
 
 func newLogger() *slog.Logger {

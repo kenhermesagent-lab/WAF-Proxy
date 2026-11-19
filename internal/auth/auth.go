@@ -100,25 +100,34 @@ func TOTPCode(secret string, at time.Time) (string, error) {
 	return fmt.Sprintf("%06d", code%1000000), nil
 }
 
-// ValidateTOTP accepts the current code and one step either side.
-func ValidateTOTP(secret, code string, at time.Time) bool {
+// ValidateTOTPStep accepts the current code and one step either side, and
+// returns the time step it matched so the caller can refuse to accept the same
+// code twice.
+func ValidateTOTPStep(secret, code string, at time.Time) (int64, bool) {
 	code = strings.TrimSpace(code)
 	if len(code) != 6 {
-		return false
+		return 0, false
 	}
 	if _, err := strconv.Atoi(code); err != nil {
-		return false
+		return 0, false
 	}
 	for _, delta := range []int64{-1, 0, 1} {
-		want, err := TOTPCode(secret, at.Add(time.Duration(delta)*30*time.Second))
+		when := at.Add(time.Duration(delta) * 30 * time.Second)
+		want, err := TOTPCode(secret, when)
 		if err != nil {
-			return false
+			return 0, false
 		}
 		if subtle.ConstantTimeCompare([]byte(want), []byte(code)) == 1 {
-			return true
+			return when.Unix() / 30, true
 		}
 	}
-	return false
+	return 0, false
+}
+
+// ValidateTOTP reports whether a code is currently valid.
+func ValidateTOTP(secret, code string, at time.Time) bool {
+	_, ok := ValidateTOTPStep(secret, code, at)
+	return ok
 }
 
 // OTPAuthURL builds the provisioning URI for authenticator apps.

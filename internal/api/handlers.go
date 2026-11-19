@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/urlguard"
 )
 
 // ---------- proxies ----------
@@ -125,6 +125,10 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
+	if msg := requireGateSecret(p.GateMode, "", in.GateSecret); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
 	if p.GateMode == "passphrase" && in.GateSecret != "" {
 		enc, err := s.box.Seal(in.GateSecret)
 		if err != nil {
@@ -197,6 +201,10 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
+	if msg := requireGateSecret(current.GateMode, current.GateSecret, in.GateSecret); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
 	if in.GateSecret != "" {
 		enc, err := s.box.Seal(in.GateSecret)
 		if err != nil {
@@ -217,11 +225,10 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func validateProxyOptions(in proxyBody) string {
-	modes := map[string]bool{"off": true, "passphrase": true, "accounts": true, "accounts_totp": true}
-	if in.GateMode != "" && !modes[in.GateMode] {
+	if in.GateMode != "" && !gateModes[in.GateMode] {
 		return "invalid gate mode"
 	}
-	if in.WAFMode != "" && in.WAFMode != "inherit" && in.WAFMode != "off" && in.WAFMode != "detect" && in.WAFMode != "block" {
+	if in.WAFMode != "" && !validWAFMode(in.WAFMode) {
 		return "invalid WAF mode"
 	}
 	if in.BotLevel != "" && in.BotLevel != "off" && in.BotLevel != "light" && in.BotLevel != "standard" && in.BotLevel != "aggressive" {
@@ -241,14 +248,29 @@ func validateUpstreams(ups []upstreamBody) string {
 		if raw == "" {
 			continue
 		}
-		parsed, err := url.Parse(raw)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			return "upstream must be an http(s) URL: " + raw
+		if err := urlguard.Check(raw, urlguard.Upstream); err != nil {
+			return "upstream: " + err.Error() + ": " + raw
 		}
-		host := strings.ToLower(parsed.Hostname())
-		if host == "169.254.169.254" || host == "metadata.google.internal" || host == "metadata.goog" {
-			return "upstream may not point at a cloud metadata endpoint"
-		}
+	}
+	return ""
+}
+
+// gateModes is the set of accepted access-gate modes.
+var gateModes = map[string]bool{"off": true, "passphrase": true, "accounts": true, "accounts_totp": true}
+
+func validWAFMode(mode string) bool {
+	return mode == "inherit" || mode == "off" || mode == "detect" || mode == "block"
+}
+
+// requireGateSecret refuses to enable the shared-passphrase gate without a
+// credential. Otherwise the proxy would serve a login page that no visitor can
+// ever satisfy, and the GUI reports the gate as working.
+func requireGateSecret(mode, existing, provided string) string {
+	if mode != "passphrase" {
+		return ""
+	}
+	if strings.TrimSpace(existing) == "" && strings.TrimSpace(provided) == "" {
+		return "a passphrase is required to enable passphrase gate mode"
 	}
 	return ""
 }
@@ -346,6 +368,10 @@ func (s *Server) setGate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Mode != "" {
+		if !gateModes[in.Mode] {
+			writeError(w, http.StatusBadRequest, "invalid gate mode")
+			return
+		}
 		p.GateMode = in.Mode
 	}
 	if in.Secret != "" {
@@ -417,6 +443,10 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Mode != "" {
+		if !validWAFMode(in.Mode) {
+			writeError(w, http.StatusBadRequest, "invalid WAF mode")
+			return
+		}
 		p.Mode = in.Mode
 	}
 	if in.Paranoia >= 1 && in.Paranoia <= 4 {
@@ -1184,10 +1214,8 @@ func validatePolicyValue(kind, value string) string {
 	return ""
 }
 
+// validFeedURL accepts public http(s) lists only: a threat feed has no reason
+// to live on loopback or inside the LAN, so those targets are refused.
 func validFeedURL(raw string) bool {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Host == "" {
-		return false
-	}
-	return u.Scheme == "http" || u.Scheme == "https"
+	return urlguard.Check(raw, urlguard.Feed) == nil
 }

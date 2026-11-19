@@ -190,6 +190,24 @@ export interface IPDetail {
   total: number;
 }
 
+export interface PlexConfig {
+  enabled: boolean;
+  listen_ip: string;
+  port: number;
+  upstream: string;
+  allow: string[];
+  max_conns: number;
+}
+
+export interface PlexStatus extends PlexConfig {
+  bound: boolean;
+  listen_addr: string;
+  active: number;
+  total: number;
+  blocked: number;
+  last_error: string;
+}
+
 export interface CrowdSecStatus {
   configured: boolean;
   lapi_configured?: boolean;

@@ -132,12 +132,18 @@ var DefaultHostingASNs = []int{
 	53667, // FranTech
 }
 
-// DefaultDecoys are paths that no legitimate user of an ordinary app requests.
+// DefaultDecoys are paths that no legitimate client of an ordinary web
+// application requests. A decoy hit is an instant permanent ban, so the list
+// deliberately excludes application paths such as /wp-login.php, /wp-admin,
+// /xmlrpc.php, /phpmyadmin and /actuator: they are routine traffic for real
+// WordPress, phpMyAdmin and Spring sites, and banning visitors for using them
+// would lock out legitimate users. Add those per proxy with a decoy policy when
+// a host never serves them.
 var DefaultDecoys = []string{
-	"/.env", "/.git", "/.svn", "/.hg", "/.aws", "/.htaccess", "/.htpasswd",
-	"/wp-login.php", "/wp-admin", "/xmlrpc.php", "/phpmyadmin", "/phpinfo",
-	"/server-status", "/actuator", "/config.php.bak", "/wp-config.php.bak",
-	"/backup.sql", "/dump.sql", "/.DS_Store",
+	"/.env", "/.env.local", "/.env.production", "/.git/config", "/.svn/entries",
+	"/.hg/hgrc", "/.aws/credentials", "/.htaccess", "/.htpasswd", "/.DS_Store",
+	"/wp-config.php.bak", "/config.php.bak", "/backup.sql", "/dump.sql",
+	"/database.sql", "/phpinfo.php", "/server-status",
 }
 
 // Reload refreshes policies, profiles and settings from the database.

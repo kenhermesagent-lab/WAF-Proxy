@@ -20,9 +20,18 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
   });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  // A proxy or the Go server can answer with HTML (a 502 page, for example),
+  // so a parse failure must not mask the real HTTP status.
+  let data: { error?: string } | null = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
   if (!res.ok) {
-    throw new Error((data && data.error) || res.statusText || "request failed");
+    throw new Error(data?.error || res.statusText || `request failed (${res.status})`);
   }
   return data as T;
 }

@@ -191,7 +191,11 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res
 	}
 	defer func() {
 		if rec := recover(); rec != nil {
-			res = Result{Matched: false, Blocked: false}
+			// Fail closed: an engine panic must never forward an uninspected
+			// request. Detect-only profiles still log the block without
+			// enforcing it, because the mode is applied by the policy layer.
+			res = Result{Matched: true, Blocked: true, RuleID: 200006,
+				Message: "request inspection failed", Label: "protocol-violation"}
 		}
 	}()
 

@@ -18,6 +18,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/urlguard"
 )
 
 // EventKind describes one routable notification category.
@@ -357,6 +358,11 @@ func (m *Manager) Update(in map[string]string) error {
 		"smtp_to":                 strings.TrimSpace(in["smtp_to"]),
 		"notify_webhook_enabled":  boolString(in["webhook_enabled"]),
 		"notify_events":           strings.TrimSpace(in["events"]),
+	}
+	if raw := strings.TrimSpace(in["webhook_url"]); raw != "" && raw != "********" {
+		if err := urlguard.Check(raw, urlguard.Webhook); err != nil {
+			return fmt.Errorf("webhook url: %w", err)
+		}
 	}
 	for field, key := range map[string]string{
 		"telegram_token": "notify_telegram_token",

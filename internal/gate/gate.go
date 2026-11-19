@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +19,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/safepath"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
@@ -122,7 +122,7 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 	username := strings.TrimSpace(r.PostFormValue("username"))
 	password := r.PostFormValue("password")
 	totp := strings.TrimSpace(r.PostFormValue("totp"))
-	next := sanitizeNext(r.PostFormValue("next"))
+	next := safepath.Next(r.PostFormValue("next"))
 
 	// Account lockout works even when the attacker rotates source IPs.
 	if username != "" && !g.limiter.Allow("user:"+username, 5, 15*time.Minute) {
@@ -242,16 +242,6 @@ func (g *Gate) sessionTTL() time.Duration {
 		}
 	}
 	return g.ttl
-}
-
-func sanitizeNext(next string) string {
-	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
-		return "/"
-	}
-	if u, err := url.Parse(next); err != nil || u.Scheme != "" || u.Host != "" {
-		return "/"
-	}
-	return next
 }
 
 func (g *Gate) renderLogin(w http.ResponseWriter, p *model.Proxy, next, msg string, status int) {

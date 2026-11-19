@@ -4,7 +4,7 @@ Self-hosted reverse proxy with an integrated WAF, IPS-style ban engine, CrowdSec
 bot challenge, GeoIP/ASN policy, threat feeds, live attack globe, notifications and a
 per-proxy access gate. One Go binary, one React SPA, one Docker Compose stack.
 
-**Status: `1.1.0`.** The full design lives in [PLAN.md](PLAN.md); this README describes what
+**Status: `1.1.1`.** The full design lives in [PLAN.md](PLAN.md); this README describes what
 is actually in the release. See [Scope notes](#scope-notes) for deliberately excluded items.
 
 ## What it does
@@ -20,14 +20,15 @@ is actually in the release. See [Scope notes](#scope-notes) for deliberately exc
 | CrowdSec | LAPI decision stream → local bans, removals honoured, connectivity/status panel, optional sidecar with access-log acquisition. |
 | Bot protection | JavaScript proof-of-work challenge, four levels, 24 h cookie, auto-ban after repeated failures. |
 | Access gate | Per-proxy passphrase, accounts or accounts+TOTP, per-proxy allowlist, escalation ladder and account lockout. |
+| Plex forwarding | Optional transparent TCP relay on a custom WAN port with a source allowlist and connection cap, so a Plex server behind the gateway sees one trusted address; separate Plex page, settings mirrored to the compose env file, one-click restart. |
 | Observability | WAN/LAN bps/pps, conntrack sessions, per-proxy counters, SSE live stream, canvas attack globe, filterable events, source-IP explorer, CSV export, audit log, hourly rollups. |
 | Notifications | Telegram, SMTP/Gmail, generic webhook; 5-minute ban digest, instant critical alerts, per-event routing toggles, dedupe and retry. |
 | Admin security | LAN-only GUI, argon2id, mandatory TOTP, recovery codes, CSRF, login limits, session idle/absolute expiry, password/TOTP rotation, sign-out-everywhere, CSP, encrypted secrets at rest. |
 | Backup | Additive JSON export/import of settings, proxies, routes, policies, feeds and bans (secrets excluded by design). |
 
-The GUI is a dark single-page app: Dashboard (metrics + globe), Proxies, Policies (bans,
-countries, ASN, decoys), Sources (per-IP history and bans), Threat intel, Certificates,
-Access gate, Notifications, Logs, Settings and Account.
+The GUI is a dark single-page app: Dashboard (metrics + globe), Proxies, Plex, Policies
+(bans, countries, ASN, decoys), Sources (per-IP history and bans), Threat intel,
+Certificates, Access gate, Notifications, Logs, Settings and Account.
 
 ## Requirements
 
@@ -90,11 +91,11 @@ There is no command that disables the WAF or gate globally; use the GUI on the L
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — runbook, troubleshooting, capacity
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology
 - [CHANGELOG.md](CHANGELOG.md) — release history
-- [VERSION](VERSION) — `1.1.0`
+- [VERSION](VERSION) — `1.1.1`
 
 ## Scope notes
 
-Deliberately **not** in 1.1.0 (tracked in PLAN.md §13): AbuseIPDB enrichment, tarpit, HTTP
+Deliberately **not** in 1.1.1 (tracked in PLAN.md §13): AbuseIPDB enrichment, tarpit, HTTP
 basic auth/mTLS per proxy, brotli, per-proxy bandwidth charts, encrypted backup archives,
 exotic notification channels beyond the generic webhook, full packet IPS, HTTP/3, HA and
 multi-user roles.
@@ -106,6 +107,13 @@ Two honesty notes that matter operationally:
   comes from 443-only exposure, no default vhost, DROP-by-default, WAF and the ban engine.
 - **Without a GeoIP database, country and ASN policy report “unavailable” and are skipped.**
   The GUI shows the state rather than silently allowing traffic.
+- **The default decoy list only contains paths no real site serves** (`/.env`, `/.git/config`,
+  `wp-login.php` and friends are **not** defaults). A decoy path permanently bans whoever
+  requests it, so a path a real application uses would ban its own users. Add such paths
+  per proxy under Policies → Decoy paths only when you know nothing legitimate requests them.
+- **Plex forwarding is a byte relay, not an inspected proxy.** TLS stays end-to-end between
+  the Plex client and the Plex server, so the WAF, ban engine and access gate do not see
+  that traffic; only the TCP source allowlist and the connection cap apply.
 
 ## Development
 

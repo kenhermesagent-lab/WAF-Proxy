@@ -38,6 +38,22 @@ func cacheKey(r *http.Request) string {
 	return r.Host + "|" + r.URL.RequestURI() + "|" + r.Header.Get("Accept-Encoding")
 }
 
+// variesBeyondEncoding reports whether a Vary header names a request field
+// other than Accept-Encoding. The cache key already contains the encoding, so
+// Vary: Accept-Encoding alone is safe to store.
+func variesBeyondEncoding(h http.Header) bool {
+	for _, value := range h.Values("Vary") {
+		for _, part := range strings.Split(value, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" || strings.EqualFold(part, "Accept-Encoding") {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
 func cacheableRequest(r *http.Request) bool {
 	// HEAD responses have no body, so caching them under the same key as GET
 	// would poison the cache with an empty body. GET only.
@@ -83,6 +99,12 @@ func (c *responseCache) put(key string, status int, header http.Header, body []b
 		}
 	}
 	if maxAge <= 0 || maxAge > 300 || len(body) > 512*1024 {
+		return
+	}
+	// A response that varies on anything other than the encoding is not a
+	// single representation, so caching it under one key could serve, for
+	// example, the wrong language to the next visitor.
+	if variesBeyondEncoding(header) {
 		return
 	}
 	cp := header.Clone()
@@ -153,7 +175,11 @@ func (w *cacheWriter) finish() {
 	if w.skip || w.status != http.StatusOK {
 		return
 	}
-	h := w.Header().Clone()
+	h := w.Header()
+	if variesBeyondEncoding(h) {
+		return
+	}
+	h = h.Clone()
 	h.Del("Content-Encoding")
 	h.Del("Content-Length")
 	h.Del("Transfer-Encoding")
