@@ -160,6 +160,79 @@ func TestForwarderRefusesBannedSources(t *testing.T) {
 	}
 }
 
+func TestDropBannedCutsOpenStreams(t *testing.T) {
+	upstream := echoServer(t)
+	defer upstream.Close()
+	m := New(discardLogger())
+	defer m.Close()
+
+	var seen []string
+	m.SetEventSink(func(addr netip.Addr, detail string) {
+		seen = append(seen, addr.String()+": "+detail)
+	})
+
+	port := freePort(t)
+	if err := m.Apply(Config{Enabled: true, ListenIP: "127.0.0.1", Port: port, Upstream: upstream.Addr().String()}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial forwarder: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	// Prove the stream is live before the ban lands.
+	if _, err := conn.Write([]byte("a")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(conn, make([]byte, 1)); err != nil {
+		t.Fatalf("stream not established: %v", err)
+	}
+
+	// Bans are added after the connection exists, exactly like a manual ban or
+	// a CrowdSec decision arriving mid-stream.
+	banned := netip.MustParseAddr("127.0.0.1")
+	cut := m.DropBanned(func(addr netip.Addr) bool { return addr == banned }, "stream closed by ban 127.0.0.1/32")
+	if cut != 1 {
+		t.Fatalf("DropBanned cut %d streams, want 1", cut)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("the open stream still delivered data after the ban")
+	}
+	if st := m.Status(); st.Dropped != 1 {
+		t.Fatalf("dropped counter = %d, want 1", st.Dropped)
+	}
+	if len(seen) != 1 || seen[0] != "127.0.0.1: stream closed by ban 127.0.0.1/32" {
+		t.Fatalf("events = %q, want one drop event", seen)
+	}
+
+	// A stream from an address the ban does not cover is left alone.
+	conn2, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial forwarder: %v", err)
+	}
+	defer conn2.Close()
+	_ = conn2.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := conn2.Write([]byte("b")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(conn2, make([]byte, 1)); err != nil {
+		t.Fatalf("stream not established: %v", err)
+	}
+	if cut := m.DropBanned(func(netip.Addr) bool { return false }, "noop"); cut != 0 {
+		t.Fatalf("DropBanned cut %d streams for an unrelated match, want 0", cut)
+	}
+	if _, err := conn2.Write([]byte("c")); err != nil {
+		t.Fatalf("unrelated stream was broken: %v", err)
+	}
+	if _, err := io.ReadFull(conn2, make([]byte, 1)); err != nil {
+		t.Fatalf("unrelated stream stopped delivering: %v", err)
+	}
+}
+
 func TestForwarderDisableStopsListener(t *testing.T) {
 	m := New(discardLogger())
 	defer m.Close()

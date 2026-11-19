@@ -27,6 +27,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/plex"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
@@ -133,6 +134,10 @@ func run() error {
 	certs := acme.New(st, box, log)
 	notifier := notify.New(st, box, log)
 
+	// Assigned once the listeners exist; the ban callback needs it to cut
+	// streams that were already running when the ban landed.
+	var plexMgr *plex.Manager
+
 	bans.OnAdd = func(rec ban.Record) {
 		kind := "Temporary ban"
 		event := "ban"
@@ -150,6 +155,16 @@ func run() error {
 			dedupe = "permanent-ban:" + rec.CIDR
 		}
 		notifier.Enqueue(event, text, dedupe, immediate)
+		if plexMgr == nil {
+			return
+		}
+		cut := plexMgr.DropBanned(func(addr netip.Addr) bool {
+			_, banned := bans.Match(addr)
+			return banned
+		}, fmt.Sprintf("stream closed by ban %s (%s)", rec.CIDR, rec.Reason))
+		if cut > 0 {
+			log.Info("closed plex streams for banned source", "cidr", rec.CIDR, "streams", cut)
+		}
 	}
 
 	gateEngine := gate.New(st, box, bans, log)
@@ -189,12 +204,25 @@ func run() error {
 		return err
 	}
 
-	plexMgr := plex.New(log)
+	plexMgr = plex.New(log)
 	// The relay bypasses the request pipeline, so banned addresses have to be
 	// refused here as well or they could still stream through the Plex port.
 	plexMgr.SetBans(func(addr netip.Addr) bool {
 		_, banned := bans.Match(addr)
 		return banned
+	})
+	// Refusals and cut streams are written as ordinary events so they appear in
+	// Logs and on the attack globe next to the HTTP traffic.
+	plexMgr.SetEventSink(func(addr netip.Addr, detail string) {
+		ev := model.Event{
+			TS: time.Now(), Host: "plex", SrcIP: addr.String(),
+			Method: "TCP", Path: fmt.Sprintf(":%d", plexMgr.Config().Port),
+			Status: http.StatusForbidden, Stage: "plex", Action: "block",
+			RuleID: "plex-ban", RuleMsg: detail,
+		}
+		if err := st.InsertEvents([]model.Event{ev}); err != nil {
+			log.Warn("plex event insert failed", "err", err)
+		}
 	})
 	if err := plexMgr.Apply(plexConfigFromSettings(kv)); err != nil {
 		log.Warn("plex forwarder not started", "err", err)

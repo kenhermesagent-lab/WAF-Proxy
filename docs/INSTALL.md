@@ -143,9 +143,11 @@ intact.
 6. In Plex: Settings → Network → *List of IP addresses and networks that are allowed without
    auth* → add `192.168.101.2/32` (this proxy's LAN address). Keep the list strict.
 
-Everything the relay carries is encrypted end to end, so the WAF, ban engine and access gate
-do not apply to it; only the source allowlist and the connection cap do. Keep HTTP apps on
-their own hostnames for inspection.
+Everything the relay carries is encrypted end to end, so the WAF and access gate cannot
+inspect it. The source allowlist, the connection cap and the ban engine do apply: a banned
+address is refused on accept, a stream that is already running is cut when the ban lands,
+and both show up in **Logs** as `plex` events (rule `plex-ban`). Keep HTTP apps on their own
+hostnames for inspection.
 
 `deploy/.env` is not mounted into the container by default, so the GUI cannot rewrite it in
 the shipped stack. To let it mirror `PLEX_*` values there, mount the file and point the

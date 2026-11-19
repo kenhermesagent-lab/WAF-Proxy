@@ -112,8 +112,10 @@ Two honesty notes that matter operationally:
   requests it, so a path a real application uses would ban its own users. Add such paths
   per proxy under Policies → Decoy paths only when you know nothing legitimate requests them.
 - **Plex forwarding is a byte relay, not an inspected proxy.** TLS stays end-to-end between
-  the Plex client and the Plex server, so the WAF, ban engine and access gate do not see
-  that traffic; only the TCP source allowlist and the connection cap apply.
+  the Plex client and the Plex server, so the WAF and access gate cannot inspect that
+  traffic. The TCP source allowlist, the connection cap and the ban engine do apply: a
+  banned address is refused on accept, and an existing stream is cut when the ban lands.
+  Those refusals are logged as `plex` events.
 
 ## Development
 

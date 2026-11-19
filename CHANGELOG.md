@@ -41,6 +41,11 @@ adds Plex forwarding as an add-on inside the 1.1 series.
 
 ### Changed
 
+- **Plex refusals are visible.** A ban that lands while a Plex stream is open cuts that
+  stream immediately, and both the cut and every later attempt from the banned address are
+  written as `plex` events (stage `plex`, rule `plex-ban`) so they appear in Logs and on the
+  attack globe next to the HTTP traffic. The page counts them as “Refused (active ban)” and
+  “Streams cut by ban”.
 - **Plex is a byte relay, not an inspected proxy.** The WAF, ban engine and access gate do
   not see that traffic; only the source allowlist and the connection cap apply. This is
   documented on the page and in the README instead of being implied.

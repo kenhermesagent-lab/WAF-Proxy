@@ -55,6 +55,7 @@ type Status struct {
 	Total      uint64 `json:"total"`
 	Blocked    uint64 `json:"blocked"`
 	Banned     uint64 `json:"banned"`
+	Dropped    uint64 `json:"dropped"`
 	LastError  string `json:"last_error"`
 }
 
@@ -194,18 +195,83 @@ type Manager struct {
 	total   atomic.Uint64
 	blocked atomic.Uint64
 	banned  atomic.Uint64
+	dropped atomic.Uint64
 	lastErr atomic.Value // string
 	// bans reports whether a source address is currently banned. It is an
 	// atomic value because the ban engine is attached after construction and
 	// read from the accept loop.
 	bans atomic.Value // func(netip.Addr) bool
+	// events receives one entry per refused or cut connection so attempts on
+	// the Plex port show up next to the HTTP events.
+	events atomic.Value // func(netip.Addr, string)
+
+	connMu sync.Mutex
+	conns  map[*relay]struct{}
+}
+
+// relay is one accepted pair of sockets, kept so a ban can cut a stream that is
+// already running instead of only refusing new connections.
+type relay struct {
+	client   net.Conn
+	upstream net.Conn
+	addr     netip.Addr
 }
 
 // New creates a manager with the forwarder stopped.
 func New(log *slog.Logger) *Manager {
-	m := &Manager{log: log}
+	m := &Manager{log: log, conns: make(map[*relay]struct{})}
 	m.lastErr.Store("")
 	return m
+}
+
+// SetEventSink installs the callback that records refusals and dropped streams.
+func (m *Manager) SetEventSink(fn func(netip.Addr, string)) {
+	if fn != nil {
+		m.events.Store(fn)
+	}
+}
+
+func (m *Manager) emitEvent(addr netip.Addr, detail string) {
+	if fn, ok := m.events.Load().(func(netip.Addr, string)); ok && fn != nil {
+		fn(addr, detail)
+	}
+}
+
+// DropBanned closes every open relay whose source matches, which is how a ban
+// reaches a stream that started before it. It returns the number of streams cut.
+func (m *Manager) DropBanned(match func(netip.Addr) bool, detail string) int {
+	if match == nil {
+		return 0
+	}
+	m.connMu.Lock()
+	doomed := make([]*relay, 0, len(m.conns))
+	for r := range m.conns {
+		if match(r.addr) {
+			doomed = append(doomed, r)
+		}
+	}
+	m.connMu.Unlock()
+
+	for _, r := range doomed {
+		// Closing both ends unblocks the two copy goroutines immediately.
+		_ = r.client.Close()
+		_ = r.upstream.Close()
+		m.dropped.Add(1)
+		m.emitEvent(r.addr, detail)
+	}
+	return len(doomed)
+}
+
+func (m *Manager) track(r *relay) {
+	m.connMu.Lock()
+	m.conns[r] = struct{}{}
+	m.connMu.Unlock()
+}
+
+func (m *Manager) untrack(r *relay) {
+	m.connMu.Lock()
+	delete(m.conns, r)
+	m.connMu.Unlock()
 }
 
 // SetBans attaches the ban lookup. The relay is not an HTTP request, so the
@@ -288,7 +354,7 @@ func (m *Manager) Status() Status {
 	return Status{
 		Config: cfg, Bound: bound, ListenAddr: addr,
 		Active: m.active.Load(), Total: m.total.Load(), Blocked: m.blocked.Load(),
-		Banned: m.banned.Load(), LastError: last,
+		Banned: m.banned.Load(), Dropped: m.dropped.Load(), LastError: last,
 	}
 }
 
@@ -354,17 +420,18 @@ func (m *Manager) accept(done chan struct{}, ln net.Listener, cfg Config, allow 
 		}
 		if m.isBanned(addr) {
 			m.banned.Add(1)
+			m.emitEvent(addr, "banned source refused on the Plex port")
 			_ = conn.Close()
 			continue
 		}
 		m.total.Add(1)
 		m.active.Add(1)
 		m.wg.Add(1)
-		go func(client net.Conn, cfg Config) {
+		go func(client net.Conn, cfg Config, addr netip.Addr) {
 			defer m.wg.Done()
 			defer m.active.Add(-1)
-			m.handle(client, cfg)
-		}(conn, cfg)
+			m.handle(client, cfg, addr)
+		}(conn, cfg, addr)
 	}
 }
 
@@ -392,7 +459,7 @@ func remoteAddr(remote net.Addr) (netip.Addr, bool) {
 	return addr.Unmap(), true
 }
 
-func (m *Manager) handle(client net.Conn, cfg Config) {
+func (m *Manager) handle(client net.Conn, cfg Config, addr netip.Addr) {
 	defer client.Close()
 
 	upstream, err := net.DialTimeout("tcp", cfg.Upstream, dialTimeout)
@@ -402,6 +469,10 @@ func (m *Manager) handle(client net.Conn, cfg Config) {
 		return
 	}
 	defer upstream.Close()
+
+	r := &relay{client: client, upstream: upstream, addr: addr}
+	m.track(r)
+	defer m.untrack(r)
 
 	if tcp, ok := client.(*net.TCPConn); ok {
 		_ = tcp.SetKeepAlive(true)

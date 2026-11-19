@@ -206,6 +206,7 @@ export interface PlexStatus extends PlexConfig {
   total: number;
   blocked: number;
   banned: number;
+  dropped: number;
   last_error: string;
 }
 

@@ -186,6 +186,10 @@ export default function Plex({ onError, onOK }: { onError: (m: string) => void; 
             <div>Refused (active ban)</div>
             <div>{(status?.banned ?? 0).toLocaleString()}</div>
           </div>
+          <div className="bar-row">
+            <div>Streams cut by ban</div>
+            <div>{(status?.dropped ?? 0).toLocaleString()}</div>
+          </div>
           {status?.last_error && (
             <div className="bar-row" style={{ borderBottom: 0 }}>
               <div>Last error</div>
