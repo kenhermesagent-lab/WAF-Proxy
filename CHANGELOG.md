@@ -18,12 +18,13 @@ adds Plex forwarding as an add-on inside the 1.1 series.
 
 ### Added
 
-- **Plex forwarding** (`Plex` page, `GET/PUT /api/plex`): a transparent TCP relay for a Plex
-  Media Server behind the gateway, on a custom WAN address and port. It binds immediately on
-  save, supports a source-CIDR allowlist and a concurrent-connection cap, and reports live
-  counters plus the last error. Because TLS passes straight through, Plex's `*.plex.direct`
-  certificates keep working and the server sees every client as the proxy's LAN address —
-  the single entry its “allowed without auth” whitelist needs.
+- **Streaming forwarding** (`Streaming` page, `GET /api/streaming`,
+  `PUT /api/streaming/{id}`): one transparent TCP relay per media application, with a section
+  for **Plex** (`32400`) and **Jellyfin** (`8096`) and room for more through the catalog. Each
+  relay binds its own WAN address and port on save, supports a source-CIDR allowlist and a
+  concurrent-connection cap, and reports live counters plus the last error. Because TLS
+  passes straight through, the server's own certificates keep working and it sees every
+  client as the proxy's LAN address — the single entry its whitelist needs.
 - `POST /api/system/restart` and a restart button on the Plex page. It exits the process so
   the container's restart policy rebuilds the listeners; host networking needs no port
   publishing, so saving the forwarder alone is normally enough.
@@ -36,17 +37,19 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   including the IPv6 and `0.0.0.0` spellings.
 - `safepath` package: shared post-login redirect sanitiser used by both the access gate and
   the bot challenge, so the two cannot drift apart again.
-- Docs: Plex firewall/whitelist walkthrough in `docs/INSTALL.md`, decoy and Plex honesty
-  notes in the README, `PLEX_*` and `WAFPROXY_ENV_FILE` documented in `.env.example`.
+- Docs: streaming firewall and per-application whitelist walkthrough (Plex, Jellyfin) in
+  `docs/INSTALL.md`, decoy and streaming honesty notes in the README, `PLEX_*`/`JELLYFIN_*`
+  and `WAFPROXY_ENV_FILE` documented in `.env.example`.
 
 ### Changed
 
-- **Plex refusals are visible.** A ban that lands while a Plex stream is open cuts that
+- **Streaming refusals are visible.** A ban that lands while a stream is open cuts that
   stream immediately, and both the cut and every later attempt from the banned address are
-  written as `plex` events (stage `plex`, rule `plex-ban`) so they appear in Logs and on the
-  attack globe next to the HTTP traffic. The page counts them as “Refused (active ban)” and
-  “Streams cut by ban”.
-- **Plex is a byte relay, not an inspected proxy.** The WAF, ban engine and access gate do
+  written as `stream` events (stage `stream`, rule `stream-ban`) so they appear in Logs and on
+  the attack globe next to the HTTP traffic. A retrying banned host is collapsed to one event
+  a minute per application, with the number of attempts it folded in, so it cannot fill the
+  event table. The page counts them as “Refused (active ban)” and “Streams cut by ban”.
+- **Streaming is a byte relay, not an inspected proxy.** The WAF, ban engine and access gate do
   not see that traffic; only the source allowlist and the connection cap apply. This is
   documented on the page and in the README instead of being implied.
 - Wildcard `EXPOSE` lines in the Dockerfile now declare all three listeners (`443`, `8080`,

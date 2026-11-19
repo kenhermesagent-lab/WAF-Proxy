@@ -26,10 +26,10 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
-	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/plex"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
 )
 
@@ -57,7 +57,7 @@ type Server struct {
 	limiter   *auth.Limiter
 	mux       *http.ServeMux
 	started   time.Time
-	plex      *plex.Manager
+	streams   *streaming.Manager
 	restartFn func()
 
 	// Pending TOTP rotations are held server-side and keyed by session, so a
@@ -160,14 +160,14 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/backup/restore", s.authed(s.restoreBackup))
 	m.HandleFunc("GET /api/stream", s.authed(s.stream))
 
-	m.HandleFunc("GET /api/plex", s.authed(s.getPlex))
-	m.HandleFunc("PUT /api/plex", s.authed(s.putPlex))
+	m.HandleFunc("GET /api/streaming", s.authed(s.getStreaming))
+	m.HandleFunc("PUT /api/streaming/{id}", s.authed(s.putStreaming))
 	m.HandleFunc("POST /api/system/restart", s.authed(s.restartProcess))
 }
 
-// SetPlex attaches the Plex forwarder manager. A nil manager keeps the page
-// readable and disables the controls that would change it.
-func (s *Server) SetPlex(m *plex.Manager) { s.plex = m }
+// SetStreaming attaches the media forwarder manager. A nil manager keeps the
+// page readable and disables the controls that would change it.
+func (s *Server) SetStreaming(m *streaming.Manager) { s.streams = m }
 
 // SetRestart installs the callback used by POST /api/system/restart.
 func (s *Server) SetRestart(fn func()) { s.restartFn = fn }

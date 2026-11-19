@@ -5,7 +5,7 @@ import { errText } from "./ui";
 import { Me, SetupStatus } from "./types";
 import Dashboard from "./pages/Dashboard";
 import Proxies from "./pages/Proxies";
-import Plex from "./pages/Plex";
+import Streaming from "./pages/Streaming";
 import Policies from "./pages/Policies";
 import Sources from "./pages/Sources";
 import Intel from "./pages/Intel";
@@ -21,7 +21,7 @@ type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "◎" },
   { id: "proxies", label: "Proxies", icon: "⇄" },
-  { id: "plex", label: "Plex", icon: "▶" },
+  { id: "streaming", label: "Streaming", icon: "▶" },
   { id: "policies", label: "Policies", icon: "⛨" },
   { id: "sources", label: "Sources", icon: "◉" },
   { id: "intel", label: "Threat intel", icon: "☣" },
@@ -159,7 +159,7 @@ export default function App() {
         <div className="content">
           {page === "dashboard" && <Dashboard onError={notify} home={home} />}
           {page === "proxies" && <Proxies onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
-          {page === "plex" && <Plex onError={notify} onOK={notify} />}
+          {page === "streaming" && <Streaming onError={notify} onOK={notify} />}
           {page === "policies" && <Policies onError={notify} onOK={notify} />}
           {page === "sources" && <Sources onError={notify} onOK={notify} />}
           {page === "intel" && <Intel onError={notify} onOK={notify} />}

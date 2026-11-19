@@ -4,12 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/plex"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 )
-
-func plexConfigWith(port int, listenIP string) plex.Config {
-	return plex.Config{Port: port, ListenIP: listenIP, Upstream: "192.168.101.10:32400"}
-}
 
 func TestMergeEnvPreservesUnrelatedSettings(t *testing.T) {
 	src := "# stack settings\nTZ=Europe/London\nWAFPROXY_LOG_LEVEL=info\nPLEX_PORT=32400\n"
@@ -44,19 +40,36 @@ func TestMergeEnvAddsTrailingNewline(t *testing.T) {
 	}
 }
 
-func TestPlexPortConflict(t *testing.T) {
-	kv := map[string]string{"wan_ip": "192.168.191.2", "wan_port": "443", "lan_ip": "192.168.101.2", "gui_port": "8443"}
-	cfg := plexConfigWith(443, "192.168.191.2")
-	if msg := plexPortConflict(cfg, kv); msg == "" {
+func TestStreamingPortConflict(t *testing.T) {
+	srv := &Server{}
+	plex, _ := streaming.Lookup("plex")
+	jellyfin, _ := streaming.Lookup("jellyfin")
+	kv := map[string]string{
+		"wan_ip": "192.168.191.2", "wan_port": "443",
+		"lan_ip": "192.168.101.2", "gui_port": "8443",
+		"stream_jellyfin_enabled": "1", "stream_jellyfin_port": "8096", "stream_jellyfin_listen_ip": "192.168.191.2",
+	}
+
+	cfg := streaming.Config{Port: 443, ListenIP: "192.168.191.2", Upstream: "192.168.101.10:32400"}
+	if msg := srv.streamingPortConflict(plex, cfg, kv); msg == "" {
 		t.Fatal("expected a conflict for the WAN port on the WAN address")
 	}
 	// A different address can reuse the port number.
-	cfg = plexConfigWith(443, "192.168.101.2")
-	if msg := plexPortConflict(cfg, kv); msg != "" {
+	cfg.ListenIP = "192.168.101.2"
+	if msg := srv.streamingPortConflict(plex, cfg, kv); msg != "" {
 		t.Fatalf("unexpected conflict: %s", msg)
 	}
-	cfg = plexConfigWith(32400, "192.168.191.2")
-	if msg := plexPortConflict(cfg, kv); msg != "" {
+	// Two streaming services may not share an address and port.
+	cfg = streaming.Config{Port: 8096, ListenIP: "192.168.191.2", Upstream: "192.168.101.10:32400"}
+	if msg := srv.streamingPortConflict(plex, cfg, kv); !strings.Contains(msg, "Jellyfin") {
+		t.Fatalf("conflict = %q, want it to name Jellyfin", msg)
+	}
+	// Jellyfin checking against itself is not a conflict.
+	if msg := srv.streamingPortConflict(jellyfin, cfg, kv); msg != "" {
+		t.Fatalf("unexpected self conflict: %s", msg)
+	}
+	cfg = streaming.Config{Port: 32400, ListenIP: "192.168.191.2", Upstream: "192.168.101.10:32400"}
+	if msg := srv.streamingPortConflict(plex, cfg, kv); msg != "" {
 		t.Fatalf("unexpected conflict: %s", msg)
 	}
 }

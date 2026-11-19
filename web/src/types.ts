@@ -190,16 +190,16 @@ export interface IPDetail {
   total: number;
 }
 
-export interface PlexConfig {
+export interface StreamingService {
+  id: string;
+  label: string;
+  default_port: number;
   enabled: boolean;
   listen_ip: string;
   port: number;
   upstream: string;
   allow: string[];
   max_conns: number;
-}
-
-export interface PlexStatus extends PlexConfig {
   bound: boolean;
   listen_addr: string;
   active: number;
@@ -208,6 +208,7 @@ export interface PlexStatus extends PlexConfig {
   banned: number;
   dropped: number;
   last_error: string;
+  default: { listen_ip: string; port: number; upstream: string; max_conns: number };
 }
 
 export interface CrowdSecStatus {

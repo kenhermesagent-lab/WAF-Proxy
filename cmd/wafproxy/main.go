@@ -29,10 +29,10 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
-	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/plex"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/webui"
@@ -136,7 +136,7 @@ func run() error {
 
 	// Assigned once the listeners exist; the ban callback needs it to cut
 	// streams that were already running when the ban landed.
-	var plexMgr *plex.Manager
+	var streams *streaming.Manager
 
 	bans.OnAdd = func(rec ban.Record) {
 		kind := "Temporary ban"
@@ -155,15 +155,15 @@ func run() error {
 			dedupe = "permanent-ban:" + rec.CIDR
 		}
 		notifier.Enqueue(event, text, dedupe, immediate)
-		if plexMgr == nil {
+		if streams == nil {
 			return
 		}
-		cut := plexMgr.DropBanned(func(addr netip.Addr) bool {
+		cut := streams.DropBanned(func(addr netip.Addr) bool {
 			_, banned := bans.Match(addr)
 			return banned
 		}, fmt.Sprintf("stream closed by ban %s (%s)", rec.CIDR, rec.Reason))
 		if cut > 0 {
-			log.Info("closed plex streams for banned source", "cidr", rec.CIDR, "streams", cut)
+			log.Info("closed streaming connections for banned source", "cidr", rec.CIDR, "streams", cut)
 		}
 	}
 
@@ -204,33 +204,38 @@ func run() error {
 		return err
 	}
 
-	plexMgr = plex.New(log)
+	streams = streaming.New(log)
 	// The relay bypasses the request pipeline, so banned addresses have to be
-	// refused here as well or they could still stream through the Plex port.
-	plexMgr.SetBans(func(addr netip.Addr) bool {
+	// refused here as well or they could still stream through a forwarded port.
+	streams.SetBans(func(addr netip.Addr) bool {
 		_, banned := bans.Match(addr)
 		return banned
 	})
 	// Refusals and cut streams are written as ordinary events so they appear in
-	// Logs and on the attack globe next to the HTTP traffic.
-	plexMgr.SetEventSink(func(addr netip.Addr, detail string) {
-		ev := model.Event{
-			TS: time.Now(), Host: "plex", SrcIP: addr.String(),
-			Method: "TCP", Path: fmt.Sprintf(":%d", plexMgr.Config().Port),
-			Status: http.StatusForbidden, Stage: "plex", Action: "block",
-			RuleID: "plex-ban", RuleMsg: detail,
+	// Logs and on the attack globe next to the HTTP traffic. The payload carries
+	// the service and port, so the sink needs no manager lookup.
+	streams.SetEventSink(func(ev streaming.Event) {
+		row := model.Event{
+			TS: time.Now(), Host: ev.Service, SrcIP: ev.Addr.String(),
+			Method: "TCP", Path: fmt.Sprintf(":%d", ev.Port),
+			Status: http.StatusForbidden, Stage: "stream", Action: "block",
+			RuleID: "stream-ban", RuleMsg: ev.Detail,
 		}
-		if err := st.InsertEvents([]model.Event{ev}); err != nil {
-			log.Warn("plex event insert failed", "err", err)
+		if err := st.InsertEvents([]model.Event{row}); err != nil {
+			log.Warn("streaming event insert failed", "err", err)
 		}
 	})
-	if err := plexMgr.Apply(plexConfigFromSettings(kv)); err != nil {
-		log.Warn("plex forwarder not started", "err", err)
+	cfgs := make(map[string]streaming.Config, len(streaming.Catalog))
+	for _, def := range streaming.Catalog {
+		cfgs[def.ID] = streaming.ConfigFromSettings(def, kv)
 	}
-	defer plexMgr.Close()
+	if err := streams.ApplyAll(cfgs); err != nil {
+		log.Warn("streaming forwarder not started", "err", err)
+	}
+	defer streams.Close()
 
 	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
-	apiServer.SetPlex(plexMgr)
+	apiServer.SetStreaming(streams)
 	restartCh := make(chan struct{}, 1)
 	apiServer.SetRestart(func() {
 		select {
@@ -294,32 +299,6 @@ func run() error {
 	defer done()
 	_ = guiSrv.Shutdown(shutdownCtx)
 	return nil
-}
-
-// plexConfigFromSettings rebuilds the saved Plex forwarder configuration.
-func plexConfigFromSettings(kv map[string]string) plex.Config {
-	port := plex.DefaultPort
-	if v, err := strconv.Atoi(kv["plex_port"]); err == nil && v > 0 {
-		port = v
-	}
-	maxConns := plex.DefaultMaxConns
-	if v, err := strconv.Atoi(kv["plex_max_conns"]); err == nil && v > 0 {
-		maxConns = v
-	}
-	allow := []string{}
-	for _, part := range strings.Split(kv["plex_allow"], ",") {
-		if part = strings.TrimSpace(part); part != "" {
-			allow = append(allow, part)
-		}
-	}
-	return plex.Config{
-		Enabled:  kv["plex_enabled"] == "1",
-		ListenIP: kv["plex_listen_ip"],
-		Port:     port,
-		Upstream: kv["plex_upstream"],
-		Allow:    allow,
-		MaxConns: maxConns,
-	}
 }
 
 func newLogger() *slog.Logger {

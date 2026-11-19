@@ -20,15 +20,15 @@ is actually in the release. See [Scope notes](#scope-notes) for deliberately exc
 | CrowdSec | LAPI decision stream → local bans, removals honoured, connectivity/status panel, optional sidecar with access-log acquisition. |
 | Bot protection | JavaScript proof-of-work challenge, four levels, 24 h cookie, auto-ban after repeated failures. |
 | Access gate | Per-proxy passphrase, accounts or accounts+TOTP, per-proxy allowlist, escalation ladder and account lockout. |
-| Plex forwarding | Optional transparent TCP relay on a custom WAN port with a source allowlist and connection cap, so a Plex server behind the gateway sees one trusted address; separate Plex page, settings mirrored to the compose env file, one-click restart. |
+| Streaming forwarding | Optional transparent TCP relays on custom WAN ports for **Plex** and **Jellyfin** (one section each on the Streaming page), with a source allowlist, connection cap, banned-source refusal that also cuts running streams, and one-click container restart. |
 | Observability | WAN/LAN bps/pps, conntrack sessions, per-proxy counters, SSE live stream, canvas attack globe, filterable events, source-IP explorer, CSV export, audit log, hourly rollups. |
 | Notifications | Telegram, SMTP/Gmail, generic webhook; 5-minute ban digest, instant critical alerts, per-event routing toggles, dedupe and retry. |
 | Admin security | LAN-only GUI, argon2id, mandatory TOTP, recovery codes, CSRF, login limits, session idle/absolute expiry, password/TOTP rotation, sign-out-everywhere, CSP, encrypted secrets at rest. |
 | Backup | Additive JSON export/import of settings, proxies, routes, policies, feeds and bans (secrets excluded by design). |
 
-The GUI is a dark single-page app: Dashboard (metrics + globe), Proxies, Plex, Policies
-(bans, countries, ASN, decoys), Sources (per-IP history and bans), Threat intel,
-Certificates, Access gate, Notifications, Logs, Settings and Account.
+The GUI is a dark single-page app: Dashboard (metrics + globe), Proxies, Streaming
+(Plex, Jellyfin), Policies (bans, countries, ASN, decoys), Sources (per-IP history and bans),
+Threat intel, Certificates, Access gate, Notifications, Logs, Settings and Account.
 
 ## Requirements
 
@@ -111,11 +111,12 @@ Two honesty notes that matter operationally:
   `wp-login.php` and friends are **not** defaults). A decoy path permanently bans whoever
   requests it, so a path a real application uses would ban its own users. Add such paths
   per proxy under Policies → Decoy paths only when you know nothing legitimate requests them.
-- **Plex forwarding is a byte relay, not an inspected proxy.** TLS stays end-to-end between
-  the Plex client and the Plex server, so the WAF and access gate cannot inspect that
-  traffic. The TCP source allowlist, the connection cap and the ban engine do apply: a
-  banned address is refused on accept, and an existing stream is cut when the ban lands.
-  Those refusals are logged as `plex` events.
+- **Streaming forwarding is a byte relay, not an inspected proxy.** TLS stays end-to-end
+  between the player and the server, so the WAF and access gate cannot inspect that traffic.
+  The TCP source allowlist, the connection cap and the ban engine do apply: a banned address
+  is refused on accept, and an existing stream is cut when the ban lands. Those refusals are
+  logged as `stream` events, with repeat attempts from one source collapsed to one event a
+  minute so a retry loop cannot flood the log.
 
 ## Development
 
