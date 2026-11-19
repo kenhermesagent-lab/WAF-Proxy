@@ -1,0 +1,176 @@
+export interface SetupStatus {
+  needs_setup: boolean;
+  base_domain: string;
+  version: string;
+  geoip: boolean;
+  kernel: { active: boolean; reason: string };
+}
+
+export interface Me {
+  username: string;
+  csrf: string;
+  version: string;
+  base_domain: string;
+  totp_enabled: boolean;
+}
+
+export interface Proxy {
+  id: number;
+  hostname: string;
+  enabled: boolean;
+  cert_id?: number | null;
+  profile_id?: number | null;
+  gate_mode: string;
+  gate_totp_hint?: string;
+  fingerprint: string;
+  bot_level: string;
+  maintenance: boolean;
+  waf_mode: string;
+  created_at: string;
+  upstreams: Upstream[];
+  routes: Route[];
+  gate_users: string[];
+  requests: number;
+  blocked: number;
+}
+
+export interface Upstream {
+  id?: number;
+  url: string;
+  weight: number;
+  enabled: boolean;
+}
+
+export interface Route {
+  id?: number;
+  kind: string;
+  match: string;
+  target: string;
+  strip_prefix: boolean;
+  priority: number;
+}
+
+export interface Profile {
+  id: number;
+  name: string;
+  mode: string;
+  paranoia: number;
+  anomaly: number;
+  allowed_methods: string;
+  max_body: number;
+  exceptions: string;
+}
+
+export interface Policy {
+  id: number;
+  scope: string;
+  proxy_id?: number | null;
+  kind: string;
+  value: string;
+  action: string;
+  priority: number;
+  enabled: boolean;
+  note: string;
+}
+
+export interface Ban {
+  id: number;
+  cidr: string;
+  reason: string;
+  source: string;
+  permanent: boolean;
+  hits: number;
+  created_by: string;
+  created_at: string;
+  expires_at?: string | null;
+}
+
+export interface Feed {
+  id: number;
+  name: string;
+  url: string;
+  action: string;
+  interval_s: number;
+  enabled: boolean;
+  builtin: boolean;
+  last_fetch?: string | null;
+  last_count: number;
+  state: string;
+  last_error?: string;
+}
+
+export interface Cert {
+  id: number;
+  domains: string;
+  provider: string;
+  status: string;
+  expires_at: string;
+  wildcard: boolean;
+  last_error?: string;
+}
+
+export interface Event {
+  id: number;
+  ts: string;
+  host: string;
+  src_ip: string;
+  country: string;
+  asn: number;
+  method: string;
+  path: string;
+  status: number;
+  bytes_in: number;
+  bytes_out: number;
+  latency_ms: number;
+  stage: string;
+  rule_id: string;
+  rule_msg: string;
+  action: string;
+  ua: string;
+}
+
+export interface GlobePoint {
+  country: string;
+  host: string;
+  category: string;
+  count: number;
+  last_seen: string;
+  lat: number;
+  lon: number;
+}
+
+export interface Iface {
+  name: string;
+  rx_bps: number;
+  tx_bps: number;
+  rx_pps: number;
+  tx_pps: number;
+  rx_total: number;
+  tx_total: number;
+}
+
+export interface Metrics {
+  ts: string;
+  wan: Iface;
+  lan: Iface;
+  history: { ts: number; wan_rx: number; wan_tx: number; lan_rx: number; lan_tx: number }[];
+  sessions: { active: number; established: number; time_wait: number; available: boolean };
+  proxies: Record<string, { requests: number; blocked: number; bytes_in: number; bytes_out: number }>;
+  dual_nic: boolean;
+}
+
+export interface GateUser {
+  id: number;
+  username: string;
+  totp_enabled: boolean;
+  created_at: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  ts: string;
+  user: string;
+  action: string;
+  detail: string;
+  ip: string;
+}

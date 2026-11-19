@@ -1,0 +1,598 @@
+// Package policy implements the ordered request pipeline that runs before any
+// traffic reaches an upstream.
+package policy
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"net/netip"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
+)
+
+// Settings is the cached global configuration.
+type Settings struct {
+	RPS            int
+	Burst          int
+	ASNBlock       bool
+	StealthDrop    bool
+	StealthPing    bool
+	WANIface       string
+	LANIface       string
+	RetentionDays  int
+	SampleAboveRPS int
+	MaxBody        int64
+	Enabled        bool
+}
+
+// Request is everything the pipeline needs about an incoming request.
+type Request struct {
+	Proxy  *model.Proxy
+	Host   string
+	Method string
+	Path   string
+	Query  string
+	UA     string
+	Addr   netip.Addr
+	Loc    geoip.Location
+	Body   []byte
+	HTTP   *http.Request
+}
+
+// WAFInfo describes the WAF outcome for logging.
+type WAFInfo struct {
+	Matched bool
+	RuleID  int
+	Label   string
+	Message string
+	Profile string
+}
+
+type ruleSet struct {
+	ipAllow      []netip.Prefix
+	countryAllow map[string]bool
+	countryDeny  map[string]bool
+	asnDeny      map[int]bool
+	decoys       []string
+	rateRPS      int
+	rateBurst    int
+}
+
+// Engine holds cached policies and the rate limiter.
+type Engine struct {
+	st    *store.Store
+	bans  *ban.Engine
+	feeds *intel.Manager
+	geo   *geoip.Geo
+	wafs  *waf.Set
+	log   *slog.Logger
+	rl    *limiter
+
+	mu       sync.RWMutex
+	global   ruleSet
+	perProxy map[int64]ruleSet
+	profiles map[int64]model.Profile
+	settings Settings
+	now      func() time.Time
+}
+
+// New builds an engine and loads the current configuration.
+func New(st *store.Store, bans *ban.Engine, feeds *intel.Manager, geo *geoip.Geo, wafs *waf.Set, log *slog.Logger) (*Engine, error) {
+	e := &Engine{
+		st:       st,
+		bans:     bans,
+		feeds:    feeds,
+		geo:      geo,
+		wafs:     wafs,
+		log:      log,
+		rl:       newLimiter(),
+		perProxy: map[int64]ruleSet{},
+		profiles: map[int64]model.Profile{},
+		now:      time.Now,
+	}
+	if err := e.Reload(); err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
+// DefaultHostingASNs is the curated cloud/VPS list blocked by default. The
+// target users are residential/mobile, so this removes most commodity scanners
+// before they reach the WAF. Operators can edit the list in settings.
+var DefaultHostingASNs = []int{
+	16509, 14618, // Amazon
+	8075,          // Microsoft Azure
+	15169, 396982, // Google / GCP
+	14061,        // DigitalOcean
+	63949,        // Linode / Akamai
+	20473,        // Vultr
+	16276,        // OVH
+	24940,        // Hetzner
+	51167,        // Contabo
+	12876,        // Scaleway
+	9009,         // M247
+	26496,        // GoDaddy
+	22612,        // Namecheap
+	32244,        // Liquid Web
+	36352,        // ColoCrossing
+	54290,        // Hostwinds
+	45102, 37963, // Alibaba Cloud
+	132203, 45090, // Tencent Cloud
+	53667, // FranTech
+}
+
+// DefaultDecoys are paths that no legitimate user of an ordinary app requests.
+var DefaultDecoys = []string{
+	"/.env", "/.git", "/.svn", "/.hg", "/.aws", "/.htaccess", "/.htpasswd",
+	"/wp-login.php", "/wp-admin", "/xmlrpc.php", "/phpmyadmin", "/phpinfo",
+	"/server-status", "/actuator", "/config.php.bak", "/wp-config.php.bak",
+	"/backup.sql", "/dump.sql", "/.DS_Store",
+}
+
+// Reload refreshes policies, profiles and settings from the database.
+func (e *Engine) Reload() error {
+	policies, err := e.st.ListPolicies()
+	if err != nil {
+		return err
+	}
+	profiles, err := e.st.ListProfiles()
+	if err != nil {
+		return err
+	}
+	kv, err := e.st.Settings()
+	if err != nil {
+		return err
+	}
+
+	global := newRuleSet()
+	perProxy := map[int64]ruleSet{}
+	for _, p := range policies {
+		if !p.Enabled {
+			continue
+		}
+		target := &global
+		if p.Scope == "proxy" && p.ProxyID != nil {
+			rs := perProxy[*p.ProxyID]
+			if rs.countryAllow == nil {
+				rs = newRuleSet()
+			}
+			target = &rs
+			applyPolicy(target, p)
+			perProxy[*p.ProxyID] = rs
+			continue
+		}
+		applyPolicy(target, p)
+	}
+	if len(global.decoys) == 0 {
+		global.decoys = append(global.decoys, DefaultDecoys...)
+	}
+
+	e.mu.Lock()
+	e.global = global
+	e.perProxy = perProxy
+	e.profiles = map[int64]model.Profile{}
+	for _, p := range profiles {
+		e.profiles[p.ID] = p
+	}
+	e.settings = parseSettings(kv)
+	e.mu.Unlock()
+	return nil
+}
+
+func newRuleSet() ruleSet {
+	return ruleSet{
+		countryAllow: map[string]bool{},
+		countryDeny:  map[string]bool{},
+		asnDeny:      map[int]bool{},
+	}
+}
+
+func applyPolicy(rs *ruleSet, p model.Policy) {
+	switch p.Kind {
+	case model.PolicyIPWhitelist:
+		for _, part := range strings.Split(p.Value, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			pr, err := netmatchPrefix(part)
+			if err == nil {
+				rs.ipAllow = append(rs.ipAllow, pr)
+			}
+		}
+	case model.PolicyCountryWhitelist:
+		for _, c := range splitUpper(p.Value) {
+			rs.countryAllow[c] = true
+		}
+	case model.PolicyCountryBlacklist:
+		for _, c := range splitUpper(p.Value) {
+			rs.countryDeny[c] = true
+		}
+	case model.PolicyASNBlock:
+		for _, n := range strings.Split(p.Value, ",") {
+			if v, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
+				rs.asnDeny[v] = true
+			}
+		}
+	case model.PolicyDecoy:
+		for _, path := range strings.Split(p.Value, ",") {
+			path = strings.ToLower(strings.TrimSpace(path))
+			if path != "" {
+				rs.decoys = append(rs.decoys, path)
+			}
+		}
+	case "rate_limit":
+		parts := strings.Split(p.Value, "/")
+		if len(parts) == 2 {
+			if v, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
+				rs.rateRPS = v
+			}
+			if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
+				rs.rateBurst = v
+			}
+		}
+	}
+}
+
+func netmatchPrefix(s string) (netip.Prefix, error) {
+	if p, err := netip.ParsePrefix(s); err == nil {
+		return p.Masked(), nil
+	}
+	a, err := netip.ParseAddr(s)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	return netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen()), nil
+}
+
+func splitUpper(s string) []string {
+	out := []string{}
+	for _, part := range strings.Split(s, ",") {
+		part = strings.ToUpper(strings.TrimSpace(part))
+		if len(part) == 2 {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func parseSettings(kv map[string]string) Settings {
+	s := Settings{
+		RPS: 100, Burst: 200, ASNBlock: true, StealthDrop: true, StealthPing: false,
+		RetentionDays: 7, SampleAboveRPS: 500, MaxBody: 131072, Enabled: true,
+		WANIface: kv["wan_iface"],
+		LANIface: kv["lan_iface"],
+	}
+	if v, err := strconv.Atoi(kv["dos_rps"]); err == nil && v > 0 {
+		s.RPS = v
+	}
+	if v, err := strconv.Atoi(kv["dos_burst"]); err == nil && v > 0 {
+		s.Burst = v
+	}
+	s.ASNBlock = kv["asn_block"] != "0"
+	s.StealthDrop = kv["stealth_drop"] != "0"
+	s.StealthPing = kv["stealth_ping"] == "1"
+	s.Enabled = kv["protection_enabled"] != "0"
+	if v, err := strconv.Atoi(kv["retention_days"]); err == nil && v >= 1 && v <= 30 {
+		s.RetentionDays = v
+	}
+	if v, err := strconv.Atoi(kv["sample_above_rps"]); err == nil && v > 0 {
+		s.SampleAboveRPS = v
+	}
+	if v, err := strconv.ParseInt(kv["max_body"], 10, 64); err == nil && v > 0 {
+		s.MaxBody = v
+	}
+	return s
+}
+
+// CurrentSettings returns a copy of the cached settings.
+func (e *Engine) CurrentSettings() Settings {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.settings
+}
+
+// ProfileAllowedMethods returns the methods permitted by a proxy's profile.
+func (e *Engine) ProfileAllowedMethods(p *model.Proxy) map[string]bool {
+	if p == nil || p.ProfileID == nil {
+		return nil
+	}
+	e.mu.RLock()
+	prof, ok := e.profiles[*p.ProfileID]
+	e.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, m := range strings.Split(prof.AllowedMethods, ",") {
+		if m = strings.TrimSpace(strings.ToUpper(m)); m != "" {
+			out[m] = true
+		}
+	}
+	return out
+}
+
+// MaxBody returns the effective body inspection limit.
+func (e *Engine) MaxBody(p *model.Proxy) int64 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if p != nil && p.ProfileID != nil {
+		if prof, ok := e.profiles[*p.ProfileID]; ok && prof.MaxBody > 0 {
+			return prof.MaxBody
+		}
+	}
+	return e.settings.MaxBody
+}
+
+func (e *Engine) rulesFor(p *model.Proxy) ruleSet {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	merged := ruleSet{
+		countryAllow: map[string]bool{},
+		countryDeny:  map[string]bool{},
+		asnDeny:      map[int]bool{},
+	}
+	merged.ipAllow = append(merged.ipAllow, e.global.ipAllow...)
+	for c := range e.global.countryAllow {
+		merged.countryAllow[c] = true
+	}
+	for c := range e.global.countryDeny {
+		merged.countryDeny[c] = true
+	}
+	for a := range e.global.asnDeny {
+		merged.asnDeny[a] = true
+	}
+	merged.decoys = append(merged.decoys, e.global.decoys...)
+	merged.rateRPS, merged.rateBurst = e.global.rateRPS, e.global.rateBurst
+	if p != nil {
+		if local, ok := e.perProxy[p.ID]; ok {
+			merged.ipAllow = append(merged.ipAllow, local.ipAllow...)
+			for c := range local.countryAllow {
+				merged.countryAllow[c] = true
+			}
+			for c := range local.countryDeny {
+				merged.countryDeny[c] = true
+			}
+			for a := range local.asnDeny {
+				merged.asnDeny[a] = true
+			}
+			merged.decoys = append(merged.decoys, local.decoys...)
+			if local.rateRPS > 0 {
+				merged.rateRPS = local.rateRPS
+			}
+			if local.rateBurst > 0 {
+				merged.rateBurst = local.rateBurst
+			}
+		}
+	}
+	return merged
+}
+
+// Screen runs every stage before the access gate and WAF.
+func (e *Engine) Screen(req *Request) model.Verdict {
+	p := req.Proxy
+	rules := e.rulesFor(p)
+	country := ""
+	if req.Loc.Country != "" {
+		country = strings.ToUpper(req.Loc.Country)
+	}
+
+	// A permanent ban is absolute: no whitelist can override it.
+	if rec, ok := e.bans.Match(req.Addr); ok && rec.Permanent {
+		e.bans.NoteHit(req.Addr)
+		return model.Verdict{Action: "ban", Stage: "permanent-ban", Rule: rec.CIDR,
+			Reason: rec.Reason, Status: http.StatusForbidden, BanSource: rec.Source}
+	}
+
+	// A whitelist only bypasses the country, ASN and feed stages. Bans,
+	// decoys and rate limiting still apply, so a compromised friendly host
+	// cannot use its whitelist entry to escape the IPS.
+	allowlisted := false
+	allowRule := ""
+	for _, pr := range rules.ipAllow {
+		if pr.Contains(req.Addr) {
+			allowlisted = true
+			allowRule = pr.String()
+			break
+		}
+	}
+	if !allowlisted && country != "" && rules.countryAllow[country] {
+		allowlisted = true
+		allowRule = "country:" + country
+	}
+
+	if !allowlisted {
+		if country != "" && rules.countryDeny[country] {
+			return model.Verdict{Action: "block", Stage: "country-block", Rule: "country:" + country,
+				Reason: "country not permitted", Status: http.StatusForbidden}
+		}
+		if req.Loc.ASN > 0 {
+			e.mu.RLock()
+			asnBlock := e.settings.ASNBlock
+			e.mu.RUnlock()
+			if (asnBlock || len(rules.asnDeny) > 0) && (rules.asnDeny[req.Loc.ASN] || (asnBlock && isHostingASN(req.Loc.ASN))) {
+				return model.Verdict{Action: "block", Stage: "asn-block", Rule: "asn:" + strconv.Itoa(req.Loc.ASN),
+					Reason: "hosting/cloud network not permitted", Status: http.StatusForbidden}
+			}
+		}
+
+		lowerPath := strings.ToLower(req.Path)
+		for _, decoy := range rules.decoys {
+			if lowerPath == decoy || strings.HasPrefix(lowerPath, decoy+"/") {
+				path := req.Path
+				addr := req.Addr.String()
+				go func() {
+					_, _ = e.bans.Add(addr, "decoy path requested: "+path, "decoy", "policy", 0)
+				}()
+				return model.Verdict{Action: "ban", Stage: "decoy", Rule: decoy,
+					Reason: "decoy path", Status: http.StatusForbidden, BanSource: "decoy"}
+			}
+		}
+
+		if e.feeds != nil {
+			if entry, ok := e.feeds.Match(req.Addr); ok {
+				switch entry.Action {
+				case "log":
+					return model.Verdict{Action: "log", Stage: "feed", Rule: entry.Feed, Reason: "feed match", Status: http.StatusOK}
+				case "challenge":
+					return model.Verdict{Action: "challenge", Stage: "feed", Rule: entry.Feed, Reason: "feed match", Status: http.StatusForbidden}
+				default:
+					return model.Verdict{Action: "block", Stage: "feed", Rule: entry.Feed, Reason: "listed in threat feed", Status: http.StatusForbidden}
+				}
+			}
+		}
+	}
+
+	if rec, ok := e.bans.Match(req.Addr); ok {
+		e.bans.NoteHit(req.Addr)
+		return model.Verdict{Action: "ban", Stage: "temp-ban", Rule: rec.CIDR,
+			Reason: rec.Reason, Status: http.StatusForbidden, BanSource: rec.Source}
+	}
+
+	e.mu.RLock()
+	dosRPS, dosBurst := e.settings.RPS, e.settings.Burst
+	e.mu.RUnlock()
+	if rules.rateRPS > 0 {
+		dosRPS = rules.rateRPS
+	}
+	if rules.rateBurst > 0 {
+		dosBurst = rules.rateBurst
+	}
+	if allowed, strikeOut := e.rl.Allow(rateKey(req), dosRPS, dosBurst, e.now()); !allowed {
+		if strikeOut {
+			addr := req.Addr.String()
+			go func() {
+				_, _ = e.bans.Add(addr, "request rate exceeded", "scan", "ratelimit", 60*time.Second)
+			}()
+		}
+		return model.Verdict{Action: "block", Stage: "dos", Rule: "rate-limit",
+			Reason: "request rate exceeded", Status: http.StatusTooManyRequests}
+	}
+
+	if req.Method == http.MethodTrace {
+		return model.Verdict{Action: "block", Stage: "protocol", Rule: "trace",
+			Reason: "TRACE is disabled", Status: http.StatusMethodNotAllowed}
+	}
+	if allowed := e.ProfileAllowedMethods(p); len(allowed) > 0 && !allowed[req.Method] {
+		return model.Verdict{Action: "block", Stage: "method", Rule: req.Method,
+			Reason: "method not allowed by profile", Status: http.StatusMethodNotAllowed}
+	}
+	if allowlisted {
+		return model.Verdict{Action: "allow", Stage: "whitelist", Rule: allowRule, Status: http.StatusOK}
+	}
+	return model.Verdict{Action: "allow", Stage: "route", Status: http.StatusOK}
+}
+
+// Start runs periodic limiter housekeeping so spoofed source addresses cannot
+// grow the rate-limit table without bound.
+func (e *Engine) Start(ctx context.Context) {
+	go func() {
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				e.rl.Cleanup()
+			}
+		}
+	}()
+}
+
+// ReloadWAF recompiles the protection profiles after an edit.
+func (e *Engine) ReloadWAF() error {
+	profiles, err := e.st.ListProfiles()
+	if err != nil {
+		return err
+	}
+	e.wafs.Reload(profiles)
+	e.mu.Lock()
+	e.profiles = map[int64]model.Profile{}
+	for _, p := range profiles {
+		e.profiles[p.ID] = p
+	}
+	e.mu.Unlock()
+	return nil
+}
+
+func rateKey(req *Request) string {
+	id := int64(0)
+	if req.Proxy != nil {
+		id = req.Proxy.ID
+	}
+	return req.Addr.String() + "|" + strconv.FormatInt(id, 10)
+}
+
+func isHostingASN(asn int) bool {
+	if _, ok := hostingASN[asn]; ok {
+		return true
+	}
+	return false
+}
+
+var hostingASN = func() map[int]bool {
+	m := map[int]bool{}
+	for _, a := range DefaultHostingASNs {
+		m[a] = true
+	}
+	return m
+}()
+
+// Inspect runs the WAF stage for a request whose body has already been read.
+func (e *Engine) Inspect(req *Request) (model.Verdict, WAFInfo) {
+	p := req.Proxy
+	if p == nil {
+		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}
+	}
+	mode := p.WAFMode
+	if mode == "" || mode == "inherit" {
+		e.mu.RLock()
+		mode = "block"
+		if p.ProfileID != nil {
+			if prof, ok := e.profiles[*p.ProfileID]; ok && prof.Mode != "" {
+				mode = prof.Mode
+			}
+		}
+		e.mu.RUnlock()
+	}
+	if mode == "off" {
+		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}
+	}
+	engine := e.wafs.For(p.ProfileID)
+	if engine == nil {
+		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}
+	}
+	res := engine.Inspect(req.HTTP, req.Body, req.Addr)
+	info := WAFInfo{Matched: res.Matched, RuleID: res.RuleID, Label: res.Label, Message: res.Message, Profile: engine.Name()}
+	if !res.Matched {
+		return model.Verdict{Action: "allow", Stage: "waf"}, info
+	}
+	if mode == "detect" || !res.Blocked {
+		return model.Verdict{Action: "log", Stage: "waf", Rule: strconv.Itoa(res.RuleID),
+			Reason: res.Message, Status: http.StatusOK}, info
+	}
+	return model.Verdict{Action: "block", Stage: "waf", Rule: strconv.Itoa(res.RuleID),
+		Reason: res.Label + ": " + res.Message, Status: http.StatusForbidden}, info
+}
+
+// NoteTraffic records request volume for sampling decisions.
+func (e *Engine) NoteTraffic() { e.rl.noteTraffic() }
+
+// ShouldSample reports whether an allowed request may be downsampled.
+func (e *Engine) ShouldSample() bool {
+	e.mu.RLock()
+	limit := e.settings.SampleAboveRPS
+	e.mu.RUnlock()
+	return e.rl.shouldSample(limit)
+}

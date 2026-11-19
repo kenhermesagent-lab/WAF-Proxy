@@ -1,0 +1,209 @@
+package proxy
+
+import (
+	"bufio"
+	"compress/gzip"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+)
+
+var hopHeaders = []string{
+	"Connection", "Proxy-Connection", "Keep-Alive", "Te", "Trailer", "Transfer-Encoding", "Upgrade",
+}
+
+// leakedHeaders identify the stack and are always removed.
+var leakedHeaders = []string{
+	"Server", "X-Powered-By", "X-AspNet-Version", "X-AspNetMvc-Version", "X-Generator",
+	"X-Drupal-Cache", "X-Runtime", "X-Varnish", "Via", "X-Cache", "X-Debug-Token", "X-Served-By",
+}
+
+// responseWriter captures status and size and applies fingerprint hygiene.
+type responseWriter struct {
+	http.ResponseWriter
+	status      int
+	size        int64
+	wroteHeader bool
+	strict      bool
+	requestID   string
+	upgraded    bool
+}
+
+func (w *responseWriter) WriteHeader(code int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+	w.status = code
+	h := w.Header()
+	for _, k := range hopHeaders {
+		h.Del(k)
+	}
+	if w.strict {
+		for _, k := range leakedHeaders {
+			h.Del(k)
+		}
+	}
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+	if w.requestID != "" {
+		h.Set("X-Request-Id", w.requestID)
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *responseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.size += int64(n)
+	return n, err
+}
+
+func (w *responseWriter) Status() int {
+	if w.status == 0 {
+		return http.StatusOK
+	}
+	return w.status
+}
+
+func (w *responseWriter) Size() int64 { return w.size }
+
+func (w *responseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("hijacking not supported")
+	}
+	w.upgraded = true
+	return hj.Hijack()
+}
+
+// gzipWriter compresses compressible responses when the client accepts it.
+type gzipWriter struct {
+	http.ResponseWriter
+	accept      string
+	gz          *gzip.Writer
+	compressing bool
+	decided     bool
+}
+
+func newGzipWriter(w http.ResponseWriter, accept string) *gzipWriter {
+	return &gzipWriter{ResponseWriter: w, accept: accept}
+}
+
+func (w *gzipWriter) WriteHeader(code int) {
+	if !w.decided {
+		w.decided = true
+		h := w.Header()
+		if shouldCompress(code, h) && strings.Contains(w.accept, "gzip") {
+			w.compressing = true
+			h.Set("Content-Encoding", "gzip")
+			h.Del("Content-Length")
+			h.Add("Vary", "Accept-Encoding")
+			w.gz = gzip.NewWriter(w.ResponseWriter)
+		}
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *gzipWriter) Write(b []byte) (int, error) {
+	if !w.decided {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.compressing {
+		return w.gz.Write(b)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *gzipWriter) Close() error {
+	if w.gz != nil {
+		return w.gz.Close()
+	}
+	return nil
+}
+
+func (w *gzipWriter) Flush() {
+	if w.gz != nil {
+		_ = w.gz.Flush()
+	}
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *gzipWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("hijacking not supported")
+	}
+	w.decided = true
+	return hj.Hijack()
+}
+
+func shouldCompress(status int, h http.Header) bool {
+	if status != http.StatusOK {
+		return false
+	}
+	if h.Get("Content-Encoding") != "" || h.Get("Content-Range") != "" {
+		return false
+	}
+	ct := h.Get("Content-Type")
+	return strings.HasPrefix(ct, "text/") ||
+		strings.Contains(ct, "json") ||
+		strings.Contains(ct, "javascript") ||
+		strings.Contains(ct, "xml") ||
+		strings.Contains(ct, "svg")
+}
+
+// uniformError renders the single generic rejection page. Every blocked
+// request looks identical regardless of the stage that rejected it.
+func uniformError(w http.ResponseWriter, status int) {
+	if status == 0 {
+		status = http.StatusForbidden
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Del("Content-Length")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Not available</title>
+<style>:root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;
+background:#0b0d10;color:#8b93a3;font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+div{text-align:center;padding:24px}h1{margin:0 0 8px;font-size:16px;font-weight:600;color:#c9d1de}</style>
+</head><body><div><h1>Request not available</h1><p>The request could not be completed.</p></div></body></html>`)
+}
+
+// maintenancePage is shown when a proxy is in maintenance mode.
+func maintenancePage(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Retry-After", "300")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_, _ = io.WriteString(w, `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Maintenance</title>
+<style>:root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;
+background:#0b0d10;color:#8b93a3;font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+div{text-align:center}h1{margin:0 0 8px;font-size:16px;color:#c9d1de}</style>
+</head><body><div><h1>Down for maintenance</h1><p>Please check back shortly.</p></div></body></html>`)
+}
+
+func newRequestID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b)
+}

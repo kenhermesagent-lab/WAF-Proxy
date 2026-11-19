@@ -1,0 +1,11 @@
+.git
+.github
+data
+logs
+deploy
+docs
+web/node_modules
+internal/webui/dist
+*.log
+.env
+.probe

@@ -1,0 +1,304 @@
+import { useEffect, useState } from "react";
+import { api } from "../api";
+import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
+import { Cert, Profile, Proxy, Route, Upstream } from "../types";
+
+type Draft = {
+  id?: number;
+  hostname: string;
+  enabled: boolean;
+  profile_id: number | null;
+  cert_id: number | null;
+  gate_mode: string;
+  gate_secret: string;
+  fingerprint: string;
+  bot_level: string;
+  maintenance: boolean;
+  waf_mode: string;
+  upstreams: Upstream[];
+  routes: Route[];
+  gate_users: string[];
+};
+
+function emptyDraft(base: string): Draft {
+  return {
+    hostname: "",
+    enabled: true,
+    profile_id: null,
+    cert_id: null,
+    gate_mode: "off",
+    gate_secret: "",
+    fingerprint: "strict",
+    bot_level: "light",
+    maintenance: false,
+    waf_mode: "inherit",
+    upstreams: [{ url: "http://192.168.101.10:8080", weight: 1, enabled: true }],
+    routes: [],
+    gate_users: [],
+  };
+}
+
+export default function Proxies({ onError, onOK, base }: { onError: (m: string) => void; onOK: (m: string) => void; base: string }) {
+  const [list, setList] = useState<Proxy[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [certs, setCerts] = useState<Cert[]>([]);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = () =>
+    Promise.all([api.get<Proxy[]>("/api/proxies"), api.get<Profile[]>("/api/profiles"), api.get<{ certs: Cert[] }>("/api/certs")])
+      .then(([p, pr, c]) => {
+        setList(p);
+        setProfiles(pr);
+        setCerts(c.certs || []);
+      })
+      .catch((e) => onError(errText(e)));
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const openNew = () => setDraft({ ...emptyDraft(base), hostname: `app.${base}` });
+  const openEdit = (p: Proxy) =>
+    setDraft({
+      id: p.id,
+      hostname: p.hostname,
+      enabled: p.enabled,
+      profile_id: p.profile_id ?? null,
+      cert_id: p.cert_id ?? null,
+      gate_mode: p.gate_mode || "off",
+      gate_secret: "",
+      fingerprint: p.fingerprint || "strict",
+      bot_level: p.bot_level || "light",
+      maintenance: p.maintenance,
+      waf_mode: p.waf_mode || "inherit",
+      upstreams: p.upstreams?.length ? p.upstreams : [{ url: "", weight: 1, enabled: true }],
+      routes: p.routes ?? [],
+      gate_users: p.gate_users ?? [],
+    });
+
+  const save = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      const payload = { ...draft, gate_users: draft.gate_users };
+      if (draft.id) await api.put(`/api/proxies/${draft.id}`, payload);
+      else await api.post("/api/proxies", payload);
+      onOK(draft.id ? "Proxy updated" : "Proxy created");
+      setDraft(null);
+      await load();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (p: Proxy) => {
+    if (!confirm(`Delete ${p.hostname}? This removes its routes and upstreams.`)) return;
+    try {
+      await api.del(`/api/proxies/${p.id}`);
+      onOK("Proxy deleted");
+      await load();
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
+
+  const patch = (fn: (d: Draft) => void) =>
+    setDraft((d) => {
+      if (!d) return d;
+      const next: Draft = { ...d, upstreams: [...d.upstreams], routes: [...d.routes], gate_users: [...d.gate_users] };
+      fn(next);
+      return next;
+    });
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <Card
+        title="Proxies"
+        actions={
+          <button className="primary" onClick={openNew}>
+            New proxy
+          </button>
+        }
+      >
+        {list.length === 0 ? (
+          <Empty>No proxies yet. Create one and point it at a backend on the LAN.</Empty>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Hostname</th>
+                <th>Upstreams</th>
+                <th>WAF</th>
+                <th>Bot</th>
+                <th>Gate</th>
+                <th className="num">Requests</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <div className="mono">{p.hostname}</div>
+                    <div className="faint" style={{ fontSize: 11 }}>{p.maintenance ? "maintenance" : p.enabled ? "active" : "disabled"}</div>
+                  </td>
+                  <td className="muted">{p.upstreams.map((u) => u.url).join(", ") || "—"}</td>
+                  <td><Badge tone={p.waf_mode === "off" ? "warn" : "info"}>{p.waf_mode}</Badge></td>
+                  <td><Badge tone={p.bot_level === "off" ? "warn" : "info"}>{p.bot_level}</Badge></td>
+                  <td><Badge tone={p.gate_mode === "off" ? "" : "ok"}>{p.gate_mode}</Badge></td>
+                  <td className="num">{(p.requests ?? 0).toLocaleString()} <span className="faint">/ {p.blocked ?? 0} blocked</span></td>
+                  <td>{p.enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="warn">disabled</Badge>}</td>
+                  <td className="right" style={{ whiteSpace: "nowrap" }}>
+                    <button className="small" onClick={() => openEdit(p)}>Edit</button>{" "}
+                    <button className="small danger" onClick={() => remove(p)}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+
+      {draft && (
+        <Modal title={draft.id ? `Edit ${draft.hostname}` : "New proxy"} onClose={() => setDraft(null)}>
+          <div className="row grow">
+            <Field label="Hostname">
+              <input value={draft.hostname} onChange={(e) => patch((d) => (d.hostname = e.target.value))} placeholder={`app.${base}`} />
+            </Field>
+            <Field label="Protection profile">
+              <select value={draft.profile_id ?? ""} onChange={(e) => patch((d) => (d.profile_id = e.target.value ? Number(e.target.value) : null))}>
+                <option value="">Default</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Certificate">
+              <select value={draft.cert_id ?? ""} onChange={(e) => patch((d) => (d.cert_id = e.target.value ? Number(e.target.value) : null))}>
+                <option value="">Auto / default</option>
+                {certs.map((c) => (
+                  <option key={c.id} value={c.id}>{c.domains}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <Card title="Upstreams">
+            {draft.upstreams.map((u, i) => (
+              <div className="row grow" key={i} style={{ marginBottom: 8 }}>
+                <div className="field" style={{ flex: "1 1 300px" }}>
+                  <input
+                    value={u.url}
+                    placeholder="http://192.168.101.10:8080"
+                    onChange={(e) => patch((d) => { d.upstreams[i] = { ...d.upstreams[i], url: e.target.value }; })}
+                  />
+                </div>
+                <div className="field" style={{ flex: "0 0 90px" }}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={u.weight}
+                    onChange={(e) => patch((d) => { d.upstreams[i] = { ...d.upstreams[i], weight: Number(e.target.value) }; })}
+                  />
+                </div>
+                <button className="small danger" onClick={() => patch((d) => { d.upstreams.splice(i, 1); })}>Remove</button>
+              </div>
+            ))}
+            <button className="small" onClick={() => patch((d) => { d.upstreams.push({ url: "", weight: 1, enabled: true }); })}>Add upstream</button>
+          </Card>
+
+          <div className="grid cols-2 mt">
+            <Card title="Protection">
+              <Field label="WAF mode">
+                <select value={draft.waf_mode} onChange={(e) => patch((d) => (d.waf_mode = e.target.value))}>
+                  <option value="inherit">Inherit profile</option>
+                  <option value="off">Off</option>
+                  <option value="detect">Detect only</option>
+                  <option value="block">Block</option>
+                </select>
+              </Field>
+              <Field label="Bot protection">
+                <select value={draft.bot_level} onChange={(e) => patch((d) => (d.bot_level = e.target.value))}>
+                  <option value="off">Off</option>
+                  <option value="light">Light</option>
+                  <option value="standard">Standard</option>
+                  <option value="aggressive">Aggressive</option>
+                </select>
+              </Field>
+              <Field label="Fingerprint mode">
+                <select value={draft.fingerprint} onChange={(e) => patch((d) => (d.fingerprint = e.target.value))}>
+                  <option value="strict">Strict</option>
+                  <option value="minimal">Minimal</option>
+                </select>
+              </Field>
+            </Card>
+            <Card title="Access gate">
+              <Field label="Mode">
+                <select value={draft.gate_mode} onChange={(e) => patch((d) => (d.gate_mode = e.target.value))}>
+                  <option value="off">Off</option>
+                  <option value="passphrase">Shared passphrase</option>
+                  <option value="accounts">Accounts</option>
+                  <option value="accounts_totp">Accounts + TOTP</option>
+                </select>
+              </Field>
+              {draft.gate_mode === "passphrase" && (
+                <Field label="Passphrase (leave blank to keep)">
+                  <input type="password" value={draft.gate_secret} onChange={(e) => patch((d) => (d.gate_secret = e.target.value))} />
+                </Field>
+              )}
+              {(draft.gate_mode === "accounts" || draft.gate_mode === "accounts_totp") && (
+                <Field label="Allowed accounts (comma separated, empty = all)">
+                  <input
+                    value={draft.gate_users.join(",")}
+                    placeholder="alice,bob"
+                    onChange={(e) => patch((d) => (d.gate_users = e.target.value.split(",").map((s) => s.trim()).filter(Boolean)))}
+                  />
+                </Field>
+              )}
+            </Card>
+          </div>
+
+          <Card title="Routes (redirect / alias)">
+            {draft.routes.map((rt, i) => (
+              <div className="row grow" key={i} style={{ marginBottom: 8 }}>
+                <div className="field" style={{ flex: "0 0 130px" }}>
+                  <select value={rt.kind} onChange={(e) => patch((d) => { d.routes[i] = { ...d.routes[i], kind: e.target.value }; })}>
+                    <option value="redirect">redirect</option>
+                    <option value="alias">alias</option>
+                  </select>
+                </div>
+                <div className="field" style={{ flex: "1 1 160px" }}>
+                  <input placeholder="/old" value={rt.match} onChange={(e) => patch((d) => { d.routes[i] = { ...d.routes[i], match: e.target.value }; })} />
+                </div>
+                <div className="field" style={{ flex: "1 1 220px" }}>
+                  <input placeholder="https://example.com/new" value={rt.target} onChange={(e) => patch((d) => { d.routes[i] = { ...d.routes[i], target: e.target.value }; })} />
+                </div>
+                <button className="small danger" onClick={() => patch((d) => { d.routes.splice(i, 1); })}>Remove</button>
+              </div>
+            ))}
+            <button className="small" onClick={() => patch((d) => { d.routes.push({ kind: "redirect", match: "/", target: "", strip_prefix: false, priority: 0 }); })}>Add route</button>
+          </Card>
+
+          <div className="row mt" style={{ justifyContent: "space-between" }}>
+            <div className="row">
+              <label style={{ margin: 0, display: "flex", gap: 6, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
+                <input type="checkbox" style={{ width: "auto" }} checked={draft.enabled} onChange={(e) => patch((d) => (d.enabled = e.target.checked))} /> Enabled
+              </label>
+              <label style={{ margin: 0, display: "flex", gap: 6, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
+                <input type="checkbox" style={{ width: "auto" }} checked={draft.maintenance} onChange={(e) => patch((d) => (d.maintenance = e.target.checked))} /> Maintenance
+              </label>
+            </div>
+            <div className="row">
+              <button onClick={() => setDraft(null)}>Cancel</button>
+              <button className="primary" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save proxy"}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}

@@ -11,29 +11,136 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
-## [Unreleased]
+## [1.0.0] — 2026-11-19
 
-### Added
-- Full project plan in [PLAN.md](PLAN.md): architecture, request pipeline, data model,
-  10 phases (`0.1.0` → `1.0.0`), resource budget, security model, risks.
-- Dual-homed WAN/LAN deployment model (443-only, Firewalla DNAT without SNAT).
-- `kendk.duckdns.org` domain strategy: wildcard subdomains, apex blackholed at the proxy,
-  single wildcard certificate because DuckDNS stores one TXT record per domain.
-- Host sizing guidance for a 2–4 vCPU / 8 GB / 50 GB VM, including disk breakdown and
-  conntrack tuning (PLAN.md §9.1).
-- Fingerprint hardening (§5.5): header stripping, uniform rejections, no upstream error leakage,
-  fixed TLS profile, with an explicit list of what cannot be hidden.
-- ASN blocking, decoy paths with instant bans, IPv6 parity and per-proxy IP allowlist in Phase 3.
-- Request-smuggling defences, host-header hygiene, method allowlists and detect-first onboarding
-  in Phase 4.
-- Per-proxy access gate (passphrase or accounts + TOTP) with a progressive ban ladder, replacing
-  the narrower visitor-TOTP scope in Phase 9.
+The ten planned phases were implemented together and shipped as the first release, so the
+per-phase version numbers described in [PLAN.md](PLAN.md) did not exist as separate tags.
+This section records what each phase contributes to `1.0.0`.
 
-## [0.1.0] — planned
+### Added — foundation (Phase 0)
 
-Phase 0 — Foundation: repo scaffold, dark SPA shell, SQLite store, setup wizard
-(network binding, domain, admin + TOTP), session auth, health/version API, release tooling.
+- Go 1.27 backend and React 19 + TypeScript + Vite SPA, embedded into the binary.
+- Docker Compose stack with host networking, non-root user (10001), read-only root
+  filesystem and file capabilities for ports/nftables.
+- SQLite (WAL) store with embedded schema, encrypted secret columns and settings KV.
+- Four-step setup wizard: network bindings, base domain and DuckDNS token, administrator
+  password + TOTP enrolment, review. Recovery codes are shown once and accepted at login.
+- Session auth with argon2id, TOTP, CSRF tokens, HttpOnly/SameSite cookies, per-IP and
+  per-account login limits, sliding idle expiry (12 h) with a 7 day absolute cap.
+- Release tooling: `VERSION`, `CHANGELOG`, `Makefile`, `scripts/release.sh`, version
+  compiled in via `-ldflags` and exposed at `/api/version` and `/api/health`.
+
+### Added — proxy core (Phase 1)
+
+- TLS 1.2/1.3 listener with HTTP/2, host and SNI routing, unknown-host blackhole, apex
+  blackhole, WebSocket/upgrade passthrough and streamed responses.
+- Weighted round-robin upstream pools with active health checks and recovery.
+- Redirect and alias routes, path matching, gzip compression, and a conservative
+  GET-only response cache for explicitly cacheable responses.
+- Header hygiene: forwarding/override headers stripped inbound, stack headers stripped
+  outbound (`Server`, `X-Powered-By`, `Via`, …), uniform rejection page.
+- Request framing defences (CL+TE, duplicate lengths, absolute-URI targets, TRACE/TRACK),
+  method allowlists, per-IP token-bucket rate limiting and body limits.
+- Admin CRUD for proxies, upstreams, routes, profiles and access-gate mode.
+
+### Added — TLS and ACME (Phase 2)
+
+- lego v4 DNS-01 issuance with DuckDNS, Cloudflare, Route53, DigitalOcean, Hetzner, OVH,
+  GoDaddy and RFC2136 providers; staging toggle; encrypted account key and credentials.
+- Wildcard certificate support, per-proxy certificate assignment, automatic renewal at
+  30 days, 12-hour renewal loop and expiry warnings.
+- Serialised ACME orders, which is required for DuckDNS because it stores a single TXT
+  record per domain.
+
+### Added — policies, bans and GeoIP (Phase 3)
+
+- Ordered pipeline: permanent ban → whitelist → country → ASN → decoy → threat feed →
+  temporary ban → rate limit → TRACE/method checks.
+- Temp and permanent bans with reason/source, hit counters, promotion, manual unban and
+  per-CIDR upsert; GUI pages for temp and permanent lists.
+- nftables `inet wafproxy` set with interval/auto-merge sets, IPv4 + IPv6, DROP policy,
+  optional WAN ICMP echo drop, and graceful degradation to userspace when unavailable.
+- Country block/allow, curated hosting/VPS/cloud ASN blocking (default on), decoy paths
+  with instant permanent ban, IPv6 parity, proxy-scoped overrides.
+- Optional WAN/LAN interface counters, conntrack session counts and hourly rollups.
+- LAN-only admin GUI is exempt from bans; `docker exec wafproxy unban <ip>` emergency path.
+
+### Added — WAF (Phase 4)
+
+- Coraza v3 with embedded OWASP CRS, compiled per protection profile.
+- Profiles: Generic Web, WordPress, API-only, Static/CDN, Admin panel (strict); editable
+  paranoia, anomaly threshold, method allowlist, body limit and rule exceptions.
+- Per-proxy mode `off / detect / block` with profile inheritance; detect mode logs without
+  blocking. Rule exceptions compile into `SecRuleRemoveById` so the anomaly aggregator
+  cannot re-block on a disabled rule.
+- Attack labelling (sqli, xss, lfi, rce, php-injection, scanner, protocol-violation, …) in
+  events, dashboard and globe.
+- WAF body-limit and inspection errors fail closed.
+
+### Added — threat intel (Phase 5)
+
+- Feed manager with ETag/If-Modified-Since, gzip, 45 s timeout, size cap, CIDR aggregation
+  and atomic in-memory swap; last-good list retained on failure.
+- Nine built-in sources (FireHOL L1/L2, Spamhaus DROP/EDROP, Tor exits, Feodo Tracker,
+  URLhaus, ET compromised, DShield) plus custom feeds with per-feed interval and action.
+- Poisoning guardrail: a feed that grows more than 5× in one refresh is frozen and shown
+  as `frozen` instead of being applied.
+- Merged matcher with block > challenge > log precedence and per-feed status in the GUI.
+
+### Added — CrowdSec and bot protection (Phase 6)
+
+- LAPI stream bouncer (`WAFPROXY_CROWDSEC_URL`, `WAFPROXY_CROWDSEC_KEY`) that applies new
+  decisions as bans (`source=crowdsec`) and lifts them when CrowdSec withdraws a decision.
+- Optional CrowdSec sidecar with a stock nginx-parser acquisition over the proxy access log.
+- Stateless JavaScript proof-of-work challenge with `off / light / standard / aggressive`
+  levels, 24 h cookie bound to host + User-Agent, and automatic temporary ban after five
+  failed solutions in ten minutes.
+
+### Added — observability (Phase 7)
+
+- Per-interface bps/pps sampling, conntrack state counts, per-proxy request/blocked/byte
+  counters, 1 hour in-memory series and Server-Sent Events stream.
+- Dashboard with live metrics, WAN/LAN split, top blocked sources and recent blocks.
+- Canvas attack globe with arcs from source country to the configured home location,
+  colour-coded by category and capped at 90 arcs.
+- Event log with filters (IP, host, stage, action, blocked-only), 7 day retention
+  (1–30 configurable), pagination and hourly flow rollups.
+- Audit log for every administrative mutation.
+
+### Added — notifications (Phase 8)
+
+- Telegram bot, SMTP/Gmail and generic webhook channels; secrets encrypted and masked in
+  the API.
+- Five-minute digest for ordinary bans; immediate delivery for permanent bans, access-gate
+  bans and certificate expiry warnings. Per-IP 24 h dedupe, five delivery attempts with
+  retry, per-channel test button and delivery history.
+
+### Added — access gate, backup and hardening (Phase 9)
+
+- Per-proxy access gate: shared passphrase, accounts, or accounts + TOTP; per-proxy account
+  allowlist; login page served on the proxy hostname with no external assets.
+- Escalation ladder: 3 failures/10 min → 15 min ban; 10/24 h → 24 h ban; failures on 3
+  days with 10 in 24 h → permanent. Account lockout after 5 failures/15 min runs in
+  parallel. Decoy paths and confirmed feed/CrowdSec matches remain instant bans.
+- Gate session TTL configurable (`gate_ttl_hours`), revocation per proxy, and gate modes
+  reset to `off` on restore because secrets are never exported.
+- Backup export/restore (settings, proxies, upstreams, routes, policies, feeds, bans);
+  additive restore with per-item problems reported, and plaintext export that excludes
+  secrets, private keys and password hashes.
+- Hardening: CSP and security headers on the GUI, argon2id passwords, constant-time
+  credential checks, uniform auth failures, dummy hash for unknown usernames, cloud
+  metadata SSRF guard on upstreams, strict JSON decoding, bounded settings values,
+  admin session idle/absolute expiry, and a resolution of several review findings
+  (ACME self-deadlock, compressed-cache corruption, WAF fail-open, whitelist bypassing
+  temporary bans, health checks cancelled by request contexts).
+
+### Documentation
+
+- `README.md` quick start and scope notes.
+- `docs/INSTALL.md` deployment, Firewalla/DuckDNS walkthrough, first-run and upgrade.
+- `docs/OPERATIONS.md` runbook, recovery, troubleshooting and capacity.
+- `docs/BENCHMARKS.md` measured microbenchmarks with methodology and unmeasured items.
 
 ## [0.0.0] — 2026-11-19
 
-Planning baseline. No application code yet.
+Planning baseline. Full design in [PLAN.md](PLAN.md); no application code yet.

@@ -1,0 +1,310 @@
+// Package metrics samples interface counters, conntrack sessions and per-proxy
+// request totals for the dashboard.
+package metrics
+
+import (
+	"bufio"
+	"context"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+// Iface is one network interface's live counters.
+type Iface struct {
+	Name  string  `json:"name"`
+	RxBps float64 `json:"rx_bps"`
+	TxBps float64 `json:"tx_bps"`
+	RxPps float64 `json:"rx_pps"`
+	TxPps float64 `json:"tx_pps"`
+	RxTot uint64  `json:"rx_total"`
+	TxTot uint64  `json:"tx_total"`
+}
+
+// Point is one second of WAN/LAN history.
+type Point struct {
+	TS    int64   `json:"ts"`
+	WANRx float64 `json:"wan_rx"`
+	WANTx float64 `json:"wan_tx"`
+	LANRx float64 `json:"lan_rx"`
+	LANTx float64 `json:"lan_tx"`
+}
+
+// Sessions summarises conntrack state.
+type Sessions struct {
+	Active      int  `json:"active"`
+	Established int  `json:"established"`
+	TimeWait    int  `json:"time_wait"`
+	Available   bool `json:"available"`
+}
+
+// Counters are per-proxy totals.
+type Counters struct {
+	Requests int64 `json:"requests"`
+	Blocked  int64 `json:"blocked"`
+	BytesIn  int64 `json:"bytes_in"`
+	BytesOut int64 `json:"bytes_out"`
+}
+
+// Snapshot is the payload served to the dashboard.
+type Snapshot struct {
+	TS       time.Time            `json:"ts"`
+	WAN      Iface                `json:"wan"`
+	LAN      Iface                `json:"lan"`
+	History  []Point              `json:"history"`
+	Sessions Sessions             `json:"sessions"`
+	Proxies  map[string]*Counters `json:"proxies"`
+	DualNIC  bool                 `json:"dual_nic"`
+}
+
+type ifSample struct {
+	rxBytes, txBytes, rxPkts, txPkts uint64
+	at                               time.Time
+}
+
+// Collector polls the kernel and keeps a one-hour ring buffer.
+type Collector struct {
+	wanName, lanName string
+	mu               sync.RWMutex
+	wan, lan         Iface
+	history          []Point
+	sessions         Sessions
+	proxies          map[int64]*Counters
+	last             map[string]ifSample
+}
+
+// New creates a collector. Empty interface names are auto-detected.
+func New(wanName, lanName string) *Collector {
+	c := &Collector{
+		wanName: wanName,
+		lanName: lanName,
+		history: make([]Point, 0, 3600),
+		proxies: map[int64]*Counters{},
+		last:    map[string]ifSample{},
+	}
+	c.autodetect()
+	return c
+}
+
+func (c *Collector) autodetect() {
+	names := listInterfaces()
+	if c.wanName == "" && len(names) > 0 {
+		c.wanName = names[0]
+	}
+	if c.lanName == "" {
+		for _, n := range names {
+			if n != c.wanName {
+				c.lanName = n
+				break
+			}
+		}
+	}
+}
+
+func listInterfaces() []string {
+	entries, err := os.ReadDir("/sys/class/net")
+	if err != nil {
+		return nil
+	}
+	out := []string{}
+	for _, e := range entries {
+		if e.Name() == "lo" {
+			continue
+		}
+		out = append(out, e.Name())
+	}
+	return out
+}
+
+// SetInterfaces updates the sampled interface names.
+func (c *Collector) SetInterfaces(wan, lan string) {
+	c.mu.Lock()
+	c.wanName, c.lanName = wan, lan
+	c.mu.Unlock()
+}
+
+// Start samples once per second until the context is cancelled.
+func (c *Collector) Start(ctx context.Context) {
+	go func() {
+		tick := time.NewTicker(time.Second)
+		defer tick.Stop()
+		ct := time.NewTicker(5 * time.Second)
+		defer ct.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				c.sample()
+			case <-ct.C:
+				c.sampleConntrack()
+			}
+		}
+	}()
+}
+
+func (c *Collector) sample() {
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.wan = c.readLocked(c.wanName, now)
+	c.lan = c.readLocked(c.lanName, now)
+	p := Point{
+		TS:    now.Unix(),
+		WANRx: c.wan.RxBps, WANTx: c.wan.TxBps,
+		LANRx: c.lan.RxBps, LANTx: c.lan.TxBps,
+	}
+	c.history = append(c.history, p)
+	if len(c.history) > 3600 {
+		c.history = c.history[len(c.history)-3600:]
+	}
+}
+
+func (c *Collector) readLocked(name string, now time.Time) Iface {
+	out := Iface{Name: name}
+	if name == "" {
+		return out
+	}
+	rx, tx, rxp, txp, ok := readInterface(name)
+	if !ok {
+		return out
+	}
+	out.RxTot, out.TxTot = rx, tx
+	prev, seen := c.last[name]
+	if seen {
+		dt := now.Sub(prev.at).Seconds()
+		if dt > 0 {
+			out.RxBps = float64(rx-prev.rxBytes) / dt
+			out.TxBps = float64(tx-prev.txBytes) / dt
+			out.RxPps = float64(rxp-prev.rxPkts) / dt
+			out.TxPps = float64(txp-prev.txPkts) / dt
+		}
+	}
+	c.last[name] = ifSample{rxBytes: rx, txBytes: tx, rxPkts: rxp, txPkts: txp, at: now}
+	return out
+}
+
+func readInterface(name string) (rx, tx, rxp, txp uint64, ok bool) {
+	f, err := os.Open("/proc/net/dev")
+	if err != nil {
+		return 0, 0, 0, 0, false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		if !strings.Contains(line, name+":") {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		fields := strings.Fields(parts[1])
+		if len(fields) < 10 {
+			continue
+		}
+		rx, _ = strconv.ParseUint(fields[0], 10, 64)
+		rxp, _ = strconv.ParseUint(fields[1], 10, 64)
+		tx, _ = strconv.ParseUint(fields[8], 10, 64)
+		txp, _ = strconv.ParseUint(fields[9], 10, 64)
+		return rx, tx, rxp, txp, true
+	}
+	return 0, 0, 0, 0, false
+}
+
+func (c *Collector) sampleConntrack() {
+	c.mu.Lock()
+	c.sampleConntrackLocked()
+	c.mu.Unlock()
+}
+
+func (c *Collector) sampleConntrackLocked() {
+	f, err := os.Open("/proc/net/nf_conntrack")
+	if err != nil {
+		c.sessions = Sessions{Available: false}
+		return
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	s := Sessions{Available: true}
+	lines := 0
+	for sc.Scan() {
+		lines++
+		if lines > 200000 {
+			break
+		}
+		line := sc.Text()
+		i := strings.Index(line, " [")
+		if i < 0 {
+			continue
+		}
+		rest := line[i+2:]
+		state := ""
+		if j := strings.IndexByte(rest, ']'); j > 0 {
+			state = rest[:j]
+		}
+		switch state {
+		case "ESTABLISHED":
+			s.Established++
+		case "TIME_WAIT":
+			s.TimeWait++
+		}
+	}
+	s.Active = lines
+	c.sessions = s
+}
+
+// Count increments per-proxy counters.
+func (c *Collector) Count(proxyID int64, requests, blocked, bytesIn, bytesOut int64) {
+	c.mu.Lock()
+	pc := c.proxies[proxyID]
+	if pc == nil {
+		pc = &Counters{}
+		c.proxies[proxyID] = pc
+	}
+	c.mu.Unlock()
+	if requests != 0 {
+		atomic.AddInt64(&pc.Requests, requests)
+	}
+	if blocked != 0 {
+		atomic.AddInt64(&pc.Blocked, blocked)
+	}
+	if bytesIn != 0 {
+		atomic.AddInt64(&pc.BytesIn, bytesIn)
+	}
+	if bytesOut != 0 {
+		atomic.AddInt64(&pc.BytesOut, bytesOut)
+	}
+}
+
+// Snapshot returns the current state for the API.
+func (c *Collector) Snapshot() Snapshot {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	hist := make([]Point, len(c.history))
+	copy(hist, c.history)
+	proxies := map[string]*Counters{}
+	for id, pc := range c.proxies {
+		cp := &Counters{
+			Requests: atomic.LoadInt64(&pc.Requests),
+			Blocked:  atomic.LoadInt64(&pc.Blocked),
+			BytesIn:  atomic.LoadInt64(&pc.BytesIn),
+			BytesOut: atomic.LoadInt64(&pc.BytesOut),
+		}
+		proxies[strconv.FormatInt(id, 10)] = cp
+	}
+	return Snapshot{
+		TS:       time.Now(),
+		WAN:      c.wan,
+		LAN:      c.lan,
+		History:  hist,
+		Sessions: c.sessions,
+		Proxies:  proxies,
+		DualNIC:  c.wanName != "" && c.lanName != "" && c.wanName != c.lanName,
+	}
+}
