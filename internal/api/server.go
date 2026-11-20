@@ -550,15 +550,18 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	out["kernel"] = fmt.Sprint(kernelStatus(s.bans))
 	out["geoip"] = fmt.Sprint(s.geo.Available())
-	// The interface fields may be blank, in which case the collector picks the
-	// default-route NIC; show that choice and the names available to type.
+	// Report the interfaces the collector is actually sampling, plus which of
+	// them came from auto-detection rather than a configured field, so a fully
+	// configured host still sees what its charts read.
 	if s.metrics != nil {
 		wan, lan := s.metrics.Detected()
+		out["wan_iface_in_use"] = wan
+		out["lan_iface_in_use"] = lan
 		if strings.TrimSpace(kv["wan_iface"]) == "" {
-			out["wan_iface_detected"] = wan
+			out["wan_iface_auto"] = "1"
 		}
 		if strings.TrimSpace(kv["lan_iface"]) == "" {
-			out["lan_iface_detected"] = lan
+			out["lan_iface_auto"] = "1"
 		}
 		out["iface_available"] = strings.Join(metrics.Interfaces(), ", ")
 	}

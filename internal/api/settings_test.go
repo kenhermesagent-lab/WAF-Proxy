@@ -32,25 +32,37 @@ func TestSettingsInterfaceHints(t *testing.T) {
 		return out
 	}
 
-	// Blank fields: the collector's auto-detected names are reported (an empty
-	// name is still reported when the host has no other interface).
+	// Blank fields: the names the collector samples are reported, and both are
+	// marked as auto-detected (an empty name is still reported when the host has
+	// no other interface).
 	blank := get()
-	if _, ok := blank["wan_iface_detected"]; !ok {
-		t.Errorf("blank wan_iface did not report a detected name: %v", blank)
+	wan, lan := srv.metrics.Detected()
+	if got, ok := blank["wan_iface_in_use"]; !ok || got != wan {
+		t.Errorf("wan_iface_in_use = %q (reported %v), want %q", got, ok, wan)
 	}
-	if _, ok := blank["lan_iface_detected"]; !ok {
-		t.Errorf("blank lan_iface did not report a detected name: %v", blank)
+	if got, ok := blank["lan_iface_in_use"]; !ok || got != lan {
+		t.Errorf("lan_iface_in_use = %q (reported %v), want %q", got, ok, lan)
+	}
+	if blank["wan_iface_auto"] != "1" || blank["lan_iface_auto"] != "1" {
+		t.Errorf("blank interface fields were not marked auto-detected: %v", blank)
 	}
 	if _, ok := blank["iface_available"]; !ok {
 		t.Errorf("settings did not list available interfaces: %v", blank)
 	}
 
-	// Explicitly configured fields are not labelled as auto-detected.
+	// A configured field keeps reporting what is sampled but is no longer
+	// labelled as auto-detected, while the blank field still is.
 	if err := st.SetSettings(map[string]string{"wan_iface": "eth9"}); err != nil {
 		t.Fatal(err)
 	}
 	set := get()
-	if _, ok := set["wan_iface_detected"]; ok {
-		t.Errorf("configured wan_iface was still reported as detected: %v", set)
+	if _, ok := set["wan_iface_in_use"]; !ok {
+		t.Errorf("configured wan_iface stopped reporting the sampled interface: %v", set)
+	}
+	if _, ok := set["wan_iface_auto"]; ok {
+		t.Errorf("configured wan_iface was still marked auto-detected: %v", set)
+	}
+	if set["lan_iface_auto"] != "1" {
+		t.Errorf("blank lan_iface was not marked auto-detected: %v", set)
 	}
 }

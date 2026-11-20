@@ -105,9 +105,10 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   the admin login is bound to all interfaces until the stored address is fixed.
 - **Dashboard interface auto-detection** uses the interface that carries the IPv4 default
   route and ignores container/bridge plumbing (`docker*`, `veth*`, `virbr*`, `dummy*`), so
-  a Docker host charts its real WAN link instead of `docker0`. Settings now shows the
-  detected WAN/LAN interfaces for blank fields and lists the names present on the host as a
-  typed hint (and a browser suggestion list), so there is nothing to guess.
+  a Docker host charts its real WAN link instead of `docker0`. Settings now names the WAN and
+  LAN interfaces the dashboard actually samples, says whether each came from auto-detection
+  or from a configured field, and lists the names present on the host as a typed hint (and a
+  browser suggestion list), so there is nothing to guess.
 - Clearing an interface field in Settings now re-runs auto-detection for that field instead
   of leaving the dashboard sampling nothing until the next restart.
 
