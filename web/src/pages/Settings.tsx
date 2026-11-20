@@ -9,10 +9,21 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
   const [s, setS] = useState<Settings>({});
   const [saving, setSaving] = useState(false);
   const [cs, setCs] = useState<CrowdSecStatus | null>(null);
+  const [iface, setIface] = useState<{ wan: string; lan: string; available: string[] }>({ wan: "", lan: "", available: [] });
   const file = useRef<HTMLInputElement>(null);
 
   const load = () =>
-    api.get<Settings>("/api/settings").then(setS).catch((e) => onError(errText(e)));
+    api
+      .get<Settings>("/api/settings")
+      .then((v) => {
+        setS(v);
+        setIface({
+          wan: v.wan_iface_detected ?? "",
+          lan: v.lan_iface_detected ?? "",
+          available: (v.iface_available ?? "").split(",").map((n) => n.trim()).filter(Boolean),
+        });
+      })
+      .catch((e) => onError(errText(e)));
 
   useEffect(() => {
     load();
@@ -38,7 +49,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
     try {
       const payload: Settings = {};
       for (const [k, v] of Object.entries(s)) {
-        if (k === "kernel" || k === "geoip") continue;
+        if (k === "kernel" || k === "geoip" || k.endsWith("_detected") || k === "iface_available") continue;
         payload[k] = v;
       }
       await api.put("/api/settings", payload);
@@ -72,9 +83,21 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
             </Field>
           </div>
           <div className="row grow">
-            <Field label="WAN interface"><input value={s.wan_iface ?? ""} onChange={(e) => set("wan_iface", e.target.value)} placeholder="eth0" /></Field>
-            <Field label="LAN interface"><input value={s.lan_iface ?? ""} onChange={(e) => set("lan_iface", e.target.value)} placeholder="eth1" /></Field>
+            <Field label="WAN interface">
+              <input list="iface-names" value={s.wan_iface ?? ""} onChange={(e) => set("wan_iface", e.target.value)} placeholder={iface.wan || "eth0"} />
+            </Field>
+            <Field label="LAN interface">
+              <input list="iface-names" value={s.lan_iface ?? ""} onChange={(e) => set("lan_iface", e.target.value)} placeholder={iface.lan || "eth1"} />
+            </Field>
           </div>
+          <datalist id="iface-names">
+            {iface.available.map((n) => <option key={n} value={n} />)}
+          </datalist>
+          <p className="muted" style={{ fontSize: 12, marginTop: -4 }}>
+            Auto-detected while the matching field is empty: WAN <span className="mono">{iface.wan || "—"}</span> · LAN{" "}
+            <span className="mono">{iface.lan || "—"}</span>. Available on this host:{" "}
+            {iface.available.length ? <span className="mono">{iface.available.join(", ")}</span> : "none found"}.
+          </p>
           <div className="row grow">
             <Field label="Home latitude (globe)"><input value={s.home_lat ?? "51.5"} onChange={(e) => set("home_lat", e.target.value)} /></Field>
             <Field label="Home longitude"><input value={s.home_lon ?? "-0.12"} onChange={(e) => set("home_lon", e.target.value)} /></Field>

@@ -91,6 +91,13 @@ func New(wanName, lanName string) *Collector {
 }
 
 func (c *Collector) autodetect() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.detectLocked()
+}
+
+// detectLocked fills interface names that were left empty. The caller holds mu.
+func (c *Collector) detectLocked() {
 	names := listInterfaces()
 	if c.wanName == "" {
 		// WAN traffic crosses the default-route NIC. Taking the first name
@@ -123,6 +130,12 @@ func isVirtualInterface(name string) bool {
 		}
 	}
 	return false
+}
+
+// Interfaces lists the interface names offered as hints in Settings, with
+// container and bridge plumbing omitted when a physical link exists.
+func Interfaces() []string {
+	return listInterfaces()
 }
 
 func listInterfaces() []string {
@@ -190,11 +203,20 @@ func parseDefaultRoute(r io.Reader) string {
 	return bestVirtual
 }
 
-// SetInterfaces updates the sampled interface names.
+// SetInterfaces updates the sampled interface names. Empty names are
+// auto-detected, so clearing a field in Settings does not blank the charts.
 func (c *Collector) SetInterfaces(wan, lan string) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.wanName, c.lanName = wan, lan
-	c.mu.Unlock()
+	c.detectLocked()
+}
+
+// Detected returns the interface names the collector is currently sampling.
+func (c *Collector) Detected() (wan, lan string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.wanName, c.lanName
 }
 
 // Start samples once per second until the context is cancelled.

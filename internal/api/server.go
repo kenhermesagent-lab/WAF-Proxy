@@ -550,6 +550,18 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	out["kernel"] = fmt.Sprint(kernelStatus(s.bans))
 	out["geoip"] = fmt.Sprint(s.geo.Available())
+	// The interface fields may be blank, in which case the collector picks the
+	// default-route NIC; show that choice and the names available to type.
+	if s.metrics != nil {
+		wan, lan := s.metrics.Detected()
+		if strings.TrimSpace(kv["wan_iface"]) == "" {
+			out["wan_iface_detected"] = wan
+		}
+		if strings.TrimSpace(kv["lan_iface"]) == "" {
+			out["lan_iface_detected"] = lan
+		}
+		out["iface_available"] = strings.Join(metrics.Interfaces(), ", ")
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
