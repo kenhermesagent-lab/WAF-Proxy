@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,6 +48,35 @@ func Load() (*Config, error) {
 	}
 	c.MasterKey = key
 	return c, nil
+}
+
+// IsLocalAddress reports whether a listen address can be bound here. An empty
+// host or the unspecified address (":8080", "0.0.0.0", "[::]") binds every
+// interface and is always valid; any other IP must be configured on one of the
+// host's interfaces. A single-NIC host has one address and uses it for both the
+// WAN and LAN settings, so this check is what keeps a stale address from leaving
+// the admin GUI unreachable after a DHCP change.
+func IsLocalAddress(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || ip.IsUnspecified() {
+		return true
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		// Cannot inspect the host: let the bind report its own error instead of
+		// overriding a possibly valid address.
+		return true
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func loadMasterKey(dir string) ([]byte, error) {

@@ -26,24 +26,30 @@ const formFrom = (s: StreamingService): Form => ({
 // Steps are per application because the "trust this address" setting lives in a
 // different place in each server. An unknown catalog entry still gets the
 // firewall steps and a pointer to its own documentation.
-function guideSteps(id: string, f: Form): ReactNode[] {
+function guideSteps(id: string, label: string, f: Form): ReactNode[] {
   const target = (
     <>
       <code>
-        {f.listen_ip || "<WAN address>"}:{f.port}
+        {f.listen_ip || "<host address>"}:{f.port}
       </code>
-    </>
-  );
-  const firewall = (
-    <>
-      On the firewall, forward WAN <code>{f.port}/tcp</code> to {target} with <strong>no SNAT</strong>. The server
-      then sees every client as coming from this proxy's LAN address, which is what its allow-list needs.
     </>
   );
   const server = (
     <>
-      Set the server address above to the box running the application. The listener binds the WAN address so the
-      firewall rule has a target.
+      The <em>server</em> field is the machine running {label} — its LAN address and port. The gateway relays to
+      it; clients never connect to it directly.
+    </>
+  );
+  const listen = (
+    <>
+      The <em>listen address</em> must be an IP configured on this host: the listener binds it and the router
+      forwards the port to it. A single-NIC host uses the same address here as its LAN address.
+    </>
+  );
+  const firewall = (
+    <>
+      On the router or firewall, forward WAN <code>{f.port}/tcp</code> to {target} with <strong>no SNAT</strong>.{" "}
+      {label} then sees every client as coming from this host's address, which is what its allow list needs.
     </>
   );
 
@@ -51,10 +57,11 @@ function guideSteps(id: string, f: Form): ReactNode[] {
     case "plex":
       return [
         server,
+        listen,
         firewall,
         <>
           In Plex: <em>Settings → Network → List of IP addresses and networks that are allowed without auth</em> →
-          add this proxy's LAN address, and keep the list strict: everything else is refused by Plex itself.
+          add this host's address, and keep the list strict: everything else is refused by Plex itself.
         </>,
         <>
           Plex clients validate the <code>*.plex.direct</code> certificates that encode the server address, so the
@@ -64,9 +71,10 @@ function guideSteps(id: string, f: Form): ReactNode[] {
     case "jellyfin":
       return [
         server,
+        listen,
         firewall,
         <>
-          In Jellyfin: <em>Settings → Networking → Known proxies</em> → add this proxy's LAN address so Jellyfin treats
+          In Jellyfin: <em>Settings → Networking → Known proxies</em> → add this host's address so Jellyfin treats
           the hop as trusted. Jellyfin has no IP whitelist of its own; use the allow list above if only some clients
           should reach it.
         </>,
@@ -78,9 +86,10 @@ function guideSteps(id: string, f: Form): ReactNode[] {
     default:
       return [
         server,
+        listen,
         firewall,
         <>
-          Add this proxy's LAN address to the application's trusted-proxy or whitelist setting — see its documentation
+          Add this host's address to the application's trusted-proxy or whitelist setting — see its documentation
           for where that lives.
         </>,
       ];
@@ -162,12 +171,12 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
   return (
     <div className="grid" style={{ gap: 14 }}>
       <Card title="How forwarding works">
-        <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-          Each enabled application gets its own listener on the WAN address, relaying TCP byte for byte. TLS stays
-          end to end, so the application's own certificates and clients keep working, and every client appears to come
-          from this proxy's LAN address — the one entry its whitelist needs. The WAF and access gate cannot inspect
-          this traffic, but the source allow list, the connection cap and the ban engine do: a banned address is
-          refused, and a stream that is already running is cut when the ban lands.
+        <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.7, maxWidth: "88ch" }}>
+          Each enabled application gets its own listener on a port on this host, relaying TCP byte for byte. TLS
+          stays end to end, so the application's own certificates and clients keep working, and every client appears
+          to come from this host's address — the one entry its allow list needs. The WAF and access gate cannot
+          inspect this traffic, but the source allow list, the connection cap and the ban engine do: a banned address
+          is refused, and a stream that is already running is cut when the ban lands.
         </p>
       </Card>
 
@@ -199,8 +208,8 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
                 </label>
 
                 <div className="row grow">
-                  <Field label="Listen address (WAN)">
-                    <input value={f.listen_ip} onChange={(e) => setField(svc.id, "listen_ip", e.target.value)} placeholder="192.168.191.2" />
+                  <Field label="Listen address (this host)">
+                    <input value={f.listen_ip} onChange={(e) => setField(svc.id, "listen_ip", e.target.value)} placeholder="192.168.1.10" />
                   </Field>
                   <Field label="Listen port">
                     <input
@@ -212,6 +221,11 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
                     />
                   </Field>
                 </div>
+
+                <p className="muted" style={{ fontSize: 12, margin: "-2px 0 12px" }}>
+                  An IP assigned to this host. With one NIC that is the LAN address your router forwards to, and the
+                  WAN and LAN fields in Settings hold the same value.
+                </p>
 
                 <Field label={`${svc.label} server (host or host:port)`}>
                   <input value={f.upstream} onChange={(e) => setField(svc.id, "upstream", e.target.value)} placeholder={`192.168.101.10:${svc.default_port}`} />
@@ -286,8 +300,8 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
             </div>
 
             <Card title={`Connecting ${svc.label}`}>
-              <ol className="muted" style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
-                {guideSteps(svc.id, f).map((node, i) => (
+              <ol className="muted" style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7, maxWidth: "88ch" }}>
+                {guideSteps(svc.id, svc.label, f).map((node, i) => (
                   <li key={i}>{node}</li>
                 ))}
               </ol>
@@ -297,17 +311,24 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
       })}
 
       <Card title="Container restart">
-        <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-          Saving a forwarder rebinds its port immediately, which is enough with the shipped{" "}
-          <code>network_mode: host</code> compose file. A restart is only needed when the port is published by Docker
-          and the container has to be recreated, or after changing the WAN/GUI bind addresses.
+        <p className="muted" style={{ fontSize: 13, marginTop: 0, maxWidth: "88ch" }}>
+          Saving a forwarder rebinds its port immediately, which is all that is needed with the shipped{" "}
+          <code>network_mode: host</code> compose file: the container shares the host's network, so Docker publishes
+          no ports. Restart only after changing the bind addresses in Settings, or when the host's own IP changed and
+          the listener needs the new one.
         </p>
-        <div className="bar-row">
-          <div>Compose env file</div>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {env.path ? <span className="mono">{env.path}</span> : "not mounted (host networking needs no port publishing)"}
-            {env.error ? <div className="err-text" style={{ margin: 0 }}>{env.error}</div> : null}
+        <div style={{ marginTop: 14 }}>
+          <div className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em" }}>
+            Compose env file
           </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4, overflowWrap: "anywhere" }}>
+            {env.path ? (
+              <span className="mono">{env.path}</span>
+            ) : (
+              "not mounted — settings are kept in the database"
+            )}
+          </div>
+          {env.error ? <div className="err-text" style={{ margin: 0 }}>{env.error}</div> : null}
         </div>
         <div className="row mt">
           <button className="danger" onClick={restart} disabled={restarting}>

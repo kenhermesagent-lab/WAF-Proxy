@@ -42,6 +42,7 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [enrol, setEnrol] = useState<Enrolment | null>(null);
   const [home, setHome] = useState({ lat: 51.5, lon: -0.12 });
+  const [navOpen, setNavOpen] = useState(false);
 
   const notify = (msg: string) => {
     setToast(msg);
@@ -57,6 +58,16 @@ export default function App() {
         if (Number.isFinite(lat) && Number.isFinite(lon)) setHome({ lat, lon });
       })
       .catch(() => undefined);
+
+  // The drawer only exists below 720px; close it when the window grows so it
+  // does not reappear open the next time the viewport shrinks.
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth > 720) setNavOpen(false);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -136,10 +147,18 @@ export default function App() {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      {navOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
+      <aside className={`sidebar ${navOpen ? "open" : ""}`}>
         <div className="brand"><span className="dot" />WAF-Proxy</div>
         {NAV.map((n) => (
-          <button key={n.id} className={`nav-item ${page === n.id ? "active" : ""}`} onClick={() => setPage(n.id)}>
+          <button
+            key={n.id}
+            className={`nav-item ${page === n.id ? "active" : ""}`}
+            onClick={() => {
+              setPage(n.id);
+              setNavOpen(false);
+            }}
+          >
             <span className="ico">{n.icon}</span>
             {n.label}
           </button>
@@ -152,6 +171,14 @@ export default function App() {
       </aside>
       <main className="main">
         <div className="topbar">
+          <button
+            className="nav-toggle"
+            aria-label="Open navigation"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen((v) => !v)}
+          >
+            ≡
+          </button>
           <h1>{current.label}</h1>
           <div className="spacer" />
           {me?.base_domain && <span className="badge info">{me.base_domain}</span>}
@@ -232,6 +259,9 @@ function Setup({ onDone }: { onDone: (e: Enrolment) => void }) {
           <div className="field"><label>LAN egress IP</label><input value={form.lan_ip} onChange={(e) => setForm({ ...form, lan_ip: e.target.value })} /></div>
           <div className="field"><label>GUI port</label><input type="number" value={form.gui_port} onChange={(e) => setForm({ ...form, gui_port: Number(e.target.value) })} /></div>
         </div>
+        <p className="sub" style={{ fontSize: 12, marginTop: -4 }}>
+          Both addresses must exist on this host. On a single-NIC host enter the same address for WAN and LAN.
+        </p>
         <div className="field"><label>DuckDNS token (optional, stored encrypted)</label><input type="password" value={form.duckdns_token} onChange={(e) => setForm({ ...form, duckdns_token: e.target.value })} /></div>
         <div className="field"><label>ACME email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" /></div>
         {err && <div className="err-text">{err}</div>}

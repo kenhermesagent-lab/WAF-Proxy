@@ -13,7 +13,9 @@ Only `443/tcp` is exposed. The admin GUI binds to the LAN address only.
 ## 1. Host prerequisites
 
 - Linux with Docker Engine 24+ and Compose v2.
-- Two interfaces (or VLANs): one on the WAN subnet, one on the LAN subnet.
+- One or two interfaces. The reference deployment uses two (or two VLANs), one on the WAN
+  subnet and one on the LAN. A **single-NIC host works too**: enter its address for both WAN
+  and LAN (see §3), and firewall the GUI port from the WAN side.
 - `nftables` usable inside the container. The image grants `NET_ADMIN` and
   `NET_BIND_SERVICE` through file capabilities, so do **not** enable
   `no-new-privileges` on the container — it makes the kernel ignore those capabilities.
@@ -54,6 +56,18 @@ Open `http://<host-ip>:8080` from the LAN and fill in:
 | LAN IP / GUI port | `192.168.101.2` / `8443` |
 | DuckDNS token | optional, stored AES-256-GCM encrypted |
 | ACME email | Let's Encrypt account contact |
+
+Both addresses must be configured on the host; the listeners bind them directly from the
+database. On a host with one NIC the WAN and LAN address are the same — the host's address
+that the router DNATs to. The proxy then binds `443` on the NIC shared with the GUI, so only
+forward `443` (and streaming ports) from the WAN and firewall the GUI port. The interface
+counters show that one NIC twice, and the stealth ping drop applies to the whole NIC, so
+leave it off unless dropping LAN ICMP is acceptable.
+
+If a stored address is missing at boot (a DHCP change, or the wizard was filled in before the
+interface came up), the listener falls back to the first-boot `:8443` / `:8080` addresses and
+logs `stored WAN/GUI address is not configured on this host` instead of exiting. Fix the
+address in **Settings** and restart.
 
 The wizard returns the TOTP secret and ten recovery codes **once**. Save both. Then restart:
 
@@ -136,17 +150,19 @@ adding another application is a catalog entry plus a settings row, and unknown e
 render with the generic firewall steps.
 
 1. GUI → **Streaming** → the application's section → enable.
-2. **Listen address** = the WAN address (`192.168.191.2`), **port** = the port clients will
-   use (any free port works, defaults are 32400 and 8096), **server** = the LAN address and
-   port of that application (`192.168.101.10:32400`, `192.168.101.11:8096`).
+2. **Listen address** = an address assigned to this host (`192.168.191.2` in the two-NIC
+   reference; on a single-NIC host the LAN address the router forwards to), **port** = the
+   port clients will use (any free port works, defaults are 32400 and 8096), **server** =
+   the LAN address and port of that application (`192.168.101.10:32400`,
+   `192.168.101.11:8096`).
 3. **Allowed sources** is optional: empty accepts any client the firewall lets through; a
    CIDR restricts further. **Max connections** caps concurrent streams.
 4. **Save and apply** binds the port immediately. There is no Docker restart to do while the
    stack uses `network_mode: host`. A port already used by the GUI, the HTTP proxy or another
    streaming section is refused with a clear message.
 5. On the Firewalla: WAN `32400/tcp` → `192.168.191.2:32400` (and the same for 8096),
-   **DNAT only, no SNAT**. The proxy's own WAN address must not appear as the source, or the
-   server cannot trust it.
+   **DNAT only, no SNAT**. The listener address must not appear as the source, or the server
+   cannot trust it.
 6. In the application:
    - **Plex**: Settings → Network → *List of IP addresses and networks that are allowed
      without auth* → add `192.168.101.2/32`, and keep the list strict.

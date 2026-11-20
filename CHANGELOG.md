@@ -54,6 +54,10 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   documented on the page and in the README instead of being implied.
 - Wildcard `EXPOSE` lines in the Dockerfile now declare all three listeners (`443`, `8080`,
   `8443`), matching the ports the binary actually binds.
+- **Single-NIC hosts are covered.** The setup wizard, Settings and the Streaming page now say
+  that both addresses must exist on the host and that one NIC uses the same IP for WAN and
+  LAN; the streaming guide calls the listen address a host address instead of a second NIC.
+  The shell also gets a navigation toggle below 720px, where the sidebar used to vanish.
 
 ### Fixed
 
@@ -93,6 +97,11 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   and wide tables scroll inside their card.
 - **API error handling**: a non-JSON error body (proxy or upstream HTML) now surfaces the
   HTTP status instead of a parse error.
+- **A stale bind address no longer locks you out.** If the stored `wan_ip`/`lan_ip` is not
+  configured on the host at boot (DHCP change, or the wizard was filled in before the
+  interface came up), the listeners fall back to the first-boot `:8443` / `:8080` addresses
+  and log which address was missing, instead of exiting into a restart loop with an
+  unreachable GUI.
 
 ## [1.1.0] — 2026-11-19
 

@@ -105,11 +105,27 @@ func run() error {
 	wanIface, lanIface := kv["wan_iface"], kv["lan_iface"]
 	// Listener addresses are chosen in the setup wizard and stored in the
 	// database; the environment only supplies the first-boot fallback.
+	fallbackWAN, fallbackGUI := cfg.ListenWAN, cfg.ListenGUI
 	if v := strings.TrimSpace(kv["wan_port"]); v != "" {
 		cfg.ListenWAN = net.JoinHostPort(strings.TrimSpace(kv["wan_ip"]), v)
 	}
 	if v := strings.TrimSpace(kv["gui_port"]); v != "" {
 		cfg.ListenGUI = net.JoinHostPort(strings.TrimSpace(kv["lan_ip"]), v)
+	}
+	// A stored address disappears when the host moves networks or its DHCP
+	// lease changes. Binding it would fail, the process would exit and the
+	// restart policy would loop with no way back into the GUI, so fall back to
+	// the first-boot address and log why. A single-NIC host stores the same
+	// address for both, which is valid here.
+	if !config.IsLocalAddress(cfg.ListenWAN) {
+		log.Error("stored WAN address is not configured on this host; using the first-boot address",
+			"configured", cfg.ListenWAN, "fallback", fallbackWAN)
+		cfg.ListenWAN = fallbackWAN
+	}
+	if !config.IsLocalAddress(cfg.ListenGUI) {
+		log.Error("stored GUI address is not configured on this host; using the first-boot address",
+			"configured", cfg.ListenGUI, "fallback", fallbackGUI)
+		cfg.ListenGUI = fallbackGUI
 	}
 
 	geo := geoip.Open(cfg.DataDir)

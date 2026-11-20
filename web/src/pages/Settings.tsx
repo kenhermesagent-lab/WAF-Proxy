@@ -80,8 +80,10 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
             <Field label="Home longitude"><input value={s.home_lon ?? "-0.12"} onChange={(e) => set("home_lon", e.target.value)} /></Field>
           </div>
           <p className="muted" style={{ fontSize: 12 }}>
-            Restart the container after changing the bind addresses; the listener reads them from
-            the database on boot. Only 443 needs to be forwarded on the WAN side; the admin GUI should stay on the LAN.
+            Both addresses must be configured on this host. A single-NIC host uses the same address for WAN and
+            LAN — then the GUI port must be firewalled from the WAN. Restart the container after changing the bind
+            addresses; the listener reads them from the database on boot. Only 443 needs to be forwarded on the WAN
+            side; the admin GUI should stay on the LAN.
           </p>
         </Card>
 
