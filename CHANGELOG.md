@@ -101,7 +101,11 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   configured on the host at boot (DHCP change, or the wizard was filled in before the
   interface came up), the listeners fall back to the first-boot `:8443` / `:8080` addresses
   and log which address was missing, instead of exiting into a restart loop with an
-  unreachable GUI.
+  unreachable GUI. When the GUI falls back to the wildcard `:8080`, the boot log warns that
+  the admin login is bound to all interfaces until the stored address is fixed.
+- **Dashboard interface auto-detection** uses the interface that carries the IPv4 default
+  route and ignores container/bridge plumbing (`docker*`, `veth*`, `virbr*`, `dummy*`), so
+  a Docker host charts its real WAN link instead of `docker0`.
 
 ## [1.1.0] — 2026-11-19
 

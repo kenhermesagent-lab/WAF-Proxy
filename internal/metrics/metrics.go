@@ -5,6 +5,7 @@ package metrics
 import (
 	"bufio"
 	"context"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -91,8 +92,14 @@ func New(wanName, lanName string) *Collector {
 
 func (c *Collector) autodetect() {
 	names := listInterfaces()
-	if c.wanName == "" && len(names) > 0 {
-		c.wanName = names[0]
+	if c.wanName == "" {
+		// WAN traffic crosses the default-route NIC. Taking the first name
+		// from /sys/class/net would pick docker0 on a container host.
+		if route := defaultRouteInterface(); route != "" {
+			c.wanName = route
+		} else if len(names) > 0 {
+			c.wanName = names[0]
+		}
 	}
 	if c.lanName == "" {
 		for _, n := range names {
@@ -104,19 +111,83 @@ func (c *Collector) autodetect() {
 	}
 }
 
+// virtualInterfacePrefixes are container, bridge and test interfaces. Their
+// counters describe Docker or VM plumbing rather than the host's own links, so
+// auto-detection skips them whenever a physical interface is available.
+var virtualInterfacePrefixes = []string{"docker", "veth", "virbr", "dummy", "vnet", "cni", "flannel"}
+
+func isVirtualInterface(name string) bool {
+	for _, p := range virtualInterfacePrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func listInterfaces() []string {
 	entries, err := os.ReadDir("/sys/class/net")
 	if err != nil {
 		return nil
 	}
-	out := []string{}
+	physical := []string{}
+	all := []string{}
 	for _, e := range entries {
 		if e.Name() == "lo" {
 			continue
 		}
-		out = append(out, e.Name())
+		all = append(all, e.Name())
+		if !isVirtualInterface(e.Name()) {
+			physical = append(physical, e.Name())
+		}
 	}
-	return out
+	if len(physical) > 0 {
+		return physical
+	}
+	return all
+}
+
+// defaultRouteInterface returns the interface carrying the IPv4 default route,
+// or "" when the route table cannot be read (for example on an IPv6-only host).
+func defaultRouteInterface() string {
+	f, err := os.Open("/proc/net/route")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	return parseDefaultRoute(f)
+}
+
+// parseDefaultRoute picks the lowest-metric default route from a
+// /proc/net/route table, preferring a physical link over a container bridge.
+func parseDefaultRoute(r io.Reader) string {
+	sc := bufio.NewScanner(r)
+	best, bestMetric := "", int64(0)
+	bestVirtual, bestVirtualMetric := "", int64(0)
+	for sc.Scan() {
+		// Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 8 || fields[1] != "00000000" || fields[7] != "00000000" {
+			continue
+		}
+		metric, err := strconv.ParseInt(fields[6], 10, 64)
+		if err != nil {
+			metric = 1 << 62
+		}
+		if isVirtualInterface(fields[0]) {
+			if bestVirtual == "" || metric < bestVirtualMetric {
+				bestVirtual, bestVirtualMetric = fields[0], metric
+			}
+			continue
+		}
+		if best == "" || metric < bestMetric {
+			best, bestMetric = fields[0], metric
+		}
+	}
+	if best != "" {
+		return best
+	}
+	return bestVirtual
 }
 
 // SetInterfaces updates the sampled interface names.

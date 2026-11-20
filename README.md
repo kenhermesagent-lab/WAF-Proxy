@@ -67,8 +67,10 @@ deployment) and the proxy is on `WAN_IP:443`.
 
 Two NICs are not required. On a single-interface host, enter the host's own address for both
 the WAN and LAN fields, forward `443` (and any streaming ports) to it, and keep the GUI port
-firewalled from the WAN. If a stored address is not on the host at boot, the listeners fall
-back to the first-boot `:8443` / `:8080` bindings and log why, so the GUI stays reachable.
+firewalled from the WAN. If a stored address is not on the host at boot, the listeners fall back to the first-boot `:8443` / `:8080` bindings and log why, so the GUI stays reachable.
+The fallback GUI bind is normally `:8080`, so the admin login answers on **every** interface
+until you fix the stored address in Settings; the boot log warns about this and the port
+stays subject to your WAN firewall.
 
 1. **Certificates** → Request certificate → provider `duckdns`, domains
    `*.your-base-domain,your-base-domain`. The token from the wizard is reused.

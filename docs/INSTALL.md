@@ -69,6 +69,11 @@ interface came up), the listener falls back to the first-boot `:8443` / `:8080` 
 logs `stored WAN/GUI address is not configured on this host` instead of exiting. Fix the
 address in **Settings** and restart.
 
+The fallback GUI address is the first-boot `:8080`, so after the fallback the admin login
+listens on **all interfaces**, not just the LAN. The log says so explicitly
+(`admin GUI is bound to all interfaces until the stored address is fixed in Settings`);
+fix the address promptly and keep `8080` blocked at the WAN firewall in the meantime.
+
 The wizard returns the TOTP secret and ten recovery codes **once**. Save both. Then restart:
 
 ```bash
