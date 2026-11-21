@@ -6,6 +6,7 @@ import { Me, SetupStatus } from "./types";
 import Dashboard from "./pages/Dashboard";
 import Proxies from "./pages/Proxies";
 import Streaming from "./pages/Streaming";
+import TailscalePage from "./pages/Tailscale";
 import Policies from "./pages/Policies";
 import Sources from "./pages/Sources";
 import Intel from "./pages/Intel";
@@ -22,6 +23,7 @@ const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "◎" },
   { id: "proxies", label: "Proxies", icon: "⇄" },
   { id: "streaming", label: "Streaming", icon: "▶" },
+  { id: "tailscale", label: "Tailscale", icon: "⌁" },
   { id: "policies", label: "Policies", icon: "⛨" },
   { id: "sources", label: "Sources", icon: "◉" },
   { id: "intel", label: "Threat intel", icon: "☣" },
@@ -189,6 +191,7 @@ export default function App() {
           {page === "dashboard" && <Dashboard onError={notify} home={home} />}
           {page === "proxies" && <Proxies onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
           {page === "streaming" && <Streaming onError={notify} onOK={notify} />}
+          {page === "tailscale" && <TailscalePage onError={notify} onOK={notify} />}
           {page === "policies" && <Policies onError={notify} onOK={notify} />}
           {page === "sources" && <Sources onError={notify} onOK={notify} />}
           {page === "intel" && <Intel onError={notify} onOK={notify} />}

@@ -6,6 +6,7 @@ require (
 	github.com/corazawaf/coraza-coreruleset/v4 v4.25.0
 	github.com/corazawaf/coraza/v3 v3.8.1
 	github.com/go-acme/lego/v4 v4.35.2
+	github.com/miekg/dns v1.1.72
 	github.com/oschwald/maxminddb-golang/v2 v2.9.1
 	golang.org/x/crypto v0.59.0
 	modernc.org/sqlite v1.62.0
@@ -53,7 +54,6 @@ require (
 	github.com/kaptinlin/jsonschema v0.4.6 // indirect
 	github.com/magefile/mage v1.17.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/miekg/dns v1.1.72 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/openshift/gssapi v0.0.0-20161010215902-5fb4217df13b // indirect
 	github.com/ovh/go-ovh v1.9.0 // indirect

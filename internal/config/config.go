@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/tailnet"
 )
 
 // Config is the process-wide configuration. Operational settings such as the
@@ -22,9 +24,13 @@ type Config struct {
 	WANIface       string
 	LANIface       string
 	GUIPrivateOnly bool
-	MasterKey      []byte
-	CrowdSecURL    string
-	CrowdSecKey    string
+	// TailscaleIP is the tailscale0 IPv4 address captured at boot. Settings
+	// decide whether it is used; a missing interface leaves it empty and the
+	// service continues with only the LAN/WAN listeners.
+	TailscaleIP string
+	MasterKey   []byte
+	CrowdSecURL string
+	CrowdSecKey string
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -36,6 +42,7 @@ func Load() (*Config, error) {
 		WANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_WAN_IFACE")),
 		LANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_LAN_IFACE")),
 		GUIPrivateOnly: envBool("WAFPROXY_GUI_PRIVATE_ONLY"),
+		TailscaleIP:    tailscaleIPv4(),
 		CrowdSecURL:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_URL")),
 		CrowdSecKey:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_KEY")),
 	}
@@ -79,6 +86,33 @@ func IsLocalAddress(addr string) bool {
 	}
 	return false
 }
+
+// TailscaleIPv4 returns the first 100.64.0.0/10 IPv4 address on tailscale0.
+// It is intentionally a pure interface lookup: the unprivileged service does
+// not need the Tailscale control socket to serve tailnet listeners.
+func TailscaleIPv4() (string, error) {
+	iface, err := net.InterfaceByName("tailscale0")
+	if err != nil {
+		return "", fmt.Errorf("tailscale0 interface not found")
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return "", fmt.Errorf("read tailscale0 addresses: %w", err)
+	}
+	ip := tailnet.IPv4FromAddrs(addrs)
+	if ip == "" {
+		return "", fmt.Errorf("tailscale0 has no Tailscale IPv4 address")
+	}
+	return ip, nil
+}
+
+func tailscaleIPv4() string {
+	ip, _ := TailscaleIPv4()
+	return ip
+}
+
+// TailscaleIPv4OrEmpty is the non-error form used by request validation.
+func TailscaleIPv4OrEmpty() string { return tailscaleIPv4() }
 
 func loadMasterKey(dir string) ([]byte, error) {
 	if raw := os.Getenv("WAFPROXY_MASTER_KEY"); raw != "" {

@@ -293,6 +293,16 @@ if ((!ready)); then
   die "wafproxy.service is running but did not open $lan_ip:$gui_port"
 fi
 
+tailscale_status="not installed (optional; see docs/INSTALL.md section 12)"
+if command -v tailscale >/dev/null 2>&1; then
+  tailscale_ip="$(ip -4 -o addr show dev tailscale0 2>/dev/null | awk '$3 == "inet" { split($4, a, "/"); print a[1]; exit }' || true)"
+  if [[ -n "$tailscale_ip" ]]; then
+    tailscale_status="connected at $tailscale_ip"
+  else
+    tailscale_status="installed but not connected (run: sudo tailscale up)"
+  fi
+fi
+
 cat <<EOF
 
 WAF-Proxy is running under systemd.
@@ -302,6 +312,9 @@ LAN interface:  $lan_iface ($lan_ip:$gui_port, admin GUI only)
 Admin access:   http://$lan_ip:$gui_port
                 Only RFC1918 clients are accepted (loopback remains allowed for local checks).
 WAN proxy:      https://$wan_ip:$wan_port
+Tailscale:      $tailscale_status
+                Enable admin/proxy access on the Tailscale page after setup.
+                Tailnet clients must be granted tcp:$wan_port, tcp:$gui_port and DNS 53 by ACL.
 
 Open the admin GUI, complete the wizard (its addresses are prefilled), then run
 \`systemctl restart wafproxy\` so the stored settings are used. On an existing install, addresses already

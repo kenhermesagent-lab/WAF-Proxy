@@ -21,6 +21,7 @@ sample traffic, not production figures.***
 - [Quick start](#quick-start)
 - [First certificate and first site](#first-certificate-and-first-site)
 - [Streaming forwarders (Plex, Jellyfin)](#streaming-forwarders-plex-jellyfin)
+- [Tailscale access](#tailscale-access)
 - [CrowdSec](#crowdsec)
 - [Day-to-day operations](#day-to-day-operations)
 - [Security model and limitations](#security-model-and-limitations)
@@ -48,6 +49,7 @@ sample traffic, not production figures.***
 | Feature | Behaviour |
 |---|---|
 | **Reverse proxy** | HTTPS with SNI + Host routing, WebSocket passthrough, weighted round-robin upstreams, active health checks, path redirects and aliases, gzip, a conservative GET cache, and streamed responses. |
+| **Tailscale ingress** | Optional native `tailscale0` listeners for the admin console and for app traffic. The app path keeps the existing TLS/SNI certificate and WAF pipeline, and a tailnet-only DNS responder supplies split-DNS answers for configured sites. |
 | **TLS** | DNS-01 wildcard certificates through lego — DuckDNS, Cloudflare, Route53, DigitalOcean, Hetzner, OVH, GoDaddy and RFC2136. Per-site assignment, automatic renewal inside 30 days, serialised ACME orders, staging toggle. |
 | **Streaming forwarders** | Transparent TCP relays for **Plex** and **Jellyfin** on their own WAN ports, with a source allowlist, connection cap, banned-source refusal that also cuts running streams, and live counters. |
 | **Maintenance mode** | Per-site switch that answers with a maintenance response instead of the backend. |
@@ -104,6 +106,7 @@ small on a busy site.
 - **Optional:** `GeoLite2-City.mmdb` / `GeoLite2-ASN.mmdb` (or the DB-IP Lite equivalents) in
   the data volume for country and ASN policy.
 - **Optional:** the CrowdSec sidecar profile.
+- **Optional:** a native Tailscale installation (`tailscale0`) for private admin and app access; no Tailscale sidecar or auth key is needed by WAF-Proxy.
 
 ## Quick start
 
@@ -188,6 +191,40 @@ firewall rules and first certificate are otherwise identical. Upgrade with
 `git pull && make build && sudo ./deploy/install.sh` (it prompts again and keeps the database;
 on an existing install the addresses stored in **Settings** still take precedence over the env
 file); see [docs/INSTALL.md](docs/INSTALL.md#11-bare-metal-with-systemd).
+
+### Tailscale access
+
+If the host already runs Tailscale, the **Tailscale** page can add two default-off listeners
+without changing the LAN/WAN bindings:
+
+- **Admin console over Tailscale** binds the existing console to the tailnet IPv4 address and
+  accepts only sources in `100.64.0.0/10`. The LAN listener and its RFC1918 rule remain. The URL
+  is `http://<tailnet-ip>:<gui-port>`; HTTP is carried inside WireGuard, not the public WAN.
+- **Proxy app traffic over Tailscale** binds the normal TLS/SNI proxy to the tailnet IPv4
+  address. Remote devices use the app's normal HTTPS hostname after a Tailscale split-DNS
+  override, so the WAF still sees the hostname, certificate and real tailnet client IP before
+  forwarding to the LAN app.
+
+The page can also answer split DNS on `tailnet-ip:53` for configured proxy hostnames. This is
+needed because Tailscale split DNS forwards a domain to a nameserver, not to a direct A-record
+override. It is authoritative and non-recursive and answers only existing sites.
+
+The tailnet listeners need a concrete LAN/WAN bind address. A wildcard listener such as `:8080`
+or `:8443` (the Docker Compose defaults) already owns the port, so set `WAFPROXY_LISTEN_GUI` and
+`WAFPROXY_LISTEN_WAN` to the host's real LAN/WAN addresses before enabling these switches.
+
+Install Tailscale first, run `sudo tailscale up`, then enable the listeners, save, and restart:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+tailscale ip -4
+```
+
+The installer detects an existing Tailscale address but deliberately does not install Tailscale
+or run `tailscale up` for you. See [docs/INSTALL.md](docs/INSTALL.md#12-optional-native-tailscale-access)
+for the ACL and split-DNS setup. Tailscale ACLs still gate who can reach the ports; the admin
+console still requires password + TOTP.
 
 ## First certificate and first site
 
@@ -278,7 +315,8 @@ These are deliberate design decisions, not gaps to discover later:
 
 - **The console is LAN-only and plain HTTP.** Keep the GUI port firewalled from the WAN; the
   session cookie is only marked `Secure` when the console is served over TLS. Do not port
-  forward it.
+  forward it. The optional Tailscale admin listener is also plain HTTP, but only inside
+  Tailscale's WireGuard transport and only from `100.64.0.0/10`; it is not public.
 - **Subdomains are not a secrecy boundary.** Every certificate is published to Certificate
   Transparency logs, so `*.example.duckdns.org` is discoverable. Protection comes from
   443-only exposure, no default vhost, DROP-by-default, the WAF and the ban engine.

@@ -78,8 +78,9 @@ type Server struct {
 	dropped atomic.Int64
 
 	hardBody int64
-	srv      *http.Server
-	ln       net.Listener
+
+	listenMu  sync.Mutex
+	listenErr map[string]string
 }
 
 // New creates the proxy server with a temporary self-signed certificate.
@@ -224,43 +225,121 @@ func (s *Server) allowedHost(host string) bool {
 	return ok
 }
 
-// Run listens on addr and serves TLS until the context is cancelled.
-func (s *Server) Run(ctx context.Context, addr string) error {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
+// Run listens on the first address and serves TLS until the context is
+// cancelled. Extra addresses are optional tailnet listeners: a failure to bind
+// one is recorded for the Tailscale page but must not take the WAN listener
+// down.
+func (s *Server) Run(ctx context.Context, addrs ...string) error {
+	if len(addrs) == 0 {
+		return fmt.Errorf("no proxy listen address")
 	}
-	s.ln = ln
-	tlsLn := tls.NewListener(ln, &tls.Config{
+	seen := map[string]bool{}
+	var lns []net.Listener
+	var bound []string
+	for i, addr := range addrs {
+		addr = strings.TrimSpace(addr)
+		if addr == "" || seen[addr] {
+			continue
+		}
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			if i == 0 {
+				for _, l := range lns {
+					_ = l.Close()
+				}
+				return fmt.Errorf("listen %s: %w", addr, err)
+			}
+			s.setListenError(addr, err)
+			s.d.Log.Error("extra proxy listener failed", "addr", addr, "err", err)
+			continue
+		}
+		seen[addr] = true
+		lns = append(lns, ln)
+		bound = append(bound, addr)
+		s.clearListenError(addr)
+	}
+	if len(lns) == 0 {
+		return fmt.Errorf("no proxy listeners bound")
+	}
+
+	servers := make([]*http.Server, 0, len(lns))
+	for range lns {
+		servers = append(servers, &http.Server{
+			Handler:           s,
+			ReadHeaderTimeout: 10 * time.Second,
+			// Bound slow request bodies (slowloris) while leaving writes unbounded
+			// so SSE and large streamed downloads are not cut off.
+			ReadTimeout:    60 * time.Second,
+			IdleTimeout:    90 * time.Second,
+			MaxHeaderBytes: 32 << 10,
+			ErrorLog:       nil,
+		})
+	}
+	go s.eventWriter(ctx)
+	errCh := make(chan error, len(servers))
+	for i, srv := range servers {
+		tlsLn := tls.NewListener(lns[i], s.tlsConfig())
+		addr := bound[i]
+		go func() {
+			s.d.Log.Info("proxy listening", "addr", addr)
+			errCh <- srv.Serve(tlsLn)
+		}()
+	}
+
+	shutdown := func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for _, srv := range servers {
+			_ = srv.Shutdown(shutdownCtx)
+		}
+		for _, ln := range lns {
+			_ = ln.Close()
+		}
+	}
+	go func() {
+		<-ctx.Done()
+		shutdown()
+	}()
+
+	err := <-errCh
+	shutdown()
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
+}
+
+func (s *Server) tlsConfig() *tls.Config {
+	return &tls.Config{
 		MinVersion:             tls.VersionTLS12,
 		NextProtos:             []string{"h2", "http/1.1"},
 		GetCertificate:         s.getCertificate,
 		SessionTicketsDisabled: false,
 		CurvePreferences:       []tls.CurveID{tls.X25519, tls.CurveP256},
-	})
-	s.srv = &http.Server{
-		Handler:           s,
-		ReadHeaderTimeout: 10 * time.Second,
-		// Bound slow request bodies (slowloris) while leaving writes unbounded
-		// so SSE and large streamed downloads are not cut off.
-		ReadTimeout:    60 * time.Second,
-		IdleTimeout:    90 * time.Second,
-		MaxHeaderBytes: 32 << 10,
-		ErrorLog:       nil,
 	}
-	go s.eventWriter(ctx)
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = s.srv.Shutdown(shutdownCtx)
-	}()
-	s.d.Log.Info("proxy listening", "addr", addr)
-	err = s.srv.Serve(tlsLn)
-	if err == http.ErrServerClosed {
-		return nil
+}
+
+func (s *Server) setListenError(addr string, err error) {
+	s.listenMu.Lock()
+	defer s.listenMu.Unlock()
+	if s.listenErr == nil {
+		s.listenErr = map[string]string{}
 	}
-	return err
+	s.listenErr[addr] = err.Error()
+}
+
+func (s *Server) clearListenError(addr string) {
+	s.listenMu.Lock()
+	defer s.listenMu.Unlock()
+	delete(s.listenErr, addr)
+}
+
+// ListenerError reports why an optional proxy listener did not bind, or an
+// empty string when it is healthy.
+func (s *Server) ListenerError(addr string) string {
+	s.listenMu.Lock()
+	defer s.listenMu.Unlock()
+	return s.listenErr[addr]
 }
 
 func (s *Server) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {

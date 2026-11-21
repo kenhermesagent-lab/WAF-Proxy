@@ -12,6 +12,28 @@ export interface SetupStatus {
   lan_iface?: string;
 }
 
+export interface TailscaleStatus {
+  available: boolean;
+  ip: string;
+  error: string;
+  admin_enabled: boolean;
+  admin_active: boolean;
+  admin_url: string;
+  admin_error?: string;
+  proxy_enabled: boolean;
+  proxy_active: boolean;
+  proxy_addr?: string;
+  proxy_error?: string;
+  dns_enabled: boolean;
+  dns_active: boolean;
+  dns_addr?: string;
+  dns_error?: string;
+  restart_required: boolean;
+  base_domain: string;
+  gui_port: number;
+  wan_port: number;
+}
+
 export interface Me {
   username: string;
   csrf: string;

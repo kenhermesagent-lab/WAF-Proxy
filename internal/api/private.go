@@ -4,6 +4,8 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/tailnet"
 )
 
 // PrivateNetworksOnly refuses admin-console requests whose source address is
@@ -21,6 +23,20 @@ func PrivateNetworksOnly(next http.Handler) http.Handler {
 		addr, ok := netip.AddrFromSlice(ip)
 		if !ok || !isPrivateClient(addr.Unmap()) {
 			http.Error(w, "admin console is available only from a private network", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// TailscaleOnly refuses requests that did not arrive from the tailnet IPv4
+// CGNAT range. It is used on the extra admin listener; the LAN listener keeps
+// PrivateNetworksOnly and does not accept 100.64.0.0/10.
+func TailscaleOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip, err := netip.ParseAddr(clientIP(r))
+		if err != nil || !tailnet.IsIPv4(ip.Unmap()) {
+			http.Error(w, "admin console is available only over Tailscale", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)

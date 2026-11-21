@@ -1,7 +1,7 @@
 [Unit]
 Description=WAF-Proxy reverse proxy and admin console
 Documentation=https://github.com/kenhermesagent-lab/WAF-Proxy-Docker
-After=network-online.target nftables.service
+After=network-online.target nftables.service tailscaled.service
 Wants=network-online.target
 
 [Service]

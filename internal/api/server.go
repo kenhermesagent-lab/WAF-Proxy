@@ -59,6 +59,7 @@ type Server struct {
 	started   time.Time
 	streams   *streaming.Manager
 	restartFn func()
+	tailscale TailscaleState
 
 	// Pending TOTP rotations are held server-side and keyed by session, so a
 	// stolen session cannot confirm an authenticator of its own choosing.
@@ -158,6 +159,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/streaming", s.authed(s.getStreaming))
 	m.HandleFunc("PUT /api/streaming/{id}", s.authed(s.putStreaming))
 	m.HandleFunc("POST /api/system/restart", s.authed(s.restartProcess))
+	m.HandleFunc("GET /api/tailscale", s.authed(s.getTailscale))
+	m.HandleFunc("PUT /api/tailscale", s.authed(s.putTailscale))
 }
 
 // SetStreaming attaches the media forwarder manager. A nil manager keeps the

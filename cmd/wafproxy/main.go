@@ -33,6 +33,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/tailnet"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/webui"
@@ -102,6 +103,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	tailscaleIP := cfg.TailscaleIP
+	tailscaleAdmin := kv["tailscale_admin_enabled"] == "1"
+	tailscaleProxy := kv["tailscale_proxy_enabled"] == "1"
+	tailscaleDNSPref := kv["tailscale_dns_enabled"] != "0"
+	tailscaleDNS := tailscaleDNSPref && tailscaleProxy
 	wanIface, lanIface := kv["wan_iface"], kv["lan_iface"]
 	// The native installer records the interfaces in the environment. They are
 	// used until the wizard exists and are copied into the database by setup,
@@ -143,6 +149,38 @@ func run() error {
 					"gui", cfg.ListenGUI)
 			}
 		}
+	}
+
+	tailAdminAddr, tailProxyAddr := "", ""
+	tailAdminErr, tailProxyErr := "", ""
+	if tailscaleAdmin {
+		switch {
+		case tailscaleIP == "":
+			tailAdminErr = "Tailscale is not connected; admin tailnet listener not started"
+			log.Warn(tailAdminErr)
+		case wildcardBind(cfg.ListenGUI):
+			tailAdminErr = "LAN admin listener uses a wildcard bind; set a concrete LAN address before enabling Tailscale admin access"
+			log.Error(tailAdminErr, "addr", cfg.ListenGUI)
+		default:
+			tailAdminAddr = net.JoinHostPort(tailscaleIP, strconv.Itoa(portOf(cfg.ListenGUI, 8443)))
+		}
+	}
+	if tailscaleProxy {
+		switch {
+		case tailscaleIP == "":
+			tailProxyErr = "Tailscale is not connected; proxy tailnet listener not started"
+			log.Warn(tailProxyErr)
+		case wildcardBind(cfg.ListenWAN):
+			tailProxyErr = "WAN listener uses a wildcard bind; set a concrete WAN address before enabling Tailscale proxy access"
+			log.Error(tailProxyErr, "addr", cfg.ListenWAN)
+		default:
+			tailProxyAddr = net.JoinHostPort(tailscaleIP, strconv.Itoa(portOf(cfg.ListenWAN, 443)))
+		}
+	}
+	if tailAdminAddr != "" && tailAdminAddr == tailProxyAddr {
+		tailProxyErr = "admin and proxy tailnet listeners cannot share a port"
+		log.Error(tailProxyErr, "addr", tailProxyAddr)
+		tailProxyAddr = ""
 	}
 
 	geo := geoip.Open(cfg.DataDir)
@@ -267,6 +305,34 @@ func run() error {
 	}
 	defer streams.Close()
 
+	var dnsSrv *tailnet.DNS
+	dnsAddr, dnsErr := "", ""
+	dnsUp := false
+	if tailProxyAddr != "" && tailscaleDNS {
+		dnsAddr = net.JoinHostPort(tailscaleIP, "53")
+		dnsSrv = tailnet.NewDNS(dnsAddr, func() ([]string, error) {
+			list, err := st.ListProxies()
+			if err != nil {
+				return nil, err
+			}
+			hosts := make([]string, 0, len(list))
+			for _, p := range list {
+				hosts = append(hosts, p.Hostname)
+			}
+			return hosts, nil
+		}, log)
+		if err := dnsSrv.Start(); err != nil {
+			dnsErr = err.Error()
+			dnsSrv = nil
+			log.Error("tailnet split DNS failed to start", "err", err)
+		} else {
+			dnsUp = true
+		}
+	}
+	if dnsSrv != nil {
+		defer dnsSrv.Close()
+	}
+
 	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
 	apiServer.SetStreaming(streams)
 	restartCh := make(chan struct{}, 1)
@@ -281,17 +347,52 @@ func run() error {
 	// The SPA lives outside the API mux, so apply the same hardening headers.
 	gui.Handle("/", api.SecurityHeaders(webui.Handler()))
 
-	var guiHandler http.Handler = gui
+	type guiListener struct {
+		addr  string
+		srv   *http.Server
+		ln    net.Listener
+		fatal bool
+	}
+	var guiListeners []guiListener
+	listenGUI := func(addr string, handler http.Handler, fatal bool) string {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			return err.Error()
+		}
+		srv := &http.Server{
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    32 << 10,
+		}
+		guiListeners = append(guiListeners, guiListener{addr: addr, srv: srv, ln: ln, fatal: fatal})
+		return ""
+	}
+
+	var lanHandler http.Handler = gui
 	if cfg.GUIPrivateOnly {
-		guiHandler = api.PrivateNetworksOnly(gui)
+		lanHandler = api.PrivateNetworksOnly(gui)
 	}
-	guiSrv := &http.Server{
-		Addr:              cfg.ListenGUI,
-		Handler:           guiHandler,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    32 << 10,
+	if msg := listenGUI(cfg.ListenGUI, lanHandler, true); msg != "" {
+		log.Error("admin listener failed", "addr", cfg.ListenGUI, "err", msg)
+		cancel()
 	}
+	tailAdminUp := false
+	if tailAdminAddr != "" {
+		if msg := listenGUI(tailAdminAddr, api.TailscaleOnly(gui), false); msg != "" {
+			tailAdminErr = msg
+			log.Error("tailnet admin listener failed", "addr", tailAdminAddr, "err", msg)
+		} else {
+			tailAdminUp = true
+		}
+	}
+
+	apiServer.SetTailscaleState(api.TailscaleState{
+		AdminAddr: tailAdminAddr, ProxyAddr: tailProxyAddr, DNSAddr: dnsAddr,
+		AdminOn: tailscaleAdmin, ProxyOn: tailscaleProxy, DNSOn: tailscaleDNSPref,
+		AdminUp: tailAdminUp, DNSUp: dnsUp,
+		AdminError: tailAdminErr, ProxyError: tailProxyErr, DNSError: dnsErr,
+	})
 
 	met.Start(ctx)
 	go apiServer.Start(ctx)
@@ -306,16 +407,20 @@ func run() error {
 	go retentionLoop(ctx, st, log)
 	go certWatch(ctx, st, certs, notifier, log)
 
-	go func() {
-		log.Info("admin interface listening", "addr", cfg.ListenGUI)
-		if err := guiSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("admin listener failed", "err", err)
-			cancel()
-		}
-	}()
+	for _, gl := range guiListeners {
+		go func(gl guiListener) {
+			log.Info("admin interface listening", "addr", gl.addr)
+			if err := gl.srv.Serve(gl.ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("admin listener failed", "addr", gl.addr, "err", err)
+				if gl.fatal {
+					cancel()
+				}
+			}
+		}(gl)
+	}
 
 	proxyErr := make(chan error, 1)
-	go func() { proxyErr <- px.Run(ctx, cfg.ListenWAN) }()
+	go func() { proxyErr <- px.Run(ctx, cfg.ListenWAN, tailProxyAddr) }()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -334,8 +439,30 @@ func run() error {
 	cancel()
 	shutdownCtx, done := context.WithTimeout(context.Background(), 8*time.Second)
 	defer done()
-	_ = guiSrv.Shutdown(shutdownCtx)
+	for _, gl := range guiListeners {
+		_ = gl.srv.Shutdown(shutdownCtx)
+	}
 	return nil
+}
+
+func wildcardBind(addr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return false
+	}
+	return host == "" || host == "0.0.0.0" || host == "::"
+}
+
+func portOf(addr string, fallback int) int {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fallback
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return fallback
+	}
+	return n
 }
 
 func newLogger() *slog.Logger {

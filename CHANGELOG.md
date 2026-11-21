@@ -11,6 +11,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [Unreleased]
+
+### Added
+
+- **Native Tailscale access.** The console now has a **Tailscale** page with two default-off
+  listeners. **Admin console over Tailscale** adds a `tailscale0` listener on the GUI port and
+  accepts only `100.64.0.0/10` clients while keeping the LAN console unchanged. **Proxy app
+  traffic over Tailscale** adds a second TLS/SNI listener on the WAN port, preserving the
+  existing certificates, Host header and WAF pipeline. A small authoritative DNS responder can
+  answer split DNS for configured proxy hostnames on the tailnet address; it is non-recursive
+  and does not resolve arbitrary names. The native installer detects an existing Tailscale
+  interface but deliberately leaves installation and `tailscale up` to the operator. See
+  `docs/INSTALL.md` §12.
+- Go tests for Tailscale address selection, the tailnet-only admin source check, DNS answers,
+  API validation, and Vitest coverage for the new console page's unavailable, active, DNS-error
+  and restart states.
+
 ## [1.1.1] — 2026-11-19
 
 Fixes the decoy defaults that could ban real users, closes a round of security gaps, and
