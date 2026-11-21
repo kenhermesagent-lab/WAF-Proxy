@@ -15,6 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **Green shield branding and repository update guide.** The console sidebar and browser tab
+  now use the same green shield mark. The README's **Updating from the repository** section
+  documents backup, pull, rebuild and health-check steps separately for Docker Compose and
+  native systemd, including how to return to a release tag.
 - **MCP gateway for standalone security agents.** The console now exposes an authenticated
   Model Context Protocol endpoint at `/mcp` and an **Agent access** page for named tokens.
   A Hermes-style agent can review events, inspect one IP's byte/path history, block an IP or

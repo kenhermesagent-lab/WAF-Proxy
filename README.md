@@ -26,6 +26,7 @@ sample traffic, not production figures.***
 - [Host updates](#host-updates)
 - [Agent access (MCP gateway)](#agent-access-mcp-gateway)
 - [CrowdSec](#crowdsec)
+- [Updating from the repository](#updating-from-the-repository)
 - [Day-to-day operations](#day-to-day-operations)
 - [Security model and limitations](#security-model-and-limitations)
 - [Development](#development)
@@ -225,7 +226,7 @@ is bound to the WAN address and the admin GUI to the LAN address only; the admin
 refuses every client outside RFC1918, with loopback also accepted for local checks. The wizard is
 prefilled with those addresses, so open `http://<LAN-IP>:8443` and finish setup. The wizard,
 firewall rules and first certificate are otherwise identical. Upgrade with
-`git pull && make build && sudo ./deploy/install.sh` (it prompts again and keeps the database;
+`git pull && make all && sudo ./deploy/install.sh` (it prompts again and keeps the database;
 on an existing install the addresses stored in **Settings** still take precedence over the env
 file). To remove the native install, run `sudo ./deploy/uninstall.sh`; it prompts before
 removing the units, binaries, config, data, logs, app-owned nftables table and `wafproxy`
@@ -392,6 +393,51 @@ docker compose -f deploy/docker-compose.yml up -d wafproxy
 The sidecar tails `/logs/access.log` with the stock nginx parser; decisions arrive over the
 LAPI stream and become `source=crowdsec` bans.
 
+## Updating from the repository
+
+Pull application updates from the checkout that matches the running deployment. The database
+and `deploy/.env` are outside the tracked files, so a normal update does not replace them. Take
+a **Settings → Download JSON** backup and note the current `VERSION` before starting; both
+paths below keep the existing data volume or `/var/lib/wafproxy`.
+
+### Docker Compose
+
+```bash
+cd /path/to/WAF-Proxy-Docker
+git status --short                    # expect no local changes before pulling
+git pull --ff-only                    # or: git fetch --tags && git checkout vX.Y.Z
+docker compose -f deploy/docker-compose.yml up -d --build
+docker compose -f deploy/docker-compose.yml ps
+curl -fsS http://<LAN-IP>:8443/api/health
+```
+
+`up -d --build` rebuilds the image from the updated checkout and recreates the container. The
+named `data` volume is retained. If the pull reports local changes, commit or stash them first;
+do not force the pull over an edited checkout. To go back to a release, check out its tag and
+run the same `up -d --build` command.
+
+### Native systemd
+
+```bash
+cd /path/to/WAF-Proxy-Docker
+git status --short                    # expect no local changes before pulling
+git pull --ff-only                    # or: git fetch --tags && git checkout vX.Y.Z
+make all                              # rebuild the console and both Go binaries
+sudo ./deploy/install.sh              # prompts again; keeps the database and env file
+sudo systemctl status wafproxy wafproxy-updates
+curl -fsS http://<LAN-IP>:8443/api/health
+```
+
+`make all` is `make ui` followed by `make build`; it refreshes the embedded console as well as
+`bin/wafproxy` and `bin/wafproxy-updated`. `deploy/install.sh` reinstalls the units and binaries,
+preserves `/etc/wafproxy/wafproxy.env` and `/var/lib/wafproxy`, and restarts both services. It
+asks for the WAN/LAN interfaces again; the addresses already stored in **Settings** still take
+precedence after boot. If the installer reports that the listener did not open, use
+`journalctl -u wafproxy -n 50 --no-pager` before retrying.
+
+After either update, confirm the version in the console footer or
+`GET /api/version`, and check [CHANGELOG.md](CHANGELOG.md) for schema or behaviour changes.
+
 ## Day-to-day operations
 
 ![Settings](docs/screenshots/settings.png)
@@ -404,7 +450,7 @@ LAPI stream and become `source=crowdsec` bans.
 | Change an address or port | **Settings**, then restart the container |
 | Tune the WAF | **Policies → WAF profiles** → edit paranoia, anomaly threshold, methods, body limit or rule exceptions |
 | Back up | **Settings → Download JSON** (secrets excluded) |
-| Upgrade | `git pull && docker compose -f deploy/docker-compose.yml build && docker compose -f deploy/docker-compose.yml up -d` |
+| Upgrade | See [Updating from the repository](#updating-from-the-repository) for Docker and native systemd |
 | Check health | `docker compose -f deploy/docker-compose.yml ps`, `curl -s http://<lan-ip>:8443/api/health` |
 | Uninstall (Docker) | `docker compose -f deploy/docker-compose.yml down && docker volume rm wafproxy_data` (destructive) |
 | Uninstall (systemd) | `sudo ./deploy/uninstall.sh` (prompts; `--keep-data` preserves config and database) |

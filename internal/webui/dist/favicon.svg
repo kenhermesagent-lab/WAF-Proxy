@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="WAF-Proxy shield">
+  <defs>
+    <linearGradient id="shield-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4ade80"/>
+      <stop offset="1" stop-color="#15803d"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 4 56 13v17c0 14-9.6 24.3-24 30C17.6 54.3 8 44 8 30V13L32 4Z"
+        fill="url(#shield-fill)" stroke="#166534" stroke-width="2" stroke-linejoin="round"/>
+  <path d="m21 32 8 8 14-15" fill="none" stroke="#fff" stroke-width="5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

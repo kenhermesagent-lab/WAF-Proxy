@@ -157,7 +157,7 @@ export default function App() {
     <div className="shell">
       {navOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <aside className={`sidebar ${navOpen ? "open" : ""}`}>
-        <div className="brand"><span className="dot" />WAF-Proxy</div>
+        <div className="brand"><img className="brand-mark" src="/favicon.svg" alt="" width={24} height={24} />WAF-Proxy</div>
         {NAV.map((n) => (
           <button
             key={n.id}
