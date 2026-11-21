@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -13,8 +12,9 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates"
 )
 
-// updateScripts are the fixed helper scripts copied into the install's lib
-// directory. Their installed names differ from the checkout's file names.
+// updateScripts are the fixed helper scripts install.sh places on the host.
+// They are only checked here: a console admin supplies a path, never code, so
+// recording one must not copy or execute anything from that checkout as root.
 var updateScripts = []struct{ checkout, installed string }{
 	{"wafproxy-self-update.sh", "self-update"},
 	{"wafproxy-self-update-check.sh", "self-update-check"},
@@ -24,10 +24,10 @@ var updateScripts = []struct{ checkout, installed string }{
 // normally writes this file; the Updates page offers the same step when the
 // checkout lives in another directory.
 func configureApp(dir string) updates.HelperResponse {
-	return configureAppAt(dir, updates.SelfUpdateConfFile(), filepath.Dir(updates.AppSelfUpdateScript))
+	return configureAppAt(dir, updates.SelfUpdateConfFile())
 }
 
-func configureAppAt(dir, confPath, scriptDir string) updates.HelperResponse {
+func configureAppAt(dir, confPath string) updates.HelperResponse {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
 		return updates.HelperResponse{Error: "a repository directory is required"}
@@ -66,22 +66,6 @@ func configureAppAt(dir, confPath, scriptDir string) updates.HelperResponse {
 	if values, err := updates.ReadSelfUpdateConf(confPath); err == nil && values["WAFPROXY_UPDATE_MODE"] == "docker" {
 		mode = "docker"
 	}
-	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
-		return updates.HelperResponse{Error: "create helper script directory: " + err.Error()}
-	}
-	for _, script := range updateScripts {
-		data, err := os.ReadFile(filepath.Join(dir, "deploy", script.checkout))
-		if err != nil {
-			return updates.HelperResponse{Error: "read deploy/" + script.checkout + ": " + err.Error()}
-		}
-		dest := filepath.Join(scriptDir, script.installed)
-		if err := os.WriteFile(dest, data, 0o755); err != nil {
-			return updates.HelperResponse{Error: "install " + dest + ": " + err.Error()}
-		}
-		if err := os.Chmod(dest, 0o755); err != nil {
-			return updates.HelperResponse{Error: "chmod " + dest + ": " + err.Error()}
-		}
-	}
 	err = updates.WriteSelfUpdateConf(confPath, map[string]string{
 		"WAFPROXY_UPDATE_SOURCE_DIR": dir,
 		"WAFPROXY_UPDATE_USER":       owner,
@@ -91,10 +75,12 @@ func configureAppAt(dir, confPath, scriptDir string) updates.HelperResponse {
 	if err != nil {
 		return updates.HelperResponse{Error: "write " + confPath + ": " + err.Error()}
 	}
-	return updates.HelperResponse{
-		OK:     true,
-		Output: fmt.Sprintf("recorded %s (%s, branch %s) as the update checkout", dir, ownerOrRoot(owner), branch),
+	output := "recorded " + dir + " (" + ownerOrRoot(owner) + ", branch " + branch + ") as the update checkout"
+	if missing := updates.MissingUpdateScripts(); len(missing) > 0 {
+		output += "; installed update scripts are missing (" + strings.Join(missing, ", ") +
+			"); run sudo ./deploy/install.sh from the checkout to install them"
 	}
+	return updates.HelperResponse{OK: true, Output: output}
 }
 
 func ownerOrRoot(owner string) string {

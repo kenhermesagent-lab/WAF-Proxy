@@ -90,6 +90,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		uniformError(rw, http.StatusBadRequest)
 		return
 	}
+	cleanPath, ok := cleanPathSegments(r.URL.Path)
+	if !ok {
+		blocked = true
+		event.Stage, event.RuleID, event.RuleMsg = "protocol", "path", "path contains a NUL byte"
+		uniformError(rw, http.StatusBadRequest)
+		return
+	}
+	if cleanPath != r.URL.Path {
+		// Dot segments are resolved by the backend, so inspecting "/x/../.env"
+		// while /x/.env is served would let a path skip decoy and WAF rules.
+		// Canonicalise before every check and before forwarding.
+		r.URL.Path = cleanPath
+		r.URL.RawPath = ""
+	}
 	if e.proxy.Maintenance {
 		blocked = true
 		event.Stage = "maintenance"
@@ -306,6 +320,40 @@ func cleanInboundHeaders(r *http.Request) {
 	for _, h := range drop {
 		r.Header.Del(h)
 	}
+}
+
+// cleanPathSegments resolves "." and ".." segments, collapses duplicate
+// slashes and treats a backslash as a separator, so the path the console shows,
+// the WAF inspects and the upstream receives are the same. Browsers normalise
+// before sending; an encoded or obfuscated dot segment is the only way one
+// reaches this point.
+func cleanPathSegments(p string) (string, bool) {
+	if strings.ContainsRune(p, 0) {
+		return "", false
+	}
+	if !strings.ContainsAny(p, "\\") && !strings.Contains(p, ".") && !strings.Contains(p, "//") {
+		return p, true
+	}
+	trailing := strings.HasSuffix(p, "/")
+	p = strings.ReplaceAll(p, "\\", "/")
+	var out []string
+	for _, seg := range strings.Split(p, "/") {
+		switch seg {
+		case "", ".":
+			continue
+		case "..":
+			if len(out) > 0 {
+				out = out[:len(out)-1]
+			}
+		default:
+			out = append(out, seg)
+		}
+	}
+	clean := "/" + strings.Join(out, "/")
+	if trailing && clean != "/" {
+		clean += "/"
+	}
+	return clean, true
 }
 
 func badRequestFraming(r *http.Request) bool {

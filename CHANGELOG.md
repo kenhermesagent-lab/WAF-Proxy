@@ -11,6 +11,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.6.1] — 2026-11-21
+
+### Security
+
+- **app-configure records a path only.** The helper no longer copies the checkout's update scripts into the
+  root-run lib directory: a console admin supplied only a directory, and copying code from it would let that
+  admin execute arbitrary code as root. The installed scripts must come from `install.sh`; when they are
+  missing the page says so and asks for `sudo ./deploy/install.sh`.
+- The Update button is reported as supported only while the recorded checkout still exists and the installed
+  updater scripts are present, instead of failing when an admin clicks it.
+- **Dot-segment paths are canonicalised before inspection and forwarding.** `/x/../.env`, `%2e%2e` and
+  backslash variants were matched against a decoy/WAF rule for the literal path while the backend resolved
+  them to another one. The edge now resolves `.`/`..` and duplicate slashes first, so the console, the WAF
+  and the upstream all see the same path; NUL bytes are rejected.
+
+### Added
+
+- API test for `POST /api/updates/app/config` covering the recorded path reaching the helper, an empty path
+  returning 400, and a helper rejection returning 409.
+
 ## [1.6.0] — 2026-11-21
 
 ### Added
@@ -18,8 +38,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **Updates: record a checkout installed in another directory.** When the root helper is running but no
   checkout is recorded (or the install lives outside the path `install.sh` saw), the application card now
   offers a **WAF-Proxy checkout directory** field. The helper validates the path (absolute, a git checkout
-  with an `origin` remote and the `deploy/` update scripts), records it in `/etc/wafproxy/self-update.conf`,
-  copies the fixed updater scripts and enables the Update button. The recorded path is shown in
+  with an `origin` remote and the `deploy/` update scripts),   records it in `/etc/wafproxy/self-update.conf` and enables the Update button. The recorded path is shown in
   `/api/updates` as `app_source_dir`.
 
 ### Changed

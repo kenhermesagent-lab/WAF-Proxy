@@ -266,8 +266,9 @@ export default function UpdatesPage({
                   </button>
                 </div>
                 <p className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, margin: "0 0 8px" }}>
-                  The root helper records this path, copies its fixed update scripts from it and rebuilds that
-                  checkout as its owner. It must be a git checkout of WAF-Proxy with an origin remote.
+                  The root helper only records this path and rebuilds that checkout as its owner. It must be a
+                  git checkout of WAF-Proxy with an origin remote, and the installed update scripts must come
+                  from install.sh: re-run <code>sudo ./deploy/install.sh</code> if the page says they are missing.
                 </p>
               </>
             )}

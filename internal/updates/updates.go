@@ -345,6 +345,14 @@ func (m *Manager) mergeApp(snap Snapshot, app appInfo) Snapshot {
 	case snap.AppSourceDir == "":
 		snap.AppUpdateSupported = false
 		snap.AppUpdateReason = "The update helper is running but has no repository directory recorded, so it has nothing to rebuild."
+	case !dirExists(snap.AppSourceDir):
+		snap.AppUpdateSupported = false
+		snap.AppUpdateReason = "The recorded checkout " + snap.AppSourceDir + " no longer exists on this host, so there is nothing to rebuild."
+	case len(MissingUpdateScripts()) > 0:
+		missing := MissingUpdateScripts()
+		snap.AppUpdateSupported = false
+		snap.AppUpdateReason = "The installed update scripts are missing (" + strings.Join(missing, ", ") +
+			"); re-run sudo ./deploy/install.sh from the checkout to restore them."
 	default:
 		snap.AppUpdateSupported = true
 		snap.AppUpdateReason = ""
@@ -663,6 +671,11 @@ func (m *Manager) StartAppUpdate(onSuccess func()) error {
 		}
 	}()
 	return nil
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // AppSourceDir returns the checkout recorded for the root helper, or "" when

@@ -48,6 +48,33 @@ var (
 	CrowdSecInstallScript = firstScript("/usr/local/waf-proxy/lib/crowdsec-install", "/usr/local/lib/wafproxy/crowdsec-install")
 )
 
+// UpdateScript is one fixed script install.sh installs on the host.
+type UpdateScript struct {
+	Name string
+	Path string
+}
+
+// UpdateScripts lists the installed updater scripts the helper needs.
+func UpdateScripts() []UpdateScript {
+	return []UpdateScript{
+		{"self-update", AppSelfUpdateScript},
+		{"self-update-check", AppCheckScript},
+	}
+}
+
+// MissingUpdateScripts names the updater scripts that are not installed. The
+// console reports the Update button unavailable while any are absent instead of
+// failing when an admin clicks it.
+func MissingUpdateScripts() []string {
+	var missing []string
+	for _, script := range UpdateScripts() {
+		if info, err := os.Stat(script.Path); err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+			missing = append(missing, script.Name)
+		}
+	}
+	return missing
+}
+
 // firstScript keeps a host installed before 1.3.2 working until install.sh is
 // re-run; those releases kept the helper scripts under /usr/local/lib/wafproxy.
 func firstScript(paths ...string) string {
