@@ -106,7 +106,6 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/proxies", s.authed(s.listProxies))
 	m.HandleFunc("POST /api/proxies", s.authed(s.createProxy))
-	m.HandleFunc("GET /api/proxies/{id}", s.authed(s.getProxy))
 	m.HandleFunc("PUT /api/proxies/{id}", s.authed(s.updateProxy))
 	m.HandleFunc("DELETE /api/proxies/{id}", s.authed(s.deleteProxy))
 	m.HandleFunc("POST /api/proxies/{id}/gate/revoke", s.authed(s.revokeGate))

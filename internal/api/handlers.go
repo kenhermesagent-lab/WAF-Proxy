@@ -79,24 +79,6 @@ func (s *Server) listProxies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) getProxy(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	p, err := s.st.GetProxy(id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	v := proxyView{Proxy: *p}
-	v.Upstreams, _ = s.st.ListUpstreams(id)
-	v.Routes, _ = s.st.ListRoutes(id)
-	v.GateUsers, _ = s.st.GateACL(id)
-	writeJSON(w, http.StatusOK, v)
-}
-
 func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 	var in proxyBody
 	if err := decode(r, &in); err != nil {

@@ -46,10 +46,11 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   `deploy/.env` into the container. The README told first-boot users to set the GUI listener
   to a LAN address, but the compose file never forwarded the variable, so the instruction had
   no effect.
-- Removed the unused `/api/dns/providers`, `/api/dns/credentials`, `GET /api/intel` and
-  `PUT /api/proxies/{id}/gate` endpoints; certificate providers come with `/api/certs`, feeds
-  carry their own status, and gate changes go through the proxy update. `PUT /api/gate-users/{id}`
-  is now used by the Access gate editor.
+- Removed the unused `/api/dns/providers`, `/api/dns/credentials`, `GET /api/intel`,
+  `GET /api/proxies/{id}` and `PUT /api/proxies/{id}/gate` endpoints; certificate providers
+  come with `/api/certs`, feeds carry their own status, the proxies list already returns each
+  site with its upstreams, routes and gate users, and gate changes go through the proxy
+  update. `PUT /api/gate-users/{id}` is now used by the Access gate editor.
 
 ### Changed
 
