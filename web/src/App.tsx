@@ -23,25 +23,54 @@ import Account from "./pages/Account";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 
-const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: "◎" },
-  { id: "statistics", label: "Statistics", icon: "▤" },
-  { id: "proxies", label: "Proxies", icon: "⇄" },
-  { id: "streaming", label: "Streaming", icon: "▶" },
-  { id: "updates", label: "Updates", icon: "⇪" },
-  { id: "agent", label: "Agent access", icon: "⌘" },
-  { id: "tailscale", label: "Tailscale", icon: "⌁" },
-  { id: "policies", label: "Policies", icon: "⛨" },
-  { id: "sources", label: "Sources", icon: "◉" },
-  { id: "intel", label: "Threat intel", icon: "☣" },
-  { id: "crowdsec", label: "CrowdSec", icon: "◈" },
-  { id: "certs", label: "Certificates", icon: "▣" },
-  { id: "access", label: "Access gate", icon: "⚿" },
-  { id: "notifications", label: "Notifications", icon: "✉" },
-  { id: "logs", label: "Logs", icon: "≡" },
+type NavItem = { id: string; label: string; icon: string };
+
+// Grouped so the sidebar reads as a few areas instead of one long list.
+// Settings and Account stay pinned at the bottom.
+const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
+  {
+    title: "Overview",
+    items: [
+      { id: "dashboard", label: "Dashboard", icon: "◎" },
+      { id: "statistics", label: "Statistics", icon: "▤" },
+    ],
+  },
+  {
+    title: "Traffic",
+    items: [
+      { id: "proxies", label: "Proxies", icon: "⇄" },
+      { id: "streaming", label: "Streaming", icon: "▶" },
+      { id: "policies", label: "Policies", icon: "⛨" },
+      { id: "sources", label: "Sources", icon: "◉" },
+      { id: "logs", label: "Logs", icon: "≡" },
+    ],
+  },
+  {
+    title: "Security",
+    items: [
+      { id: "access", label: "Access gate", icon: "⚿" },
+      { id: "intel", label: "Threat intel", icon: "☣" },
+      { id: "crowdsec", label: "CrowdSec", icon: "◈" },
+      { id: "certs", label: "Certificates", icon: "▣" },
+    ],
+  },
+  {
+    title: "System",
+    items: [
+      { id: "agent", label: "Agent access", icon: "⌘" },
+      { id: "notifications", label: "Notifications", icon: "✉" },
+      { id: "updates", label: "Updates", icon: "⇪" },
+      { id: "tailscale", label: "Tailscale", icon: "⌁" },
+    ],
+  },
+];
+
+const NAV_UTILITY: NavItem[] = [
   { id: "settings", label: "Settings", icon: "⚙" },
   { id: "account", label: "Account", icon: "⊙" },
 ];
+
+const NAV = [...NAV_GROUPS.flatMap((g) => g.items), ...NAV_UTILITY];
 
 type Enrolment = { username: string; secret: string; url: string; codes: string[] };
 
@@ -157,28 +186,36 @@ export default function App() {
 
   const current = NAV.find((n) => n.id === page) ?? NAV[0];
 
+  const navButton = (n: NavItem) => (
+    <button
+      key={n.id}
+      className={`nav-item ${page === n.id ? "active" : ""}`}
+      onClick={() => {
+        setPage(n.id);
+        setNavOpen(false);
+      }}
+    >
+      <span className="ico">{n.icon}</span>
+      {n.label}
+    </button>
+  );
+
   return (
     <div className="shell">
       {navOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <aside className={`sidebar ${navOpen ? "open" : ""}`}>
         <div className="brand"><img className="brand-mark" src="/favicon.svg" alt="" width={24} height={24} />WAF-Proxy</div>
-        {NAV.map((n) => (
-          <button
-            key={n.id}
-            className={`nav-item ${page === n.id ? "active" : ""}`}
-            onClick={() => {
-              setPage(n.id);
-              setNavOpen(false);
-            }}
-          >
-            <span className="ico">{n.icon}</span>
-            {n.label}
-          </button>
+        {NAV_GROUPS.map((g) => (
+          <div className="nav-group" key={g.title}>
+            <div className="nav-group-title">{g.title}</div>
+            {g.items.map(navButton)}
+          </div>
         ))}
         <div className="nav-spacer" />
         <div className="nav-foot">
           {me?.username} · v{me?.version}
         </div>
+        {NAV_UTILITY.map(navButton)}
         <button className="nav-item" onClick={logout}><span className="ico">⏻</span>Sign out</button>
         <a
           className="nav-coffee"
