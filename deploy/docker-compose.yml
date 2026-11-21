@@ -27,6 +27,11 @@ services:
     environment:
       WAFPROXY_DATA_DIR: /data
       WAFPROXY_LOG_LEVEL: ${WAFPROXY_LOG_LEVEL:-info}
+      # First-boot and fallback listeners only: once the wizard has stored the
+      # real WAN/LAN addresses, those are used instead. Point the GUI at a LAN
+      # address here to keep the setup wizard off the WAN.
+      WAFPROXY_LISTEN_GUI: "${WAFPROXY_LISTEN_GUI:-:8080}"
+      WAFPROXY_LISTEN_WAN: "${WAFPROXY_LISTEN_WAN:-:8443}"
       WAFPROXY_ACCESS_LOG: /logs/access.log
       # Optional CrowdSec bouncer. Create the key with:
       #   docker exec crowdsec cscli bouncers add wafproxy

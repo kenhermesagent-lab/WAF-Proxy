@@ -1,140 +1,281 @@
-# WAF-Proxy-Docker
+# WAF-Proxy
 
-Self-hosted reverse proxy with an integrated WAF, IPS-style ban engine, CrowdSec bouncer,
-bot challenge, GeoIP/ASN policy, threat feeds, live attack globe, notifications and a
-per-proxy access gate. One Go binary, one React SPA, one Docker Compose stack.
+A self-hosted reverse proxy with a real WAF in front of it: OWASP CRS, an IPS-style ban
+engine, CrowdSec, GeoIP/ASN policy, threat feeds, bot challenges, per-site access gates and
+live observability. One Go binary, one React console, one Docker Compose stack. Built to run
+on a home server, a lab box or a small office network without a cloud dependency.
 
-**Status: `1.1.1`.** The full design lives in [PLAN.md](PLAN.md); this README describes what
-is actually in the release. See [Scope notes](#scope-notes) for deliberately excluded items.
+**Version 1.1.1** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+*The dashboard on a two-site test deployment.*
+
+## Contents
+
+- [What it does](#what-it-does)
+- [How a request is handled](#how-a-request-is-handled)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [First certificate and first site](#first-certificate-and-first-site)
+- [Streaming forwarders (Plex, Jellyfin)](#streaming-forwarders-plex-jellyfin)
+- [CrowdSec](#crowdsec)
+- [Day-to-day operations](#day-to-day-operations)
+- [Security model and limitations](#security-model-and-limitations)
+- [Development](#development)
+- [Documentation](#documentation)
 
 ## What it does
 
-| Area | Implemented |
-|---|---|
-| Reverse proxy | HTTPS/HTTP2 with SNI + Host routing, WebSocket passthrough, weighted round-robin, active health checks, redirects/aliases, gzip, conservative GET cache, streaming. |
-| TLS | DNS-01 wildcard certificates via lego (DuckDNS, Cloudflare, Route53, DigitalOcean, Hetzner, OVH, GoDaddy, RFC2136), per-proxy assignment, auto-renew at 30 days, serialised orders. |
-| Request pipeline | Permanent ban → whitelist → country → ASN → decoy path/host → threat feed → temporary ban → rate limit → method → bot challenge → access gate → WAF → upstream. |
-| Bans | Temporary and permanent, reason + source required, nftables DROP (IPv4/IPv6), kernel expiry, promotion, GUI lists, CLI unban. |
-| WAF | Coraza v3 + embedded OWASP CRS, five profiles, per-proxy `off/detect/block`, paranoia/anomaly tuning, method allowlists, per-rule exceptions. |
-| Threat intel | Nine built-in feeds plus custom feeds, ETag caching, CIDR aggregation, 5× growth freeze, last-good retention. |
-| CrowdSec | LAPI decision stream → local bans, removals honoured, connectivity/status panel, optional sidecar with access-log acquisition. |
-| Bot protection | JavaScript proof-of-work challenge, four levels, 24 h cookie, auto-ban after repeated failures. |
-| Access gate | Per-proxy passphrase, accounts or accounts+TOTP, per-proxy allowlist, escalation ladder and account lockout. |
-| Streaming forwarding | Optional transparent TCP relays on custom WAN ports for **Plex** and **Jellyfin** (one section each on the Streaming page), with a source allowlist, connection cap, banned-source refusal that also cuts running streams, and one-click container restart. |
-| Observability | WAN/LAN bps/pps, conntrack sessions, per-proxy counters, SSE live stream, canvas attack globe, filterable events, source-IP explorer, CSV export, audit log, hourly rollups. |
-| Notifications | Telegram, SMTP/Gmail, generic webhook; 5-minute ban digest, instant critical alerts, per-event routing toggles, dedupe and retry. |
-| Admin security | LAN-only GUI, argon2id, mandatory TOTP, recovery codes, CSRF, login limits, session idle/absolute expiry, password/TOTP rotation, sign-out-everywhere, CSP, encrypted secrets at rest. |
-| Backup | Additive JSON export/import of settings, proxies, routes, policies, feeds and bans (secrets excluded by design). |
+### Protection
 
-The GUI is a dark single-page app: Dashboard (metrics + globe), Proxies, Streaming
-(Plex, Jellyfin), Policies (bans, countries, ASN, decoys), Sources (per-IP history and bans),
-Threat intel, Certificates, Access gate, Notifications, Logs, Settings and Account.
+| Feature | Behaviour |
+|---|---|
+| **OWASP CRS WAF** | Coraza v3 with the embedded Core Rule Set. Five profiles (Generic Web, WordPress, API-only, Static/CDN, Admin panel), paranoia level 1–4, anomaly thresholds, per-profile method allowlists, body limits and per-rule exceptions — all editable from **Policies → WAF profiles**. Each site can inherit its profile, or override with `block`, `detect` or `off`. |
+| **Ban engine** | Temporary and permanent bans with a mandatory reason and source. Enforced in the kernel with nftables (IPv4 + IPv6), so banned traffic is dropped before it reaches the proxy, and expires on its own. Every ban is listed in the console and can be lifted there or with the `unban` CLI. |
+| **Rate limiting** | Global per-IP request rate with burst, plus per-scope `rate_limit` policies (`rps/burst`) that can be global or attached to one site. |
+| **Country / ASN policy** | Allow and block lists by ISO country code and by ASN, using MaxMind GeoLite2 or DB-IP Lite databases. Without a database the stages report “unavailable” in the console instead of silently allowing traffic. |
+| **Threat feeds** | Nine built-in lists (FireHOL 1/2, Spamhaus DROP/EDROP, Tor exits, Feodo C2, URLhaus, ET compromised, DShield) plus your own HTTP(S) feeds. ETag/If-Modified-Since caching, CIDR de-duplication, a 5× growth freeze and last-good retention so a broken upstream cannot empty the table. |
+| **CrowdSec** | LAPI decision stream applied as local bans (and removals honoured), with an optional sidecar that reads the same access log. Status and last poll are shown in **Settings**. |
+| **Bot challenge** | JavaScript proof-of-work challenge with four levels, a 24-hour cookie and auto-ban after repeated failures. |
+| **Access gate** | Per-site passphrase, accounts, or accounts + TOTP, with a per-site account allowlist. Escalating bans for repeated failures and per-account lockout that survives IP changes. |
+| **Decoys** | Requests for configured decoy paths or hostnames never reach a backend and permanently ban the source. Defaults contain only paths no real application serves. |
+
+### Front door
+
+| Feature | Behaviour |
+|---|---|
+| **Reverse proxy** | HTTPS with SNI + Host routing, WebSocket passthrough, weighted round-robin upstreams, active health checks, path redirects and aliases, gzip, a conservative GET cache, and streamed responses. |
+| **TLS** | DNS-01 wildcard certificates through lego — DuckDNS, Cloudflare, Route53, DigitalOcean, Hetzner, OVH, GoDaddy and RFC2136. Per-site assignment, automatic renewal inside 30 days, serialised ACME orders, staging toggle. |
+| **Streaming forwarders** | Transparent TCP relays for **Plex** and **Jellyfin** on their own WAN ports, with a source allowlist, connection cap, banned-source refusal that also cuts running streams, and live counters. |
+| **Maintenance mode** | Per-site switch that answers with a maintenance response instead of the backend. |
+
+### Operations
+
+| Feature | Behaviour |
+|---|---|
+| **Live dashboard** | WAN/LAN throughput and packet rates, conntrack sessions, per-site counters, a canvas attack globe, and the newest blocked requests — pushed over SSE, no polling. |
+| **Logs** | Filterable request log (source, host, stage, action, blocked-only), pagination and CSV export with spreadsheet-formula neutralisation. |
+| **Sources** | Per-IP explorer: request and block counts, distinct hosts, first/last seen, ban state, recent requests, and one-click ban/unban. |
+| **Audit log** | Every sign-in, settings change, proxy/certificate change, ban and restore is recorded and shown under **Settings → Recent administrator activity**. |
+| **Notifications** | Telegram, SMTP/Gmail and a generic webhook (Slack, Teams, …). Five-minute digest for bans, instant alerts for permanent bans, certificate problems and feed freezes, with per-event routing. |
+| **Backup** | One-click JSON export/import of settings, sites, routes, policies, feeds and bans. Secrets, private keys and password hashes are excluded by design. |
+| **Admin security** | LAN-only console, argon2id passwords, mandatory TOTP with single-use codes and recovery codes, CSRF tokens, login rate limits, 12-hour idle / 7-day absolute sessions, password and authenticator rotation, sign-out-everywhere, CSP and secrets encrypted at rest. |
+
+### Console
+
+A dark single-page console: **Dashboard**, **Proxies**, **Streaming**, **Policies** (bans,
+countries/IPs/ASN, WAF profiles), **Sources**, **Threat intel**, **Certificates**, **Access
+gate**, **Notifications**, **Logs**, **Settings** and **Account**. It uses native controls and
+is responsive down to a phone.
+
+![WAF profiles](docs/screenshots/waf-profiles.png)
+
+## How a request is handled
+
+```
+Internet ──► router DNAT 443 ──► WAN listener (TLS, SNI)
+                                     │
+        permanent ban → whitelist → country → ASN → decoy → threat feed
+             → temporary ban → rate limit → method → bot challenge
+             → access gate → WAF → upstream (weighted round-robin)
+```
+
+Every decision that blocks, bans or challenges produces one event row (source, country, ASN,
+host, path, stage, rule) that feeds the dashboard, the globe, Logs, Sources and notifications.
+A request that is merely allowed is sampled rather than logged, so the event table stays
+small on a busy site.
 
 ## Requirements
 
-- Linux host with Docker Engine + Compose v2. Host networking and nftables are used, so
+- **Linux** with Docker Engine 24+ and Compose v2. Host networking and nftables are used, so
   Docker Desktop on macOS/Windows is not a supported target.
-- `443/tcp` reachable from the edge firewall; no port 80.
-- A dual-homed host for the intended WAN/LAN split (`192.168.191.2` / `192.168.101.2` in the
-  reference deployment).
-- Optional: GeoIP MMDB files in the data directory for country/ASN policy
-  (`GeoLite2-City.mmdb`, `GeoLite2-ASN.mmdb`, `dbip-city-lite.mmdb`,
-  `dbip-asn-lite.mmdb`).
-- Optional: CrowdSec sidecar profile.
+- **`443/tcp`** reachable from the edge firewall. No port 80: certificates are DNS-01 only.
+- **One or two interfaces.** The intended deployment is dual-homed (one WAN, one LAN); a
+  single-NIC host works too — see [Single NIC](#single-nic).
+- nftables available inside the container. The image grants `NET_ADMIN` and
+  `NET_BIND_SERVICE` through file capabilities; do **not** add `no-new-privileges`, because
+  that makes the kernel ignore them.
+- **Optional:** `GeoLite2-City.mmdb` / `GeoLite2-ASN.mmdb` (or the DB-IP Lite equivalents) in
+  the data volume for country and ASN policy.
+- **Optional:** the CrowdSec sidecar profile.
 
 ## Quick start
 
 ```bash
-git clone <this repo> waf-proxy-docker
+git clone https://github.com/kenhermesagent-lab/WAF-Proxy-Docker.git waf-proxy-docker
 cd waf-proxy-docker
-cp .env.example deploy/.env          # set TZ and optionally the CrowdSec key
+cp .env.example deploy/.env
+$EDITOR deploy/.env                       # set TZ; optional CrowdSec key
 docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml logs -f wafproxy
 ```
 
-First boot listens on `:8080` for the GUI and `:8443` for the proxy, on all interfaces,
-because no network binding exists yet. Whoever reaches the GUI first can claim the admin
-account, so complete setup before exposing the host (or set `WAFPROXY_LISTEN_GUI` to a LAN
-address for the first boot). Open `http://<host>:8080`, complete the wizard with the real
-WAN/LAN addresses, then restart so the listeners move:
+The image builds the console and embeds it in the binary, so there is nothing else to install.
+
+### First boot
+
+With no stored binding the process listens on **`0.0.0.0:8080`** for the console and
+**`0.0.0.0:8443`** for the proxy. That is deliberate: the wizard writes the real addresses to
+the database and the listeners move on the next start.
+
+The wizard is unauthenticated, and whoever reaches it first can claim the administrator
+account. Before first boot you can keep it off the WAN:
+
+```ini
+# deploy/.env
+WAFPROXY_LISTEN_GUI=192.168.101.2:8080
+```
+
+Open `http://<host>:8080` from the LAN and complete the wizard:
+
+| Field | Example |
+|---|---|
+| Admin username | `admin` |
+| Password | 12+ characters (argon2id) |
+| Base domain | `example.duckdns.org` |
+| WAN IP : port | `192.168.191.2` : `443` |
+| LAN egress IP : GUI port | `192.168.101.2` : `8443` |
+| DuckDNS token | optional, stored encrypted |
+| ACME email | Let’s Encrypt contact |
+
+Both addresses must be configured on the host. The wizard returns the TOTP secret and ten
+recovery codes **once** — save both, then restart so the listeners move:
 
 ```bash
 docker compose -f deploy/docker-compose.yml restart wafproxy
 ```
 
-After the restart the GUI is on the LAN address (`http://192.168.101.2:8443` in the reference
-deployment) and the proxy is on `WAN_IP:443`.
+The console is now `http://192.168.101.2:8443` and every sign-in needs password + TOTP (or a
+recovery code). The proxy is on `192.168.191.2:443`.
 
-Two NICs are not required. On a single-interface host, enter the host's own address for both
-the WAN and LAN fields, forward `443` (and any streaming ports) to it, and keep the GUI port
-firewalled from the WAN. If a stored address is not on the host at boot, the listeners fall back to the first-boot `:8443` / `:8080` bindings and log why, so the GUI stays reachable.
-The fallback GUI bind is normally `:8080`, so the admin login answers on **every** interface
-until you fix the stored address in Settings; the boot log warns about this and the port
-stays subject to your WAN firewall.
+If a stored address is not present on the host at boot (DHCP change, NIC renamed), the
+listener falls back to the first-boot address and logs why instead of exiting, so the console
+stays reachable. The fallback console port is `:8080` on every interface; the boot log warns
+about it, so fix the address in **Settings** promptly.
 
-1. **Certificates** → Request certificate → provider `duckdns`, domains
-   `*.your-base-domain,your-base-domain`. The token from the wizard is reused.
-2. **Proxies** → New proxy → `app.your-base-domain` → upstream
-   `http://192.168.101.10:8080` → protection profile.
-3. Point the Firewalla DNAT at `WAN_IP:443` (`DNAT only, no SNAT`, so client IPs survive).
-4. Verify from outside: `curl -v https://app.your-base-domain/`.
+### Single NIC
 
-Full walkthrough: [docs/INSTALL.md](docs/INSTALL.md).
+Two NICs are not required. Enter the host’s own address for both WAN and LAN, forward `443`
+(and any streaming ports) to it, and keep the console port firewalled from the WAN. The
+interface charts then show that one NIC for both directions, and “ignore ICMP echo” applies to
+the whole NIC — leave it off unless dropping LAN ping is acceptable.
 
-## Emergency recovery
+## First certificate and first site
 
-The GUI listener is exempt from all bans and stays LAN-only. If it is unreachable:
+1. **Certificates → Request certificate.** Provider `duckdns`, domains
+   `*.example.duckdns.org,example.duckdns.org` (leave credentials empty if the wizard stored
+   the token). Issuance is asynchronous; the row moves from `pending` to `issued`.
+2. **Proxies → New proxy.** Hostname `app.example.duckdns.org`, upstream
+   `http://192.168.101.10:8080`, a protection profile, and `Detect only` for the first 48
+   hours if the application is new to you.
+3. **Router.** Forward WAN `443` to `192.168.191.2:443`, **DNAT only, no SNAT**, so real
+   client IPs survive for GeoIP, bans and rate limits.
+4. **Verify.**
+
+   ```bash
+   curl -v https://app.example.duckdns.org/
+   curl -v https://example.duckdns.org/       # connection closed, no response
+   ```
+
+The apex is reserved and blackholed; only single-label subdomains of the base domain are
+accepted.
+
+## Streaming forwarders (Plex, Jellyfin)
+
+Media servers validate their own certificates (Plex clients check the `*.plex.direct` names
+that encode the server address), which this gateway cannot mint. The **Streaming** page
+therefore runs a transparent TCP relay per application instead of an HTTP reverse proxy: TLS
+passes through untouched and the server sees every client as the proxy’s LAN address — the one
+entry its allow list needs.
+
+1. **Streaming → Plex** (or **Jellyfin**) → enable, then set the listen address (this host),
+   the port clients will use (defaults `32400` / `8096`), and the application’s LAN address
+   and port.
+2. Optional source CIDRs and a maximum concurrent connection count.
+3. **Save and apply** binds the port immediately — no restart with `network_mode: host`.
+4. Forward the same port on the router, **DNAT only, no SNAT**.
+5. In the application:
+   - **Plex:** Settings → Network → *List of IP addresses and networks that are allowed
+     without auth* → the proxy’s LAN address.
+   - **Jellyfin:** Settings → Networking → *Known proxies* → the proxy’s LAN address.
+
+The relay is not inspected: the WAF and access gate cannot see that traffic. The source
+allowlist, connection cap and ban engine do apply, and refusals appear in Logs as `stream`
+events (one per source per minute, so a retry loop cannot flood the table).
+
+![Streaming forwarders](docs/screenshots/streaming.png)
+
+## CrowdSec
 
 ```bash
-docker exec wafproxy unban 203.0.113.7      # takes effect within 30 s
+docker compose -f deploy/docker-compose.yml --profile crowdsec up -d
+docker exec crowdsec cscli bouncers add wafproxy
+# put the key in deploy/.env as WAFPROXY_CROWDSEC_KEY, then
+docker compose -f deploy/docker-compose.yml up -d wafproxy
 ```
 
-There is no command that disables the WAF or gate globally; use the GUI on the LAN.
+The sidecar tails `/logs/access.log` with the stock nginx parser; decisions arrive over the
+LAPI stream and become `source=crowdsec` bans.
 
-## Documentation
+## Day-to-day operations
 
-- [PLAN.md](PLAN.md) — architecture, pipeline, data model, phases, risks
-- [docs/INSTALL.md](docs/INSTALL.md) — deployment, Firewalla/DuckDNS, upgrades
-- [docs/OPERATIONS.md](docs/OPERATIONS.md) — runbook, troubleshooting, capacity
-- [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology
-- [CHANGELOG.md](CHANGELOG.md) — release history
-- [VERSION](VERSION) — `1.1.1`
+![Settings](docs/screenshots/settings.png)
 
-## Scope notes
+| Task | How |
+|---|---|
+| Lift a ban | **Policies → Temp bans / Permanent → Unban**, or `docker exec wafproxy unban 203.0.113.7` (takes effect within 30 s) |
+| Change an address or port | **Settings**, then restart the container |
+| Tune the WAF | **Policies → WAF profiles** → edit paranoia, anomaly threshold, methods, body limit or rule exceptions |
+| Back up | **Settings → Download JSON** (secrets excluded) |
+| Upgrade | `git pull && docker compose -f deploy/docker-compose.yml build && docker compose -f deploy/docker-compose.yml up -d` |
+| Check health | `docker compose -f deploy/docker-compose.yml ps`, `curl -s http://<lan-ip>:8443/api/health` |
+| Uninstall | `docker compose -f deploy/docker-compose.yml down && docker volume rm wafproxy_data` (destructive) |
 
-Deliberately **not** in 1.1.1 (tracked in PLAN.md §13): AbuseIPDB enrichment, tarpit, HTTP
-basic auth/mTLS per proxy, brotli, per-proxy bandwidth charts, encrypted backup archives,
-exotic notification channels beyond the generic webhook, full packet IPS, HTTP/3, HA and
-multi-user roles.
+The database schema is applied idempotently on boot. Event retention is configurable (1–30
+days, default 7) and pruned hourly together with expired bans and sessions.
 
-Two honesty notes that matter operationally:
+## Security model and limitations
 
-- **Subdomain names are not a secrecy boundary.** Every certificate is published to
-  Certificate Transparency logs, so `*.your-base-domain` is discoverable. The protection
-  comes from 443-only exposure, no default vhost, DROP-by-default, WAF and the ban engine.
-- **Without a GeoIP database, country and ASN policy report “unavailable” and are skipped.**
-  The GUI shows the state rather than silently allowing traffic.
-- **The default decoy list only contains paths no real site serves** (`/.env`, `/.git/config`,
-  `wp-login.php` and friends are **not** defaults). A decoy path permanently bans whoever
-  requests it, so a path a real application uses would ban its own users. Add such paths
-  per proxy under Policies → Decoy paths only when you know nothing legitimate requests them.
-- **Streaming forwarding is a byte relay, not an inspected proxy.** TLS stays end-to-end
-  between the player and the server, so the WAF and access gate cannot inspect that traffic.
-  The TCP source allowlist, the connection cap and the ban engine do apply: a banned address
-  is refused on accept, and an existing stream is cut when the ban lands. Those refusals are
-  logged as `stream` events, with repeat attempts from one source collapsed to one event a
-  minute so a retry loop cannot flood the log.
+These are deliberate design decisions, not gaps to discover later:
+
+- **The console is LAN-only and plain HTTP.** Keep the GUI port firewalled from the WAN; the
+  session cookie is only marked `Secure` when the console is served over TLS. Do not port
+  forward it.
+- **Subdomains are not a secrecy boundary.** Every certificate is published to Certificate
+  Transparency logs, so `*.example.duckdns.org` is discoverable. Protection comes from
+  443-only exposure, no default vhost, DROP-by-default, the WAF and the ban engine.
+- **Without a GeoIP database**, country and ASN policy report “unavailable” and are skipped.
+  The console shows the state rather than pretending the rule is active.
+- **Decoy paths ban permanently.** The built-in list only contains paths no real application
+  serves; add application-specific paths per site only when you know nothing legitimate
+  requests them.
+- **Streaming traffic is a byte relay**, not an inspected proxy — see above.
+- **One administrator account.** There are no multi-user roles.
+- Not included in 1.1.1 (tracked in [PLAN.md](PLAN.md) §13): AbuseIPDB enrichment, tarpit,
+  HTTP basic auth/mTLS per site, brotli, per-site bandwidth history, encrypted backup
+  archives, HTTP/3, HA and multi-user roles.
 
 ## Development
 
 ```bash
-make ui          # npm ci + vite build into internal/webui/dist
-make build       # static Go binary with version ldflags
-make test        # go test ./...
-make vet         # go vet ./...
-make run         # run from source with ./data
+make ui        # npm ci + Vite build into internal/webui/dist
+make build     # static Go binary with version ldflags
+make test      # go test ./...
+make vet       # go vet ./...
+make run       # run from source against ./data
 ```
 
-The Docker build compiles the SPA first, then embeds it in the Go binary. CI
-(`.github/workflows/ci.yml`) runs gofmt, `go vet`, race tests, the Go build, the SPA
-typecheck/build, a production dependency audit and a container image build.
+Go 1.27 and Node 22 are what CI uses. The Docker build compiles the console first and embeds
+it in the binary. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs gofmt, `go vet`,
+race tests, the Go build, the console typecheck/build, a production dependency audit and a
+container image build.
+
+## Documentation
+
+- [docs/INSTALL.md](docs/INSTALL.md) — full deployment walkthrough, router/DNS, streaming,
+  upgrades, uninstall
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — runbook, troubleshooting, capacity
+- [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology
+- [PLAN.md](PLAN.md) — architecture, pipeline, data model, phases, risks
+- [CHANGELOG.md](CHANGELOG.md) — release history

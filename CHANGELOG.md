@@ -39,10 +39,29 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   the bot challenge, so the two cannot drift apart again.
 - Docs: streaming firewall and per-application whitelist walkthrough (Plex, Jellyfin) in
   `docs/INSTALL.md`, decoy and streaming honesty notes in the README, `PLEX_*`/`JELLYFIN_*`
-  and `WAFPROXY_ENV_FILE` documented in `.env.example`.
+  and `WAFPROXY_ENV_FILE` documented in `.env.example`. The README was rewritten with a
+  dashboard screenshot, a complete feature map and a quick start that matches the shipped
+  compose file.
+- The compose file now passes `WAFPROXY_LISTEN_GUI` and `WAFPROXY_LISTEN_WAN` from
+  `deploy/.env` into the container. The README told first-boot users to set the GUI listener
+  to a LAN address, but the compose file never forwarded the variable, so the instruction had
+  no effect.
+- Removed the unused `/api/dns/providers`, `/api/dns/credentials` and
+  `PUT /api/proxies/{id}/gate` endpoints; certificate providers come with `/api/certs` and
+  gate changes go through the proxy update.
 
 ### Changed
 
+- **The WAF is tunable from the console.** Policies has a **WAF profiles** tab listing every
+  CRS profile with its mode, paranoia level, anomaly threshold, allowed methods, body limit
+  and rule exceptions. The profile editor was previously API-only, so per-profile tuning
+  described in the README had no user interface.
+- **The audit log is visible.** Settings now shows the newest 20 administrator activities
+  (sign-ins, settings and proxy changes, bans, restores) with source addresses, using the
+  existing `/api/audit` endpoint instead of leaving it unreachable.
+- **Gated sites can sign out their visitors.** The Proxies row for a site whose gate is on
+  has a **Sign out visitors** action, which clears its gate sessions through
+  `POST /api/proxies/{id}/gate/revoke`.
 - **Streaming refusals are visible.** A ban that lands while a stream is open cuts that
   stream immediately, and both the cut and every later attempt from the banned address are
   written as `stream` events (stage `stream`, rule `stream-ban`) so they appear in Logs and on
@@ -61,6 +80,13 @@ adds Plex forwarding as an add-on inside the 1.1 series.
 
 ### Fixed
 
+- **The Settings kernel badge printed a Go map.** The runtime card showed
+  `map[active:false reason:...]`, which also widened the page into a horizontal scrollbar on
+  a 1440 px window. The API now returns a readable status (`active` or the reason) and the
+  card renders it as a badge.
+- **The Logs stage filter was missing half the pipeline.** `whitelist`, `method`, `protocol`,
+  `route` and `stream` events could not be selected, so banned streaming clients and whitelist
+  decisions were invisible to the filter.
 - **Decoy paths no longer ban real users by default.** The default list included
   `/wp-login.php`, `/wp-admin`, `/xmlrpc.php`, `/phpmyadmin` and `/actuator`, which real
   sites serve; a single visit from a legitimate visitor, crawler or uptime check caused a

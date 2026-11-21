@@ -347,57 +347,6 @@ func (s *Server) validateHostname(host string) string {
 	return ""
 }
 
-type gateBody struct {
-	Mode   string   `json:"mode"`
-	Secret string   `json:"secret"`
-	Users  []string `json:"users"`
-}
-
-func (s *Server) setGate(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	p, err := s.st.GetProxy(id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	var in gateBody
-	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid payload")
-		return
-	}
-	if in.Mode != "" {
-		if !gateModes[in.Mode] {
-			writeError(w, http.StatusBadRequest, "invalid gate mode")
-			return
-		}
-		p.GateMode = in.Mode
-	}
-	if in.Secret != "" {
-		enc, err := s.box.Seal(in.Secret)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "encryption error")
-			return
-		}
-		p.GateSecret = enc
-	}
-	if err := s.st.UpdateProxy(p); err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot update")
-		return
-	}
-	if in.Users != nil {
-		_ = s.st.SetGateACL(id, in.Users)
-	}
-	_ = s.st.DeleteProxyGateSessions(id)
-	s.reload(r.Context())
-	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "proxy.gate", p.Hostname, clientIP(r))
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
 func (s *Server) revokeGate(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -822,8 +771,7 @@ func (s *Server) listCerts(w http.ResponseWriter, r *http.Request) {
 	for _, c := range list {
 		out = append(out, s.certs.CertSummary(c))
 	}
-	creds, _ := s.st.ListDNSCredentials()
-	writeJSON(w, http.StatusOK, map[string]any{"certs": out, "credentials": creds, "providers": acme.Providers})
+	writeJSON(w, http.StatusOK, map[string]any{"certs": out, "providers": acme.Providers})
 }
 
 type certBody struct {
@@ -928,20 +876,6 @@ func (s *Server) deleteCert(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "cert.delete", domains, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (s *Server) dnsProviders(w http.ResponseWriter, r *http.Request) {
-	creds, _ := s.st.ListDNSCredentials()
-	writeJSON(w, http.StatusOK, map[string]any{"providers": acme.Providers, "credentials": creds})
-}
-
-func (s *Server) listDNSCredentials(w http.ResponseWriter, r *http.Request) {
-	creds, err := s.st.ListDNSCredentials()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "database error")
-		return
-	}
-	writeJSON(w, http.StatusOK, creds)
 }
 
 // ---------- observability ----------

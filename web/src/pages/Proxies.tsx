@@ -94,6 +94,16 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
     }
   };
 
+  const revokeSessions = async (p: Proxy) => {
+    if (!confirm(`Sign out every visitor currently signed in to ${p.hostname}?`)) return;
+    try {
+      await api.post(`/api/proxies/${p.id}/gate/revoke`);
+      onOK(`Gate sessions cleared for ${p.hostname}`);
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
+
   const remove = async (p: Proxy) => {
     if (!confirm(`Delete ${p.hostname}? This removes its routes and upstreams.`)) return;
     try {
@@ -154,6 +164,9 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
                   <td>{p.enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="warn">disabled</Badge>}</td>
                   <td className="right" style={{ whiteSpace: "nowrap" }}>
                     <button className="small" onClick={() => openEdit(p)}>Edit</button>{" "}
+                    {p.gate_mode !== "off" && (
+                      <button className="small" onClick={() => revokeSessions(p)}>Sign out visitors</button>
+                    )}{" "}
                     <button className="small danger" onClick={() => remove(p)}>Delete</button>
                   </td>
                 </tr>

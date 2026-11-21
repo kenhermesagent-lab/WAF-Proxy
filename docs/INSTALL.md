@@ -40,8 +40,9 @@ The image builds the React SPA and embeds it in the Go binary. First boot has no
 binding, so the process listens on `:8443` (proxy) and `:8080` (GUI) **on all interfaces**.
 This is intentional: the wizard writes the real addresses to SQLite, and the listeners move
 on the next start. Until the wizard is complete, anyone who can reach port 8080 can claim
-the administrator account — finish setup before exposing the host, or override
-`WAFPROXY_LISTEN_GUI` with a LAN address for the first boot.
+the administrator account — finish setup before exposing the host, or set
+`WAFPROXY_LISTEN_GUI` to a LAN address in `deploy/.env` for the first boot (the shipped
+compose file passes `WAFPROXY_LISTEN_GUI` and `WAFPROXY_LISTEN_WAN` into the container).
 
 ## 3. Complete the wizard
 

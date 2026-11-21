@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
-import { Ban, Policy, Proxy } from "../types";
+import { Badge, Card, Empty, Field, Modal, errText, fmtAgo } from "../ui";
+import { Ban, Policy, Profile, Proxy } from "../types";
 
 const KINDS: Record<string, string> = {
   ip_whitelist: "IP / CIDR allow list",
@@ -17,6 +17,9 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   const [bans, setBans] = useState<Ban[]>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [proxies, setProxies] = useState<Proxy[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [kernel, setKernel] = useState<{ active: boolean; reason: string } | null>(null);
   const [showAll, setShowAll] = useState(false);
 
@@ -33,6 +36,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       .catch((e) => onError(errText(e)));
     api.get<Policy[]>("/api/policies").then(setPolicies).catch((e) => onError(errText(e)));
     api.get<Proxy[]>("/api/proxies").then(setProxies).catch(() => undefined);
+    api.get<Profile[]>("/api/profiles").then(setProfiles).catch(() => undefined);
   };
 
   useEffect(() => {
@@ -109,6 +113,21 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
     }
   };
 
+  const saveProfile = async () => {
+    if (!profile) return;
+    setSavingProfile(true);
+    try {
+      await api.put(`/api/profiles/${profile.id}`, profile);
+      onOK(`${profile.name} profile saved`);
+      setProfile(null);
+      load();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   return (
     <div className="grid" style={{ gap: 14 }}>
       <div className="row" style={{ justifyContent: "space-between" }}>
@@ -116,6 +135,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           <button className={`tab ${tab === "bans" ? "active" : ""}`} onClick={() => setTab("bans")}>Temp bans</button>
           <button className={`tab ${tab === "permanent" ? "active" : ""}`} onClick={() => setTab("permanent")}>Permanent</button>
           <button className={`tab ${tab === "rules" ? "active" : ""}`} onClick={() => setTab("rules")}>Countries, IPs, ASN</button>
+          <button className={`tab ${tab === "profiles" ? "active" : ""}`} onClick={() => setTab("profiles")}>WAF profiles</button>
         </div>
         {kernel && (
           <span className={`badge ${kernel.active ? "ok" : "warn"}`}>
@@ -200,6 +220,38 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
         </Card>
       )}
 
+      {tab === "profiles" && (
+        <Card title="CRS protection profiles">
+          {profiles.length === 0 ? <Empty>No profiles available.</Empty> : (
+            <div style={{ overflowX: "auto" }}>
+              <table>
+                <thead>
+                  <tr><th>Profile</th><th>Mode</th><th className="num">Paranoia</th><th className="num">Anomaly</th><th>Methods</th><th className="num">Max body</th><th /></tr>
+                </thead>
+                <tbody>
+                  {profiles.map((p) => (
+                    <tr key={p.id}>
+                      <td style={{ whiteSpace: "nowrap" }}>{p.name}{p.exceptions ? <div className="faint" style={{ fontSize: 11 }}>{p.exceptions.split(",").filter(Boolean).length} rule exception(s)</div> : null}</td>
+                      <td><Badge tone={p.mode === "block" ? "ok" : p.mode === "detect" ? "info" : "warn"}>{p.mode}</Badge></td>
+                      <td className="num">{p.paranoia}</td>
+                      <td className="num">{p.anomaly}</td>
+                      <td className="muted mono" style={{ fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.allowed_methods}>{p.allowed_methods}</td>
+                      <td className="num">{p.max_body.toLocaleString()}</td>
+                      <td className="right"><button className="small" onClick={() => setProfile({ ...p })}>Edit</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="muted" style={{ fontSize: 12 }}>
+            A proxy with WAF mode <code>inherit</code> uses its selected profile. Paranoia 1 is the CRS default and
+            3–4 is strict enough to block some legitimate applications. Rule exceptions remove an OWASP CRS rule ID
+            for this profile only. Changes reload the WAF without dropping connections.
+          </p>
+        </Card>
+      )}
+
       {tab === "rules" && (
         <>
           <Card title="Add policy">
@@ -260,6 +312,67 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
             )}
           </Card>
         </>
+      )}
+
+      {profile && (
+        <Modal title={`Edit ${profile.name}`} onClose={() => setProfile(null)}>
+          <div className="row grow">
+            <Field label="Mode">
+              <select value={profile.mode} onChange={(e) => setProfile({ ...profile, mode: e.target.value })}>
+                <option value="block">Block</option>
+                <option value="detect">Detect only</option>
+                <option value="off">Off</option>
+              </select>
+            </Field>
+            <Field label="Paranoia level (1–4)">
+              <input
+                type="number"
+                min={1}
+                max={4}
+                value={profile.paranoia}
+                onChange={(e) => setProfile({ ...profile, paranoia: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Anomaly threshold">
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={profile.anomaly}
+                onChange={(e) => setProfile({ ...profile, anomaly: Number(e.target.value) })}
+              />
+            </Field>
+          </div>
+          <Field label="Allowed HTTP methods (comma separated)">
+            <input
+              value={profile.allowed_methods}
+              onChange={(e) => setProfile({ ...profile, allowed_methods: e.target.value })}
+              placeholder="GET,HEAD,POST"
+            />
+          </Field>
+          <Field label="Maximum inspected body (bytes)">
+            <input
+              type="number"
+              min={1024}
+              max={8388608}
+              value={profile.max_body}
+              onChange={(e) => setProfile({ ...profile, max_body: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="Disabled CRS rule IDs (comma separated, e.g. 942100,930120)">
+            <textarea
+              value={profile.exceptions}
+              onChange={(e) => setProfile({ ...profile, exceptions: e.target.value })}
+              placeholder="only the rules this application needs removed"
+            />
+          </Field>
+          <div className="row mt" style={{ justifyContent: "flex-end" }}>
+            <button onClick={() => setProfile(null)}>Cancel</button>
+            <button className="primary" onClick={saveProfile} disabled={savingProfile}>
+              {savingProfile ? "Saving…" : "Save profile"}
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );

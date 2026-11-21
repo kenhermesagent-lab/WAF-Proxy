@@ -109,7 +109,6 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/proxies/{id}", s.authed(s.getProxy))
 	m.HandleFunc("PUT /api/proxies/{id}", s.authed(s.updateProxy))
 	m.HandleFunc("DELETE /api/proxies/{id}", s.authed(s.deleteProxy))
-	m.HandleFunc("PUT /api/proxies/{id}/gate", s.authed(s.setGate))
 	m.HandleFunc("POST /api/proxies/{id}/gate/revoke", s.authed(s.revokeGate))
 	m.HandleFunc("GET /api/profiles", s.authed(s.listProfiles))
 	m.HandleFunc("PUT /api/profiles/{id}", s.authed(s.updateProfile))
@@ -135,8 +134,6 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/certs", s.authed(s.createCert))
 	m.HandleFunc("POST /api/certs/{id}/renew", s.authed(s.renewCert))
 	m.HandleFunc("DELETE /api/certs/{id}", s.authed(s.deleteCert))
-	m.HandleFunc("GET /api/dns/providers", s.authed(s.dnsProviders))
-	m.HandleFunc("GET /api/dns/credentials", s.authed(s.listDNSCredentials))
 
 	m.HandleFunc("GET /api/metrics", s.authed(s.getMetrics))
 	m.HandleFunc("GET /api/events", s.authed(s.listEvents))
@@ -548,6 +545,8 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	for _, k := range publicSettingKeys {
 		out[k] = kv[k]
 	}
+	// A readable status ("active" or the reason), never Go's map syntax: the
+	// GUI renders this straight into a badge.
 	if active, reason := s.bans.KernelStatus(); active {
 		out["kernel"] = "active"
 	} else {

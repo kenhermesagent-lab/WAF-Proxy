@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
@@ -48,6 +49,11 @@ func TestSettingsInterfaceHints(t *testing.T) {
 	}
 	if _, ok := blank["iface_available"]; !ok {
 		t.Errorf("settings did not list available interfaces: %v", blank)
+	}
+	// Kernel enforcement is reported as a readable status ("active" or the
+	// reason), never as Go's map syntax in the badge.
+	if v, ok := blank["kernel"]; !ok || v == "" || strings.HasPrefix(v, "map[") {
+		t.Errorf("kernel = %q (reported %v), want active or a reason", v, ok)
 	}
 
 	// A configured field keeps reporting what is sampled but is no longer

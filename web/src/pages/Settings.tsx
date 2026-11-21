@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Field, errText, fmtAgo } from "../ui";
-import type { CrowdSecStatus } from "../types";
+import { Badge, Card, Field, errText, fmtAgo, fmtTime } from "../ui";
+import type { AuditEntry, CrowdSecStatus } from "../types";
 
 type Settings = Record<string, string>;
 
@@ -9,6 +9,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
   const [s, setS] = useState<Settings>({});
   const [saving, setSaving] = useState(false);
   const [cs, setCs] = useState<CrowdSecStatus | null>(null);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [iface, setIface] = useState<{ wan: string; lan: string; wanAuto: boolean; lanAuto: boolean; available: string[] }>({
     wan: "",
     lan: "",
@@ -36,7 +37,11 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
   useEffect(() => {
     load();
     api.get<CrowdSecStatus>("/api/crowdsec/status").then(setCs).catch(() => undefined);
+    loadAudit();
   }, []);
+
+  const loadAudit = () =>
+    api.get<AuditEntry[]>("/api/audit").then((r) => setAudit((r || []).slice(0, 20))).catch(() => undefined);
 
   const set = (k: string, v: string) => setS((prev) => ({ ...prev, [k]: v }));
 
@@ -224,6 +229,38 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
           </p>
         </Card>
       </div>
+
+      <Card
+        title="Recent administrator activity"
+        actions={<button className="small" onClick={loadAudit}>Refresh</button>}
+      >
+        {audit.length === 0 ? (
+          <p className="muted" style={{ fontSize: 13, margin: 0 }}>No audit entries yet.</p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th><th>Source</th></tr>
+              </thead>
+              <tbody>
+                {audit.map((a) => (
+                  <tr key={a.id}>
+                    <td className="muted" style={{ whiteSpace: "nowrap" }}>{fmtTime(a.ts)}</td>
+                    <td className="mono">{a.user}</td>
+                    <td>{a.action}</td>
+                    <td className="muted" style={{ maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.detail}>{a.detail || "—"}</td>
+                    <td className="mono">{a.ip || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="muted" style={{ fontSize: 12 }}>
+          The newest 20 entries: sign-ins, sign-outs, settings changes, proxy and certificate changes,
+          bans and restores. Activities are also written to the container log.
+        </p>
+      </Card>
 
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <button className="primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
