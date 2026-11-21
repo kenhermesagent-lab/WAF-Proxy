@@ -340,14 +340,31 @@ sudo ./deploy/install.sh            # keeps the env file and /var/lib/wafproxy
 
 journalctl -u wafproxy -f           # service log
 sudo env WAFPROXY_DATA_DIR=/var/lib/wafproxy wafproxy unban 203.0.113.7
-
-sudo systemctl disable --now wafproxy wafproxy-updates
-# destructive: also remove the state, logs, units and binaries
-sudo rm -rf /var/lib/wafproxy /var/log/wafproxy /etc/wafproxy
-sudo rm -f /usr/local/bin/wafproxy /usr/local/bin/wafproxy-updated
-sudo rm -f /etc/systemd/system/wafproxy.service /etc/systemd/system/wafproxy-updates.service
-sudo systemctl daemon-reload
 ```
+
+To remove the native installation, use the uninstall script rather than deleting paths by
+hand. It prompts first and refuses to run without a terminal unless `--yes` is supplied:
+
+```bash
+sudo ./deploy/uninstall.sh
+# unattended
+sudo ./deploy/uninstall.sh --yes
+# keep the config, database and logs for a later reinstall
+sudo ./deploy/uninstall.sh --keep-data
+```
+
+It stops and disables `wafproxy.service` and `wafproxy-updates.service`, removes the unit
+files and both binaries, deletes the app-owned `inet wafproxy` nftables table, and removes
+`/etc/wafproxy`, `/var/lib/wafproxy`, `/var/log/wafproxy`, the runtime helper socket and the
+`wafproxy` user/group. With `--keep-data`, the config, data, logs and user/group are kept.
+
+The script intentionally does **not** remove shared OS packages (`nftables`, `ca-certificates`,
+`tzdata`), the Go toolchain, Tailscale, CrowdSec, Docker, host firewall/router rules, or the
+repository checkout. System journal entries for the removed units may remain until the host's
+normal journal rotation.
+
+If the script cannot run because systemd is unavailable, stop the services and remove the exact
+paths listed above manually; do not delete unrelated host files.
 
 ## 12. Optional native Tailscale access
 

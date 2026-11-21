@@ -23,6 +23,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   packages belong to the image. See `docs/INSTALL.md` §13.
 - Go tests for apt policy parsing, CVSS ranking, inventory snapshots and the helper allowlist;
   Vitest coverage for unsupported Docker/container and high/critical update states.
+- **Native VM sizing guidance and `deploy/uninstall.sh`.** The README now recommends Ubuntu
+  Server 24.04 LTS minimal with 4 vCPU, 8 GB RAM, 50 GB local NVMe and two NICs for the
+  systemd deployment, with the 2 vCPU / 4 GB / 30 GB floor. The uninstall script stops and
+  removes the native units, binaries, config, data, logs, app-owned nftables table and
+  `wafproxy` user/group after confirmation; `--keep-data` preserves the database and config
+  for a reinstall.
 
 - **Native Tailscale access.** The console now has a **Tailscale** page with two default-off
   listeners. **Admin console over Tailscale** adds a `tailscale0` listener on the GUI port and

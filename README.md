@@ -18,6 +18,7 @@ sample traffic, not production figures.***
 - [What it does](#what-it-does)
 - [How a request is handled](#how-a-request-is-handled)
 - [Requirements](#requirements)
+- [Native VM sizing](#native-vm-sizing)
 - [Quick start](#quick-start)
 - [First certificate and first site](#first-certificate-and-first-site)
 - [Streaming forwarders (Plex, Jellyfin)](#streaming-forwarders-plex-jellyfin)
@@ -110,6 +111,39 @@ small on a busy site.
 - **Optional:** the CrowdSec sidecar profile.
 - **Optional:** a native Tailscale installation (`tailscale0`) for private admin and app access; no Tailscale sidecar or auth key is needed by WAF-Proxy.
 
+### Native VM sizing
+
+For the **native systemd** install, use a VM with **Ubuntu Server 24.04 LTS minimal (amd64)**,
+**4 vCPU, 8 GB RAM, 50 GB NVMe/SSD and two virtio NICs** (one WAN, one LAN). This is the
+comfortable home/lab-edge size; **2 vCPU / 4 GB / 30 GB** is the supported floor.
+
+| Resource | Recommended | Floor |
+|---|---:|---:|
+| vCPU | 4 | 2 |
+| RAM | 8 GB | 4 GB |
+| Disk | 50 GB local NVMe/SSD | 30 GB |
+| Network | 2 virtio NICs, static IPv4 | 1 NIC also works |
+
+Why this size:
+
+- TLS, WAF inspection and scan bursts are CPU-spiky; the measured Coraza+CRS cost is roughly
+  **3 ms per inspected request per core** on the reference sandbox. Four vCPUs leave headroom
+  for the WAF while accepting TLS connections and writing events.
+- The stack's steady-state RAM is roughly **300–600 MB**; the extra RAM is for SQLite page
+  cache, optional CrowdSec (about 60–120 MB), GeoIP and burst absorption.
+- SQLite WAL is random-I/O bound, so keep `/var/lib/wafproxy` on local SSD/NVMe — never NFS or
+  SMB. Seven days of events at roughly 1M events/day can use 5–10 GB before logs, GeoIP and
+  backups.
+- Two NICs preserve real WAN client IPs: the router DNATs `443` to the WAN address without
+  SNAT. A single-NIC VM works, but the GUI port must then be firewalled from the WAN.
+
+Use 26.04 LTS if it is your standard; avoid interim Ubuntu releases. Install
+`nftables`, `ca-certificates` and `tzdata`, assign the WAN/LAN addresses statically, and open
+only the WAN proxy port plus the LAN GUI port. The systemd build needs **Go 1.27**; Ubuntu's
+apt Go is older, so install the official Go 1.27 toolchain or build the two binaries elsewhere
+and copy them into `bin/` before running `install.sh`. See
+[docs/OPERATIONS.md](docs/OPERATIONS.md#capacity-and-disk) for tuning and capacity notes.
+
 ## Quick start
 
 ```bash
@@ -192,7 +226,10 @@ prefilled with those addresses, so open `http://<LAN-IP>:8443` and finish setup.
 firewall rules and first certificate are otherwise identical. Upgrade with
 `git pull && make build && sudo ./deploy/install.sh` (it prompts again and keeps the database;
 on an existing install the addresses stored in **Settings** still take precedence over the env
-file); see [docs/INSTALL.md](docs/INSTALL.md#11-bare-metal-with-systemd).
+file). To remove the native install, run `sudo ./deploy/uninstall.sh`; it prompts before
+removing the units, binaries, config, data, logs, app-owned nftables table and `wafproxy`
+user/group. Use `--keep-data` to keep the database and config for a later reinstall. See
+[docs/INSTALL.md](docs/INSTALL.md#11-bare-metal-with-systemd).
 
 ### Tailscale access
 
@@ -319,7 +356,8 @@ LAPI stream and become `source=crowdsec` bans.
 | Back up | **Settings → Download JSON** (secrets excluded) |
 | Upgrade | `git pull && docker compose -f deploy/docker-compose.yml build && docker compose -f deploy/docker-compose.yml up -d` |
 | Check health | `docker compose -f deploy/docker-compose.yml ps`, `curl -s http://<lan-ip>:8443/api/health` |
-| Uninstall | `docker compose -f deploy/docker-compose.yml down && docker volume rm wafproxy_data` (destructive) |
+| Uninstall (Docker) | `docker compose -f deploy/docker-compose.yml down && docker volume rm wafproxy_data` (destructive) |
+| Uninstall (systemd) | `sudo ./deploy/uninstall.sh` (prompts; `--keep-data` preserves config and database) |
 
 The database schema is applied idempotently on boot. Event retention is configurable (1–30
 days, default 7) and pruned hourly together with expired bans and sessions.
