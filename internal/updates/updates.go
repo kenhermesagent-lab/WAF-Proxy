@@ -38,9 +38,11 @@ var (
 	ErrAppUpdateUnsupported = errors.New("application self-update is unavailable")
 )
 
-// AppRepo is the fallback repository used for update checks when the privileged
-// helper is not installed. The helper reads the actual checkout instead.
-const AppRepo = "kenhermesagent-lab/WAF-Proxy-Docker"
+// AppRepo is the repository this build updates. It is also the origin a
+// checkout recorded from the console must have: the helper rebuilds and installs
+// as root, so another repository would be code the operator never approved.
+// A fork sets it at build time with -X .../internal/updates.AppRepo=owner/repo.
+var AppRepo = "kenhermesagent-lab/WAF-Proxy-Docker"
 
 type runner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
@@ -65,6 +67,13 @@ type Manager struct {
 	appAPIBase string
 	appRawBase string
 	appBusy    atomic.Bool
+
+	// appStatus is the host view the root helper reports. Local paths are
+	// meaningless inside a Docker container, so they are only a fallback for a
+	// native install whose helper is not running.
+	statusMu    sync.Mutex
+	appStatus   AppStatus
+	appStatusOK bool
 
 	appRunMu     sync.Mutex
 	appRunActive bool
@@ -309,6 +318,7 @@ func (m *Manager) Snapshot(ctx context.Context) Snapshot {
 	snap.CheckedAt = m.now().UTC().Format(time.RFC3339)
 	snap.HelperReady, snap.HelperError = m.helperState()
 	snap.Updating = m.busy.Load()
+	m.refreshAppStatus(ctx)
 	snap = m.mergeApp(snap, m.appSnapshot(ctx))
 	m.cacheMu.Lock()
 	m.cache = snap
@@ -331,7 +341,21 @@ func (m *Manager) mergeApp(snap Snapshot, app appInfo) Snapshot {
 	snap.AppUpdateOutput = m.appRunOutput
 	m.appRunMu.Unlock()
 	ready, msg := m.helperState()
-	snap.AppSourceDir = m.AppSourceDir()
+	status, fromHelper := m.appStatusSnapshot()
+	if fromHelper {
+		snap.AppSourceDir = status.SourceDir
+	} else {
+		// Native install without a running helper, or a test manager: inspect
+		// the paths directly, which is correct on the machine that runs the
+		// console.
+		snap.AppSourceDir = m.AppSourceDir()
+		status = AppStatus{
+			SourceDir:      snap.AppSourceDir,
+			CheckoutExists: dirExists(snap.AppSourceDir),
+			MissingScripts: MissingUpdateScripts(),
+		}
+	}
+	docker := m.host.container || status.Mode == "docker"
 	switch {
 	case m.host.container && !ready:
 		snap.AppUpdateSupported = false
@@ -345,19 +369,57 @@ func (m *Manager) mergeApp(snap Snapshot, app appInfo) Snapshot {
 	case snap.AppSourceDir == "":
 		snap.AppUpdateSupported = false
 		snap.AppUpdateReason = "The update helper is running but has no repository directory recorded, so it has nothing to rebuild."
-	case !dirExists(snap.AppSourceDir):
+	case !status.CheckoutExists:
 		snap.AppUpdateSupported = false
 		snap.AppUpdateReason = "The recorded checkout " + snap.AppSourceDir + " no longer exists on this host, so there is nothing to rebuild."
-	case len(MissingUpdateScripts()) > 0:
-		missing := MissingUpdateScripts()
+	case len(status.MissingScripts) > 0:
 		snap.AppUpdateSupported = false
-		snap.AppUpdateReason = "The installed update scripts are missing (" + strings.Join(missing, ", ") +
-			"); re-run sudo ./deploy/install.sh from the checkout to restore them."
+		installer := "sudo ./deploy/install.sh"
+		if docker {
+			installer = "sudo ./deploy/install-docker-updater.sh"
+		}
+		snap.AppUpdateReason = "The installed update scripts are missing (" + strings.Join(status.MissingScripts, ", ") +
+			"); re-run " + installer + " from the checkout to restore them."
 	default:
 		snap.AppUpdateSupported = true
 		snap.AppUpdateReason = ""
 	}
 	return snap
+}
+
+// refreshAppStatus asks the root helper whether the recorded checkout and the
+// installed updater scripts are present. A Docker install runs the console in a
+// container, where /etc/wafproxy and /usr/local/waf-proxy belong to the image,
+// not to the host the updater works on.
+func (m *Manager) refreshAppStatus(ctx context.Context) {
+	status, ok := m.helperAppStatus(ctx)
+	m.statusMu.Lock()
+	m.appStatus, m.appStatusOK = status, ok
+	m.statusMu.Unlock()
+}
+
+func (m *Manager) appStatusSnapshot() (AppStatus, bool) {
+	m.statusMu.Lock()
+	defer m.statusMu.Unlock()
+	return m.appStatus, m.appStatusOK
+}
+
+func (m *Manager) helperAppStatus(ctx context.Context) (AppStatus, bool) {
+	if _, msg := m.helperState(); msg != "" {
+		return AppStatus{}, false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	resp, err := m.callHelper(ctx, HelperRequest{Action: HelperActionAppStatus})
+	if err != nil || !resp.OK {
+		return AppStatus{}, false
+	}
+	return AppStatus{
+		SourceDir:      resp.SourceDir,
+		Mode:           resp.Mode,
+		CheckoutExists: resp.CheckoutExists,
+		MissingScripts: resp.MissingScripts,
+	}, true
 }
 
 func (m *Manager) build(ctx context.Context) (Snapshot, error) {

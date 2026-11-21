@@ -17,6 +17,11 @@ const (
 	HelperActionApply     = "apply"
 	HelperActionAppCheck  = "app-check"
 	HelperActionAppUpdate = "app-update"
+	// HelperActionAppStatus reports the host's recorded checkout and installed
+	// updater scripts. A Docker install cannot see those paths from inside the
+	// container, so the console asks the helper instead of stat()ing its own
+	// filesystem before offering the Update button.
+	HelperActionAppStatus = "app-status"
 	// HelperActionAppConfigure records the checkout the helper rebuilds, for a
 	// host whose install lives outside the path install.sh recorded.
 	HelperActionAppConfigure = "app-configure"
@@ -104,6 +109,12 @@ type HelperResponse struct {
 	OK     bool   `json:"ok"`
 	Output string `json:"output,omitempty"`
 	Error  string `json:"error,omitempty"`
+	// The app-status reply describes the host filesystem the helper shares
+	// with the installer.
+	SourceDir      string   `json:"source_dir,omitempty"`
+	Mode           string   `json:"mode,omitempty"`
+	CheckoutExists bool     `json:"checkout_exists,omitempty"`
+	MissingScripts []string `json:"missing_scripts,omitempty"`
 }
 
 var consoleKeyRE = regexp.MustCompile(`^[A-Za-z0-9+/=_-]{16,256}$`)

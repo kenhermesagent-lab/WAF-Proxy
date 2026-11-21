@@ -150,6 +150,14 @@ SecAction "id:9001003,phase:1,nolog,pass,t:none,setvar:tx.inbound_anomaly_score_
 	if len(remove) > 0 {
 		directives += "SecRuleRemoveById " + strings.Join(remove, " ") + "\n"
 	}
+	// A scanner can put the target file in the path instead of a parameter.
+	// The CRS LFI rules inspect arguments, so "?file=/etc/passwd" was blocked
+	// while a bare "/etc/passwd" reached the backend. The path is already
+	// canonicalised by the caller, so this matches what the upstream would
+	// open. The trailing boundary keeps ordinary files such as
+	// "/etc/passwd-docs" out of the rule.
+	directives += `SecRule REQUEST_FILENAME "@rx (?i)(?:^|/)(?:etc/(?:passwd|shadow|group|gshadow|sudoers)|proc/(?:self|[0-9]+)/(?:environ|cmdline)|\.ssh/(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|authorized_keys))(?:/|$)" "id:900110,phase:1,deny,status:403,log,severity:'CRITICAL',tag:'attack-lfi',msg:'path-style file access probe'"
+`
 
 	w, err := coraza.NewWAF(coraza.NewWAFConfig().
 		WithRootFS(coreruleset.FS).
@@ -255,9 +263,12 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res
 		if id >= 949000 && id < 950000 {
 			continue
 		}
-		sev := mr.Rule().Severity()
-		if int(sev) < bestSeverity {
-			bestSeverity = int(sev)
+		// Setup actions (the CRS version marker, body-inspection toggles) match
+		// without a severity and would otherwise win every report, so only rules
+		// that classify an attack are candidates for the logged rule.
+		sev := int(mr.Rule().Severity())
+		if sev >= 0 && sev < bestSeverity {
+			bestSeverity = sev
 			bestID = id
 			bestMsg = mr.Message()
 		}
@@ -295,6 +306,10 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res
 
 // Label maps a CRS rule ID to a short attack category.
 func Label(ruleID int) string {
+	switch ruleID {
+	case 900110:
+		return "lfi"
+	}
 	switch ruleID / 1000 {
 	case 913:
 		return "scanner"

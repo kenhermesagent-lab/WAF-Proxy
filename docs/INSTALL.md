@@ -581,7 +581,10 @@ checkout, runs `git pull --ff-only` and `make all` as the owner, installs both b
 refreshes the helper scripts as root, reloads systemd units and restarts the helper; the console
 then exits so systemd starts the new build. It
 never accepts an argument from the browser, and the data directory is untouched. Only install
-from a repository you trust: the helper builds that checkout's code.
+from a repository you trust: the helper builds that checkout's code. A checkout recorded from
+the console must have the same origin as the running build (`owner/repository`, in any git
+remote spelling); the helper refuses one that points at another repository, so an administrator
+cannot use the field to install code from a repository the operator never approved.
 
 ```bash
 sudo systemctl status wafproxy-updates
@@ -599,10 +602,13 @@ building to install/repair it.
    If the card says the button is unavailable, it also shows why. A running helper with no
    recorded checkout shows a **WAF-Proxy checkout directory** field: enter the absolute path of
    the git checkout that holds `deploy/` and the helper records it (`/etc/wafproxy/self-update.conf`),
-   after which the button works. The helper only records the path; it never copies code out of the
-   checkout. If the page reports the installed update scripts missing, re-run
-   `sudo ./deploy/install.sh` from the checkout. The commands below the field are the manual
-   fallback, not the expected path.
+   after which the button works. The origin must match the repository this build was compiled
+   from (a fork builds with `make REPO=owner/repo` or the `REPO` build arg); any other origin is
+   refused. The helper only records the path; it never copies code out of the checkout. If the
+   page reports the installed update scripts missing, re-run `sudo ./deploy/install.sh` from the
+   checkout. The commands below the field are the manual fallback, not the expected path.
+   The console asks the root helper for the recorded checkout and script state, because a
+   container's `/etc` and `/usr/local` are not the host's.
 2. Click **Check for updates** to refresh the repository check and, on native, the apt index.
 3. Click **Update** on one host package, confirm, and wait for apt to finish. The page refreshes
    and shows the helper output.
@@ -625,9 +631,12 @@ the optional host updater once from the checkout, after the image has been built
 sudo ./deploy/install-docker-updater.sh
 ```
 
-It copies `wafproxy-updated` out of the running container, installs
-`wafproxy-docker-updates.service`, records the checkout path, its owner and `deploy/.env`,
-and starts the root helper. Compose mounts `/run/wafproxy-updates` into the console, so the
+It copies `wafproxy-updated` out of the running container, installs `wafproxy-self-update.sh`
+and `wafproxy-self-update-check.sh` as `/usr/local/waf-proxy/lib/self-update` and
+`self-update-check`, installs `wafproxy-docker-updates.service`, records the checkout path,
+its owner and `deploy/.env`, and starts the root helper. The console reports the button
+available only when that helper confirms both scripts and the checkout exist on the host;
+the container itself cannot see those paths. Compose mounts `/run/wafproxy-updates` into the console, so the
 **Update application** button then pulls the checkout as its owner, rebuilds the image with
 the new `VERSION`,
 `COMMIT` and `BUILD_DATE`, and recreates only the `wafproxy` service. The named data volume,

@@ -49,8 +49,17 @@ func configureAppAt(dir, confPath string) updates.HelperResponse {
 			return updates.HelperResponse{Error: dir + " is not a WAF-Proxy checkout: deploy/" + script.checkout + " is missing"}
 		}
 	}
-	if remote, err := gitIn(dir, "config", "--get", "remote.origin.url"); err != nil || remote == "" {
+	remote, err := gitIn(dir, "config", "--get", "remote.origin.url")
+	if err != nil || remote == "" {
 		return updates.HelperResponse{Error: dir + " has no git origin remote, so the helper cannot pull updates"}
+	}
+	// The helper pulls this checkout and installs its build as root. Accepting
+	// any origin would let a console admin point it at a repository they
+	// control, so the origin has to be the repository this binary was built
+	// from.
+	if !updates.RepoMatches(remote) {
+		return updates.HelperResponse{Error: "the origin of " + dir + " (" + remote + ") is not the repository this build updates (" +
+			updates.AppRepo + "); the helper only rebuilds its own repository"}
 	}
 	branch, err := gitIn(dir, "symbolic-ref", "--short", "HEAD")
 	if err != nil || branch == "" {

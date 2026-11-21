@@ -290,7 +290,10 @@ The **Updates** page has two parts:
 
 The console never supplies a URL, branch, package or shell command for the application
 update. `deploy/install.sh` records the checkout and its owner once; the root-owned helper runs
-only the fixed `self-update-check` and `self-update` scripts. The public repository needs no
+only the fixed `self-update-check` and `self-update` scripts. A checkout typed into the page
+must have the same origin as the running build — the helper refuses any other repository — and
+the page asks the helper whether that checkout and both scripts are present, because a Docker
+container cannot see the host's `/etc` or `/usr/local`. The public repository needs no
 token or login; a private fork can use the checkout owner's existing git credentials. A Docker
 image still cannot update itself without the host helper, so an install without it stays
 check-only. See
@@ -540,8 +543,9 @@ These are deliberate design decisions, not gaps to discover later:
   `NoNewPrivileges=yes`; `wafproxy-updated` is the only root component and accepts only the
   compiled package allowlist or the fixed repository check/update actions over a Unix socket.
   The checkout, its owner and its branch are recorded at install time; the browser cannot
-  supply a URL, package or   shell command. A compromised upstream repository still controls code that the helper installs
-  as root, so only install from an origin you trust.
+  supply a URL, package or shell command, and a checkout recorded from the console must have the
+  same origin as the running build. A compromised upstream repository still controls code that
+  the helper installs as root, so only install from an origin you trust.
 - **Docker updates need an explicit host helper.** The container has no build toolchain or
   Docker socket. `install-docker-updater.sh` installs a root service that exposes only the
   fixed rebuild action; without it the Updates page stays check-only.

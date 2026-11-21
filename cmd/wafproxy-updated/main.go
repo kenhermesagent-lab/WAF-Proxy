@@ -150,6 +150,15 @@ func serve(conn net.Conn, gid, uid int) {
 			resp.Output = resp.Output + "\nupdated " + req.Package
 		}
 		writeResponse(conn, resp)
+	case updates.HelperActionAppStatus:
+		st := updates.ReadAppStatus()
+		writeResponse(conn, updates.HelperResponse{
+			OK:             true,
+			SourceDir:      st.SourceDir,
+			Mode:           st.Mode,
+			CheckoutExists: st.CheckoutExists,
+			MissingScripts: st.MissingScripts,
+		})
 	case updates.HelperActionAppCheck:
 		resp := runFixedScript(updates.AppCheckScript, 90*time.Second)
 		writeResponse(conn, resp)

@@ -85,3 +85,46 @@ func TestAppSourceDirEmptyWithoutConf(t *testing.T) {
 		t.Fatalf("AppSourceDir = %q, want empty", got)
 	}
 }
+
+// A Docker install runs the console in a container, so the recorded checkout
+// and the installed scripts live on the host and are invisible here. The helper
+// reports them; the page must use that answer instead of stat()ing container
+// paths that will never exist.
+func TestAppUpdateSupportUsesHostStatusInContainer(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "updates.sock")
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	m := &Manager{
+		helperSocket: socket,
+		appRepo:      AppRepo,
+		host:         hostInfo{container: true},
+		appStatus: AppStatus{
+			SourceDir:      "/srv/WAF-Proxy-Docker",
+			Mode:           "docker",
+			CheckoutExists: true,
+		},
+		appStatusOK: true,
+	}
+	snap := m.mergeApp(Snapshot{}, appInfo{})
+	if !snap.AppUpdateSupported {
+		t.Fatalf("supported = false with a host checkout: %s", snap.AppUpdateReason)
+	}
+	if snap.AppSourceDir != "/srv/WAF-Proxy-Docker" {
+		t.Fatalf("AppSourceDir = %q", snap.AppSourceDir)
+	}
+
+	// Missing scripts are reported by the host, and the remedy names the Docker
+	// installer rather than the native one.
+	m.appStatus.MissingScripts = []string{"self-update"}
+	snap = m.mergeApp(Snapshot{}, appInfo{})
+	if snap.AppUpdateSupported {
+		t.Fatal("supported = true while a host script is missing")
+	}
+	if !strings.Contains(snap.AppUpdateReason, "install-docker-updater.sh") {
+		t.Fatalf("reason = %q", snap.AppUpdateReason)
+	}
+}

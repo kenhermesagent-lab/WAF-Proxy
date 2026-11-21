@@ -17,11 +17,13 @@ COPY --from=ui /src/internal/webui/dist ./internal/webui/dist
 ARG VERSION=0.0.0
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
+ARG REPO=kenhermesagent-lab/WAF-Proxy-Docker
 RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w \
       -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.Version=${VERSION} \
       -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.Commit=${COMMIT} \
-      -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.BuildDate=${BUILD_DATE}" \
+      -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.BuildDate=${BUILD_DATE} \
+      -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates.AppRepo=${REPO}" \
     -o /out/wafproxy ./cmd/wafproxy \
     && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/wafproxy-updated ./cmd/wafproxy-updated
 

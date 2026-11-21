@@ -11,6 +11,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.6.2] — 2026-11-21
+
+### Security
+
+- **A checkout recorded from the Updates page must be this repository.** The root helper pulls that
+  checkout and installs its build as root, so `app-configure` now compares the checkout's `origin`
+  remote with the repository the running binary was compiled from (`owner/repository`, in any git
+  remote spelling). Any other origin is refused, closing the path where a console admin points the
+  root helper at a repository they control. A fork sets its own repository at build time with
+  `make REPO=owner/repo` or the `REPO` build arg.
+- **Path-style file-access probes are blocked.** `/etc/passwd` as a request path reached the backend
+  while `/?file=/etc/passwd` was blocked, because the CRS local-file-inclusion rules inspect
+  arguments only. The WAF now denies a canonical filename under `/etc` (`passwd`, `shadow`, `group`,
+  `gshadow`, `sudoers`), `/proc/*/environ`, `/proc/*/cmdline` and `.ssh` private/authorised key
+  paths, with a trailing boundary so ordinary names such as `/etc/passwd-docs` still pass.
+
+### Fixed
+
+- **The Update button works again on Docker Compose installs.** Support was decided by `stat`ing
+  `/etc/wafproxy/self-update.conf` and `/usr/local/waf-proxy/lib` from inside the container, where
+  those host paths never exist, so a correctly installed host updater still reported the button
+  unavailable. The console now asks the helper for the recorded checkout, its existence and any
+  missing scripts through a new `app-status` action, and names
+  `install-docker-updater.sh` (rather than `install.sh`) as the remedy for a Docker install.
+- `install-docker-updater.sh` already installed both `self-update` and `self-update-check`; the
+  page now reports that state through the helper instead of guessing from container paths.
+
 ## [1.6.1] — 2026-11-21
 
 ### Security

@@ -216,6 +216,11 @@ func TestCheckAndApplyUseTheHelperSocket(t *testing.T) {
 				_ = conn.Close()
 				continue
 			}
+			if req.Action == HelperActionAppStatus {
+				_ = json.NewEncoder(conn).Encode(HelperResponse{OK: true, Mode: "native"})
+				_ = conn.Close()
+				continue
+			}
 			requests <- req
 			_ = json.NewEncoder(conn).Encode(HelperResponse{OK: true, Output: "done " + req.Action})
 			_ = conn.Close()

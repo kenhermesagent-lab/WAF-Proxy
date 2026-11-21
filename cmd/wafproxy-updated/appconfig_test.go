@@ -32,7 +32,7 @@ func initCheckout(t *testing.T, dir string) {
 	t.Helper()
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main", dir},
-		{"-C", dir, "remote", "add", "origin", "https://github.com/example/WAF-Proxy.git"},
+		{"-C", dir, "remote", "add", "origin", "https://github.com/kenhermesagent-lab/WAF-Proxy-Docker.git"},
 	} {
 		cmd := exec.Command("git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -131,14 +131,22 @@ func TestConfigureAppRejectsBadDirectories(t *testing.T) {
 	if err := os.Remove(filepath.Join(noScript, "deploy", "wafproxy-self-update.sh")); err != nil {
 		t.Fatal(err)
 	}
+	// A checkout of another repository would let the helper install whatever
+	// that repository builds, as root.
+	foreign := newCheckout(t)
+	if out, err := exec.Command("git", "-C", foreign, "remote", "set-url", "origin",
+		"https://github.com/attacker/WAF-Proxy-Docker.git").CombinedOutput(); err != nil {
+		t.Fatalf("set origin: %v\n%s", err, out)
+	}
 
 	cases := map[string]string{
-		"empty":      "",
-		"relative":   "deploy",
-		"missing":    filepath.Join(t.TempDir(), "absent"),
-		"no .git":    noGit,
-		"no origin":  noRemote,
-		"no scripts": noScript,
+		"empty":          "",
+		"relative":       "deploy",
+		"missing":        filepath.Join(t.TempDir(), "absent"),
+		"no .git":        noGit,
+		"no origin":      noRemote,
+		"no scripts":     noScript,
+		"foreign origin": foreign,
 	}
 	for name, dir := range cases {
 		if resp := configureAppAt(dir, conf); resp.OK {
