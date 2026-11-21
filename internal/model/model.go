@@ -59,6 +59,23 @@ type Profile struct {
 	Exceptions     string `json:"exceptions"` // comma separated CRS rule IDs
 }
 
+// Certificate renewal policies.
+const (
+	CertRenewMonthly      = "monthly"
+	CertRenewEvery2Months = "every_2_months"
+	CertRenewEvery3Months = "every_3_months"
+	CertRenewBeforeExpiry = "before_expiry"
+)
+
+// ValidCertRenewMode reports whether mode is an accepted renewal policy.
+func ValidCertRenewMode(mode string) bool {
+	switch mode {
+	case CertRenewMonthly, CertRenewEvery2Months, CertRenewEvery3Months, CertRenewBeforeExpiry:
+		return true
+	}
+	return false
+}
+
 // Cert is a TLS certificate managed by the ACME client.
 type Cert struct {
 	ID        int64      `json:"id"`
@@ -70,6 +87,7 @@ type Cert struct {
 	CertPEM   []byte     `json:"-"`
 	KeyPEM    []byte     `json:"-"`
 	Wildcard  bool       `json:"wildcard"`
+	RenewMode string     `json:"renew_mode"`
 	LastError string     `json:"last_error,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 }

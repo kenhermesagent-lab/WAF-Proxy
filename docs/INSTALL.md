@@ -114,8 +114,11 @@ GUI → **Certificates** → **Request certificate**:
   `{"token":"..."}`.
 
 Issuance is asynchronous; the row moves from `pending` to `issued` and shows the expiry.
-Renewal happens automatically inside 30 days. Use the staging toggle in Settings while
-testing to avoid Let's Encrypt rate limits.
+Use the row's **Auto-renew** menu to choose **Monthly**, **Every 2 months**, **Every 3 months**,
+or **1 month before expiry** (the default). Let's Encrypt certificates last 90 days, so the
+three-month choice is capped at seven days before expiry. Renewal is checked every 12 hours;
+the next date is shown under the menu. Use the staging toggle in Settings while testing to
+avoid Let's Encrypt rate limits.
 
 ## 6. First proxy
 

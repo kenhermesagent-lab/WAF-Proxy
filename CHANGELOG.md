@@ -15,6 +15,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **Per-certificate automatic renewal policies.** The Certificates page now lets an admin
+  choose monthly, every two months, every three months, or one month before expiry. The
+  scheduler runs every 12 hours, shows the computed next-renewal date, caps late policies at
+  seven days before expiry, and keeps the previous certificate serving when a renewal fails
+  so the next check can retry.
 - **Green shield branding and repository update guide.** The console sidebar and browser tab
   now use the same green shield mark. The README's **Updating from the repository** section
   documents backup, pull, rebuild and health-check steps separately for Docker Compose and

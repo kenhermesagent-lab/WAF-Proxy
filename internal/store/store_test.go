@@ -154,6 +154,39 @@ func TestUsernameBanInvalidatesLiveGateSession(t *testing.T) {
 	}
 }
 
+func TestCertRenewModeDefaultsAndUpdates(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	id, err := st.SaveCert(&model.Cert{Domains: "example.com", Provider: "duckdns", Status: "pending"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := st.GetCert(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cert.RenewMode != model.CertRenewBeforeExpiry {
+		t.Fatalf("default renew_mode = %q, want %q", cert.RenewMode, model.CertRenewBeforeExpiry)
+	}
+	if err := st.SetCertRenewMode(id, model.CertRenewEvery2Months); err != nil {
+		t.Fatal(err)
+	}
+	cert, err = st.GetCert(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cert.RenewMode != model.CertRenewEvery2Months {
+		t.Fatalf("updated renew_mode = %q, want %q", cert.RenewMode, model.CertRenewEvery2Months)
+	}
+	if err := st.SetCertRenewMode(id+1, model.CertRenewMonthly); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing certificate update = %v, want ErrNotFound", err)
+	}
+}
+
 func TestDeleteFeedReportsRowsAffected(t *testing.T) {
 	st, err := Open(t.TempDir())
 	if err != nil {

@@ -246,10 +246,16 @@ func (m *Manager) fail(id int64, err error) {
 	if gerr != nil {
 		return
 	}
-	row.Status = "error"
 	row.LastError = err.Error()
 	if len(row.LastError) > 300 {
 		row.LastError = row.LastError[:300]
+	}
+	// A failed renewal must keep serving the previous certificate. Only an
+	// initial issuance has no certificate to fall back to.
+	if len(row.CertPEM) > 0 {
+		row.Status = "issued"
+	} else {
+		row.Status = "error"
 	}
 	_, _ = m.st.SaveCert(row)
 	m.log.Error("certificate request failed", "domains", row.Domains, "err", err)
@@ -272,7 +278,11 @@ func containsWildcard(domains []string) bool {
 	return false
 }
 
-// RenewLoop renews certificates that expire within 30 days.
+const renewSafetyWindow = 7 * 24 * time.Hour
+
+// RenewLoop applies each certificate's renewal policy. The safety window keeps
+// a quarterly policy from waiting until a 90-day Let's Encrypt certificate has
+// already expired.
 func (m *Manager) RenewLoop(ctx context.Context) {
 	ticker := time.NewTicker(12 * time.Hour)
 	defer ticker.Stop()
@@ -295,12 +305,44 @@ func (m *Manager) renewDue() {
 		if c.Status != "issued" || c.ExpiresAt == nil {
 			continue
 		}
-		if time.Until(*c.ExpiresAt) < 30*24*time.Hour {
+		if renewalDue(c, m.now()) {
 			if err := m.Issue(c.ID); err != nil {
 				m.log.Warn("renewal failed", "domains", c.Domains, "err", err)
 			}
 		}
 	}
+}
+
+func renewalDue(c model.Cert, now time.Time) bool {
+	at, ok := renewalTime(c)
+	return ok && !now.Before(at)
+}
+
+// renewalTime returns when the selected policy next wants a renewal. Policies
+// measured from issuance are capped at seven days before expiry.
+func renewalTime(c model.Cert) (time.Time, bool) {
+	if c.ExpiresAt == nil {
+		return time.Time{}, false
+	}
+	expires := *c.ExpiresAt
+	latest := expires.Add(-renewSafetyWindow)
+	months := 0
+	switch c.RenewMode {
+	case model.CertRenewMonthly:
+		months = 1
+	case model.CertRenewEvery2Months:
+		months = 2
+	case model.CertRenewEvery3Months:
+		months = 3
+	}
+	at := expires.AddDate(0, -1, 0)
+	if months > 0 && c.IssuedAt != nil {
+		at = c.IssuedAt.AddDate(0, months, 0)
+	}
+	if at.After(latest) {
+		at = latest
+	}
+	return at, true
 }
 
 func (m *Manager) account() (*account, error) {
@@ -394,8 +436,16 @@ func (m *Manager) CertSummary(c model.Cert) map[string]any {
 	if c.ExpiresAt != nil {
 		expires = c.ExpiresAt.Format(time.RFC3339)
 	}
-	return map[string]any{
-		"id": c.ID, "domains": c.Domains, "provider": c.Provider, "status": c.Status,
-		"expires_at": expires, "wildcard": c.Wildcard, "last_error": c.LastError,
+	mode := c.RenewMode
+	if !model.ValidCertRenewMode(mode) {
+		mode = model.CertRenewBeforeExpiry
 	}
+	out := map[string]any{
+		"id": c.ID, "domains": c.Domains, "provider": c.Provider, "status": c.Status,
+		"expires_at": expires, "wildcard": c.Wildcard, "renew_mode": mode, "last_error": c.LastError,
+	}
+	if at, ok := renewalTime(c); ok {
+		out["renews_at"] = at.Format(time.RFC3339)
+	}
+	return out
 }

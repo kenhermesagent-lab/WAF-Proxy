@@ -170,6 +170,8 @@ export interface Cert {
   provider: string;
   status: string;
   expires_at: string;
+  renews_at?: string;
+  renew_mode: string;
   wildcard: boolean;
   last_error?: string;
 }

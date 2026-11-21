@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS certificates (
   cert_pem BLOB,
   key_pem BLOB,
   is_wildcard INTEGER NOT NULL DEFAULT 0,
+  renew_mode TEXT NOT NULL DEFAULT 'before_expiry',
   last_error TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
@@ -291,7 +292,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "3"
+const schemaVersion = "4"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -312,6 +313,7 @@ func (s *Store) migrate() error {
 func (s *Store) migrateAddColumns() error {
 	steps := []struct{ table, column, ddl string }{
 		{"users", "totp_last_step", `ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
+		{"certificates", "renew_mode", `ALTER TABLE certificates ADD COLUMN renew_mode TEXT NOT NULL DEFAULT 'before_expiry'`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)

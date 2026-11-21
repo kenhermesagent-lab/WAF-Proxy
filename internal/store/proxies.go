@@ -252,7 +252,7 @@ func (s *Store) seedProfiles() error {
 
 // ListCerts returns all certificates.
 func (s *Store) ListCerts() ([]model.Cert, error) {
-	rows, err := s.db.Query(`SELECT id, domains, provider, status, issued_at, expires_at, is_wildcard, last_error, created_at
+	rows, err := s.db.Query(`SELECT id, domains, provider, status, issued_at, expires_at, is_wildcard, renew_mode, last_error, created_at
 		FROM certificates ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -264,12 +264,13 @@ func (s *Store) ListCerts() ([]model.Cert, error) {
 		var issued, expires sql.NullString
 		var wildcard int
 		var created string
-		if err := rows.Scan(&c.ID, &c.Domains, &c.Provider, &c.Status, &issued, &expires, &wildcard, &c.LastError, &created); err != nil {
+		if err := rows.Scan(&c.ID, &c.Domains, &c.Provider, &c.Status, &issued, &expires, &wildcard, &c.RenewMode, &c.LastError, &created); err != nil {
 			return nil, err
 		}
 		c.IssuedAt = parseStampPtr(issued)
 		c.ExpiresAt = parseStampPtr(expires)
 		c.Wildcard = i2b(wildcard)
+		c.RenewMode = defaultStr(c.RenewMode, model.CertRenewBeforeExpiry)
 		c.CreatedAt = parseStamp(created)
 		out = append(out, c)
 	}
@@ -283,9 +284,9 @@ func (s *Store) GetCert(id int64) (*model.Cert, error) {
 	var wildcard int
 	var created string
 	err := s.db.QueryRow(`SELECT id, domains, provider, status, issued_at, expires_at, cert_pem, key_pem,
-		is_wildcard, last_error, created_at FROM certificates WHERE id = ?`, id).
+		is_wildcard, renew_mode, last_error, created_at FROM certificates WHERE id = ?`, id).
 		Scan(&c.ID, &c.Domains, &c.Provider, &c.Status, &issued, &expires, &c.CertPEM, &c.KeyPEM,
-			&wildcard, &c.LastError, &created)
+			&wildcard, &c.RenewMode, &c.LastError, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -295,6 +296,7 @@ func (s *Store) GetCert(id int64) (*model.Cert, error) {
 	c.IssuedAt = parseStampPtr(issued)
 	c.ExpiresAt = parseStampPtr(expires)
 	c.Wildcard = i2b(wildcard)
+	c.RenewMode = defaultStr(c.RenewMode, model.CertRenewBeforeExpiry)
 	c.CreatedAt = parseStamp(created)
 	return &c, nil
 }
@@ -303,20 +305,39 @@ func (s *Store) GetCert(id int64) (*model.Cert, error) {
 func (s *Store) SaveCert(c *model.Cert) (int64, error) {
 	if c.ID == 0 {
 		res, err := s.db.Exec(`INSERT INTO certificates(domains, provider, status, issued_at, expires_at,
-			cert_pem, key_pem, is_wildcard, last_error, created_at)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cert_pem, key_pem, is_wildcard, renew_mode, last_error, created_at)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			c.Domains, c.Provider, c.Status, nullTime(c.IssuedAt), nullTime(c.ExpiresAt),
-			c.CertPEM, c.KeyPEM, b2i(c.Wildcard), c.LastError, stamp(time.Now()))
+			c.CertPEM, c.KeyPEM, b2i(c.Wildcard), defaultStr(c.RenewMode, model.CertRenewBeforeExpiry),
+			c.LastError, stamp(time.Now()))
 		if err != nil {
 			return 0, err
 		}
 		return res.LastInsertId()
 	}
 	_, err := s.db.Exec(`UPDATE certificates SET domains = ?, provider = ?, status = ?, issued_at = ?,
-		expires_at = ?, cert_pem = ?, key_pem = ?, is_wildcard = ?, last_error = ? WHERE id = ?`,
+		expires_at = ?, cert_pem = ?, key_pem = ?, is_wildcard = ?, renew_mode = ?, last_error = ? WHERE id = ?`,
 		c.Domains, c.Provider, c.Status, nullTime(c.IssuedAt), nullTime(c.ExpiresAt),
-		c.CertPEM, c.KeyPEM, b2i(c.Wildcard), c.LastError, c.ID)
+		c.CertPEM, c.KeyPEM, b2i(c.Wildcard), defaultStr(c.RenewMode, model.CertRenewBeforeExpiry),
+		c.LastError, c.ID)
 	return c.ID, err
+}
+
+// SetCertRenewMode updates one certificate's renewal policy without touching
+// its key material.
+func (s *Store) SetCertRenewMode(id int64, mode string) error {
+	res, err := s.db.Exec(`UPDATE certificates SET renew_mode = ? WHERE id = ?`, mode, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteCert removes a certificate.

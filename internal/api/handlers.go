@@ -767,9 +767,10 @@ func (s *Server) listCerts(w http.ResponseWriter, r *http.Request) {
 }
 
 type certBody struct {
-	Domains  string            `json:"domains"`
-	Provider string            `json:"provider"`
-	Creds    map[string]string `json:"creds"`
+	Domains   string            `json:"domains"`
+	Provider  string            `json:"provider"`
+	Creds     map[string]string `json:"creds"`
+	RenewMode string            `json:"renew_mode"`
 }
 
 func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
@@ -791,6 +792,13 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 	}
 	if !valid {
 		writeError(w, http.StatusBadRequest, "unsupported provider")
+		return
+	}
+	if in.RenewMode == "" {
+		in.RenewMode = model.CertRenewBeforeExpiry
+	}
+	if !model.ValidCertRenewMode(in.RenewMode) {
+		writeError(w, http.StatusBadRequest, "invalid renewal mode")
 		return
 	}
 	for _, d := range strings.Split(in.Domains, ",") {
@@ -817,7 +825,7 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 	}
 	c := &model.Cert{
 		Domains: in.Domains, Provider: in.Provider, Status: "pending",
-		Wildcard: strings.Contains(in.Domains, "*."),
+		Wildcard: strings.Contains(in.Domains, "*."), RenewMode: in.RenewMode,
 	}
 	id, err := s.st.SaveCert(c)
 	if err != nil {
@@ -832,6 +840,35 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "cert.create", in.Domains, clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "status": "pending"})
+}
+
+func (s *Server) updateCert(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var in struct {
+		RenewMode string `json:"renew_mode"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	if !model.ValidCertRenewMode(in.RenewMode) {
+		writeError(w, http.StatusBadRequest, "invalid renewal mode")
+		return
+	}
+	if err := s.st.SetCertRenewMode(id, in.RenewMode); errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot update certificate")
+		return
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "cert.renew_policy", strconv.FormatInt(id, 10)+" "+in.RenewMode, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "renew_mode": in.RenewMode})
 }
 
 func (s *Server) renewCert(w http.ResponseWriter, r *http.Request) {

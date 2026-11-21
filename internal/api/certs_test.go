@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
 
 // TestListCertsExposesProviderChoices guards the data behind the "DNS provider"
@@ -70,6 +73,46 @@ func TestListCertsExposesProviderChoices(t *testing.T) {
 	body = get()
 	if len(body.Configured) != 1 || body.Configured[0] != "duckdns" {
 		t.Fatalf("configured = %v, want [duckdns]", body.Configured)
+	}
+}
+
+func TestUpdateCertRenewMode(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	id, err := st.SaveCert(&model.Cert{Domains: "example.com", Provider: "duckdns", Status: "pending"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idText := strconv.FormatInt(id, 10)
+
+	put := func(certID, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPut, "/api/certs/"+certID, strings.NewReader(body))
+		req.Host = "gui.local"
+		req.RemoteAddr = "192.168.101.10:5000"
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		req.Header.Set("X-CSRF-Token", csrf)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := put(idText, `{"renew_mode":"monthly"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/certs/%s = %d: %s", idText, rec.Code, rec.Body.String())
+	}
+	cert, err := st.GetCert(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cert.RenewMode != model.CertRenewMonthly {
+		t.Fatalf("renew_mode = %q, want %q", cert.RenewMode, model.CertRenewMonthly)
+	}
+
+	if rec := put(idText, `{"renew_mode":"yearly"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid mode = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if rec := put("999", `{"renew_mode":"monthly"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing cert = %d, want 404: %s", rec.Code, rec.Body.String())
 	}
 }
 

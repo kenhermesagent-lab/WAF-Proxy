@@ -3,6 +3,13 @@ import { api } from "../api";
 import { Badge, Card, Empty, Field, Modal, errText, fmtTime } from "../ui";
 import { Cert } from "../types";
 
+const RENEW_OPTIONS = [
+  { value: "before_expiry", label: "1 month before expiry" },
+  { value: "monthly", label: "Monthly" },
+  { value: "every_2_months", label: "Every 2 months" },
+  { value: "every_3_months", label: "Every 3 months" },
+];
+
 const PROVIDER_HINTS: Record<string, string> = {
   duckdns: '{"token":"your-duckdns-token"}',
   cloudflare: '{"api_token":"..."}',
@@ -116,6 +123,16 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
     }
   };
 
+  const setRenewMode = async (c: Cert, renewMode: string) => {
+    try {
+      await api.put(`/api/certs/${c.id}`, { renew_mode: renewMode });
+      onOK("Auto-renew policy updated");
+      load();
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
+
   const remove = async (c: Cert) => {
     if (!confirm(`Delete certificate for ${c.domains}?`)) return;
     try {
@@ -136,7 +153,7 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
           <Empty>No certificates yet. A wildcard certificate for your base domain covers every proxy subdomain.</Empty>
         ) : (
           <table>
-            <thead><tr><th>Domains</th><th>Provider</th><th>Status</th><th>Expires</th><th /></tr></thead>
+            <thead><tr><th>Domains</th><th>Provider</th><th>Status</th><th>Expires</th><th>Auto-renew</th><th /></tr></thead>
             <tbody>
               {certs.map((c) => (
                 <tr key={c.id}>
@@ -147,6 +164,19 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
                     {c.last_error ? <div className="faint" style={{ fontSize: 11, maxWidth: 320 }}>{c.last_error}</div> : null}
                   </td>
                   <td className="muted">{fmtTime(c.expires_at)}</td>
+                  <td>
+                    <select
+                      className="table-select"
+                      aria-label={`Auto-renew for ${c.domains}`}
+                      value={c.renew_mode}
+                      onChange={(e) => setRenewMode(c, e.target.value)}
+                    >
+                      {RENEW_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    {c.renews_at ? <div className="faint" style={{ fontSize: 11 }}>next {fmtTime(c.renews_at)}</div> : null}
+                  </td>
                   <td className="right" style={{ whiteSpace: "nowrap" }}>
                     <button className="small" onClick={() => renew(c)}>Renew</button>{" "}
                     <button className="small danger" onClick={() => remove(c)}>Delete</button>
@@ -159,6 +189,10 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
         <p className="muted mt" style={{ fontSize: 12 }}>
           DNS-01 is used because port 80 is not exposed. DuckDNS stores only one TXT record per domain, so use a single wildcard
           certificate there; the manager serialises ACME orders to avoid overwriting challenges.
+        </p>
+        <p className="muted" style={{ fontSize: 12 }}>
+          Renewal is checked every 12 hours. Let&apos;s Encrypt certificates last 90 days, so the three-month policy is capped at
+          seven days before expiry to leave time for a retry.
         </p>
       </Card>
 

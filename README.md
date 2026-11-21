@@ -54,7 +54,7 @@ sample traffic, not production figures.***
 |---|---|
 | **Reverse proxy** | HTTPS with SNI + Host routing, WebSocket passthrough, weighted round-robin upstreams, active health checks, path redirects and aliases, gzip, a conservative GET cache, and streamed responses. |
 | **Tailscale ingress** | Optional native `tailscale0` listeners for the admin console and for app traffic. The app path keeps the existing TLS/SNI certificate and WAF pipeline, and a tailnet-only DNS responder supplies split-DNS answers for configured sites. |
-| **TLS** | DNS-01 wildcard certificates through lego — DuckDNS, Cloudflare, Route53, DigitalOcean, Hetzner, OVH, GoDaddy and RFC2136. Per-site assignment, automatic renewal inside 30 days, serialised ACME orders, staging toggle. |
+| **TLS** | DNS-01 wildcard certificates through lego — DuckDNS, Cloudflare, Route53, DigitalOcean, Hetzner, OVH, GoDaddy and RFC2136. Per-site assignment, per-certificate renewal policy (monthly, every 2 or 3 months, or 1 month before expiry), serialised ACME orders, staging toggle. |
 | **Streaming forwarders** | Transparent TCP relays for **Plex** and **Jellyfin** on their own WAN ports, with a source allowlist, connection cap, banned-source refusal that also cuts running streams, and live counters. |
 | **Maintenance mode** | Per-site switch that answers with a maintenance response instead of the backend. |
 
@@ -339,12 +339,17 @@ model and a containment playbook for an agent.
 1. **Certificates → Request certificate.** Provider `duckdns`, domains
    `*.example.duckdns.org,example.duckdns.org` (leave credentials empty if the wizard stored
    the token). Issuance is asynchronous; the row moves from `pending` to `issued`.
-2. **Proxies → New proxy.** Hostname `app.example.duckdns.org`, upstream
+2. **Set Auto-renew** on the certificate row. The default is **1 month before expiry**;
+   the other choices are **Monthly**, **Every 2 months**, and **Every 3 months**. Let’s Encrypt
+   certificates last 90 days, so the three-month choice is capped at seven days before expiry;
+   the computed next date is shown under the menu. Renewal is checked every 12 hours, and a
+   failed attempt keeps the previous certificate serving until the next check.
+3. **Proxies → New proxy.** Hostname `app.example.duckdns.org`, upstream
    `http://192.168.101.10:8080`, a protection profile, and `Detect only` for the first 48
    hours if the application is new to you.
-3. **Router.** Forward WAN `443` to `192.168.191.2:443`, **DNAT only, no SNAT**, so real
+4. **Router.** Forward WAN `443` to `192.168.191.2:443`, **DNAT only, no SNAT**, so real
    client IPs survive for GeoIP, bans and rate limits.
-4. **Verify.**
+5. **Verify.**
 
    ```bash
    curl -v https://app.example.duckdns.org/
