@@ -228,10 +228,12 @@ user and `/var/lib/wafproxy`, installs the unit with only `CAP_NET_BIND_SERVICE`
 is bound to the WAN address and the admin GUI to the LAN address only; the admin listener also
 refuses every client outside RFC1918, with loopback also accepted for local checks. The wizard is
 prefilled with those addresses, so open `http://<LAN-IP>:8443` and finish setup. The wizard,
-firewall rules and first certificate are otherwise identical. Upgrade with
+firewall rules and first certificate are otherwise identical. After that first install, upgrades
+run from **Updates → Update application**; the manual fallback is
 `git pull && make all && sudo ./deploy/install.sh` (it prompts again and keeps the database;
 on an existing install the addresses stored in **Settings** still take precedence over the env
-file). To remove the native install, run `sudo ./deploy/uninstall.sh`; it prompts before
+file). The page tells you when the button is unavailable and why; if the checkout lives in
+another directory, type its path there and the helper records it. To remove the native install, run `sudo ./deploy/uninstall.sh`; it prompts before
 removing the units, binaries, config, data, logs, app-owned nftables table and `wafproxy`
 user/group. Use `--keep-data` to keep the database and config for a later reinstall. See
 [docs/INSTALL.md](docs/INSTALL.md#11-bare-metal-with-systemd).

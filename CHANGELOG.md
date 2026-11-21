@@ -11,6 +11,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.6.0] — 2026-11-21
+
+### Added
+
+- **Updates: record a checkout installed in another directory.** When the root helper is running but no
+  checkout is recorded (or the install lives outside the path `install.sh` saw), the application card now
+  offers a **WAF-Proxy checkout directory** field. The helper validates the path (absolute, a git checkout
+  with an `origin` remote and the `deploy/` update scripts), records it in `/etc/wafproxy/self-update.conf`,
+  copies the fixed updater scripts and enables the Update button. The recorded path is shown in
+  `/api/updates` as `app_source_dir`.
+
+### Changed
+
+- The application card now says plainly when the Update button is unavailable on this host, why, and how
+  to enable it (install the helper, or record the checkout). The manual `git pull` / `make all` /
+  `install.sh` commands are labelled **Manual fallback** instead of reading like the expected path.
+
 ## [1.5.1] — 2026-11-21
 
 ### Fixed

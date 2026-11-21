@@ -95,6 +95,33 @@ func (s *Server) applyAppUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "updating"})
 }
 
+type configureAppRequest struct {
+	Path string `json:"path"`
+}
+
+// configureAppUpdate records the checkout the root helper rebuilds, for an
+// install whose directory differs from what install.sh recorded.
+func (s *Server) configureAppUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.updates == nil {
+		writeError(w, http.StatusConflict, "application updates are unavailable")
+		return
+	}
+	var req configureAppRequest
+	if err := decode(r, &req); err != nil || strings.TrimSpace(req.Path) == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	if err := s.updates.ConfigureApp(ctx, strings.TrimSpace(req.Path)); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "updates.configure_app", strings.TrimSpace(req.Path), clientIP(r))
+	writeJSON(w, http.StatusOK, s.updates.Snapshot(r.Context()))
+}
+
 func (s *Server) getAppUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	if s.updates == nil {
 		writeError(w, http.StatusConflict, "application updates are unavailable")

@@ -119,7 +119,7 @@ func serve(conn net.Conn, gid, uid int) {
 	if req.Action == updates.HelperActionAppUpdate {
 		_ = conn.SetDeadline(time.Now().Add(20 * time.Minute))
 	}
-	if req.Action == updates.HelperActionAppCheck {
+	if req.Action == updates.HelperActionAppCheck || req.Action == updates.HelperActionAppConfigure {
 		_ = conn.SetDeadline(time.Now().Add(2 * time.Minute))
 	}
 	if req.Action == updates.HelperActionCrowdSecInstall {
@@ -158,6 +158,8 @@ func serve(conn net.Conn, gid, uid int) {
 		resp := runFixedScript(updates.AppSelfUpdateScript, 20*time.Minute)
 		aptMu.Unlock()
 		writeResponse(conn, resp)
+	case updates.HelperActionAppConfigure:
+		writeResponse(conn, configureApp(req.Path))
 	case updates.HelperActionCrowdSecInstall:
 		env := map[string]string{}
 		if req.Key != "" {

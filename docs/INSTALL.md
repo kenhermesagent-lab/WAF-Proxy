@@ -596,6 +596,11 @@ building to install/repair it.
 
 1. Open **Updates**. The application card compares the running build with `main` and offers
    **Update application** when a newer version/commit exists.
+   If the card says the button is unavailable, it also shows why. A running helper with no
+   recorded checkout shows a **WAF-Proxy checkout directory** field: enter the absolute path of
+   the git checkout that holds `deploy/` and the helper records it (`/etc/wafproxy/self-update.conf`)
+   and copies its fixed updater scripts, after which the button works. The commands below the
+   field are the manual fallback, not the expected path.
 2. Click **Check for updates** to refresh the repository check and, on native, the apt index.
 3. Click **Update** on one host package, confirm, and wait for apt to finish. The page refreshes
    and shows the helper output.

@@ -198,6 +198,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/updates/apply", s.authed(s.applyUpdate))
 	m.HandleFunc("GET /api/updates/app", s.authed(s.getAppUpdateStatus))
 	m.HandleFunc("POST /api/updates/app", s.authed(s.applyAppUpdate))
+	m.HandleFunc("POST /api/updates/app/config", s.authed(s.configureAppUpdate))
 
 	m.HandleFunc("GET /api/mcp", s.authed(s.getMCP))
 	m.HandleFunc("GET /api/mcp/tokens", s.authed(s.getMCP))

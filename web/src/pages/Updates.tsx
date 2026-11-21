@@ -40,6 +40,8 @@ export default function UpdatesPage({
   const [updating, setUpdating] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [appOutput, setAppOutput] = useState("");
+  const [sourceDir, setSourceDir] = useState("");
+  const [savingDir, setSavingDir] = useState(false);
   const [output, setOutput] = useState("");
 
   const load = () =>
@@ -47,6 +49,7 @@ export default function UpdatesPage({
       .get<UpdatesSnapshot>("/api/updates")
       .then((v) => {
         setSnap(v);
+        setSourceDir(v.app_source_dir || "");
         setLoadError("");
       })
       .catch((e) => {
@@ -123,6 +126,26 @@ export default function UpdatesPage({
       await load();
     } finally {
       setApplying(false);
+    }
+  };
+
+  const saveSourceDir = async () => {
+    const path = sourceDir.trim();
+    if (!path) return;
+    setSavingDir(true);
+    try {
+      const next = await api.post<UpdatesSnapshot>("/api/updates/app/config", { path });
+      setSnap(next);
+      setSourceDir(next.app_source_dir || path);
+      onOK(
+        next.app_update_supported
+          ? "Repository directory recorded; the Update button is now available"
+          : next.app_update_reason || "Repository directory recorded",
+      );
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setSavingDir(false);
     }
   };
 
@@ -205,22 +228,74 @@ export default function UpdatesPage({
             {snap.app_remote_url?.startsWith("http") ? <> · <a href={snap.app_remote_url} target="_blank" rel="noreferrer">view commit</a></> : null}
           </p>
         )}
-        {snap.app_update_available && !snap.app_update_supported && (
-          <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
-            {snap.app_update_reason || "This deployment cannot rebuild itself."}
-            {snap.container ? (
+        {!snap.app_update_supported && (
+          <div style={{ borderLeft: "2px solid #8a6d1d", paddingLeft: 10, marginTop: 10 }}>
+            <p style={{ fontSize: 13, margin: "0 0 4px" }}>
+              <strong>
+                {snap.app_update_available
+                  ? "The Update button is unavailable on this host."
+                  : "Automatic application updates are not set up on this host."}
+              </strong>
+            </p>
+            <p className="muted" style={{ fontSize: 12, lineHeight: 1.7, margin: "0 0 8px" }}>
+              {snap.app_update_reason || "This deployment cannot rebuild itself."}
+              {!snap.helper_ready
+                ? " To enable the button, install the root helper once from the git checkout: sudo ./deploy/install.sh, then reload this page."
+                : null}
+            </p>
+            {!snap.container && snap.helper_ready && (
               <>
-                {" "}On the host run <code>git pull --ff-only</code>, then{" "}
-                <code>docker compose -f deploy/docker-compose.yml up -d --build</code>.
+                <label
+                  htmlFor="app-source-dir"
+                  className="muted"
+                  style={{ fontSize: 12, display: "block", marginBottom: 4 }}
+                >
+                  WAF-Proxy checkout directory on this host
+                </label>
+                <div className="row" style={{ gap: 8, marginBottom: 4 }}>
+                  <input
+                    id="app-source-dir"
+                    value={sourceDir}
+                    onChange={(e) => setSourceDir(e.target.value)}
+                    placeholder="/root/WAF-Proxy-Docker"
+                    disabled={savingDir}
+                    style={{ flex: 1 }}
+                  />
+                  <button className="small" onClick={saveSourceDir} disabled={savingDir || !sourceDir.trim()}>
+                    {savingDir ? "Saving…" : "Use this directory"}
+                  </button>
+                </div>
+                <p className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, margin: "0 0 8px" }}>
+                  The root helper records this path, copies its fixed update scripts from it and rebuilds that
+                  checkout as its owner. It must be a git checkout of WAF-Proxy with an origin remote.
+                </p>
               </>
-            ) : null}
-          </p>
+            )}
+            {snap.app_update_available && (
+              <>
+                <p className="muted" style={{ fontSize: 12, margin: "0 0 4px" }}>
+                  Manual fallback, until the button is available:
+                </p>
+                {snap.container ? (
+                  <p className="muted" style={{ fontSize: 12, lineHeight: 1.7, margin: 0 }}>
+                    On the host run <code>git pull --ff-only</code>, then{" "}
+                    <code>docker compose -f deploy/docker-compose.yml up -d --build</code>.
+                  </p>
+                ) : (
+                  <pre
+                    className="mono"
+                    style={{ fontSize: 12, margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                  >{`git pull --ff-only\nmake all\nsudo ./deploy/install.sh`}</pre>
+                )}
+              </>
+            )}
+          </div>
         )}
         {snap.app_update_supported && snap.app_update_available && (
           <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
             {snap.container
               ? "The host helper pulls the recorded checkout as its owner, rebuilds the image and recreates the wafproxy container. The named data volume is preserved."
-              : "            The privileged helper pulls the installed checkout as its owner, rebuilds the console and both Go binaries, refreshes the bundled helper scripts and restarts the console to load the new build. Data in /var/lib/wafproxy is not touched."}
+              : "The privileged helper pulls the installed checkout as its owner, rebuilds the console and both Go binaries, refreshes the bundled helper scripts and restarts the console to load the new build. Data in /var/lib/wafproxy is not touched."}
           </p>
         )}
         {snap.app_update_error && (

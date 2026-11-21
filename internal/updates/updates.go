@@ -121,6 +121,7 @@ type Snapshot struct {
 	AppUpdateError     string `json:"app_update_error,omitempty"`
 	AppUpdateSupported bool   `json:"app_update_supported"`
 	AppUpdateReason    string `json:"app_update_reason,omitempty"`
+	AppSourceDir       string `json:"app_source_dir,omitempty"`
 	AppUpdating        bool   `json:"app_updating"`
 	AppUpdateRunError  string `json:"app_update_run_error,omitempty"`
 	AppUpdateOutput    string `json:"app_update_output,omitempty"`
@@ -330,6 +331,7 @@ func (m *Manager) mergeApp(snap Snapshot, app appInfo) Snapshot {
 	snap.AppUpdateOutput = m.appRunOutput
 	m.appRunMu.Unlock()
 	ready, msg := m.helperState()
+	snap.AppSourceDir = m.AppSourceDir()
 	switch {
 	case m.host.container && !ready:
 		snap.AppUpdateSupported = false
@@ -340,6 +342,9 @@ func (m *Manager) mergeApp(snap Snapshot, app appInfo) Snapshot {
 	case m.appRepo == "":
 		snap.AppUpdateSupported = false
 		snap.AppUpdateReason = "No application repository is configured for update checks."
+	case snap.AppSourceDir == "":
+		snap.AppUpdateSupported = false
+		snap.AppUpdateReason = "The update helper is running but has no repository directory recorded, so it has nothing to rebuild."
 	default:
 		snap.AppUpdateSupported = true
 		snap.AppUpdateReason = ""
@@ -657,6 +662,43 @@ func (m *Manager) StartAppUpdate(onSuccess func()) error {
 			onSuccess()
 		}
 	}()
+	return nil
+}
+
+// AppSourceDir returns the checkout recorded for the root helper, or "" when
+// install.sh did not record one.
+func (m *Manager) AppSourceDir() string {
+	if m == nil {
+		return ""
+	}
+	values, err := ReadSelfUpdateConf(SelfUpdateConfFile())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(values["WAFPROXY_UPDATE_SOURCE_DIR"])
+}
+
+// ConfigureApp asks the root helper to record a checkout and copy its fixed
+// update scripts. The helper validates the directory itself; the browser never
+// picks a command, only a path.
+func (m *Manager) ConfigureApp(ctx context.Context, dir string) error {
+	if m == nil {
+		return ErrAppUpdateUnsupported
+	}
+	if ready, msg := m.helperState(); !ready {
+		return errors.New(msg)
+	}
+	resp, err := m.callHelper(ctx, HelperRequest{Action: HelperActionAppConfigure, Path: dir})
+	if err != nil {
+		return err
+	}
+	if !resp.OK {
+		if resp.Error != "" {
+			return errors.New(resp.Error)
+		}
+		return errors.New("the update helper rejected the repository directory")
+	}
+	m.invalidate()
 	return nil
 }
 

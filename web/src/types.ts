@@ -56,6 +56,7 @@ export interface UpdatesSnapshot {
   app_update_error?: string;
   app_update_supported: boolean;
   app_update_reason?: string;
+  app_source_dir?: string;
   app_updating: boolean;
 }
 

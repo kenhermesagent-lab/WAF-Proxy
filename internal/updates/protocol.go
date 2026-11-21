@@ -17,6 +17,9 @@ const (
 	HelperActionApply     = "apply"
 	HelperActionAppCheck  = "app-check"
 	HelperActionAppUpdate = "app-update"
+	// HelperActionAppConfigure records the checkout the helper rebuilds, for a
+	// host whose install lives outside the path install.sh recorded.
+	HelperActionAppConfigure = "app-configure"
 	// CrowdSec actions: install the engine and configure the bouncer, then
 	// enroll the engine in the operator's CrowdSec account.
 	HelperActionCrowdSecInstall = "crowdsec-install"
@@ -65,6 +68,9 @@ type HelperRequest struct {
 	// value ValidConsoleKey does not accept and passes it as a single argv
 	// entry, so it can never become part of a command line.
 	Key string `json:"key,omitempty"`
+	// Path is the absolute directory of a WAF-Proxy checkout, accepted only by
+	// app-configure and validated as a git checkout with the deploy scripts.
+	Path string `json:"path,omitempty"`
 }
 
 type HelperResponse struct {
