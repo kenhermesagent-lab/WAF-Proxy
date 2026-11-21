@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.3.3] — 2026-11-21
+
+### Changed
+
+- **WAN traffic is split by owner.** The proxy's TLS listeners count the wire bytes they move, so the
+  dashboard now shows proxy inbound/outbound and server & other inbound/outbound separately, with
+  each direction's rate, total, share of the interface and its own sparkline. Server & other covers
+  SSH, the admin console, OS updates and the upstream legs of proxied requests; the note under the
+  cards says so, and the one-hour history carries the same split.
+
 ## [1.3.2] — 2026-11-21
 
 ### Added

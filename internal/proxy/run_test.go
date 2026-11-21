@@ -7,6 +7,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
 )
 
 func freeAddr(t *testing.T) string {
@@ -74,6 +76,52 @@ func TestRunRecordsOptionalListenerFailure(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+// The dashboard separates proxy traffic from the host's other WAN traffic, so
+// the listener must count the bytes it accepts, handshake attempts included.
+func TestRunCountsProxyListenerBytes(t *testing.T) {
+	met := metrics.New("", "")
+	px, err := New(Deps{Metrics: met, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := freeAddr(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- px.Run(ctx, addr) }()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	if err := waitDial(addr); err != nil {
+		t.Fatalf("listener did not open: %v", err)
+	}
+	conn, err := net.DialTimeout("tcp", addr, time.Second)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write(make([]byte, 512)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	_, _ = conn.Read(make([]byte, 64))
+
+	// The write direction is covered by TestCountingConnCountsBothDirections; a
+	// rejected handshake may close without writing, so only inbound is asserted.
+	// The server reads the bytes after the client's own read returns, so poll.
+	var in uint64
+	for i := 0; i < 100; i++ {
+		if in, _ = met.ProxyBytes(); in >= 512 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if in < 512 {
+		t.Fatalf("proxy inbound = %d, want at least the 512 bytes sent", in)
+	}
 }
 
 func waitDial(addr string) error {

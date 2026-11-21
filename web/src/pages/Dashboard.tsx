@@ -140,8 +140,18 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
     return t;
   }, [metrics]);
 
-  const wanRx = metrics?.history.map((h) => h.wan_rx) ?? [];
-  const wanTx = metrics?.history.map((h) => h.wan_tx) ?? [];
+  const proxyRx = metrics?.history.map((h) => h.proxy_rx) ?? [];
+  const proxyTx = metrics?.history.map((h) => h.proxy_tx) ?? [];
+  const hostRx = metrics?.history.map((h) => h.host_rx) ?? [];
+  const hostTx = metrics?.history.map((h) => h.host_tx) ?? [];
+
+  // Rates share one sampling window, so their ratio is meaningful even though
+  // the proxy total starts at service start and the interface total at boot.
+  const shareLabel = (part: number | undefined, whole: number | undefined, rest = false) => {
+    if (!whole) return "idle";
+    const pct = Math.min(100, Math.round(((part ?? 0) / whole) * 100));
+    return `${rest ? 100 - pct : pct}% of WAN`;
+  };
 
   const proxyRows = useMemo(() => {
     const names = new Map(proxies.map((p) => [String(p.id), p.hostname]));
@@ -162,21 +172,25 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <div className="grid cols-4">
+      <div className="grid cols-3">
         <Card>
           <div className="stat">
-            <div className="k">WAN inbound</div>
-            <div className="v">{fmtBps(metrics?.wan.rx_bps ?? 0)}</div>
-            <div className="sub">{fmtBytes(metrics?.wan.rx_total ?? 0)} total · {Math.round(metrics?.wan.rx_pps ?? 0)} pps</div>
-            <Spark values={wanRx} color="#3b82f6" />
+            <div className="k">Proxy inbound</div>
+            <div className="v">{fmtBps(metrics?.proxy.in_bps ?? 0)}</div>
+            <div className="sub">
+              {fmtBytes(metrics?.proxy.in_total ?? 0)} since start · {shareLabel(metrics?.proxy.in_bps, metrics?.wan.rx_bps)}
+            </div>
+            <Spark values={proxyRx} color="#3b82f6" />
           </div>
         </Card>
         <Card>
           <div className="stat">
-            <div className="k">WAN outbound</div>
-            <div className="v">{fmtBps(metrics?.wan.tx_bps ?? 0)}</div>
-            <div className="sub">{fmtBytes(metrics?.wan.tx_total ?? 0)} total · {Math.round(metrics?.wan.tx_pps ?? 0)} pps</div>
-            <Spark values={wanTx} color="#22c55e" />
+            <div className="k">Proxy outbound</div>
+            <div className="v">{fmtBps(metrics?.proxy.out_bps ?? 0)}</div>
+            <div className="sub">
+              {fmtBytes(metrics?.proxy.out_total ?? 0)} since start · {shareLabel(metrics?.proxy.out_bps, metrics?.wan.tx_bps)}
+            </div>
+            <Spark values={proxyTx} color="#22c55e" />
           </div>
         </Card>
         <Card>
@@ -192,12 +206,38 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
         </Card>
         <Card>
           <div className="stat">
+            <div className="k">Server &amp; other inbound</div>
+            <div className="v">{fmtBps(metrics?.host.in_bps ?? 0)}</div>
+            <div className="sub">
+              {fmtBytes(metrics?.host.in_total ?? 0)} · {shareLabel(metrics?.proxy.in_bps, metrics?.wan.rx_bps, true)}
+            </div>
+            <Spark values={hostRx} color="#f59e0b" />
+          </div>
+        </Card>
+        <Card>
+          <div className="stat">
+            <div className="k">Server &amp; other outbound</div>
+            <div className="v">{fmtBps(metrics?.host.out_bps ?? 0)}</div>
+            <div className="sub">
+              {fmtBytes(metrics?.host.out_total ?? 0)} · {shareLabel(metrics?.proxy.out_bps, metrics?.wan.tx_bps, true)}
+            </div>
+            <Spark values={hostTx} color="#a3a3a3" />
+          </div>
+        </Card>
+        <Card>
+          <div className="stat">
             <div className="k">Requests</div>
             <div className="v">{totals.requests.toLocaleString()}</div>
             <div className="sub">{totals.blocked.toLocaleString()} blocked · {fmtBytes(totals.bytesOut)} out</div>
           </div>
         </Card>
       </div>
+
+      <p className="muted" style={{ fontSize: 11.5, margin: "-4px 2px 0", lineHeight: 1.6 }}>
+        Proxy counts every byte on the HTTPS listener, headers and TLS included, so it matches what the WAN
+        interface sees for proxied hosts. Server &amp; other is the rest of the interface: SSH, this admin
+        console, OS updates and the upstream legs of proxied requests.
+      </p>
 
       <Card
         title="Proxy traffic"

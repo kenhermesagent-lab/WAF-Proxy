@@ -290,14 +290,35 @@ export interface Iface {
   tx_total: number;
 }
 
+export interface Flow {
+  in_bps: number;
+  out_bps: number;
+  in_total: number;
+  out_total: number;
+}
+
+export interface MetricsHistoryPoint {
+  ts: number;
+  wan_rx: number;
+  wan_tx: number;
+  lan_rx: number;
+  lan_tx: number;
+  proxy_rx: number;
+  proxy_tx: number;
+  host_rx: number;
+  host_tx: number;
+}
+
 export interface Metrics {
   ts: string;
   wan: Iface;
   lan: Iface;
-  history: { ts: number; wan_rx: number; wan_tx: number; lan_rx: number; lan_tx: number }[];
+  history: MetricsHistoryPoint[];
   sessions: { active: number; established: number; time_wait: number; available: boolean };
   proxies: Record<string, { requests: number; blocked: number; bytes_in: number; bytes_out: number }>;
   dual_nic: boolean;
+  proxy: Flow;
+  host: Flow;
 }
 
 export interface GateUser {

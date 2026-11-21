@@ -278,7 +278,7 @@ func (s *Server) Run(ctx context.Context, addrs ...string) error {
 	go s.eventWriter(ctx)
 	errCh := make(chan error, len(servers))
 	for i, srv := range servers {
-		tlsLn := tls.NewListener(lns[i], s.tlsConfig())
+		tlsLn := tls.NewListener(s.d.Metrics.CountingListener(lns[i]), s.tlsConfig())
 		addr := bound[i]
 		go func() {
 			s.d.Log.Info("proxy listening", "addr", addr)

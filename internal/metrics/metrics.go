@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -25,13 +26,26 @@ type Iface struct {
 	TxTot uint64  `json:"tx_total"`
 }
 
-// Point is one second of WAN/LAN history.
+// Point is one second of WAN/LAN history. The proxy fields split the interface
+// rate into the proxy's own listeners and everything else on the link.
 type Point struct {
-	TS    int64   `json:"ts"`
-	WANRx float64 `json:"wan_rx"`
-	WANTx float64 `json:"wan_tx"`
-	LANRx float64 `json:"lan_rx"`
-	LANTx float64 `json:"lan_tx"`
+	TS      int64   `json:"ts"`
+	WANRx   float64 `json:"wan_rx"`
+	WANTx   float64 `json:"wan_tx"`
+	LANRx   float64 `json:"lan_rx"`
+	LANTx   float64 `json:"lan_tx"`
+	ProxyRx float64 `json:"proxy_rx"`
+	ProxyTx float64 `json:"proxy_tx"`
+	HostRx  float64 `json:"host_rx"`
+	HostTx  float64 `json:"host_tx"`
+}
+
+// Flow is one direction of traffic with the current rate and a running total.
+type Flow struct {
+	InBps  float64 `json:"in_bps"`
+	OutBps float64 `json:"out_bps"`
+	InTot  uint64  `json:"in_total"`
+	OutTot uint64  `json:"out_total"`
 }
 
 // Sessions summarises conntrack state.
@@ -59,6 +73,11 @@ type Snapshot struct {
 	Sessions Sessions             `json:"sessions"`
 	Proxies  map[string]*Counters `json:"proxies"`
 	DualNIC  bool                 `json:"dual_nic"`
+	// Proxy is the traffic the proxy's own listeners moved; Host is the rest
+	// of the WAN interface: SSH, the admin console, OS updates and the
+	// upstream legs of proxied requests.
+	Proxy Flow `json:"proxy"`
+	Host  Flow `json:"host"`
 }
 
 type ifSample struct {
@@ -75,6 +94,16 @@ type Collector struct {
 	sessions         Sessions
 	proxies          map[int64]*Counters
 	last             map[string]ifSample
+
+	wireIn, wireOut atomic.Uint64
+	proxy, host     Flow
+	lastWire        wireSample
+}
+
+type wireSample struct {
+	in, out uint64
+	at      time.Time
+	seen    bool
 }
 
 // New creates a collector. Empty interface names are auto-detected.
@@ -245,10 +274,13 @@ func (c *Collector) sample() {
 	defer c.mu.Unlock()
 	c.wan = c.readLocked(c.wanName, now)
 	c.lan = c.readLocked(c.lanName, now)
+	c.splitLocked(now)
 	p := Point{
 		TS:    now.Unix(),
 		WANRx: c.wan.RxBps, WANTx: c.wan.TxBps,
 		LANRx: c.lan.RxBps, LANTx: c.lan.TxBps,
+		ProxyRx: c.proxy.InBps, ProxyTx: c.proxy.OutBps,
+		HostRx: c.host.InBps, HostTx: c.host.OutBps,
 	}
 	c.history = append(c.history, p)
 	if len(c.history) > 3600 {
@@ -352,6 +384,96 @@ func (c *Collector) sampleConntrackLocked() {
 	c.sessions = s
 }
 
+// splitLocked divides the WAN interface into proxy and non-proxy traffic. The
+// proxy total counts since the service started while the interface total counts
+// since boot, so the totals cover different windows; the rates are sampled over
+// the same second and are the numbers to compare.
+func (c *Collector) splitLocked(now time.Time) {
+	in, out := c.wireIn.Load(), c.wireOut.Load()
+	p := Flow{InTot: in, OutTot: out}
+	if c.lastWire.seen {
+		if dt := now.Sub(c.lastWire.at).Seconds(); dt > 0 {
+			p.InBps = float64(in-c.lastWire.in) / dt
+			p.OutBps = float64(out-c.lastWire.out) / dt
+		}
+	}
+	c.lastWire = wireSample{in: in, out: out, at: now, seen: true}
+
+	c.proxy = p
+	c.host = Flow{
+		InBps:  nonNegative(c.wan.RxBps - p.InBps),
+		OutBps: nonNegative(c.wan.TxBps - p.OutBps),
+		InTot:  subtractFloor(c.wan.RxTot, in),
+		OutTot: subtractFloor(c.wan.TxTot, out),
+	}
+}
+
+func nonNegative(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
+func subtractFloor(whole, part uint64) uint64 {
+	if part > whole {
+		return 0
+	}
+	return whole - part
+}
+
+// ProxyBytes reports the bytes the wrapped listeners have moved so far.
+func (c *Collector) ProxyBytes() (in, out uint64) {
+	if c == nil {
+		return 0, 0
+	}
+	return c.wireIn.Load(), c.wireOut.Load()
+}
+
+// CountingListener reports the bytes every accepted connection moves, so the
+// dashboard can separate proxy traffic from the host's other WAN traffic. Wrap
+// the raw TCP listener, before TLS, to count wire bytes.
+func (c *Collector) CountingListener(ln net.Listener) net.Listener {
+	if c == nil {
+		return ln
+	}
+	return &countingListener{Listener: ln, c: c}
+}
+
+type countingListener struct {
+	net.Listener
+	c *Collector
+}
+
+func (l *countingListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &countingConn{Conn: conn, in: &l.c.wireIn, out: &l.c.wireOut}, nil
+}
+
+type countingConn struct {
+	net.Conn
+	in, out *atomic.Uint64
+}
+
+func (c *countingConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		c.in.Add(uint64(n))
+	}
+	return n, err
+}
+
+func (c *countingConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if n > 0 {
+		c.out.Add(uint64(n))
+	}
+	return n, err
+}
+
 // Count increments per-proxy counters.
 func (c *Collector) Count(proxyID int64, requests, blocked, bytesIn, bytesOut int64) {
 	c.mu.Lock()
@@ -399,5 +521,7 @@ func (c *Collector) Snapshot() Snapshot {
 		Sessions: c.sessions,
 		Proxies:  proxies,
 		DualNIC:  c.wanName != "" && c.lanName != "" && c.wanName != c.lanName,
+		Proxy:    c.proxy,
+		Host:     c.host,
 	}
 }
