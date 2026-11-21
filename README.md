@@ -9,7 +9,8 @@ on a home server, a lab box or a small office network without a cloud dependency
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
-*The dashboard on a two-site test deployment.*
+*The dashboard on a two-site test deployment. **Every screenshot in this README uses seeded
+sample traffic, not production figures.***
 
 ## Contents
 
@@ -70,6 +71,8 @@ gate**, **Notifications**, **Logs**, **Settings** and **Account**. It uses nativ
 is responsive down to a phone.
 
 ![WAF profiles](docs/screenshots/waf-profiles.png)
+
+*Sample data: the built-in CRS profiles on a test deployment.*
 
 ## How a request is handled
 
@@ -206,6 +209,8 @@ events (one per source per minute, so a retry loop cannot flood the table).
 
 ![Streaming forwarders](docs/screenshots/streaming.png)
 
+*Sample data: forwarder settings on a test deployment.*
+
 ## CrowdSec
 
 ```bash
@@ -221,6 +226,8 @@ LAPI stream and become `source=crowdsec` bans.
 ## Day-to-day operations
 
 ![Settings](docs/screenshots/settings.png)
+
+*Sample data: runtime state and recent audit entries on a test deployment.*
 
 | Task | How |
 |---|---|

@@ -128,7 +128,6 @@ func (s *Server) routes() {
 	m.HandleFunc("PUT /api/feeds/{id}", s.authed(s.updateFeed))
 	m.HandleFunc("DELETE /api/feeds/{id}", s.authed(s.deleteFeed))
 	m.HandleFunc("POST /api/feeds/{id}/refresh", s.authed(s.refreshFeed))
-	m.HandleFunc("GET /api/intel", s.authed(s.intelStatus))
 
 	m.HandleFunc("GET /api/certs", s.authed(s.listCerts))
 	m.HandleFunc("POST /api/certs", s.authed(s.createCert))

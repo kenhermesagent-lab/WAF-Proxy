@@ -750,15 +750,6 @@ func (s *Server) refreshFeed(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "refreshing"})
 }
 
-func (s *Server) intelStatus(w http.ResponseWriter, r *http.Request) {
-	active, reason := s.bans.KernelStatus()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"feeds": s.feeds.Status(), "total": s.feeds.Total(),
-		"kernel": map[string]any{"active": active, "reason": reason},
-		"geoip":  s.geo.Available(),
-	})
-}
-
 // ---------- certificates ----------
 
 func (s *Server) listCerts(w http.ResponseWriter, r *http.Request) {
@@ -987,17 +978,18 @@ func (s *Server) createGateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	secret := ""
+	enc := ""
 	if in.TOTPEnabled {
 		secret, err = auth.NewTOTPSecret()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "cannot generate secret")
 			return
 		}
-	}
-	enc, err := s.box.Seal(secret)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "encryption error")
-		return
+		enc, err = s.box.Seal(secret)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "encryption error")
+			return
+		}
 	}
 	id, err := s.st.CreateGateUser(in.Username, hash, enc, in.TOTPEnabled)
 	if err != nil {
@@ -1049,9 +1041,19 @@ func (s *Server) updateGateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	secret := target.TOTPSecret
 	enabled := target.TOTPEnabled
+	// "No secret yet" is judged by decrypting, not by the stored string being
+	// empty: a row can hold a sealed empty value from before TOTP was enabled.
+	hasSecret := false
+	if plain, derr := s.box.Open(secret); derr == nil && plain != "" {
+		hasSecret = true
+	}
+	// A secret generated here has never been shown to the account holder, so
+	// the response returns it once; without that the account would be locked
+	// behind a code nobody can produce.
+	fresh := ""
 	if in.TOTPEnabled != nil {
 		enabled = *in.TOTPEnabled
-		if enabled && secret == "" {
+		if enabled && !hasSecret {
 			plain, err := auth.NewTOTPSecret()
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "cannot generate secret")
@@ -1062,6 +1064,7 @@ func (s *Server) updateGateUser(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "encryption error")
 				return
 			}
+			fresh = plain
 		}
 	}
 	if err := s.st.UpdateGateUser(id, hash, secret, enabled); err != nil {
@@ -1074,7 +1077,12 @@ func (s *Server) updateGateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "gate_user.update", target.Username, clientIP(r))
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	resp := map[string]any{"status": "ok"}
+	if fresh != "" {
+		resp["otpauth_url"] = auth.OTPAuthURL("WAF-Proxy", target.Username, fresh)
+		resp["totp_secret"] = fresh
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) deleteGateUser(w http.ResponseWriter, r *http.Request) {

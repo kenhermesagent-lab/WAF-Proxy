@@ -46,9 +46,10 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   `deploy/.env` into the container. The README told first-boot users to set the GUI listener
   to a LAN address, but the compose file never forwarded the variable, so the instruction had
   no effect.
-- Removed the unused `/api/dns/providers`, `/api/dns/credentials` and
-  `PUT /api/proxies/{id}/gate` endpoints; certificate providers come with `/api/certs` and
-  gate changes go through the proxy update.
+- Removed the unused `/api/dns/providers`, `/api/dns/credentials`, `GET /api/intel` and
+  `PUT /api/proxies/{id}/gate` endpoints; certificate providers come with `/api/certs`, feeds
+  carry their own status, and gate changes go through the proxy update. `PUT /api/gate-users/{id}`
+  is now used by the Access gate editor.
 
 ### Changed
 
@@ -59,6 +60,10 @@ adds Plex forwarding as an add-on inside the 1.1 series.
 - **The audit log is visible.** Settings now shows the newest 20 administrator activities
   (sign-ins, settings and proxy changes, bans, restores) with source addresses, using the
   existing `/api/audit` endpoint instead of leaving it unreachable.
+- **Gate accounts can be edited.** The Access gate page can reset a visitor's password and
+  turn TOTP on or off. Turning it on for an account that has no secret returns the new
+  authenticator secret once, so the account is not left behind a code nobody can produce; a
+  password reset ends that account's existing gate sessions.
 - **Gated sites can sign out their visitors.** The Proxies row for a site whose gate is on
   has a **Sign out visitors** action, which clears its gate sessions through
   `POST /api/proxies/{id}/gate/revoke`.
@@ -84,6 +89,13 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   `map[active:false reason:...]`, which also widened the page into a horizontal scrollbar on
   a 1440 px window. The API now returns a readable status (`active` or the reason) and the
   card renders it as a badge.
+- **Enabling TOTP on an existing gate account locked it out.** An account created without
+  TOTP stored a sealed *empty* secret, so turning TOTP on later reused that value and every
+  code was rejected. The API now treats a sealed empty value as “no secret”, generates a fresh
+  one and returns it once so the account holder can enrol.
+- **The dashboard is never blank on first paint.** It seeds the counters, charts and globe
+  from `GET /api/metrics` and `GET /api/globe` instead of waiting for the first SSE frame, so
+  an EventSource blocked by an extension or proxy no longer leaves the page empty.
 - **The Logs stage filter was missing half the pipeline.** `whitelist`, `method`, `protocol`,
   `route` and `stream` events could not be selected, so banned streaming clients and whitelist
   decisions were invisible to the filter.

@@ -7,6 +7,8 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
   const [users, setUsers] = useState<GateUser[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ username: "", password: "", totp_enabled: true });
+  const [edit, setEdit] = useState<{ user: GateUser; password: string; totp_enabled: boolean } | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
   const [secret, setSecret] = useState<{ url: string; secret: string; username: string } | null>(null);
 
   const load = () =>
@@ -26,6 +28,27 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
       load();
     } catch (e) {
       onError(errText(e));
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!edit) return;
+    setEditBusy(true);
+    try {
+      const r = await api.put<{ otpauth_url?: string; totp_secret?: string }>(`/api/gate-users/${edit.user.id}`, {
+        password: edit.password,
+        totp_enabled: edit.totp_enabled,
+      });
+      if (r.totp_secret) {
+        setSecret({ url: r.otpauth_url ?? "", secret: r.totp_secret, username: edit.user.username });
+      }
+      onOK(`${edit.user.username} updated`);
+      setEdit(null);
+      load();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setEditBusy(false);
     }
   };
 
@@ -56,7 +79,10 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
                   <td className="mono">{u.username}</td>
                   <td>{u.totp_enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="warn">off</Badge>}</td>
                   <td className="muted">{fmtTime(u.created_at)}</td>
-                  <td className="right"><button className="small danger" onClick={() => remove(u)}>Delete</button></td>
+                  <td className="right" style={{ whiteSpace: "nowrap" }}>
+                    <button className="small" onClick={() => setEdit({ user: u, password: "", totp_enabled: u.totp_enabled })}>Edit</button>{" "}
+                    <button className="small danger" onClick={() => remove(u)}>Delete</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -86,6 +112,41 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
           <div className="row mt" style={{ justifyContent: "flex-end" }}>
             <button onClick={() => setOpen(false)}>Cancel</button>
             <button className="primary" onClick={create}>Create</button>
+          </div>
+        </Modal>
+      )}
+
+      {edit && (
+        <Modal title={`Edit ${edit.user.username}`} onClose={() => setEdit(null)}>
+          <Field label="New password (leave blank to keep the current one)">
+            <input
+              type="password"
+              value={edit.password}
+              onChange={(e) => setEdit({ ...edit, password: e.target.value })}
+              placeholder="12+ characters"
+              autoComplete="new-password"
+            />
+          </Field>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
+            <input
+              type="checkbox"
+              style={{ width: "auto" }}
+              checked={edit.totp_enabled}
+              onChange={(e) => setEdit({ ...edit, totp_enabled: e.target.checked })}
+            />
+            Require TOTP
+          </label>
+          {edit.totp_enabled && !edit.user.totp_enabled && (
+            <p className="muted" style={{ fontSize: 12 }}>
+              Saving creates an authenticator secret for this account and shows it once. Changing the
+              password signs out the account's existing sessions.
+            </p>
+          )}
+          <div className="row mt" style={{ justifyContent: "flex-end" }}>
+            <button onClick={() => setEdit(null)}>Cancel</button>
+            <button className="primary" onClick={saveEdit} disabled={editBusy}>
+              {editBusy ? "Saving…" : "Save account"}
+            </button>
           </div>
         </Modal>
       )}

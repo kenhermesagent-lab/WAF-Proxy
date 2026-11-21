@@ -48,6 +48,20 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
     return () => es.close();
   }, []);
 
+  // Paint once from the REST endpoints: the first SSE frame is up to a second
+  // away, and a blocked EventSource (an extension or proxy) would otherwise
+  // leave the page empty forever.
+  useEffect(() => {
+    api
+      .get<Metrics>("/api/metrics")
+      .then((m) => setMetrics((cur) => cur ?? m))
+      .catch(() => undefined);
+    api
+      .get<GlobePoint[]>("/api/globe")
+      .then((p) => setPoints((cur) => (cur.length ? cur : p || [])))
+      .catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     let alive = true;
     const load = () =>
