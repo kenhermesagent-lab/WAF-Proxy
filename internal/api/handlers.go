@@ -744,7 +744,18 @@ func (s *Server) listCerts(w http.ResponseWriter, r *http.Request) {
 	for _, c := range list {
 		out = append(out, s.certs.CertSummary(c))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"certs": out, "providers": acme.Providers})
+	creds, err := s.st.ListDNSCredentials()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	configured := make([]string, 0, len(creds))
+	for _, c := range creds {
+		configured = append(configured, c.Provider)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"certs": out, "providers": acme.Providers, "configured": configured,
+	})
 }
 
 type certBody struct {

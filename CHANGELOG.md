@@ -86,6 +86,18 @@ adds Plex forwarding as an add-on inside the 1.1 series.
 
 ### Fixed
 
+- **Requesting a certificate without DNS credentials looked like a broken provider.** The
+  DNS provider step accepted an empty credentials box, created the certificate and then
+  failed in the background with `no DNS credentials configured for <provider>`, so picking a
+  provider appeared not to work. The console now gets the list of providers that already
+  have stored credentials (`configured` in `GET /api/certs`), refuses a request whose
+  credentials are missing or not a JSON object with a message naming the expected shape, and
+  reuses the stored credentials when the box is left empty. The list also refreshes every few
+  seconds while a certificate is pending, so a request or renewal no longer sits on `pending`
+  until the page is reloaded.
+- **The setup wizard suggested an email Let's Encrypt rejects.** The ACME email placeholder
+  was `you@example.com`, and `example.com` contacts are refused as `invalidContact`, failing
+  every issuance; it now suggests a real-looking domain.
 - **The Settings kernel badge printed a Go map.** The runtime card showed
   `map[active:false reason:...]`, which also widened the page into a horizontal scrollbar on
   a 1440 px window. The API now returns a readable status (`active` or the reason) and the

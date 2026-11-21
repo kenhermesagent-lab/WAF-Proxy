@@ -17,15 +17,17 @@ const PROVIDER_HINTS: Record<string, string> = {
 export default function Certs({ onError, onOK, base }: { onError: (m: string) => void; onOK: (m: string) => void; base: string }) {
   const [certs, setCerts] = useState<Cert[]>([]);
   const [providers, setProviders] = useState<string[]>([]);
+  const [configured, setConfigured] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ domains: "", provider: "duckdns", creds: "" });
 
   const load = () =>
     api
-      .get<{ certs: Cert[]; providers: string[] }>("/api/certs")
+      .get<{ certs: Cert[]; providers: string[]; configured: string[] }>("/api/certs")
       .then((r) => {
         setCerts(r.certs || []);
         setProviders(r.providers || []);
+        setConfigured(r.configured || []);
       })
       .catch((e) => onError(errText(e)));
 
@@ -34,14 +36,44 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
     setForm((f) => ({ ...f, domains: `*.${base},${base}` }));
   }, [base]);
 
+  // Issuance runs in the background. Poll while a certificate is pending so the
+  // row leaves "pending" (issued or failed) without a manual reload.
+  const pending = certs.some((c) => c.status === "pending");
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setInterval(load, 4000);
+    return () => clearInterval(timer);
+  }, [pending]);
+
   const issue = async () => {
+    const provider = form.provider;
+    const example = PROVIDER_HINTS[provider] ?? "{}";
+    let creds: Record<string, string> | undefined;
+    const raw = form.creds.trim();
+    if (raw) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        onError(`Credentials must be valid JSON, for example ${example}`);
+        return;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.keys(parsed).length === 0) {
+        onError(`Credentials must be a JSON object, for example ${example}`);
+        return;
+      }
+      creds = parsed as Record<string, string>;
+    } else if (!configured.includes(provider)) {
+      // Without stored credentials the request would be accepted and then fail
+      // in the background, which looks like the provider itself is broken.
+      onError(`Enter ${provider} credentials as JSON, for example ${example}`);
+      return;
+    }
     try {
-      let creds: Record<string, string> | undefined;
-      if (form.creds.trim()) creds = JSON.parse(form.creds);
-      await api.post("/api/certs", { domains: form.domains, provider: form.provider, creds });
+      await api.post("/api/certs", { domains: form.domains, provider, creds });
       setOpen(false);
       onOK("Certificate request started");
-      setTimeout(load, 2500);
+      setTimeout(load, 500);
     } catch (e) {
       onError(errText(e));
     }
@@ -113,7 +145,7 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
               {providers.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </Field>
-          <Field label="Credentials (JSON, stored encrypted)">
+          <Field label={configured.includes(form.provider) ? "Credentials (JSON, stored encrypted) — leave empty to reuse the stored ones" : "Credentials (JSON, stored encrypted)"}>
             <textarea value={form.creds} onChange={(e) => setForm({ ...form, creds: e.target.value })} placeholder={PROVIDER_HINTS[form.provider] ?? "{}"} />
           </Field>
           <div className="row" style={{ justifyContent: "flex-end" }}>
