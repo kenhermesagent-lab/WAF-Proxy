@@ -548,7 +548,11 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	for _, k := range publicSettingKeys {
 		out[k] = kv[k]
 	}
-	out["kernel"] = fmt.Sprint(kernelStatus(s.bans))
+	if active, reason := s.bans.KernelStatus(); active {
+		out["kernel"] = "active"
+	} else {
+		out["kernel"] = reason
+	}
 	out["geoip"] = fmt.Sprint(s.geo.Available())
 	// Report the interfaces the collector is actually sampling, plus which of
 	// them came from auto-detection rather than a configured field, so a fully

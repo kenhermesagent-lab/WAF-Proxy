@@ -94,6 +94,41 @@ func (s *Store) ListBans(includeExpired bool) ([]model.Ban, error) {
 	return out, rows.Err()
 }
 
+// BanByID loads a single ban, including an expired one. The dashboard list is
+// capped, so mutations must resolve the row directly instead of scanning it.
+func (s *Store) BanByID(id int64) (*model.Ban, error) {
+	return scanBan(s.db.QueryRow(`SELECT id, cidr, reason, source, permanent, hits, created_by, created_at, expires_at
+		FROM bans WHERE id = ?`, id))
+}
+
+// BanByCIDR loads a single ban by its CIDR.
+func (s *Store) BanByCIDR(cidr string) (*model.Ban, error) {
+	return scanBan(s.db.QueryRow(`SELECT id, cidr, reason, source, permanent, hits, created_by, created_at, expires_at
+		FROM bans WHERE cidr = ?`, cidr))
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanBan(row rowScanner) (*model.Ban, error) {
+	var b model.Ban
+	var permanent int
+	var created string
+	var expires sql.NullString
+	err := row.Scan(&b.ID, &b.CIDR, &b.Reason, &b.Source, &permanent, &b.Hits, &b.CreatedBy, &created, &expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	b.Permanent = i2b(permanent)
+	b.CreatedAt = parseStamp(created)
+	b.ExpiresAt = parseStampPtr(expires)
+	return &b, nil
+}
+
 // AddBan inserts a ban, or refreshes the reason and expiry of an existing CIDR.
 func (s *Store) AddBan(b *model.Ban) (int64, error) {
 	if b.CreatedAt.IsZero() {
@@ -141,9 +176,12 @@ func (s *Store) PromoteBan(id int64) error {
 	return err
 }
 
-// IncrementBanHits bumps the hit counter of a CIDR.
-func (s *Store) IncrementBanHits(cidr string) {
-	_, _ = s.db.Exec(`UPDATE bans SET hits = hits + 1 WHERE cidr = ?`, cidr)
+// AddBanHits adds n to the hit counter of a CIDR.
+func (s *Store) AddBanHits(cidr string, n int64) {
+	if n <= 0 {
+		return
+	}
+	_, _ = s.db.Exec(`UPDATE bans SET hits = hits + ? WHERE cidr = ?`, n, cidr)
 }
 
 // PurgeBans removes expired temporary bans.
@@ -208,10 +246,15 @@ func (s *Store) CreateFeed(f *model.Feed) (int64, error) {
 	return res.LastInsertId()
 }
 
-// DeleteFeed removes a custom feed.
-func (s *Store) DeleteFeed(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM feeds WHERE id = ? AND builtin = 0`, id)
-	return err
+// DeleteFeed removes a custom feed and reports whether a row was deleted, so a
+// built-in feed is not confused with a database failure.
+func (s *Store) DeleteFeed(id int64) (bool, error) {
+	res, err := s.db.Exec(`DELETE FROM feeds WHERE id = ? AND builtin = 0`, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 func (s *Store) seedFeeds() error {
@@ -378,9 +421,38 @@ func (s *Store) UpdateGateUser(id int64, hash, totpSecret string, totpEnabled bo
 	return err
 }
 
-// DeleteGateUser removes a gate account and its ACL rows.
+// DeleteGateUser removes a gate account together with its ACL rows and visitor
+// sessions. Leaving the sessions behind would keep a deleted account logged in
+// until they expired.
 func (s *Store) DeleteGateUser(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM gate_users WHERE id = ?`, id)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var username string
+	if err := tx.QueryRow(`SELECT username FROM gate_users WHERE id = ?`, id).Scan(&username); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM gate_sessions WHERE username = ?`, username); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM gate_acl WHERE username = ?`, username); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM gate_users WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteGateSessionsFor ends every visitor session of one gate account, which is
+// what a password change requires.
+func (s *Store) DeleteGateSessionsFor(username string) error {
+	_, err := s.db.Exec(`DELETE FROM gate_sessions WHERE username = ?`, username)
 	return err
 }
 

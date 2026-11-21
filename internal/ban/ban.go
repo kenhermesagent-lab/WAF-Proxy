@@ -37,6 +37,12 @@ type Engine struct {
 	mu    sync.RWMutex
 	table *netmatch.Map[Record]
 
+	// hits batches the per-ban hit counter. A banned client can send thousands
+	// of requests per second; writing one SQLite UPDATE per rejection would
+	// queue behind the event writer and turn a ban flood into a DB stall.
+	hitsMu sync.Mutex
+	hits   map[string]int64
+
 	// OnAdd is invoked for every newly applied ban, used for notifications.
 	OnAdd func(Record)
 
@@ -50,6 +56,7 @@ func New(st *store.Store, log *slog.Logger, kernel *Kernel) (*Engine, error) {
 		log:    log,
 		kernel: kernel,
 		table:  netmatch.New[Record](),
+		hits:   map[string]int64{},
 		now:    time.Now,
 	}
 	if err := e.load(); err != nil {
@@ -95,6 +102,7 @@ func (e *Engine) Start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			e.flushHits()
 			e.purgeExpired()
 			e.reconcile()
 		}
@@ -214,32 +222,24 @@ func (e *Engine) RemoveIfSource(cidr, source string) {
 	_ = e.Remove(rec.CIDR)
 }
 
-// Promote makes an existing ban permanent.
+// Promote makes an existing ban permanent. It resolves the row by CIDR because
+// the dashboard list is capped and older bans fall outside it.
 func (e *Engine) Promote(cidr string) error {
 	p, err := netmatch.ParsePrefix(cidr)
 	if err != nil {
 		return err
 	}
-	e.mu.Lock()
-	rec, ok := e.table.Match(p.Addr())
-	if ok {
-		rec.Permanent = true
-		rec.ExpiresAt = nil
-		e.table.AddPrefix(p, rec)
-	}
-	e.mu.Unlock()
-	bans, err := e.st.ListBans(true)
+	b, err := e.st.BanByCIDR(p.String())
 	if err != nil {
 		return err
 	}
-	for _, b := range bans {
-		if b.CIDR == p.String() {
-			if err := e.st.PromoteBan(b.ID); err != nil {
-				return err
-			}
-			break
-		}
+	if err := e.st.PromoteBan(b.ID); err != nil {
+		return err
 	}
+	rec := Record{CIDR: b.CIDR, Reason: b.Reason, Source: b.Source, Permanent: true, CreatedAt: b.CreatedAt}
+	e.mu.Lock()
+	e.table.AddPrefix(p, rec)
+	e.mu.Unlock()
 	return nil
 }
 
@@ -252,6 +252,9 @@ func (e *Engine) Remove(cidr string) error {
 	e.mu.Lock()
 	e.table.RemovePrefix(p)
 	e.mu.Unlock()
+	e.hitsMu.Lock()
+	delete(e.hits, p.String())
+	e.hitsMu.Unlock()
 	if _, err := e.st.DeleteBanByCIDR(p.String()); err != nil {
 		return err
 	}
@@ -281,10 +284,32 @@ func (e *Engine) List(includeExpired bool) ([]model.Ban, error) {
 	return e.st.ListBans(includeExpired)
 }
 
-// NoteHit increments the hit counter for the CIDR covering addr.
+// ByID loads a single ban row, including expired ones.
+func (e *Engine) ByID(id int64) (*model.Ban, error) {
+	return e.st.BanByID(id)
+}
+
+// NoteHit counts a request from a banned address. The counter is batched in
+// memory and flushed by the sweeper, so the hot path never touches SQLite.
 func (e *Engine) NoteHit(addr netip.Addr) {
-	if rec, ok := e.table.Match(addr); ok {
-		e.st.IncrementBanHits(rec.CIDR)
+	rec, ok := e.table.Match(addr)
+	if !ok {
+		return
+	}
+	e.hitsMu.Lock()
+	e.hits[rec.CIDR]++
+	e.hitsMu.Unlock()
+}
+
+// flushHits persists the batched hit counters. Counts are eventually
+// consistent: a crash can lose at most one sweep interval.
+func (e *Engine) flushHits() {
+	e.hitsMu.Lock()
+	pending := e.hits
+	e.hits = map[string]int64{}
+	e.hitsMu.Unlock()
+	for cidr, n := range pending {
+		e.st.AddBanHits(cidr, n)
 	}
 }
 

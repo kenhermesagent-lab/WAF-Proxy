@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -14,6 +15,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/urlguard"
 )
 
@@ -403,6 +405,12 @@ func (s *Server) revokeGate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.st.DeleteProxyGateSessions(id)
+	sess := sessionFrom(r)
+	detail := strconv.FormatInt(id, 10)
+	if p, err := s.st.GetProxy(id); err == nil && p != nil {
+		detail = p.Hostname
+	}
+	s.st.AddAudit(sess.Username, "proxy.gate_revoke", detail, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -469,6 +477,8 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 	if err := s.policy.ReloadWAF(); err != nil {
 		s.log.Error("reload WAF profiles", "err", err)
 	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "profile.update", p.Name, clientIP(r))
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -522,6 +532,8 @@ func (s *Server) createPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	in.ID = id
 	s.reload(r.Context())
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "policy.create", in.Kind+" "+in.Value, clientIP(r))
 	writeJSON(w, http.StatusCreated, in)
 }
 
@@ -561,6 +573,8 @@ func (s *Server) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.reload(r.Context())
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "policy.update", in.Kind+" "+in.Value, clientIP(r))
 	writeJSON(w, http.StatusOK, in)
 }
 
@@ -575,6 +589,8 @@ func (s *Server) deletePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.reload(r.Context())
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "policy.delete", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -652,23 +668,21 @@ func (s *Server) deleteBan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	list, err := s.bans.List(true)
+	b, err := s.bans.ByID(id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	for _, b := range list {
-		if b.ID == id {
-			if err := s.bans.Remove(b.CIDR); err != nil {
-				writeError(w, http.StatusInternalServerError, "cannot remove ban")
-				return
-			}
-			sess := sessionFrom(r)
-			s.st.AddAudit(sess.Username, "ban.delete", b.CIDR+" "+b.Reason, clientIP(r))
-			return
-		}
+	if err := s.bans.Remove(b.CIDR); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot remove ban")
+		return
 	}
-	writeError(w, http.StatusNotFound, "not found")
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "ban.delete", b.CIDR+" "+b.Reason, clientIP(r))
 }
 
 func (s *Server) promoteBan(w http.ResponseWriter, r *http.Request) {
@@ -677,23 +691,21 @@ func (s *Server) promoteBan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	list, err := s.bans.List(true)
+	b, err := s.bans.ByID(id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	for _, b := range list {
-		if b.ID == id {
-			if err := s.bans.Promote(b.CIDR); err != nil {
-				writeError(w, http.StatusInternalServerError, "cannot promote")
-				return
-			}
-			sess := sessionFrom(r)
-			s.st.AddAudit(sess.Username, "ban.promote", b.CIDR, clientIP(r))
-			return
-		}
+	if err := s.bans.Promote(b.CIDR); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot promote")
+		return
 	}
-	writeError(w, http.StatusNotFound, "not found")
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "ban.promote", b.CIDR, clientIP(r))
 }
 
 // ---------- feeds ----------
@@ -725,6 +737,8 @@ func (s *Server) createFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go s.feeds.Refresh(context.Background(), id)
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "feed.create", in.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
@@ -752,6 +766,8 @@ func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go s.feeds.Refresh(context.Background(), id)
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "feed.update", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -761,10 +777,17 @@ func (s *Server) deleteFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.st.DeleteFeed(id); err != nil {
-		writeError(w, http.StatusBadRequest, "builtin feeds cannot be deleted")
+	removed, err := s.st.DeleteFeed(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot delete feed")
 		return
 	}
+	if !removed {
+		writeError(w, http.StatusNotFound, "feed not found or built in")
+		return
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "feed.delete", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -882,6 +905,8 @@ func (s *Server) renewCert(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("certificate renewal failed", "id", id, "err", err)
 		}
 	}()
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "cert.renew", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "renewing"})
 }
 
@@ -891,11 +916,17 @@ func (s *Server) deleteCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
+	domains := strconv.FormatInt(id, 10)
+	if c, err := s.st.GetCert(id); err == nil && c != nil {
+		domains = c.Domains
+	}
 	if err := s.st.DeleteCert(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
 	}
 	_ = s.certs.Load()
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "cert.delete", domains, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -1044,6 +1075,8 @@ func (s *Server) createGateUser(w http.ResponseWriter, r *http.Request) {
 		resp["otpauth_url"] = auth.OTPAuthURL("WAF-Proxy", in.Username, secret)
 		resp["totp_secret"] = secret
 	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "gate_user.create", in.Username, clientIP(r))
 	writeJSON(w, http.StatusCreated, resp)
 }
 
@@ -1101,6 +1134,12 @@ func (s *Server) updateGateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
+	if in.Password != "" {
+		// A credential change must end the sessions opened with the old one.
+		_ = s.st.DeleteGateSessionsFor(target.Username)
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "gate_user.update", target.Username, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -1110,10 +1149,15 @@ func (s *Server) deleteGateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.st.DeleteGateUser(id); err != nil {
+	if err := s.st.DeleteGateUser(id); errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
 	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "gate_user.delete", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

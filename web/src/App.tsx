@@ -205,7 +205,11 @@ export default function App() {
         </div>
       </main>
       {toast && (
-        <div style={{ position: "fixed", bottom: 20, right: 20, background: "#11151c", border: "1px solid #1f2633", padding: "10px 14px", borderRadius: 10, zIndex: 100 }}>
+        <div
+          role="status"
+          aria-live="polite"
+          style={{ position: "fixed", bottom: 20, right: 20, background: "#11151c", border: "1px solid #1f2633", padding: "10px 14px", borderRadius: 10, zIndex: 100 }}
+        >
           {toast}
         </div>
       )}
@@ -217,10 +221,13 @@ function Setup({ onDone }: { onDone: (e: Enrolment) => void }) {
   const [form, setForm] = useState({
     username: "admin",
     password: "",
-    base_domain: "kendk.duckdns.org",
-    wan_ip: "192.168.191.2",
+    // Left blank on purpose: the wizard must not prefill another network's
+    // addresses, because saving them makes the GUI bind an address this host
+    // does not own.
+    base_domain: "",
+    wan_ip: "",
     wan_port: 443,
-    lan_ip: "192.168.101.2",
+    lan_ip: "",
     gui_port: 8443,
     duckdns_token: "",
     email: "",
@@ -250,13 +257,13 @@ function Setup({ onDone }: { onDone: (e: Enrolment) => void }) {
           <div className="field"><label>Admin username</label><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></div>
           <div className="field"><label>Password (12+ characters)</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
         </div>
-        <div className="field"><label>Base domain</label><input value={form.base_domain} onChange={(e) => setForm({ ...form, base_domain: e.target.value })} /></div>
+        <div className="field"><label>Base domain</label><input value={form.base_domain} onChange={(e) => setForm({ ...form, base_domain: e.target.value })} placeholder="example.duckdns.org" /></div>
         <div className="row grow">
-          <div className="field"><label>WAN IP</label><input value={form.wan_ip} onChange={(e) => setForm({ ...form, wan_ip: e.target.value })} /></div>
+          <div className="field"><label>WAN IP</label><input value={form.wan_ip} onChange={(e) => setForm({ ...form, wan_ip: e.target.value })} placeholder="192.168.1.2" /></div>
           <div className="field"><label>WAN port</label><input type="number" value={form.wan_port} onChange={(e) => setForm({ ...form, wan_port: Number(e.target.value) })} /></div>
         </div>
         <div className="row grow">
-          <div className="field"><label>LAN egress IP</label><input value={form.lan_ip} onChange={(e) => setForm({ ...form, lan_ip: e.target.value })} /></div>
+          <div className="field"><label>LAN egress IP</label><input value={form.lan_ip} onChange={(e) => setForm({ ...form, lan_ip: e.target.value })} placeholder="192.168.1.2" /></div>
           <div className="field"><label>GUI port</label><input type="number" value={form.gui_port} onChange={(e) => setForm({ ...form, gui_port: Number(e.target.value) })} /></div>
         </div>
         <p className="sub" style={{ fontSize: 12, marginTop: -4 }}>

@@ -179,7 +179,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
         <Card title="Runtime status">
           <div className="bar-row">
             <div>Kernel ban enforcement</div>
-            <div>{String(s.kernel ?? "").includes("true") ? <Badge tone="ok">active</Badge> : <Badge tone="warn">{s.kernel || "unknown"}</Badge>}</div>
+            <div>{s.kernel === "active" ? <Badge tone="ok">active</Badge> : <Badge tone="warn">{s.kernel || "unknown"}</Badge>}</div>
           </div>
           <div className="bar-row">
             <div>GeoIP database</div>

@@ -514,9 +514,11 @@ func (m *Manager) accept(rt *runtime) {
 			continue
 		}
 		if m.isBanned(addr) {
-			rt.banned.Add(1)
 			_ = conn.Close()
+			// Emit before counting so the status counter never runs ahead of
+			// the event that describes the refusal.
 			m.refuse(rt, addr)
+			rt.banned.Add(1)
 			continue
 		}
 		rt.total.Add(1)
@@ -646,6 +648,11 @@ func remoteAddr(remote net.Addr) (netip.Addr, bool) {
 	return addr.Unmap(), true
 }
 
+// throttleMax bounds the refusal table. A botnet spray of distinct banned
+// addresses would otherwise grow the map without limit, so once it is full the
+// oldest entry is dropped; losing suppression state only costs an extra event.
+const throttleMax = 4096
+
 // throttle collapses repeated refusals from one source and service into one
 // event per window, remembering how many were folded in.
 type throttle struct {
@@ -677,8 +684,11 @@ func (t *throttle) allow(service string, addr netip.Addr, now time.Time) (bool, 
 
 	e, ok := t.seen[key]
 	if !ok {
-		if len(t.seen) >= 4096 {
+		if len(t.seen) >= throttleMax {
 			t.prune(now)
+		}
+		if len(t.seen) >= throttleMax {
+			t.evictOldest()
 		}
 		t.seen[key] = &refusalEntry{last: now}
 		return true, 0
@@ -691,6 +701,22 @@ func (t *throttle) allow(service string, addr netip.Addr, now time.Time) (bool, 
 	e.suppressed = 0
 	e.last = now
 	return true, suppressed
+}
+
+// evictOldest drops the least recently seen entry when the table is full of
+// active sources.
+func (t *throttle) evictOldest() {
+	var oldest refusalKey
+	var oldestAt time.Time
+	first := true
+	for k, e := range t.seen {
+		if first || e.last.Before(oldestAt) {
+			oldest, oldestAt, first = k, e.last, false
+		}
+	}
+	if !first {
+		delete(t.seen, oldest)
+	}
 }
 
 // prune drops entries that have been quiet for ten windows; a retry loop keeps

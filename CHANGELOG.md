@@ -111,6 +111,34 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   browser suggestion list), so there is nothing to guess.
 - Clearing an interface field in Settings now re-runs auto-detection for that field instead
   of leaving the dashboard sampling nothing until the next restart.
+- **Ban actions outside the capped list.** Unban and “make permanent” looked the row up by
+  scanning the 2000 newest bans, so an older record answered 404 and could not be lifted from
+  the GUI. Both now load the row by id, promotion resolves the ban by CIDR, and an unknown id
+  is a real 404.
+- **Ban hit counting** is batched in memory and flushed by the sweeper, so a banned client
+  sending thousands of requests per second no longer queues one SQLite write per rejection;
+  a removed ban also drops its pending count.
+- **Deleting a gate account** now removes its ACL rows and visitor sessions in one
+  transaction, so a deleted account is not still signed in through the gate until its session
+  expires; changing a gate password ends that account's sessions, and deleting an unknown id
+  returns 404 instead of 200.
+- **Kernel status in Settings** showed a stringified Go map, so the badge always read as a
+  warning; it now reports `active` or the actual reason, matching the Policies page.
+- **Feed deletion** reported a database error as “built-in feeds cannot be deleted”; a
+  database failure is now a 500, a built-in or missing feed a 404, and the deletion is audited.
+- **Audit coverage** now includes policy create/update/delete, protection-profile updates,
+  feed create/update/delete, certificate renewal and deletion, gate-account
+  create/update/delete, and revoking a proxy's gate sessions.
+- **Streaming refusal counters** are incremented after the event is emitted, so the status
+  number can no longer run ahead of the event that explains it; the per-source refusal table
+  is capped at 4096 entries, so a spray of distinct banned addresses cannot grow it without
+  limit.
+- **Cloud metadata guard** also refuses the Alibaba (`100.100.100.200`) and AWS IPv6
+  (`fd00:ec2::254`) instance-credential endpoints, which would otherwise pass as private
+  addresses.
+- **First-run wizard** no longer prefills another network's example addresses; blank fields
+  with placeholders replace them, so setup cannot silently save a bind address this host does
+  not own. Toast messages are announced to screen readers.
 
 ## [1.1.0] — 2026-11-19
 

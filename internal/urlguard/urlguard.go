@@ -36,9 +36,16 @@ var Webhook = Policy{AllowPrivate: true, AllowLoopback: true}
 // internet.
 var Feed = Policy{}
 
+// metadataHosts covers the instance-credential endpoints that are not already
+// refused by address class. The AWS IPv6 endpoint and the Alibaba address are
+// private or CGNAT space, so the Webhook and Upstream policies would otherwise
+// let them through.
 var metadataHosts = map[string]bool{
 	"169.254.169.254":          true,
+	"100.100.100.200":          true,
+	"fd00:ec2::254":            true,
 	"metadata":                 true,
+	"instance-data":            true,
 	"metadata.google.internal": true,
 	"metadata.goog":            true,
 }
