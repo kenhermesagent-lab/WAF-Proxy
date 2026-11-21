@@ -121,5 +121,8 @@ fi
 install -m 0644 "$src/deploy/wafproxy.service" /etc/systemd/system/wafproxy.service
 install -m 0644 "$src/deploy/wafproxy-updates.service" /etc/systemd/system/wafproxy-updates.service
 systemctl daemon-reload
+# The console only sees new helper actions (CrowdSec status, for one) once the
+# helper runs the new binary. Restarting it does not touch the console.
+systemctl try-restart wafproxy-updates.service >/dev/null 2>&1 || true
 
 echo "installed $(cat VERSION) from $(git rev-parse --short HEAD) into $app_dir; the console will restart to load it"

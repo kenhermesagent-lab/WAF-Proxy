@@ -22,6 +22,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **An in-console application update restarts the privileged helper.** Without it a new helper
+  action, such as reading the console status, stayed unavailable until a reboot or a reinstall.
 - **The installer verifies the bouncer key before reporting success.** After creating the key it
   calls `/v1/decisions` with `X-Api-Key` and requires HTTP 200, retrying for a few seconds while the
   Local API settles. A key the engine rejects now fails the install instead of being saved and

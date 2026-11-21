@@ -567,8 +567,8 @@ installs `/usr/local/waf-proxy/lib/self-update` and `self-update-check`. The che
 `git fetch` as the checkout owner. The public repository needs no token or login; a private
 fork uses that user's existing git credentials. The application action refuses a dirty
 checkout, runs `git pull --ff-only` and `make all` as the owner, installs both binaries and
-refreshes the helper scripts as root, and reloads systemd units; the console then exits so
-systemd starts the new build. It
+refreshes the helper scripts as root, reloads systemd units and restarts the helper; the console
+then exits so systemd starts the new build. It
 never accepts an argument from the browser, and the data directory is untouched. Only install
 from a repository you trust: the helper builds that checkout's code.
 
