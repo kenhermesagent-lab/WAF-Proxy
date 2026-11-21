@@ -23,6 +23,37 @@ func TestParseCrowdSecInstallOutput(t *testing.T) {
 	}
 }
 
+func TestParseConsoleStatus(t *testing.T) {
+	// Shape of `cscli console status` on an accepted engine (crowdsec docs).
+	accepted := " ╭─────────────────────┬───────────────────────────────╮\n" +
+		" │ Console connection  │                               │\n" +
+		" ├─────────────────────┼───────────────────────────────┤\n" +
+		" │ Central API (CAPI)  │ ✅ authenticated              │\n" +
+		" │ Enrolled            │ ✅ enrolled                   │\n" +
+		" │ Plan                │ SECOPS                        │\n" +
+		" ╰─────────────────────┴───────────────────────────────╯\n"
+	if state, detail := parseConsoleStatus(accepted); state != "enrolled" || !strings.Contains(detail, "enrolled") {
+		t.Fatalf("state = %q, detail = %q; want enrolled", state, detail)
+	}
+
+	for _, pending := range []string{
+		" │ Enrolled            │ ✗ not enrolled                │\n",
+		" │ Enrolled            │ ✗ pending                     │\n",
+		" │ Enrolled            │ ❌ not enrolled               │\n",
+	} {
+		if state, _ := parseConsoleStatus(pending); state != "pending" {
+			t.Errorf("%q reported %q, want pending", strings.TrimSpace(pending), state)
+		}
+	}
+
+	// The console unreachable or an unknown engine prints only local options.
+	for _, out := range []string{"", "No console options\n", " │ Enroll              │ enrolled │\n"} {
+		if state, _ := parseConsoleStatus(out); state != "unknown" {
+			t.Errorf("%q reported %q, want unknown", out, state)
+		}
+	}
+}
+
 func TestParseCrowdSecInstallOutputRejectsJunk(t *testing.T) {
 	for _, out := range []string{
 		"",

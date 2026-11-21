@@ -11,6 +11,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.3.5] — 2026-11-21
+
+### Added
+
+- **The CrowdSec page says whether the console accepted the engine.** It reads `cscli console status`
+  and shows *pending acceptance* versus *accepted by console*, with the exact status row, instead of
+  inferring enrolment from a credentials file. Enrollment is two-step, so this is the difference
+  between "request sent" and "data is flowing".
+
+### Fixed
+
+- **The installer verifies the bouncer key before reporting success.** After creating the key it
+  calls `/v1/decisions` with `X-Api-Key` and requires HTTP 200, retrying for a few seconds while the
+  Local API settles. A key the engine rejects now fails the install instead of being saved and
+  silently doing nothing.
+
 ## [1.3.4] — 2026-11-21
 
 ### Fixed

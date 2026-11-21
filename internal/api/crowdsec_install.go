@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,7 +25,7 @@ var (
 	csLookPath = exec.LookPath
 	csStat     = os.Stat
 	csOutput   = func(name string, args ...string) ([]byte, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, name, args...)
 		cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
@@ -46,10 +47,15 @@ type crowdsecInstall struct {
 	EngineRunning   bool   `json:"engine_running"`
 	Version         string `json:"version,omitempty"`
 	ConsoleEnrolled bool   `json:"console_enrolled"`
-	LAPI            string `json:"lapi"`
-	Running         bool   `json:"running"`
-	Error           string `json:"error,omitempty"`
-	Output          string `json:"output,omitempty"`
+	// ConsoleState is what `cscli console status` reports for the engine:
+	// "enrolled" once the console accepted it, "pending" while the request
+	// awaits acceptance, "none" without credentials and "unknown" otherwise.
+	ConsoleState  string `json:"console_state"`
+	ConsoleDetail string `json:"console_detail,omitempty"`
+	LAPI          string `json:"lapi"`
+	Running       bool   `json:"running"`
+	Error         string `json:"error,omitempty"`
+	Output        string `json:"output,omitempty"`
 }
 
 // crowdsecInstallStatus decides whether the console may install the engine.
@@ -65,6 +71,9 @@ func (s *Server) crowdsecInstallStatus() crowdsecInstall {
 		if _, err := csStat(consoleCredentials); err == nil {
 			st.ConsoleEnrolled = true
 		}
+		st.ConsoleState, st.ConsoleDetail = s.consoleState()
+	} else {
+		st.ConsoleState = "none"
 	}
 	s.csMu.Lock()
 	st.Running, st.Error, st.Output = s.csRunning, s.csErr, s.csOutput
@@ -80,6 +89,85 @@ func (s *Server) crowdsecInstallStatus() crowdsecInstall {
 		st.Supported = true
 	}
 	return st
+}
+
+// consoleState reports whether the CrowdSec console has accepted this engine.
+// Enrolling only queues the request, and the engine keeps sending nothing until
+// the operator accepts it, so the status row is the only honest answer.
+func (s *Server) consoleState() (state, detail string) {
+	if _, err := csStat(consoleCredentials); err != nil {
+		return "none", ""
+	}
+	s.csMu.Lock()
+	cached, cachedDetail, at := s.csConsoleState, s.csConsoleDetail, s.csConsoleAt
+	s.csMu.Unlock()
+	if cached != "" && time.Since(at) < 15*time.Second {
+		return cached, cachedDetail
+	}
+	out, err := s.crowdsecConsoleStatus()
+	state, detail = "unknown", ""
+	if err == nil {
+		state, detail = parseConsoleStatus(out)
+	}
+	s.csMu.Lock()
+	s.csConsoleState, s.csConsoleDetail, s.csConsoleAt = state, detail, time.Now()
+	s.csMu.Unlock()
+	return state, detail
+}
+
+// crowdsecConsoleStatus runs `cscli console status` through the root helper,
+// because the console credential files it reads are root-only. Hosts without
+// the helper fall back to running cscli directly.
+func (s *Server) crowdsecConsoleStatus() (string, error) {
+	if s.updates.HelperReady() {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		resp, err := s.updates.RunHelper(ctx, updatepkg.HelperRequest{Action: updatepkg.HelperActionCrowdSecStatus})
+		if err != nil {
+			return "", err
+		}
+		if resp.OK {
+			return resp.Output, nil
+		}
+		if !strings.Contains(resp.Error, "unsupported action") {
+			return "", errors.New(resp.Error)
+		}
+	}
+	out, err := csOutput("cscli", "console", "status")
+	return string(out), err
+}
+
+// parseConsoleStatus reads the "Enrolled" row of the table `cscli console
+// status` prints. Older engines label the row with a tick and the word
+// "enrolled"; a pending request shows a cross or "not enrolled".
+func parseConsoleStatus(out string) (state, detail string) {
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, "│") {
+			continue
+		}
+		cells := strings.Split(line, "│")
+		if len(cells) < 3 {
+			continue
+		}
+		label := strings.ToLower(strings.TrimSpace(strings.Trim(cells[1], "─ ")))
+		if !strings.HasPrefix(label, "enrolled") {
+			continue
+		}
+		detail = strings.TrimSpace(cells[2])
+		value := strings.ToLower(detail)
+		switch {
+		case strings.Contains(value, "not enrolled"),
+			strings.Contains(value, "pending"),
+			strings.Contains(value, "✗"),
+			strings.Contains(value, "✘"),
+			strings.Contains(value, "❌"):
+			return "pending", detail
+		case strings.Contains(value, "enrolled"):
+			return "enrolled", detail
+		}
+		return "unknown", detail
+	}
+	return "unknown", ""
 }
 
 func csPackageVersion() string {

@@ -125,6 +125,9 @@ func serve(conn net.Conn, gid, uid int) {
 	if req.Action == updates.HelperActionCrowdSecInstall {
 		_ = conn.SetDeadline(time.Now().Add(16 * time.Minute))
 	}
+	if req.Action == updates.HelperActionCrowdSecStatus {
+		_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
+	}
 	switch req.Action {
 	case updates.HelperActionPing:
 		writeResponse(conn, updates.HelperResponse{OK: true})
@@ -171,6 +174,13 @@ func serve(conn net.Conn, gid, uid int) {
 			return
 		}
 		writeResponse(conn, runCommand(2*time.Minute, cscli, "console", "enroll", req.Key))
+	case updates.HelperActionCrowdSecStatus:
+		cscli, err := exec.LookPath("cscli")
+		if err != nil {
+			writeResponse(conn, updates.HelperResponse{Error: "cscli is not installed on this host"})
+			return
+		}
+		writeResponse(conn, runCommand(20*time.Second, cscli, "console", "status"))
 	default:
 		writeResponse(conn, updates.HelperResponse{Error: "unsupported action"})
 	}

@@ -112,6 +112,23 @@ lapi="${lapi#https://}"
 [[ "$lapi" == *:* ]] || lapi="$lapi:8080"
 [[ "$lapi" == 0.0.0.0:* ]] && lapi="127.0.0.1:${lapi##*:}"
 
+# Prove the key works before the console stores it: /v1/decisions with a valid
+# bouncer key answers 200, and anything else (403 for a bad key) is a failure.
+step "verifying the bouncer key against the Local API"
+if ! command -v curl >/dev/null 2>&1; then
+  apt-get install -y --no-install-recommends curl >&2 || die "curl is required to verify the bouncer key"
+fi
+base="http://$lapi"
+code=""
+for _ in $(seq 1 10); do
+  code="$(curl -sS -o /dev/null -w '%{http_code}' \
+    -H "X-Api-Key: $key" "$base/v1/decisions?limit=1" 2>/dev/null || true)"
+  [[ "$code" == "200" ]] && break
+  sleep 1
+done
+[[ "$code" == "200" ]] || die "the new bouncer key was rejected by $base/v1/decisions (HTTP ${code:-no response})"
+step "bouncer key verified"
+
 printf 'WAFPROXY_LAPI=http://%s\n' "$lapi"
 printf 'WAFPROXY_KEY=%s\n' "$key"
-step "done; the bouncer key was written to the console"
+step "done; the bouncer key was verified and written to the console"

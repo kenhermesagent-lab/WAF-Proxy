@@ -206,15 +206,43 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
         <Card
           title="CrowdSec Cloud (optional)"
           actions={
-            inst.console_enrolled ? <Badge tone="ok">enrollment sent</Badge> : <Badge>not linked</Badge>
+            inst.console_state === "enrolled" ? (
+              <Badge tone="ok">accepted by console</Badge>
+            ) : inst.console_state === "pending" || inst.console_enrolled ? (
+              <Badge tone="warn">pending acceptance</Badge>
+            ) : (
+              <Badge>not linked</Badge>
+            )
           }
         >
-          {inst.console_enrolled ? (
-            <p className="muted" style={{ fontSize: 12, lineHeight: 1.7, marginTop: 0 }}>
-              This engine is enrolled. If app.crowdsec.net → Security Engines still shows it as pending,
-              accept it there, then run <code>sudo systemctl restart crowdsec</code> on this host so it picks
-              up the console settings. <code>cscli console status</code> prints the current state.
-            </p>
+          {inst.console_state === "enrolled" ? (
+            <>
+              <p className="muted" style={{ fontSize: 12, lineHeight: 1.7, marginTop: 0 }}>
+                The console accepted this engine. Its alerts appear under app.crowdsec.net → Security
+                Engines; Console-pushed blocklists additionally need a plan with decision management.
+              </p>
+              {inst.console_detail && (
+                <p className="mono muted" style={{ fontSize: 11.5, marginBottom: 0 }}>{inst.console_detail}</p>
+              )}
+            </>
+          ) : inst.console_state === "pending" || inst.console_enrolled ? (
+            <>
+              <p className="muted" style={{ fontSize: 12, lineHeight: 1.7, marginTop: 0 }}>
+                The enrollment request was sent, but the console has not accepted this engine yet — until
+                it is accepted, no events reach your account. This is the step people miss.
+              </p>
+              <ol className="muted" style={{ fontSize: 12, lineHeight: 1.8, paddingLeft: 18, marginTop: 0 }}>
+                <li>Open app.crowdsec.net → <strong>Security Engines</strong>.</li>
+                <li>Select the engine waiting there and click <strong>Accept enroll</strong>.</li>
+                <li>
+                  Run <code>sudo systemctl restart crowdsec</code> on this host so it picks up the console
+                  settings, then refresh this page.
+                </li>
+              </ol>
+              {inst.console_detail && (
+                <p className="mono muted" style={{ fontSize: 11.5, marginBottom: 0 }}>{inst.console_detail}</p>
+              )}
+            </>
           ) : (
             <>
               <p className="muted" style={{ fontSize: 12, lineHeight: 1.7, marginTop: 0 }}>

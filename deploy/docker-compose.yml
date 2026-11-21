@@ -5,10 +5,10 @@ services:
     build:
       context: ..
       args:
-        VERSION: ${VERSION:-1.3.4}
+        VERSION: ${VERSION:-1.3.5}
         COMMIT: ${COMMIT:-unknown}
         BUILD_DATE: ${BUILD_DATE:-unknown}
-    image: wafproxy:${VERSION:-1.3.4}
+    image: wafproxy:${VERSION:-1.3.5}
     container_name: wafproxy
     # Host networking is required: the proxy binds the WAN/LAN addresses chosen
     # in the setup wizard, sees real client IPs, and manages nftables directly.

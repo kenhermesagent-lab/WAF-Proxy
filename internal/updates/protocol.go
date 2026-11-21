@@ -21,6 +21,10 @@ const (
 	// enroll the engine in the operator's CrowdSec account.
 	HelperActionCrowdSecInstall = "crowdsec-install"
 	HelperActionCrowdSecEnroll  = "crowdsec-enroll"
+	// CrowdSecStatus reads `cscli console status`. It runs through the helper
+	// because the credential files it reads are root-only, and the console
+	// service is unprivileged.
+	HelperActionCrowdSecStatus = "crowdsec-status"
 )
 
 // The self-update scripts are installed root-owned by deploy/install.sh. They

@@ -70,6 +70,11 @@ type Server struct {
 	csRunning bool
 	csErr     string
 	csOutput  string
+	// Console enrolment state from `cscli console status`, cached briefly: the
+	// page polls this endpoint every two seconds during an install.
+	csConsoleState  string
+	csConsoleDetail string
+	csConsoleAt     time.Time
 
 	// Pending TOTP rotations are held server-side and keyed by session, so a
 	// stolen session cannot confirm an authenticator of its own choosing.

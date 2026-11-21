@@ -398,6 +398,9 @@ export interface CrowdSecInstall {
   engine_running: boolean;
   version?: string;
   console_enrolled: boolean;
+  /** enrolled = accepted by the console, pending = awaiting acceptance, none, unknown */
+  console_state: "enrolled" | "pending" | "none" | "unknown";
+  console_detail?: string;
   lapi: string;
   running: boolean;
   error?: string;
