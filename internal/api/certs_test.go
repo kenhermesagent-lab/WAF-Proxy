@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -69,5 +70,37 @@ func TestListCertsExposesProviderChoices(t *testing.T) {
 	body = get()
 	if len(body.Configured) != 1 || body.Configured[0] != "duckdns" {
 		t.Fatalf("configured = %v, want [duckdns]", body.Configured)
+	}
+}
+
+// TestCreateCertRejectsMissingProvider guards the case the certificate modal
+// used to submit: an empty or unknown provider must never reach the background
+// issuance path, where it would fail asynchronously and look like a broken DNS
+// provider.
+func TestCreateCertRejectsMissingProvider(t *testing.T) {
+	srv, _, token, csrf := newObservabilityServer(t)
+
+	post := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/certs", strings.NewReader(body))
+		req.Host = "gui.local"
+		req.RemoteAddr = "192.168.101.10:5000"
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		req.Header.Set("X-CSRF-Token", csrf)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	for name, body := range map[string]string{
+		"missing provider": `{"domains":"example.com"}`,
+		"empty provider":   `{"domains":"example.com","provider":""}`,
+		"unknown provider": `{"domains":"example.com","provider":"not-a-provider"}`,
+		"missing domains":  `{"provider":"duckdns"}`,
+	} {
+		rec := post(body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400: %s", name, rec.Code, rec.Body.String())
+		}
 	}
 }

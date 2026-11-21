@@ -122,9 +122,10 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
           </div>
           <p className="muted" style={{ fontSize: 12 }}>
             Both addresses must be configured on this host. A single-NIC host uses the same address for WAN and
-            LAN — then the GUI port must be firewalled from the WAN. Restart the container after changing the bind
-            addresses; the listener reads them from the database on boot. Only 443 needs to be forwarded on the WAN
-            side; the admin GUI should stay on the LAN.
+            LAN — then the GUI port must be firewalled from the WAN. Restart WAF-Proxy after changing the bind
+            addresses (<code>docker compose restart wafproxy</code> or <code>systemctl restart wafproxy</code>); the
+            listener reads them from the database on boot. Only 443 needs to be forwarded on the WAN side; the admin
+            GUI should stay on the LAN.
           </p>
         </Card>
 
@@ -173,7 +174,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
         <Card title="Retention and ACME">
           <div className="row grow">
             <Field label="Event retention (days, 1–30)"><input value={s.retention_days ?? "7"} onChange={(e) => set("retention_days", e.target.value)} /></Field>
-            <Field label="ACME account email"><input value={s.acme_email ?? ""} onChange={(e) => set("acme_email", e.target.value)} placeholder="admin@example.com" /></Field>
+            <Field label="ACME account email"><input value={s.acme_email ?? ""} onChange={(e) => set("acme_email", e.target.value)} placeholder="admin@your-domain.tld" /></Field>
           </div>
           <label style={{ display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
             <input type="checkbox" style={{ width: "auto" }} checked={s.acme_staging === "1"} onChange={(e) => set("acme_staging", e.target.checked ? "1" : "0")} />

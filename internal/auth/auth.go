@@ -154,12 +154,6 @@ func NewRecoveryCodes() (plain []string, stored string, err error) {
 	return codes, strings.Join(hashes, ","), nil
 }
 
-// VerifyRecoveryCode reports whether a candidate matches a stored code hash.
-func VerifyRecoveryCode(stored, candidate string) bool {
-	_, ok := ConsumeRecoveryCode(stored, candidate)
-	return ok
-}
-
 // ConsumeRecoveryCode verifies a recovery code and returns the remaining
 // hashes with the used one removed. A code can therefore only be used once.
 func ConsumeRecoveryCode(stored, candidate string) (string, bool) {

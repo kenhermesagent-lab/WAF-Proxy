@@ -252,8 +252,9 @@ func mergeEnv(src string, kv map[string]string) string {
 	return out
 }
 
-// restartProcess asks the process to exit so the container's restart policy can
-// bring it back with fresh listeners. The request is acknowledged first.
+// restartProcess asks the process to exit so the service supervisor (Docker's
+// restart policy or systemd Restart=) can bring it back with fresh listeners.
+// The request is acknowledged first.
 func (s *Server) restartProcess(w http.ResponseWriter, r *http.Request) {
 	if s.restartFn == nil {
 		writeError(w, http.StatusNotImplemented, "restart is not available in this build")
@@ -263,7 +264,7 @@ func (s *Server) restartProcess(w http.ResponseWriter, r *http.Request) {
 	s.st.AddAudit(sess.Username, "system.restart", "container restart requested", clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]string{
 		"status": "restarting",
-		"hint":   "the container stops and starts again; reconnect in a few seconds",
+		"hint":   "the service stops and starts again; reconnect in a few seconds",
 	})
 	go func() {
 		time.Sleep(500 * time.Millisecond)

@@ -56,9 +56,3 @@ func (s *Store) ListDNSCredentials() ([]DNSCredential, error) {
 	}
 	return out, rows.Err()
 }
-
-// DeleteDNSCredential removes credentials for a provider.
-func (s *Store) DeleteDNSCredential(provider string) error {
-	_, err := s.db.Exec(`DELETE FROM dns_credentials WHERE provider = ?`, provider)
-	return err
-}

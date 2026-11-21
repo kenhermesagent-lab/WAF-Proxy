@@ -20,7 +20,7 @@ type Draft = {
   gate_users: string[];
 };
 
-function emptyDraft(base: string): Draft {
+function emptyDraft(): Draft {
   return {
     hostname: "",
     enabled: true,
@@ -58,7 +58,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
     load();
   }, []);
 
-  const openNew = () => setDraft({ ...emptyDraft(base), hostname: `app.${base}` });
+  const openNew = () => setDraft({ ...emptyDraft(), hostname: `app.${base}` });
   const openEdit = (p: Proxy) =>
     setDraft({
       id: p.id,

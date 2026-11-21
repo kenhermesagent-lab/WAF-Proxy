@@ -16,15 +16,12 @@ import (
 // WAN bind address are stored in the database and edited through the setup
 // wizard; this struct only holds what is needed to boot.
 type Config struct {
-	DataDir             string
-	ListenWAN           string
-	ListenGUI           string
-	MasterKey           []byte
-	Dev                 bool
-	LogLevel            string
-	TrustedProxyHeaders bool
-	CrowdSecURL         string
-	CrowdSecKey         string
+	DataDir     string
+	ListenWAN   string
+	ListenGUI   string
+	MasterKey   []byte
+	CrowdSecURL string
+	CrowdSecKey string
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -33,8 +30,6 @@ func Load() (*Config, error) {
 		DataDir:     envOr("WAFPROXY_DATA_DIR", "./data"),
 		ListenWAN:   envOr("WAFPROXY_LISTEN_WAN", ":8443"),
 		ListenGUI:   envOr("WAFPROXY_LISTEN_GUI", ":8080"),
-		LogLevel:    strings.ToLower(envOr("WAFPROXY_LOG_LEVEL", "info")),
-		Dev:         os.Getenv("WAFPROXY_DEV") == "1",
 		CrowdSecURL: strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_URL")),
 		CrowdSecKey: strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_KEY")),
 	}

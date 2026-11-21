@@ -18,6 +18,13 @@ adds Plex forwarding as an add-on inside the 1.1 series.
 
 ### Added
 
+- **Native systemd install.** The same binary now runs without Docker on a two-NIC Linux host:
+  `make build && sudo ./deploy/install.sh` installs `deploy/wafproxy.service`, creates the
+  `wafproxy` user and `/var/lib/wafproxy`, and grants only `CAP_NET_BIND_SERVICE` and
+  `CAP_NET_ADMIN` through systemd ambient capabilities, so 443 and nftables work as a
+  non-root service. `deploy/wafproxy.env.example` keeps the first-boot listeners on loopback
+  until the wizard stores the real WAN/LAN addresses. Docker Compose is unchanged and remains
+  the reference deployment; both paths share the wizard, database and console.
 - **Streaming forwarding** (`Streaming` page, `GET /api/streaming`,
   `PUT /api/streaming/{id}`): one transparent TCP relay per media application, with a section
   for **Plex** (`32400`) and **Jellyfin** (`8096`) and room for more through the catalog. Each
@@ -86,6 +93,16 @@ adds Plex forwarding as an add-on inside the 1.1 series.
 
 ### Fixed
 
+- **A failed certificate load left an unusable provider dropdown.** If `GET /api/certs`
+  failed or returned no providers, the certificate dialog still opened with an empty select
+  and its Request button submitted the form anyway. The dialog now shows the load error, or a
+  “no providers available” message, keeps the select disabled and disables **Request** until a
+  provider list exists; the API also rejects an empty or unknown provider with a 400 instead of
+  queueing a background issuance that cannot work.
+- **`POST /api/bans` used Go field names.** The create handler returned the ban engine's
+  `Record` (no JSON tags), so a caller saw `CIDR`/`Permanent`/`CreatedAt` while `GET /api/bans`
+  returned the lowercase `model.Ban` shape. It now returns the stored row, including its id,
+  with the same keys as the list.
 - **Requesting a certificate without DNS credentials looked like a broken provider.** The
   DNS provider step accepted an empty credentials box, created the certificate and then
   failed in the background with `no DNS credentials configured for <provider>`, so picking a

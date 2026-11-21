@@ -44,10 +44,10 @@ func TestRecoveryCodesAreOneTime(t *testing.T) {
 	if len(plain) == 0 || stored == "" {
 		t.Fatal("no codes generated")
 	}
-	if !VerifyRecoveryCode(stored, plain[0]) {
+	if _, ok := ConsumeRecoveryCode(stored, plain[0]); !ok {
 		t.Fatal("generated code rejected")
 	}
-	if VerifyRecoveryCode(stored, "AAA-BBB-CCC") {
+	if _, ok := ConsumeRecoveryCode(stored, "AAA-BBB-CCC"); ok {
 		t.Fatal("unknown code accepted")
 	}
 }

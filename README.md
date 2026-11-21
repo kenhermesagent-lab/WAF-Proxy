@@ -2,8 +2,9 @@
 
 A self-hosted reverse proxy with a real WAF in front of it: OWASP CRS, an IPS-style ban
 engine, CrowdSec, GeoIP/ASN policy, threat feeds, bot challenges, per-site access gates and
-live observability. One Go binary, one React console, one Docker Compose stack. Built to run
-on a home server, a lab box or a small office network without a cloud dependency.
+live observability. One Go binary and one React console, deployed either as a Docker Compose
+stack or as a systemd service on a two-NIC Linux host. Built to run on a home server, a lab box
+or a small office network without a cloud dependency.
 
 **Version 1.1.1** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
 
@@ -91,8 +92,9 @@ small on a busy site.
 
 ## Requirements
 
-- **Linux** with Docker Engine 24+ and Compose v2. Host networking and nftables are used, so
-  Docker Desktop on macOS/Windows is not a supported target.
+- **Linux**, deployed either with Docker Engine 24+ / Compose v2 or as a systemd service
+  (`make build && sudo ./deploy/install.sh`). Host networking and nftables are used, so Docker
+  Desktop on macOS/Windows is not a supported target; the systemd path needs Go 1.27 to build.
 - **`443/tcp`** reachable from the edge firewall. No port 80: certificates are DNS-01 only.
 - **One or two interfaces.** The intended deployment is dual-homed (one WAN, one LAN); a
   single-NIC host works too — see [Single NIC](#single-nic).
@@ -163,6 +165,26 @@ Two NICs are not required. Enter the host’s own address for both WAN and LAN, 
 (and any streaming ports) to it, and keep the console port firewalled from the WAN. The
 interface charts then show that one NIC for both directions, and “ignore ICMP echo” applies to
 the whole NIC — leave it off unless dropping LAN ping is acceptable.
+
+### Without Docker (systemd)
+
+The same binary runs directly under systemd, which is the path for a two-NIC host that manages
+its own nftables and does not want the container layer:
+
+```bash
+make build                      # Go 1.27; the console is embedded from internal/webui/dist
+sudo ./deploy/install.sh
+sudo systemctl status wafproxy
+```
+
+The installer creates the `wafproxy` user and `/var/lib/wafproxy`, installs the unit with only
+`CAP_NET_BIND_SERVICE` and `CAP_NET_ADMIN` (so 443 and kernel bans work without root), and
+starts the service. First boot binds the console to `127.0.0.1:8080`; either use
+`ssh -L 8080:127.0.0.1:8080 <host>` and open `http://127.0.0.1:8080`, or set
+`WAFPROXY_LISTEN_GUI` to the LAN address in `/etc/wafproxy/wafproxy.env` before starting. The
+wizard, addresses, firewall rules and first certificate are identical. Upgrade with
+`git pull && make build && sudo ./deploy/install.sh`; see
+[docs/INSTALL.md](docs/INSTALL.md#11-bare-metal-with-systemd).
 
 ## First certificate and first site
 
@@ -241,6 +263,11 @@ LAPI stream and become `source=crowdsec` bans.
 
 The database schema is applied idempotently on boot. Event retention is configurable (1–30
 days, default 7) and pruned hourly together with expired bans and sessions.
+
+With the systemd install, use
+`sudo env WAFPROXY_DATA_DIR=/var/lib/wafproxy wafproxy unban <ip>`, `journalctl -u wafproxy -f` and
+`sudo systemctl restart wafproxy` in place of the container commands above; the data lives in
+`/var/lib/wafproxy`.
 
 ## Security model and limitations
 

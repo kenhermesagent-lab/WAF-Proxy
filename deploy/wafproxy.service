@@ -1,0 +1,43 @@
+[Unit]
+Description=WAF-Proxy reverse proxy and admin console
+Documentation=https://github.com/kenhermesagent-lab/WAF-Proxy-Docker
+After=network-online.target nftables.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wafproxy
+Group=wafproxy
+WorkingDirectory=/var/lib/wafproxy
+EnvironmentFile=-/etc/wafproxy/wafproxy.env
+Environment=WAFPROXY_DATA_DIR=/var/lib/wafproxy
+Environment=WAFPROXY_ACCESS_LOG=/var/log/wafproxy/access.log
+Environment=HOME=/var/lib/wafproxy
+ExecStart=/usr/local/bin/wafproxy
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+UMask=0027
+
+# Bind 443 and manage the nftables ban set without running as root. The same
+# capabilities must be in the bounding and ambient sets; the nft child process
+# inherits the ambient set, so kernel-mode bans work too.
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
+
+# Writable state only: the database, master key and GeoIP files live in
+# /var/lib/wafproxy; the optional CrowdSec access log lives in /var/log/wafproxy.
+StateDirectory=wafproxy
+StateDirectoryMode=0750
+LogsDirectory=wafproxy
+LogsDirectoryMode=0750
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -3,7 +3,6 @@ package geoip
 
 import (
 	"errors"
-	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -163,15 +162,4 @@ func (g *Geo) Lookup(addr netip.Addr) Location {
 		}
 	}
 	return loc
-}
-
-// Describe returns a short human readable location for events.
-func (l Location) Describe() string {
-	if l.Country == "" && l.ASN == 0 {
-		return "unknown"
-	}
-	if l.City != "" && l.Country != "" {
-		return fmt.Sprintf("%s, %s (AS%d)", l.City, l.Country, l.ASN)
-	}
-	return fmt.Sprintf("%s (AS%d)", l.Country, l.ASN)
 }

@@ -159,7 +159,7 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
   };
 
   const restart = async () => {
-    if (!confirm("Restart the proxy container? The admin session is kept, but the UI disconnects for a few seconds.")) return;
+    if (!confirm("Restart WAF-Proxy? The admin session is kept, but the UI disconnects for a few seconds.")) return;
     try {
       await api.post("/api/system/restart");
       setRestarting(true);
@@ -310,7 +310,7 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
         );
       })}
 
-      <Card title="Container restart">
+      <Card title="Restart WAF-Proxy">
         <p className="muted" style={{ fontSize: 13, marginTop: 0, maxWidth: "88ch" }}>
           Saving a forwarder rebinds its port immediately, which is all that is needed with the shipped{" "}
           <code>network_mode: host</code> compose file: the container shares the host's network, so Docker publishes
@@ -332,9 +332,9 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
         </div>
         <div className="row mt">
           <button className="danger" onClick={restart} disabled={restarting}>
-            {restarting ? "Restarting…" : "Restart container"}
+            {restarting ? "Restarting…" : "Restart service"}
           </button>
-          {restarting && <span className="muted">Waiting for the container to come back — reload in a few seconds.</span>}
+          {restarting && <span className="muted">Waiting for WAF-Proxy to come back — reload in a few seconds.</span>}
         </div>
       </Card>
     </div>

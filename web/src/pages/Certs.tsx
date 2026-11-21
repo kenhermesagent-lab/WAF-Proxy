@@ -18,6 +18,8 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
   const [certs, setCerts] = useState<Cert[]>([]);
   const [providers, setProviders] = useState<string[]>([]);
   const [configured, setConfigured] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ domains: "", provider: "duckdns", creds: "" });
 
@@ -25,11 +27,23 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
     api
       .get<{ certs: Cert[]; providers: string[]; configured: string[] }>("/api/certs")
       .then((r) => {
+        const list = r.providers || [];
         setCerts(r.certs || []);
-        setProviders(r.providers || []);
+        setProviders(list);
         setConfigured(r.configured || []);
+        setLoadError("");
+        setLoaded(true);
+        // Keep the select on a provider the server actually offered.
+        if (list.length && !list.includes(form.provider)) {
+          setForm((f) => ({ ...f, provider: list[0], creds: "" }));
+        }
       })
-      .catch((e) => onError(errText(e)));
+      .catch((e) => {
+        setProviders([]);
+        setLoadError(errText(e));
+        setLoaded(true);
+        onError(errText(e));
+      });
 
   useEffect(() => {
     load();
@@ -45,7 +59,20 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
     return () => clearInterval(timer);
   }, [pending]);
 
+  const providersUnavailable = loaded && providers.length === 0;
+  const unavailableMessage = !loaded
+    ? "Loading DNS providers…"
+    : loadError
+      ? `DNS providers could not be loaded (${loadError}), so a certificate cannot be requested. Close this dialog, reload the page and try again.`
+      : providers.length === 0
+        ? "No DNS providers are available, so a certificate cannot be requested. Check the server log and try again."
+        : "";
+
   const issue = async () => {
+    if (!providers.length) {
+      onError("No DNS provider is available; reload the page and try again");
+      return;
+    }
     const provider = form.provider;
     const example = PROVIDER_HINTS[provider] ?? "{}";
     let creds: Record<string, string> | undefined;
@@ -141,16 +168,22 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
             <input value={form.domains} onChange={(e) => setForm({ ...form, domains: e.target.value })} placeholder={`*.${base},${base}`} />
           </Field>
           <Field label="DNS provider">
-            <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value, creds: "" })}>
+            <select
+              value={form.provider}
+              disabled={!providers.length}
+              onChange={(e) => setForm({ ...form, provider: e.target.value, creds: "" })}
+            >
+              {providers.length === 0 && <option value="">No providers available</option>}
               {providers.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </Field>
+          {unavailableMessage && <div className="err-text" style={{ marginTop: 0 }}>{unavailableMessage}</div>}
           <Field label={configured.includes(form.provider) ? "Credentials (JSON, stored encrypted) — leave empty to reuse the stored ones" : "Credentials (JSON, stored encrypted)"}>
             <textarea value={form.creds} onChange={(e) => setForm({ ...form, creds: e.target.value })} placeholder={PROVIDER_HINTS[form.provider] ?? "{}"} />
           </Field>
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button onClick={() => setOpen(false)}>Cancel</button>
-            <button className="primary" onClick={issue}>Request</button>
+            <button className="primary" onClick={issue} disabled={!loaded || providersUnavailable}>Request</button>
           </div>
         </Modal>
       )}

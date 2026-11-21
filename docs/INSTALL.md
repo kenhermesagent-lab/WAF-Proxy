@@ -10,9 +10,14 @@ Internet → Firewalla 192.168.191.1 → DNAT 443 → 192.168.191.2:443 (this st
 
 Only `443/tcp` is exposed. The admin GUI binds to the LAN address only.
 
+There are two supported deployment modes for the same binary: **Docker Compose** (§2–§10) and a
+**systemd service** on the host (§11). The wizard, database and configuration are identical;
+pick the one that matches how the host is managed.
+
 ## 1. Host prerequisites
 
-- Linux with Docker Engine 24+ and Compose v2.
+- Linux. The Docker path needs Docker Engine 24+ and Compose v2; the systemd path needs Go 1.27
+  to build the binary and systemd to run it.
 - One or two interfaces. The reference deployment uses two (or two VLANs), one on the WAN
   subnet and one on the LAN. A **single-NIC host works too**: enter its address for both WAN
   and LAN (see §3), and firewall the GUI port from the WAN side.
@@ -220,3 +225,112 @@ docker volume rm wafproxy_data
 ```
 
 This is destructive. Export the backup first if the configuration may be reused.
+
+## 11. Bare metal with systemd
+
+The native deployment runs the same `/usr/local/bin/wafproxy` under systemd. Use it when the
+host already manages nftables and the container layer is not wanted; the Docker Compose path
+above remains the reference deployment and is unchanged.
+
+### 11.1 Build and install
+
+Build on the host (Go 1.27; the console is embedded from `internal/webui/dist`, which is
+committed, so `make ui` is only needed after changing `web/`):
+
+```bash
+git clone https://github.com/kenhermesagent-lab/WAF-Proxy-Docker.git waf-proxy-docker
+cd waf-proxy-docker
+make build
+sudo ./deploy/install.sh
+```
+
+Install `nftables` first (`apt install nftables` or `dnf install nftables`); the unit expects
+the `nft` binary and the host firewall is yours to configure.
+
+`install.sh` is idempotent. It creates the `wafproxy` system user, `/var/lib/wafproxy`
+(database, master key, GeoIP files) and `/var/log/wafproxy` (access log), installs
+`/usr/local/bin/wafproxy` and `/etc/systemd/system/wafproxy.service`, enables the unit and
+starts it. On upgrade it keeps `/etc/wafproxy/wafproxy.env` and the data directory.
+
+The unit runs as `wafproxy` with `CAP_NET_BIND_SERVICE` and `CAP_NET_ADMIN` in both the bounding
+and ambient sets, and `NoNewPrivileges=yes`; that is how it binds 443 and runs `nft` without
+root. It does not need `setcap` on the binary, and `ProtectSystem=strict` leaves only
+`/var/lib/wafproxy` and `/var/log/wafproxy` writable.
+
+### 11.2 Two interfaces
+
+The listener addresses are stored by the wizard, not fixed in the unit: `wan_ip`/`wan_port`
+and `lan_ip`/`gui_port` are read from SQLite on every boot. On a dual-homed host:
+
+- **WAN interface** (for example `192.168.191.2`): proxy listener `443` and any streaming ports.
+- **LAN interface** (for example `192.168.101.2`): admin GUI `8443` and egress to backends.
+- **Router**: DNAT `443` to `192.168.191.2:443`, no SNAT, exactly as in §4.
+
+Both addresses must be assigned to the host. If a stored address is later missing (DHCP change
+or a renamed NIC), the listener falls back to the first-boot address and logs a warning. On a
+single-NIC host enter the same address for both, as described in §3.
+
+Before the first start, set the first-boot listeners in `/etc/wafproxy/wafproxy.env` if the
+wizard should be reachable from the LAN:
+
+```ini
+WAFPROXY_LISTEN_GUI=192.168.101.2:8080
+WAFPROXY_LISTEN_WAN=192.168.191.2:8443
+```
+
+The shipped file binds both to `127.0.0.1`, which keeps the unauthenticated wizard off every
+network. In that case use an SSH tunnel:
+
+```bash
+ssh -L 8080:127.0.0.1:8080 <this-host>
+# open http://127.0.0.1:8080 in the browser on your workstation
+```
+
+Complete the wizard exactly as in §3 (same fields), save the TOTP secret and recovery codes,
+then restart so the stored addresses are used:
+
+```bash
+sudo systemctl restart wafproxy
+```
+
+The GUI is now `http://192.168.101.2:8443`, the proxy is on `192.168.191.2:443`, and later edits
+to the env file no longer move the listeners (change them in **Settings** and restart).
+
+### 11.3 Firewall and nftables
+
+Allow `443/tcp` (and streaming ports) to the WAN address, and the GUI port on the LAN only. The
+ban engine creates and owns its `inet wafproxy` table; it does not replace the host firewall.
+Check it with `sudo nft list table inet wafproxy`; **Settings** reports `active` while the
+process can manage it. If `nft` is missing or the capabilities were removed, the console shows
+the reason and bans fall back to the proxy layer.
+
+For GeoIP, copy `GeoLite2-City.mmdb` / `GeoLite2-ASN.mmdb` (or the DB-IP Lite equivalents) into
+`/var/lib/wafproxy`, owned by `wafproxy`, and restart.
+
+### 11.4 CrowdSec (optional)
+
+Install CrowdSec on the same host and point it at `/var/log/wafproxy/access.log` with the stock
+nginx parser (copy `deploy/crowdsec/acquis.d/wafproxy.yaml` and change the path), then:
+
+```bash
+cscli bouncers add wafproxy
+# put the key in /etc/wafproxy/wafproxy.env as WAFPROXY_CROWDSEC_KEY
+sudo systemctl restart wafproxy
+```
+
+### 11.5 Upgrade, logs and uninstall
+
+```bash
+git pull
+make build
+sudo ./deploy/install.sh            # keeps the env file and /var/lib/wafproxy
+
+journalctl -u wafproxy -f           # service log
+sudo env WAFPROXY_DATA_DIR=/var/lib/wafproxy wafproxy unban 203.0.113.7
+
+sudo systemctl disable --now wafproxy
+# destructive: also remove the state, logs, unit and binary
+sudo rm -rf /var/lib/wafproxy /var/log/wafproxy /etc/wafproxy
+sudo rm -f /usr/local/bin/wafproxy /etc/systemd/system/wafproxy.service
+sudo systemctl daemon-reload
+```

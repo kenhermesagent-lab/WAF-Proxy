@@ -590,7 +590,15 @@ func (s *Server) createBan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.st.AddAudit(sess.Username, "ban.create", rec.CIDR+" "+in.Reason, clientIP(r))
-	writeJSON(w, http.StatusCreated, rec)
+	// Return the stored row, not the engine's Go struct: GET /api/bans serves
+	// model.Ban with lowercase JSON keys, and a caller should see the same shape
+	// (including the new id) whichever endpoint created it.
+	created, err := s.st.BanByCIDR(rec.CIDR)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot load the created ban")
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
 }
 
 func (s *Server) deleteBan(w http.ResponseWriter, r *http.Request) {

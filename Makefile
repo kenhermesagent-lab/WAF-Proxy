@@ -7,7 +7,7 @@ LDFLAGS := -s -w \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.Commit=$(COMMIT) \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.BuildDate=$(BUILD_DATE)
 
-.PHONY: all ui build run test vet fmt docker clean
+.PHONY: all ui build run test vet fmt docker install clean
 
 all: ui build
 
@@ -31,6 +31,9 @@ fmt:
 
 docker:
 	docker compose -f deploy/docker-compose.yml build
+
+install: build
+	sudo ./deploy/install.sh
 
 clean:
 	rm -rf bin data

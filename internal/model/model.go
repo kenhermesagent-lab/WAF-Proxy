@@ -20,9 +20,6 @@ type Proxy struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// Level is the per-proxy strictness override. Zero inherits the global setting.
-type Level int
-
 // Upstream is a backend server for a proxy.
 type Upstream struct {
 	ID      int64  `json:"id"`

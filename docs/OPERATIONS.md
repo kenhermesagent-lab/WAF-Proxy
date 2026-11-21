@@ -9,7 +9,12 @@
 - **Threat intel** — a feed stuck in `frozen` means the 5× growth guardrail tripped;
   inspect before enabling it again.
 - **Logs** — filter by stage `waf` or `access-gate` after changing a profile or gate.
-- Container log: `docker compose -f deploy/docker-compose.yml logs --tail=200 wafproxy`.
+- Native (systemd) installs: replace `docker exec wafproxy ...` with `sudo wafproxy ...`,
+  `docker compose ... logs` with `journalctl -u wafproxy -f`, and restart with `sudo systemctl restart wafproxy`. Prefix the
+  one-shot `wafproxy unban` command with `WAFPROXY_DATA_DIR=/var/lib/wafproxy`, because the unit
+  environment does not apply to it.
+- Service log: `docker compose -f deploy/docker-compose.yml logs --tail=200 wafproxy`, or
+  `journalctl -u wafproxy --lines=200` for the systemd install.
 
 ## Recovery
 
@@ -22,7 +27,9 @@ docker exec wafproxy unban 203.0.113.7
 ```
 
 The running process reconciles the in-memory table from SQLite every 30 seconds, so the ban
-lifts without a restart.
+lifts without a restart. On the systemd install use
+`sudo env WAFPROXY_DATA_DIR=/var/lib/wafproxy wafproxy unban 203.0.113.7`; the data lives in
+`/var/lib/wafproxy`, not a Docker volume.
 
 ### Locked out of the admin GUI
 

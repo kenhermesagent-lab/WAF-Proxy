@@ -310,9 +310,9 @@ func run() error {
 	case s := <-sig:
 		log.Info("shutting down", "signal", s.String())
 	case <-restartCh:
-		// Docker's restart policy (unless-stopped in the shipped compose file)
-		// starts the container again with the listeners rebuilt.
-		log.Info("restart requested; exiting for the container supervisor")
+		// The service supervisor (Docker's restart policy or systemd Restart=)
+		// starts the process again with the listeners rebuilt.
+		log.Info("restart requested; exiting for the service supervisor")
 	case err := <-proxyErr:
 		if err != nil {
 			log.Error("proxy listener failed", "err", err)

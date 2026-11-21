@@ -334,11 +334,3 @@ func Label(ruleID int) string {
 	}
 	return "waf"
 }
-
-// Describe renders a compact human label including the rule ID.
-func Describe(ruleID int) string {
-	if ruleID == 0 {
-		return "waf"
-	}
-	return fmt.Sprintf("%s (rule %d)", Label(ruleID), ruleID)
-}

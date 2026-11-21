@@ -43,7 +43,7 @@ implementation, inspired by Zoraxy, deployed as a single Docker Compose stack.
 
 | Constraint | Decision |
 |---|---|
-| Runtime | Docker Compose only (single host, single stack). |
+| Runtime | Docker Compose (reference) or the same binary as a systemd service; single host. |
 | Inbound ports | **443/tcp only.** No port 80 listener. No HTTP-01 by default. |
 | Address binding | Configured in the setup wizard, not in YAML. `WAN_IP:443` and `LAN_IP` are explicit. |
 | Network layout | Dual-homed VM: one interface on WAN (`192.168.191.0/24`), one on LAN (`192.168.101.0/24`). |
