@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -232,10 +233,10 @@ func applyPolicy(rs *ruleSet, p model.Policy) {
 			}
 		}
 	case model.PolicyDecoy:
-		for _, path := range strings.Split(p.Value, ",") {
-			path = strings.ToLower(strings.TrimSpace(path))
-			if path != "" {
-				rs.decoys = append(rs.decoys, path)
+		for _, entry := range strings.Split(p.Value, ",") {
+			entry = canonicalPath(strings.TrimSpace(entry))
+			if entry != "" {
+				rs.decoys = append(rs.decoys, entry)
 			}
 		}
 	case "rate_limit":
@@ -476,6 +477,23 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 			Reason: "country not on the allow list", Status: http.StatusForbidden}
 	}
 
+	// A decoy path is proof of scanning, and a whitelisted host is exactly the
+	// one worth watching: a whitelist exempts country, ASN and feed policy, not
+	// the honeypot. The path is canonicalised first because "/./.env", "//.env"
+	// and "/x/../.env" all reach the same file on a typical upstream.
+	lowerPath := canonicalPath(req.Path)
+	for _, decoy := range rules.decoys {
+		if lowerPath == decoy || strings.HasPrefix(lowerPath, decoy+"/") {
+			rawPath := req.Path
+			addr := req.Addr.String()
+			go func() {
+				_, _ = e.bans.Add(addr, "decoy path requested: "+rawPath, "decoy", "policy", 0)
+			}()
+			return model.Verdict{Action: "ban", Stage: "decoy", Rule: decoy,
+				Reason: "decoy path", Status: http.StatusForbidden, BanSource: "decoy"}
+		}
+	}
+
 	if !allowlisted {
 		if country != "" && rules.countryDeny[country] {
 			return model.Verdict{Action: "block", Stage: "country-block", Rule: "country:" + country,
@@ -488,19 +506,6 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 			if (asnBlock || len(rules.asnDeny) > 0) && (rules.asnDeny[req.Loc.ASN] || (asnBlock && isHostingASN(req.Loc.ASN))) {
 				return model.Verdict{Action: "block", Stage: "asn-block", Rule: "asn:" + strconv.Itoa(req.Loc.ASN),
 					Reason: "hosting/cloud network not permitted", Status: http.StatusForbidden}
-			}
-		}
-
-		lowerPath := strings.ToLower(req.Path)
-		for _, decoy := range rules.decoys {
-			if lowerPath == decoy || strings.HasPrefix(lowerPath, decoy+"/") {
-				path := req.Path
-				addr := req.Addr.String()
-				go func() {
-					_, _ = e.bans.Add(addr, "decoy path requested: "+path, "decoy", "policy", 0)
-				}()
-				return model.Verdict{Action: "ban", Stage: "decoy", Rule: decoy,
-					Reason: "decoy path", Status: http.StatusForbidden, BanSource: "decoy"}
 			}
 		}
 
@@ -589,6 +594,17 @@ func (e *Engine) ReloadWAF() error {
 	}
 	e.mu.Unlock()
 	return nil
+}
+
+// canonicalPath resolves dot segments, duplicate slashes and case the way most
+// upstreams do before they route, so a path-based rule cannot be sidestepped
+// with "/./x", "//x" or "/y/../x". The request keeps its original path: only
+// the comparison uses the canonical form.
+func canonicalPath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	return strings.ToLower(path.Clean("/" + p))
 }
 
 func rateKey(req *Request) string {

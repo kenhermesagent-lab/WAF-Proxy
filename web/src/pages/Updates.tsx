@@ -165,7 +165,11 @@ export default function UpdatesPage({
         actions={
           snap.app_update_available && snap.app_update_supported ? (
             <button className="small primary" onClick={applyApp} disabled={busy}>
-              {applying ? "Rebuilding and restarting…" : "Update application"}
+              {applying
+                ? "Rebuilding and restarting…"
+                : snap.app_remote_version
+                  ? `Update to v${snap.app_remote_version}`
+                  : "Update application"}
             </button>
           ) : undefined
         }
@@ -185,7 +189,9 @@ export default function UpdatesPage({
           <div>Status</div>
           <div>
             {snap.app_update_available ? (
-              <Badge tone="warn">update available</Badge>
+              <Badge tone="warn">
+                update available{snap.app_remote_version ? ` · v${snap.app_remote_version}` : ""}
+              </Badge>
             ) : snap.app_update_error ? (
               <Badge tone="bad">check failed</Badge>
             ) : (
@@ -214,7 +220,7 @@ export default function UpdatesPage({
           <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
             {snap.container
               ? "The host helper pulls the recorded checkout as its owner, rebuilds the image and recreates the wafproxy container. The named data volume is preserved."
-              : "The privileged helper pulls the installed checkout as its owner, rebuilds the console and both Go binaries, installs them, then the console exits so systemd starts the new build. Data in /var/lib/wafproxy is not touched."}
+              : "            The privileged helper pulls the installed checkout as its owner, rebuilds the console and both Go binaries, refreshes the bundled helper scripts and restarts the console to load the new build. Data in /var/lib/wafproxy is not touched."}
           </p>
         )}
         {snap.app_update_error && (

@@ -1,6 +1,7 @@
 package updates
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 )
@@ -26,13 +27,24 @@ const (
 // use the checkout recorded at install time, so a public repository needs no
 // credentials and a private fork can use the owner's existing git auth. They
 // accept no argument from the browser.
-const (
-	AppSelfUpdateScript = "/usr/local/lib/wafproxy/self-update"
-	AppCheckScript      = "/usr/local/lib/wafproxy/self-update-check"
+var (
+	AppSelfUpdateScript = firstScript("/usr/local/waf-proxy/lib/self-update", "/usr/local/lib/wafproxy/self-update")
+	AppCheckScript      = firstScript("/usr/local/waf-proxy/lib/self-update-check", "/usr/local/lib/wafproxy/self-update-check")
 	// CrowdSecInstallScript installs and configures the Security Engine. It
 	// takes no argument: the browser never supplies a command, URL or package.
-	CrowdSecInstallScript = "/usr/local/lib/wafproxy/crowdsec-install"
+	CrowdSecInstallScript = firstScript("/usr/local/waf-proxy/lib/crowdsec-install", "/usr/local/lib/wafproxy/crowdsec-install")
 )
+
+// firstScript keeps a host installed before 1.3.2 working until install.sh is
+// re-run; those releases kept the helper scripts under /usr/local/lib/wafproxy.
+func firstScript(paths ...string) string {
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return paths[0]
+}
 
 // HelperRequest is deliberately tiny. The helper accepts only the fixed actions
 // above and an exact package from the compiled catalog.

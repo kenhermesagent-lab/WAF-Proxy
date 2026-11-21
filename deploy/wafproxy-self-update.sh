@@ -102,10 +102,24 @@ for file in bin/wafproxy bin/wafproxy-updated deploy/wafproxy.service deploy/waf
   fi
 done
 
-install -m 0755 "$src/bin/wafproxy" /usr/local/bin/wafproxy
-install -m 0755 "$src/bin/wafproxy-updated" /usr/local/bin/wafproxy-updated
+app_dir=/usr/local/waf-proxy
+install -d -m 0755 "$app_dir" "$app_dir/bin" "$app_dir/lib"
+install -m 0755 "$src/bin/wafproxy" "$app_dir/bin/wafproxy"
+install -m 0755 "$src/bin/wafproxy-updated" "$app_dir/bin/wafproxy-updated"
+ln -sfn "$app_dir/bin/wafproxy" /usr/local/bin/wafproxy
+ln -sfn "$app_dir/bin/wafproxy-updated" /usr/local/bin/wafproxy-updated
+# Older installs kept the helper scripts in a real directory at this path.
+if [[ -d /usr/local/lib/wafproxy && ! -L /usr/local/lib/wafproxy ]]; then
+  rm -rf /usr/local/lib/wafproxy
+fi
+ln -sfn "$app_dir/lib" /usr/local/lib/wafproxy
+install -m 0755 "$src/deploy/wafproxy-self-update.sh" "$app_dir/lib/self-update"
+install -m 0755 "$src/deploy/wafproxy-self-update-check.sh" "$app_dir/lib/self-update-check"
+if [[ -f "$src/deploy/crowdsec-install.sh" ]]; then
+  install -m 0755 "$src/deploy/crowdsec-install.sh" "$app_dir/lib/crowdsec-install"
+fi
 install -m 0644 "$src/deploy/wafproxy.service" /etc/systemd/system/wafproxy.service
 install -m 0644 "$src/deploy/wafproxy-updates.service" /etc/systemd/system/wafproxy-updates.service
 systemctl daemon-reload
 
-echo "installed $(cat VERSION) from $(git rev-parse --short HEAD); the console will restart to load it"
+echo "installed $(cat VERSION) from $(git rev-parse --short HEAD) into $app_dir; the console will restart to load it"

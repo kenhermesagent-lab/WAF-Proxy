@@ -236,7 +236,8 @@ This is destructive. Export the backup first if the configuration may be reused.
 
 ## 11. Bare metal with systemd
 
-The native deployment runs the same `/usr/local/bin/wafproxy` under systemd. Use it when the
+The native deployment runs the same binary from `/usr/local/waf-proxy/bin/wafproxy`, with
+`/usr/local/bin/wafproxy` kept as a symlink, under systemd. Use it when the
 host already manages nftables and the container layer is not wanted; the Docker Compose path
 above remains the reference deployment and is unchanged.
 
@@ -262,7 +263,8 @@ the `nft` binary and the host firewall is yours to configure.
 
 `install.sh` is idempotent. It creates the `wafproxy` system user, `/var/lib/wafproxy`
 (database, master key, GeoIP files) and `/var/log/wafproxy` (access log), installs
-`/usr/local/bin/wafproxy` and `/etc/systemd/system/wafproxy.service`, enables the unit and
+the binaries and helper scripts under `/usr/local/waf-proxy`, links `/usr/local/bin/wafproxy`
+to `bin/wafproxy`, installs `/etc/systemd/system/wafproxy.service`, enables the unit and
 starts it. On upgrade it keeps `/etc/wafproxy/wafproxy.env` and the data directory.
 
 The unit runs as `wafproxy` with `CAP_NET_BIND_SERVICE` and `CAP_NET_ADMIN` in both the bounding
@@ -382,8 +384,9 @@ sudo ./deploy/uninstall.sh --keep-data
 ```
 
 It stops and disables `wafproxy.service`, `wafproxy-updates.service` and any installed
-`wafproxy-docker-updates.service`, removes the unit files, both binaries, the updater scripts
-under `/usr/local/lib/wafproxy`, deletes the app-owned `inet wafproxy` nftables table, and
+`wafproxy-docker-updates.service`, removes the unit files, `/usr/local/waf-proxy` and the
+`/usr/local/bin` and `/usr/local/lib/wafproxy` links, deletes the app-owned `inet wafproxy`
+nftables table, and
 removes `/etc/wafproxy`, `/var/lib/wafproxy`, `/var/log/wafproxy`, the runtime helper socket
 and the `wafproxy` user/group. With `--keep-data`, the config, data, logs and user/group are kept.
 
@@ -539,7 +542,8 @@ new WAF-Proxy release to update them.
 The console service runs with `NoNewPrivileges=yes`, so it cannot use `sudo`. `install.sh`
 installs two pieces instead:
 
-- `/usr/local/bin/wafproxy-updated` — a root-owned helper service;
+- `/usr/local/waf-proxy/bin/wafproxy-updated` — a root-owned helper service, linked as
+  `/usr/local/bin/wafproxy-updated`;
 - `/etc/systemd/system/wafproxy-updates.service` — the unit that starts it.
 
 The helper listens on `/run/wafproxy-updates/updates.sock` with mode `0660`, owned by
@@ -550,11 +554,12 @@ repository URLs and options are rejected. The console still keeps its reduced ca
 and never runs apt or a build itself.
 
 `install.sh` records the checkout path and its owner in `/etc/wafproxy/self-update.conf` and
-installs `/usr/local/lib/wafproxy/self-update` and `self-update-check`. The check runs
+installs `/usr/local/waf-proxy/lib/self-update` and `self-update-check`. The check runs
 `git fetch` as the checkout owner. The public repository needs no token or login; a private
 fork uses that user's existing git credentials. The application action refuses a dirty
-checkout, runs `git pull --ff-only` and `make all` as the owner, installs both binaries as
-root and reloads systemd units; the console then exits so systemd starts the new build. It
+checkout, runs `git pull --ff-only` and `make all` as the owner, installs both binaries and
+refreshes the helper scripts as root, and reloads systemd units; the console then exits so
+systemd starts the new build. It
 never accepts an argument from the browser, and the data directory is untouched. Only install
 from a repository you trust: the helper builds that checkout's code.
 

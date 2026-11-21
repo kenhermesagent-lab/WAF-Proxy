@@ -227,7 +227,19 @@ fi
 
 install -d -m 0750 -o wafproxy -g wafproxy /var/lib/wafproxy /var/log/wafproxy
 install -d -m 0750 -o root -g wafproxy /etc/wafproxy
-install -m 0755 "$binary" /usr/local/bin/wafproxy
+
+# Program files live in one app directory. The conventional /usr/local/bin and
+# /usr/local/lib/wafproxy names stay as symlinks, so units, PATH lookups and
+# helper scripts from older releases keep resolving. State stays in
+# /var/lib/wafproxy and /etc/wafproxy.
+app_dir=/usr/local/waf-proxy
+install -d -m 0755 "$app_dir" "$app_dir/bin" "$app_dir/lib"
+install -m 0755 "$binary" "$app_dir/bin/wafproxy"
+ln -sfn "$app_dir/bin/wafproxy" /usr/local/bin/wafproxy
+if [[ -d /usr/local/lib/wafproxy && ! -L /usr/local/lib/wafproxy ]]; then
+  rm -rf /usr/local/lib/wafproxy
+fi
+ln -sfn "$app_dir/lib" /usr/local/lib/wafproxy
 
 # The Updates page uses a separate root helper instead of sudo: the main unit
 # has NoNewPrivileges=yes, so a setuid sudo could not elevate it. The helper
@@ -235,7 +247,8 @@ install -m 0755 "$binary" /usr/local/bin/wafproxy
 helper_binary="bin/wafproxy-updated"
 helper_installed=0
 if [[ -x "$helper_binary" ]]; then
-  install -m 0755 "$helper_binary" /usr/local/bin/wafproxy-updated
+  install -m 0755 "$helper_binary" "$app_dir/bin/wafproxy-updated"
+  ln -sfn "$app_dir/bin/wafproxy-updated" /usr/local/bin/wafproxy-updated
   install -m 0644 deploy/wafproxy-updates.service /etc/systemd/system/wafproxy-updates.service
   helper_installed=1
 else
@@ -259,9 +272,8 @@ if command -v git >/dev/null 2>&1; then
   update_branch="$(git -C "$update_source" symbolic-ref --short HEAD 2>/dev/null || echo main)"
 fi
 if [[ -n "$update_remote" && -d "$update_source/.git" && -f deploy/wafproxy-self-update.sh ]]; then
-  install -d -m 0755 /usr/local/lib/wafproxy
-  install -m 0755 deploy/wafproxy-self-update.sh /usr/local/lib/wafproxy/self-update
-  install -m 0755 deploy/wafproxy-self-update-check.sh /usr/local/lib/wafproxy/self-update-check
+  install -m 0755 deploy/wafproxy-self-update.sh "$app_dir/lib/self-update"
+  install -m 0755 deploy/wafproxy-self-update-check.sh "$app_dir/lib/self-update-check"
   {
     printf 'WAFPROXY_UPDATE_SOURCE_DIR=%q\n' "$update_source"
     printf 'WAFPROXY_UPDATE_USER=%q\n' "$update_user"
@@ -276,9 +288,8 @@ fi
 
 # The CrowdSec page installs the Security Engine on this host through the same
 # root helper. The script is fixed and takes no argument from the browser.
-install -d -m 0755 /usr/local/lib/wafproxy
 if [[ -f deploy/crowdsec-install.sh ]]; then
-  install -m 0755 deploy/crowdsec-install.sh /usr/local/lib/wafproxy/crowdsec-install
+  install -m 0755 deploy/crowdsec-install.sh "$app_dir/lib/crowdsec-install"
 else
   echo "warning: deploy/crowdsec-install.sh missing; the CrowdSec page cannot install the engine" >&2
 fi
@@ -376,6 +387,7 @@ LAN interface:  $lan_iface ($lan_ip:$gui_port, admin GUI only)
 Admin access:   http://$lan_ip:$gui_port
                 Only RFC1918 clients are accepted (loopback remains allowed for local checks).
 WAN proxy:      https://$wan_ip:$wan_port
+App files:      $app_dir (bin and lib; /usr/local/bin/wafproxy is a symlink)
 App updates:    $([[ $self_update_installed == 1 ]] && echo "enabled from $update_source" || echo "check-only; no git checkout")
 Tailscale:      $tailscale_status
                 Enable admin/proxy access on the Tailscale page after setup.

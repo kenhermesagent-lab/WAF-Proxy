@@ -100,7 +100,7 @@ describe("Updates page", () => {
 
     expect(await screen.findByText(/unavailable inside a container/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByRole("button", { name: "Update application" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Update to v1.2.1" })).toBeTruthy();
     expect(screen.getByText(/compiled into the binary/)).toBeTruthy();
   });
 });

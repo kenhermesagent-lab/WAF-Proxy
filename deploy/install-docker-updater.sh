@@ -37,10 +37,16 @@ if ! docker cp "$container:/usr/local/bin/wafproxy-updated" "$tmp" 2>/dev/null; 
   echo "install-docker-updater.sh: this image has no wafproxy-updated; rebuild it with 'docker compose up -d --build' first" >&2
   exit 1
 fi
-install -m 0755 "$tmp" /usr/local/bin/wafproxy-updated
-install -d -m 0755 /usr/local/lib/wafproxy /etc/wafproxy
-install -m 0755 deploy/wafproxy-self-update.sh /usr/local/lib/wafproxy/self-update
-install -m 0755 deploy/wafproxy-self-update-check.sh /usr/local/lib/wafproxy/self-update-check
+app_dir=/usr/local/waf-proxy
+install -d -m 0755 "$app_dir" "$app_dir/bin" "$app_dir/lib" /etc/wafproxy
+install -m 0755 "$tmp" "$app_dir/bin/wafproxy-updated"
+ln -sfn "$app_dir/bin/wafproxy-updated" /usr/local/bin/wafproxy-updated
+if [[ -d /usr/local/lib/wafproxy && ! -L /usr/local/lib/wafproxy ]]; then
+  rm -rf /usr/local/lib/wafproxy
+fi
+ln -sfn "$app_dir/lib" /usr/local/lib/wafproxy
+install -m 0755 deploy/wafproxy-self-update.sh "$app_dir/lib/self-update"
+install -m 0755 deploy/wafproxy-self-update-check.sh "$app_dir/lib/self-update-check"
 install -m 0644 deploy/wafproxy-docker-updates.service /etc/systemd/system/wafproxy-docker-updates.service
 
 remote="$(git config --get remote.origin.url 2>/dev/null || true)"

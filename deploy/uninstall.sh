@@ -16,7 +16,7 @@ Usage: sudo ./deploy/uninstall.sh [--yes] [--keep-data]
 
 Removes the native WAF-Proxy installation:
   - wafproxy.service and wafproxy-updates.service
-  - /usr/local/bin/wafproxy and /usr/local/bin/wafproxy-updated
+  - /usr/local/waf-proxy and the /usr/local/bin and /usr/local/lib/wafproxy links
   - the app-owned nftables table inet wafproxy
   - /etc/wafproxy, /var/lib/wafproxy and /var/log/wafproxy
   - the wafproxy system user and group
@@ -111,6 +111,7 @@ systemctl reset-failed wafproxy.service wafproxy-updates.service wafproxy-docker
 remove_path /usr/local/bin/wafproxy
 remove_path /usr/local/bin/wafproxy-updated
 remove_path /usr/local/lib/wafproxy
+remove_path /usr/local/waf-proxy
 remove_path /run/wafproxy-updates
 
 if ((keep_data)); then

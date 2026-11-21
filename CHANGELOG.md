@@ -11,6 +11,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.3.2] — 2026-11-21
+
+### Added
+
+- **One-click application update.** The Updates page shows the version on the tracked branch and
+  turns it into a single action: the root helper pulls the checkout, runs `make all`, installs the
+  new binaries and helper scripts, and the console restarts onto the new build. Nothing is typed
+  into the browser and the data directory is untouched.
+- **Coastline-accurate globe.** The canvas globe now draws Natural Earth 1:110m land instead of a
+  dozen hand-drawn shapes, folded onto the limb so shapes stay closed as the sphere rotates.
+- **Single program directory.** Native installs keep binaries and helper scripts under
+  `/usr/local/waf-proxy` (`bin/`, `lib/`); `/usr/local/bin/wafproxy` and
+  `/usr/local/lib/wafproxy` remain symlinks, so units and older releases keep working.
+
+### Fixed
+
+- **Decoy honeypot bypass.** The decoy list was matched against the raw request path and was
+  skipped entirely for whitelisted clients, so `/./secret-admin`, `//secret-admin` or
+  `/x/../secret-admin` reached the upstream without a ban. Decoys now run for every client and
+  compare a canonical path. See `SECURITY_DEMO_FINDINGS.md`.
+
 ## [1.3.0] — 2026-11-21
 
 ### Added

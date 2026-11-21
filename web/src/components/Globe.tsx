@@ -105,32 +105,42 @@ function drawMatrix(ctx: CanvasRenderingContext2D, columns: Column[], width: num
 }
 
 function drawLand(ctx: CanvasRenderingContext2D, rotation: number, cx: number, cy: number, r: number) {
+  // Clip to the disc: coastlines that cross the horizon are folded onto the
+  // limb, which keeps each shape closed and hides the far side.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = "rgba(37,99,235,0.17)";
+  ctx.strokeStyle = "rgba(96,165,250,0.42)";
+  ctx.lineWidth = 0.8;
   for (const ring of LAND) {
-    const points = ring.map(([lon, lat]) => project(lat, lon, rotation, cx, cy, r));
-    const allVisible = points.every((p) => p.z > 0);
     ctx.beginPath();
     let started = false;
-    for (const p of points) {
+    for (const [lon, lat] of ring) {
+      const p = project(lat, lon, rotation, cx, cy, r);
+      let x = p.x;
+      let y = p.y;
       if (p.z <= 0) {
-        started = false;
-        continue;
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        const len = Math.hypot(dx, dy);
+        if (len < 0.01) continue;
+        x = cx + (dx / len) * r;
+        y = cy + (dy / len) * r;
       }
-      if (!started) {
-        ctx.moveTo(p.x, p.y);
-        started = true;
+      if (started) {
+        ctx.lineTo(x, y);
       } else {
-        ctx.lineTo(p.x, p.y);
+        ctx.moveTo(x, y);
+        started = true;
       }
     }
-    if (allVisible) {
-      ctx.closePath();
-      ctx.fillStyle = "rgba(37,99,235,0.12)";
-      ctx.fill();
-    }
-    ctx.strokeStyle = "rgba(96,165,250,0.34)";
-    ctx.lineWidth = 0.8;
+    ctx.closePath();
+    ctx.fill();
     ctx.stroke();
   }
+  ctx.restore();
 }
 
 export default function Globe({ points, home }: { points: GlobePoint[]; home: { lat: number; lon: number } }) {
