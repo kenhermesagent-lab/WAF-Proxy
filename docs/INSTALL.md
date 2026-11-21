@@ -339,10 +339,15 @@ click **Install and configure CrowdSec**. The root helper installs the engine fr
 repository, adds `crowdsecurity/nginx`, writes `/etc/crowdsec/acquis.d/wafproxy.yaml` pointing
 at `/var/log/wafproxy/access.log`, adds the `crowdsec` user to the `wafproxy` group so it can
 read the log, creates the bouncer key, writes the engine's LAPI URL and that key into the console
-and enables the bouncer. There is nothing to paste: the installer chooses the key, checks it against
-the Local API (`/v1/decisions` must answer 200) and only then reports success, so **Bouncer
-configuration** already shows a working key saved. Re-running the installer creates a fresh key and
-replaces the saved one.
+and enables the bouncer. The installer chooses the key itself, checks it against the Local API
+(`/v1/decisions` must answer 200) and only then reports success, so **Bouncer configuration** already
+shows a working key saved. Re-running the installer creates a fresh key and replaces the saved one.
+
+The card also asks for a CrowdSec console enrollment key before it starts (app.crowdsec.net → Security
+Engines → Add security engine). The installer enrolls the engine in the same run, the page then asks
+you to approve it in the portal and offers **Restart CrowdSec**, which runs `systemctl restart crowdsec`
+as root so the accepted enrollment takes effect. **Install without linking** is there for operators
+who do not want a Cloud account; enrollment can be added later from the same page.
 
 The only manual step is linking the engine to a CrowdSec account under **CrowdSec Cloud**:
 app.crowdsec.net → **Security Engines** → **Add security engine**, paste the enrollment key into

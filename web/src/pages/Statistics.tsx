@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { countryFlag, countryName } from "../countries";
 import { Analytics, GateFailure, Uptime, UptimeTarget } from "../types";
-import { Badge, Card, Empty, errText, fmtBytes, fmtTime } from "../ui";
+import { Badge, Card, Empty, errText, fmtAgo, fmtBytes, fmtTime } from "../ui";
 
 const day = (offset: number) => {
   const d = new Date();
@@ -206,16 +206,18 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
           <div style={{ overflowX: "auto" }}>
             <table>
               <thead>
-                <tr><th>Address</th><th>Username tried</th><th>Proxy</th><th className="num">Attempts</th><th>Last attempt</th><th>State</th><th /></tr>
+                <tr><th>Address / proxy</th><th>Username tried</th><th className="num">Attempts</th><th>Last attempt</th><th>State</th></tr>
               </thead>
               <tbody>
                 {failures.map((f) => (
                   <tr key={`${f.ip}:${f.username}:${f.proxy_id}`}>
-                    <td className="mono">{f.ip}</td>
+                    <td>
+                      <div className="mono">{f.ip}</div>
+                      <div className="faint" style={{ fontSize: 11 }}>{f.proxy_host || `proxy #${f.proxy_id}`}</div>
+                    </td>
                     <td>{f.username || <span className="faint">passphrase</span>}</td>
-                    <td>{f.proxy_host || `proxy #${f.proxy_id}`}</td>
                     <td className="num">{f.attempts.toLocaleString()}</td>
-                    <td className="muted">{fmtTime(f.last)}</td>
+                    <td className="muted" title={fmtTime(f.last)}>{fmtAgo(f.last)}</td>
                     <td>
                       {!f.blocked ? (
                         <Badge tone="warn">not blocked</Badge>
@@ -227,12 +229,16 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
                       {f.blocked && f.blocked_reason ? (
                         <div className="faint" style={{ fontSize: 11 }}>{f.blocked_reason}</div>
                       ) : null}
-                    </td>
-                    <td className="right">
                       {!f.blocked && (
-                        <button className="small danger" onClick={() => block(f)}>
-                          Block permanently
-                        </button>
+                        <div style={{ marginTop: 4 }}>
+                          <button
+                            className="small danger"
+                            title="Block this address permanently; it is added to Policies"
+                            onClick={() => block(f)}
+                          >
+                            Block
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>

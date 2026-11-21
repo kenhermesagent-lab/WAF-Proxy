@@ -131,6 +131,23 @@ done
 [[ "$code" == "200" ]] || die "the new bouncer key was rejected by $base/v1/decisions (HTTP ${code:-no response})"
 step "bouncer key verified"
 
+# The console passes the enrollment key the operator pasted before installing,
+# so the engine is linked in the same run. A rejected key must not undo the
+# install: the bouncer is ready either way and the page reports the failure.
+console_key="${WAFPROXY_CONSOLE_KEY:-}"
+if [[ -n "$console_key" ]]; then
+  if [[ ! $console_key =~ ^[A-Za-z0-9+/=_-]{16,256}$ ]]; then
+    printf 'WAFPROXY_CONSOLE_ERROR=the enrollment key contains unexpected characters\n'
+  else
+    step "enrolling the engine in your CrowdSec console"
+    if enroll_out="$(cscli console enroll --name wafproxy --overwrite "$console_key" 2>&1)"; then
+      printf 'WAFPROXY_ENROLLED=1\n'
+    else
+      printf 'WAFPROXY_CONSOLE_ERROR=%s\n' "$(printf '%s' "$enroll_out" | tr '\n' ' ' | cut -c1-300)"
+    fi
+  fi
+fi
+
 printf 'WAFPROXY_LAPI=http://%s\n' "$lapi"
 printf 'WAFPROXY_KEY=%s\n' "$key"
 step "done; the bouncer key was verified and written to the console"

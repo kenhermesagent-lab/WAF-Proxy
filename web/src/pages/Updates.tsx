@@ -251,7 +251,7 @@ export default function UpdatesPage({
           <>
             <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
               <div className="muted" style={{ fontSize: 12 }}>
-                {snap.platform || "Debian/Ubuntu"} · checked {snap.checked_at ? fmtAgo(snap.checked_at) : "not yet"}
+                {snap.platform || "Debian/Ubuntu"} · checked {snap.checked_at ? fmtAgo(snap.checked_at) : "not yet"} · refreshed daily
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 {snap.helper_ready ? "Privileged helper ready" : "Update helper unavailable"}

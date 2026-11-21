@@ -28,6 +28,9 @@ const (
 	// CrowdSecDecisions reads `cscli metrics show decisions`: the aggregated
 	// decisions the engine is enforcing, including console blocklists.
 	HelperActionCrowdSecDecisions = "crowdsec-decisions"
+	// CrowdSecRestart restarts the engine, which is how an accepted console
+	// enrollment takes effect.
+	HelperActionCrowdSecRestart = "crowdsec-restart"
 )
 
 // The self-update scripts are installed root-owned by deploy/install.sh. They

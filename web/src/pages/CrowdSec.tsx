@@ -46,6 +46,8 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
   const [testing, setTesting] = useState(false);
   const [enrollKey, setEnrollKey] = useState("");
   const [enrolling, setEnrolling] = useState(false);
+  const [installKey, setInstallKey] = useState("");
+  const [restarting, setRestarting] = useState(false);
 
   const applyStatus = (s: CrowdSecStatus) => {
     setStatus(s);
@@ -122,13 +124,31 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
     }
   };
 
-  const install = async () => {
+  const install = async (consoleKey = "") => {
     try {
-      await api.post("/api/crowdsec/install");
-      onOK("Installing CrowdSec — this page updates when it finishes");
+      await api.post("/api/crowdsec/install", { console_key: consoleKey });
+      onOK(
+        consoleKey
+          ? "Installing and linking to your CrowdSec console — approve the engine there when it appears"
+          : "Installing CrowdSec — this page updates when it finishes",
+      );
       loadInstall();
     } catch (e) {
       onError(errText(e));
+    }
+  };
+
+  const restart = async () => {
+    setRestarting(true);
+    try {
+      await api.post("/api/crowdsec/restart");
+      onOK("CrowdSec restarted");
+      setTimeout(loadInstall, 1500);
+      loadInstall();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setRestarting(false);
     }
   };
 
@@ -194,16 +214,40 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
               <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
                 Installs the Security Engine from the CrowdSec repository, adds the nginx collection, points
                 its acquisition at the WAF access log, then writes the LAPI URL and a fresh bouncer key into
-                this page and enables the bouncer. There is no key to copy: the only remaining step is
-                linking the engine to your CrowdSec account below, which is optional.
+                this page and enables the bouncer. Paste an enrollment key and the installer links the engine
+                to your account in the same run.
               </p>
+              <ol className="muted" style={{ fontSize: 12, lineHeight: 1.8, paddingLeft: 18 }}>
+                <li>Open app.crowdsec.net and sign in, or create a free account.</li>
+                <li>Go to <strong>Security Engines</strong> → <strong>Add security engine</strong>.</li>
+                <li>Copy the enrollment key it shows, paste it below, and start the install.</li>
+                <li>Approve the pending engine in the portal, then restart CrowdSec from this page.</li>
+              </ol>
+              <div className="row grow">
+                <Field label="CrowdSec console enrollment key (optional)">
+                  <input
+                    type="password"
+                    value={installKey}
+                    onChange={(e) => setInstallKey(e.target.value)}
+                    placeholder="paste the key from app.crowdsec.net"
+                    autoComplete="off"
+                  />
+                </Field>
+              </div>
               <div className="row" style={{ gap: 8 }}>
-                <button className="primary" onClick={install} disabled={inst.running}>
+                <button
+                  className="primary"
+                  onClick={() => install(installKey.trim())}
+                  disabled={inst.running}
+                >
                   {inst.running
                     ? "Installing…"
                     : inst.installed
-                      ? "Re-run installer"
-                      : "Install and configure CrowdSec"}
+                      ? "Re-run installer and enroll"
+                      : "Install and enroll"}
+                </button>
+                <button onClick={() => install("")} disabled={inst.running}>
+                  Install without linking
                 </button>
                 {inst.running && (
                   <span className="muted" style={{ fontSize: 12 }}>
@@ -267,11 +311,16 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
               <ol className="muted" style={{ fontSize: 12, lineHeight: 1.8, paddingLeft: 18, marginTop: 0 }}>
                 <li>Open app.crowdsec.net → <strong>Security Engines</strong>.</li>
                 <li>Select the engine waiting there and click <strong>Accept enroll</strong>.</li>
-                <li>
-                  Run <code>sudo systemctl restart crowdsec</code> on this host so it picks up the console
-                  settings, then refresh this page.
-                </li>
+                <li>Restart the engine here so it picks up the console settings.</li>
               </ol>
+              <div className="row" style={{ gap: 8 }}>
+                <button className="primary" onClick={restart} disabled={restarting}>
+                  {restarting ? "Restarting…" : "Restart CrowdSec"}
+                </button>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Runs <code>systemctl restart crowdsec</code> as root; the state below refreshes afterwards.
+                </span>
+              </div>
               {inst.console_detail && (
                 <p className="mono muted" style={{ fontSize: 11.5, marginBottom: 0 }}>{inst.console_detail}</p>
               )}

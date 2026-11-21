@@ -17,10 +17,13 @@ import (
 
 func TestCatalogIsFixedAndValid(t *testing.T) {
 	names := CatalogNames()
-	if len(names) != 3 {
-		t.Fatalf("catalog names = %v, want 3 entries", names)
+	if len(names) != 8 {
+		t.Fatalf("catalog names = %v, want 8 entries", names)
 	}
-	want := map[string]bool{"ca-certificates": true, "nftables": true, "tzdata": true}
+	want := map[string]bool{
+		"ca-certificates": true, "nftables": true, "tzdata": true,
+		"curl": true, "openssl": true, "git": true, "crowdsec": true, "tailscale": true,
+	}
 	for _, name := range names {
 		if !want[name] {
 			t.Fatalf("unexpected catalog package %q", name)
@@ -148,8 +151,10 @@ func TestSnapshotBuildsInventoryAndHighAdvisories(t *testing.T) {
 	if !snap.Available || snap.CheckedAt == "" {
 		t.Fatalf("snapshot not available: %+v", snap)
 	}
-	if len(snap.Packages) != 3 {
-		t.Fatalf("packages = %d, want 3", len(snap.Packages))
+	// Every catalog entry is reported; packages dpkg does not know are shown as
+	// missing rather than silently omitted.
+	if len(snap.Packages) != len(Catalog()) {
+		t.Fatalf("packages = %d, want %d", len(snap.Packages), len(Catalog()))
 	}
 	first := snap.Packages[0]
 	if first.Name != "nftables" || first.Status != "security" || first.Severity != "high" {

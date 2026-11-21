@@ -159,9 +159,23 @@ func serve(conn net.Conn, gid, uid int) {
 		aptMu.Unlock()
 		writeResponse(conn, resp)
 	case updates.HelperActionCrowdSecInstall:
+		env := map[string]string{}
+		if req.Key != "" {
+			if !updates.ValidConsoleKey(req.Key) {
+				writeResponse(conn, updates.HelperResponse{Error: "invalid CrowdSec console enrollment key"})
+				return
+			}
+			env["WAFPROXY_CONSOLE_KEY"] = req.Key
+		}
 		aptMu.Lock()
-		resp := runFixedScript(updates.CrowdSecInstallScript, 15*time.Minute)
+		resp := runFixedScriptEnv(updates.CrowdSecInstallScript, 15*time.Minute, env)
 		aptMu.Unlock()
+		writeResponse(conn, resp)
+	case updates.HelperActionCrowdSecRestart:
+		resp := runCommand(90*time.Second, "systemctl", "restart", "crowdsec")
+		if resp.OK {
+			resp.Output = "crowdsec restarted"
+		}
 		writeResponse(conn, resp)
 	case updates.HelperActionCrowdSecEnroll:
 		if !updates.ValidConsoleKey(req.Key) {
@@ -228,11 +242,15 @@ func allowedPackage(name string) bool {
 }
 
 func runFixedScript(script string, timeout time.Duration) updates.HelperResponse {
+	return runFixedScriptEnv(script, timeout, nil)
+}
+
+func runFixedScriptEnv(script string, timeout time.Duration, env map[string]string) updates.HelperResponse {
 	info, err := os.Stat(script)
 	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
 		return updates.HelperResponse{Error: "update helper scripts are not configured; reinstall from the git checkout"}
 	}
-	return runCommand(timeout, script)
+	return runCommandEnv(timeout, script, env, nil)
 }
 
 func runApt(timeout time.Duration, args ...string) updates.HelperResponse {
@@ -242,9 +260,16 @@ func runApt(timeout time.Duration, args ...string) updates.HelperResponse {
 	return runCommand(timeout, "apt-get", args...)
 }
 
-// runCommand runs one fixed program without a shell. Output keeps its tail: the
-// installer prints its result lines last, and apt prints its error last.
+// runCommand runs one fixed program without a shell.
 func runCommand(timeout time.Duration, name string, args ...string) updates.HelperResponse {
+	return runCommandEnv(timeout, name, nil, args)
+}
+
+// runCommandEnv is runCommand with extra environment entries for the child, so a
+// secret can reach the installer without appearing in the process list. Output
+// keeps its tail: the installer prints its result lines last, and apt prints its
+// error last.
+func runCommandEnv(timeout time.Duration, name string, env map[string]string, args []string) updates.HelperResponse {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -254,6 +279,9 @@ func runCommand(timeout time.Duration, name string, args ...string) updates.Help
 		"HOME=/root",
 		"LC_ALL=C",
 		"LANG=C",
+	}
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	cmd.Dir = "/"
 	out, err := cmd.CombinedOutput()

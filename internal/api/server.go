@@ -74,6 +74,8 @@ type Server struct {
 	// page polls this endpoint every two seconds during an install.
 	csConsoleRows map[string]string
 	csConsoleAt   time.Time
+	// csConsoleKey is the enrollment key pasted for the next install run.
+	csConsoleKey string
 
 	// Pending TOTP rotations are held server-side and keyed by session, so a
 	// stolen session cannot confirm an authenticator of its own choosing.
@@ -168,6 +170,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/crowdsec/blocklists", s.authed(s.getCrowdSecBlocklists))
 	m.HandleFunc("POST /api/crowdsec/install", s.authed(s.startCrowdSecInstall))
 	m.HandleFunc("POST /api/crowdsec/console", s.authed(s.enrollCrowdSecConsole))
+	m.HandleFunc("POST /api/crowdsec/restart", s.authed(s.restartCrowdSec))
 	m.HandleFunc("GET /api/globe", s.authed(s.getGlobe))
 	m.HandleFunc("GET /api/audit", s.authed(s.listAudit))
 

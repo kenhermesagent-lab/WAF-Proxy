@@ -11,6 +11,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.5.0] — 2026-11-21
+
+### Added
+
+- **CrowdSec enrollment is part of the install.** The install card asks for the enrollment key first, explains where
+  to get it (app.crowdsec.net → Security Engines → Add security engine), and passes it to the root installer, which
+  runs `cscli console enroll` in the same run. The page then asks for the engine to be approved in the portal and
+  offers **Restart CrowdSec**, which applies the accepted enrollment through the root helper. A second button installs
+  without a Cloud link for operators without an account; the installer still creates and verifies the bouncer and
+  enables it, so bouncer state, last poll and decisions applied are live immediately.
+- **The Updates page covers the whole tool chain.** The managed package catalog now includes `curl`, `openssl`, `git`,
+  `crowdsec` and `tailscale` alongside `ca-certificates`, `nftables` and `tzdata`, each with the role it plays. Host
+  packages are checked once a day in the background, so the page has a current answer without pressing Check.
+
+### Fixed
+
+- **Statistics failed-login table fits a laptop screen.** The proxy moved under the address, the last attempt became a
+  relative time, and the block action sits in the state cell, so the table no longer scrolls sideways and the button is
+  always reachable.
+- **Threat intel tables no longer stretch the page.** The Feeds table scrolls in its own container and long decision
+  reasons wrap inside their column.
+
 ## [1.4.0] — 2026-11-21
 
 ### Added

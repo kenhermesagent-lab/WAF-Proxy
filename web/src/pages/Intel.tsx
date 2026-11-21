@@ -158,9 +158,9 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
         actions={
           consoleLists?.available ? (
             <Badge>{consoleLists.total.toLocaleString()} decisions</Badge>
-          ) : (
+          ) : consoleLists ? (
             <Badge tone="warn">not reported</Badge>
-          )
+          ) : undefined
         }
       >
         {!consoleLists ? (
@@ -180,7 +180,7 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
               <tbody>
                 {consoleLists.rows.map((r) => (
                   <tr key={`${r.origin}:${r.reason}:${r.action}`}>
-                    <td className="mono">{r.reason}</td>
+                    <td className="mono" style={{ overflowWrap: "anywhere" }}>{r.reason}</td>
                     <td>
                       <Badge tone={r.origin === "console" ? "bad" : "info"}>{r.origin}</Badge>
                     </td>
@@ -195,45 +195,49 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
         {consoleLists?.raw && (
           <pre className="mono" style={{ fontSize: 11, maxHeight: 220, overflow: "auto" }}>{consoleLists.raw}</pre>
         )}
-        <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
-          Reported by the Security Engine (<code>cscli metrics show decisions</code>) and enforced by the bouncer, so
-          every row is a decision that is actually in force. Origins <code>lists</code> (subscribed blocklists),
-          <code> CAPI</code> (community blocklist) and <code>console</code> (pushed from the console) are managed at
-          app.crowdsec.net and cannot be edited here.
-        </p>
+        {consoleLists?.available && (
+          <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
+            Reported by the Security Engine (<code>cscli metrics show decisions</code>) and enforced by the bouncer, so
+            every row is a decision that is actually in force. Origins <code>lists</code> (subscribed blocklists),
+            <code> CAPI</code> (community blocklist) and <code>console</code> (pushed from the console) are managed at
+            app.crowdsec.net and cannot be edited here.
+          </p>
+        )}
       </Card>
 
       <Card title="Feeds">
         {feeds.length === 0 ? <Empty>No feeds configured.</Empty> : (
-          <table>
-            <thead>
-              <tr><th>Feed</th><th>Action</th><th className="num">Entries</th><th>Last refresh</th><th>State</th><th /></tr>
-            </thead>
-            <tbody>
-              {feeds.map((f) => (
-                <tr key={f.id}>
-                  <td>
-                    <div>{f.name}</div>
-                    <div className="faint mono" style={{ fontSize: 11, maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {f.local ? `Local upload · ${f.filename || "file"}` : f.url}
-                    </div>
-                  </td>
-                  <td><Badge tone={f.action === "block" ? "bad" : "info"}>{f.action}</Badge></td>
-                  <td className="num">{f.last_count.toLocaleString()}</td>
-                  <td className="muted">{fmtAgo(f.last_fetch)}</td>
-                  <td>
-                    <Badge tone={f.state === "ok" ? "ok" : f.state === "frozen" ? "bad" : f.state === "error" ? "warn" : "info"}>{f.state}</Badge>
-                    {f.last_error ? <div className="faint" style={{ fontSize: 11, maxWidth: 260 }}>{f.last_error}</div> : null}
-                  </td>
-                  <td className="right" style={{ whiteSpace: "nowrap" }}>
-                    <button className="small" onClick={() => toggle(f)}>{f.enabled ? "Disable" : "Enable"}</button>{" "}
-                    <button className="small" onClick={() => refresh(f)}>Refresh</button>{" "}
-                    {!f.builtin && <button className="small danger" onClick={() => remove(f)}>Delete</button>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr><th>Feed</th><th>Action</th><th className="num">Entries</th><th>Last refresh</th><th>State</th><th /></tr>
+              </thead>
+              <tbody>
+                {feeds.map((f) => (
+                  <tr key={f.id}>
+                    <td>
+                      <div>{f.name}</div>
+                      <div className="faint mono" style={{ fontSize: 11, maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {f.local ? `Local upload · ${f.filename || "file"}` : f.url}
+                      </div>
+                    </td>
+                    <td><Badge tone={f.action === "block" ? "bad" : "info"}>{f.action}</Badge></td>
+                    <td className="num">{f.last_count.toLocaleString()}</td>
+                    <td className="muted">{fmtAgo(f.last_fetch)}</td>
+                    <td>
+                      <Badge tone={f.state === "ok" ? "ok" : f.state === "frozen" ? "bad" : f.state === "error" ? "warn" : "info"}>{f.state}</Badge>
+                      {f.last_error ? <div className="faint" style={{ fontSize: 11, maxWidth: 260 }}>{f.last_error}</div> : null}
+                    </td>
+                    <td className="right" style={{ whiteSpace: "nowrap" }}>
+                      <button className="small" onClick={() => toggle(f)}>{f.enabled ? "Disable" : "Enable"}</button>{" "}
+                      <button className="small" onClick={() => refresh(f)}>Refresh</button>{" "}
+                      {!f.builtin && <button className="small danger" onClick={() => remove(f)}>Delete</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         <p className="muted mt" style={{ fontSize: 12 }}>
           Feeds are fetched with ETag/If-Modified-Since caching, deduplicated and merged into one in-memory table. A list that grows

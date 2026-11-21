@@ -243,3 +243,4 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .bar-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border-soft); }
 .bar-track { height: 6px; background: #0c1117; border-radius: 4px; overflow: hidden; margin-top: 5px; }
 .bar-fill { height: 100%; background: linear-gradient(90deg, #2563eb, #60a5fa); }
+

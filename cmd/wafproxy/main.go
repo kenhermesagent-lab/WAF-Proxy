@@ -354,6 +354,23 @@ func run() error {
 	}
 
 	updateManager := updates.New(log)
+	// Check host packages daily so the Updates page already has an answer when
+	// it is opened, instead of only after the operator presses Check.
+	go func() {
+		timer := time.NewTimer(2 * time.Minute)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+				if _, err := updateManager.Check(ctx); err != nil {
+					log.Warn("daily update check failed", "err", err)
+				}
+				timer.Reset(24 * time.Hour)
+			}
+		}
+	}()
 	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
 	apiServer.SetStreaming(streams)
 	apiServer.SetUpdates(updateManager)

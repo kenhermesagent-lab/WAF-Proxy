@@ -289,6 +289,22 @@ func (s *Server) getCrowdSecInstall(w http.ResponseWriter, r *http.Request) {
 // CrowdSec repository and installing packages takes minutes, so the page polls
 // instead of holding one request open.
 func (s *Server) startCrowdSecInstall(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ConsoleKey string `json:"console_key"`
+	}
+	// The body is optional: an operator without a CrowdSec account installs
+	// without a key, and enrolls later from the card below.
+	if r.ContentLength > 0 {
+		if err := decode(r, &in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid payload")
+			return
+		}
+	}
+	in.ConsoleKey = strings.TrimSpace(in.ConsoleKey)
+	if in.ConsoleKey != "" && !updatepkg.ValidConsoleKey(in.ConsoleKey) {
+		writeError(w, http.StatusBadRequest, "paste the enrollment key from app.crowdsec.net")
+		return
+	}
 	st := s.crowdsecInstallStatus()
 	if !st.Supported {
 		writeError(w, http.StatusConflict, st.Reason)
@@ -301,18 +317,28 @@ func (s *Server) startCrowdSecInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.csRunning, s.csErr, s.csOutput = true, "", ""
+	s.csConsoleKey = in.ConsoleKey
 	s.csMu.Unlock()
 
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "crowdsec.install", "install and configure the Security Engine", clientIP(r))
+	action := "install and configure the Security Engine"
+	if in.ConsoleKey != "" {
+		action += " and link it to the CrowdSec console"
+	}
+	s.st.AddAudit(sess.Username, "crowdsec.install", action, clientIP(r))
 	go s.runCrowdSecInstall()
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "installing"})
 }
 
 func (s *Server) runCrowdSecInstall() {
+	s.csMu.Lock()
+	consoleKey := s.csConsoleKey
+	s.csMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 16*time.Minute)
 	defer cancel()
-	resp, err := s.updates.RunHelper(ctx, updatepkg.HelperRequest{Action: updatepkg.HelperActionCrowdSecInstall})
+	resp, err := s.updates.RunHelper(ctx, updatepkg.HelperRequest{
+		Action: updatepkg.HelperActionCrowdSecInstall, Key: consoleKey,
+	})
 	message, output := "", ""
 	switch {
 	case err != nil:
@@ -331,11 +357,52 @@ func (s *Server) runCrowdSecInstall() {
 			message = err.Error()
 			break
 		}
+		if enrollErr := parseConsoleEnrollError(resp.Output); enrollErr != "" {
+			message = "the engine and bouncer are ready, but the console enrollment failed: " + enrollErr
+		}
 		s.log.Info("crowdsec installed and bouncer enabled", "lapi", lapi)
 	}
 	s.csMu.Lock()
 	s.csRunning, s.csErr, s.csOutput = false, message, output
 	s.csMu.Unlock()
+}
+
+// parseConsoleEnrollError reads the line the installer prints when it could not
+// link the engine, so the install can still succeed with a clear reason.
+func parseConsoleEnrollError(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "WAFPROXY_CONSOLE_ERROR="); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// restartCrowdSec applies an accepted console enrollment, which the engine only
+// picks up when it restarts.
+func (s *Server) restartCrowdSec(w http.ResponseWriter, r *http.Request) {
+	if !s.updates.HelperReady() {
+		writeError(w, http.StatusConflict, "the privileged host helper is not running")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	resp, err := s.updates.RunHelper(ctx, updatepkg.HelperRequest{Action: updatepkg.HelperActionCrowdSecRestart})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if !resp.OK {
+		message := helperMessage(resp.Error)
+		if out := strings.TrimSpace(resp.Output); out != "" {
+			message += ": " + tail(out, 400)
+		}
+		writeError(w, http.StatusBadGateway, message)
+		return
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "crowdsec.restart", "restart the Security Engine", clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "restarted"})
 }
 
 // helperMessage turns the helper's terse rejections into something an operator

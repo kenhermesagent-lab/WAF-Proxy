@@ -4,3 +4,8 @@
 ca-certificates
 nftables
 tzdata
+curl
+openssl
+git
+crowdsec
+tailscale

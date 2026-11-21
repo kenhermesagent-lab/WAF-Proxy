@@ -132,6 +132,19 @@ func TestParseCrowdSecInstallOutputRejectsJunk(t *testing.T) {
 	}
 }
 
+func TestParseConsoleEnrollError(t *testing.T) {
+	out := "crowdsec-install: enrolling the engine in your CrowdSec console\n" +
+		"WAFPROXY_CONSOLE_ERROR=API error: 403 invalid enrollment key\n" +
+		"WAFPROXY_LAPI=http://127.0.0.1:8080\n" +
+		"WAFPROXY_KEY=AbCdEf0123456789AbCdEf0123456789\n"
+	if got := parseConsoleEnrollError(out); got != "API error: 403 invalid enrollment key" {
+		t.Fatalf("enroll error = %q, want the reported reason", got)
+	}
+	if got := parseConsoleEnrollError("WAFPROXY_KEY=AbCdEf0123456789AbCdEf0123456789\n"); got != "" {
+		t.Fatalf("enroll error = %q, want none on a successful install", got)
+	}
+}
+
 // A container or a host without the helper must never offer the install button.
 func TestCrowdSecInstallRefusedWithoutHostSupport(t *testing.T) {
 	s := &Server{}

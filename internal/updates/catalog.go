@@ -18,6 +18,11 @@ var catalogRoles = map[string]string{
 	"ca-certificates": "Trusted roots for ACME and upstream TLS",
 	"nftables":        "Kernel-mode ban enforcement (nft)",
 	"tzdata":          "Host time-zone data used by the console",
+	"curl":            "Installers, self-update and the CrowdSec key check",
+	"openssl":         "Certificates and bouncer key generation",
+	"git":             "In-console application update (git pull)",
+	"crowdsec":        "Security Engine behind the bouncer (optional)",
+	"tailscale":       "Tailscale daemon for remote access (optional)",
 }
 
 // Catalog returns the fixed package allowlist embedded in both binaries.
