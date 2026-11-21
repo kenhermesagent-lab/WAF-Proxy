@@ -397,8 +397,15 @@ events (one per source per minute, so a retry loop cannot flood the table).
 
 ## CrowdSec
 
-The bouncer needs a running CrowdSec Security Engine and its Local API (LAPI). WAF-Proxy does
-not install a third-party engine from the console; it configures and runs the outbound bouncer.
+The bouncer needs a running CrowdSec Security Engine and its Local API (LAPI).
+
+On a native (systemd) install the console can install and configure the engine itself: open
+**CrowdSec → Automatic install** and click **Install and configure CrowdSec**. The root helper
+adds the CrowdSec repository, installs the engine, adds the `crowdsecurity/nginx` collection,
+points acquisition at `/var/log/wafproxy/access.log`, creates the bouncer key and enables the
+bouncer with it. The only thing left is enrolling the engine in your CrowdSec account: paste
+the enrollment key from app.crowdsec.net on the same page. Containers cannot install host
+packages, so the Docker path below stays manual.
 
 Docker Compose includes an optional engine sidecar:
 
@@ -414,7 +421,7 @@ last error, and can enable or disable the bouncer without a restart. The sidecar
 `/logs/access.log` with the stock nginx parser; decisions arrive over the LAPI stream and
 become `source=crowdsec` bans. The LAPI stays on loopback.
 
-For a native engine, install CrowdSec from its repository, install
+To do it by hand instead, install CrowdSec from its repository, install
 `crowdsecurity/nginx`, create the bouncer with `sudo cscli bouncers add wafproxy`, and use the
 same page. The legacy `WAFPROXY_CROWDSEC_URL` / `WAFPROXY_CROWDSEC_KEY` environment variables
 still work as first-boot defaults; values saved on the page override them.

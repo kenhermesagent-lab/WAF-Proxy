@@ -527,6 +527,33 @@ func (m *Manager) helperState() (bool, string) {
 	return true, ""
 }
 
+// HelperReady reports whether the root helper socket is present.
+func (m *Manager) HelperReady() bool {
+	if m == nil {
+		return false
+	}
+	ready, _ := m.helperState()
+	return ready
+}
+
+// HostSupport reports the detected host platform and whether privileged host
+// work is possible, so other pages can explain why a feature is unavailable.
+func (m *Manager) HostSupport() (platform string, container, available bool, reason string) {
+	if m == nil {
+		return "", false, false, "The host update manager is not configured."
+	}
+	return m.host.platform, m.host.container, m.host.available, m.host.reason
+}
+
+// RunHelper sends one fixed request to the root helper. The CrowdSec installer
+// shares this socket so every privileged action uses the same peer check.
+func (m *Manager) RunHelper(ctx context.Context, req HelperRequest) (HelperResponse, error) {
+	if m == nil {
+		return HelperResponse{}, errors.New("the native update helper is not configured")
+	}
+	return m.callHelper(ctx, req)
+}
+
 func (m *Manager) invalidate() {
 	m.cacheMu.Lock()
 	m.expires = time.Time{}

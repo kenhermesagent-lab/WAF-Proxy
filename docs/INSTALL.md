@@ -140,7 +140,8 @@ curl -v https://kendk.duckdns.org/        # connection closed, no response
 
 ## 7. Optional CrowdSec
 
-The bouncer needs a CrowdSec Security Engine and its Local API. The Docker sidecar is included:
+The bouncer needs a CrowdSec Security Engine and its Local API. On a native install the console
+installs and configures it for you (section 11.4); containers use the included sidecar:
 
 ```bash
 docker compose -f deploy/docker-compose.yml --profile crowdsec up -d crowdsec
@@ -331,7 +332,19 @@ into `/var/lib/wafproxy`, owned by `wafproxy`, and restart.
 
 ### 11.4 CrowdSec (optional)
 
-Install CrowdSec on the same host and point it at `/var/log/wafproxy/access.log` with the stock
+On a native install the console can do this for you. Open **CrowdSec → Automatic install** and
+click **Install and configure CrowdSec**. The root helper installs the engine from the CrowdSec
+repository, adds `crowdsecurity/nginx`, writes `/etc/crowdsec/acquis.d/wafproxy.yaml` pointing
+at `/var/log/wafproxy/access.log`, adds the `crowdsec` user to the `wafproxy` group so it can
+read the log, creates the bouncer key and enables the bouncer with it. It prints the progress
+in the page; nothing restarts the console. Then paste the enrollment key from app.crowdsec.net
+under **Link to your CrowdSec account**. Re-running the installer recreates the bouncer key.
+
+The button needs the privileged helper (`wafproxy-updates.service`) that `deploy/install.sh`
+installs; without it the page explains that and stays read-only. It is hidden inside a
+container, where the Compose sidecar in section 7 is the supported path.
+
+To do it by hand instead, point the engine at `/var/log/wafproxy/access.log` with the stock
 nginx parser (copy `deploy/crowdsec/acquis.d/wafproxy.yaml` and change the path), then:
 
 ```bash

@@ -1,6 +1,9 @@
 package updates
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"regexp"
+)
 
 // DefaultHelperSocket is created by the root-only update helper installed by
 // the native installer or the Docker host-updater installer. The console
@@ -13,6 +16,10 @@ const (
 	HelperActionApply     = "apply"
 	HelperActionAppCheck  = "app-check"
 	HelperActionAppUpdate = "app-update"
+	// CrowdSec actions: install the engine and configure the bouncer, then
+	// enroll the engine in the operator's CrowdSec account.
+	HelperActionCrowdSecInstall = "crowdsec-install"
+	HelperActionCrowdSecEnroll  = "crowdsec-enroll"
 )
 
 // The self-update scripts are installed root-owned by deploy/install.sh. They
@@ -22,6 +29,9 @@ const (
 const (
 	AppSelfUpdateScript = "/usr/local/lib/wafproxy/self-update"
 	AppCheckScript      = "/usr/local/lib/wafproxy/self-update-check"
+	// CrowdSecInstallScript installs and configures the Security Engine. It
+	// takes no argument: the browser never supplies a command, URL or package.
+	CrowdSecInstallScript = "/usr/local/lib/wafproxy/crowdsec-install"
 )
 
 // HelperRequest is deliberately tiny. The helper accepts only the fixed actions
@@ -29,6 +39,10 @@ const (
 type HelperRequest struct {
 	Action  string `json:"action"`
 	Package string `json:"package,omitempty"`
+	// Key carries a CrowdSec console enrollment key. The helper rejects any
+	// value ValidConsoleKey does not accept and passes it as a single argv
+	// entry, so it can never become part of a command line.
+	Key string `json:"key,omitempty"`
 }
 
 type HelperResponse struct {
@@ -36,6 +50,11 @@ type HelperResponse struct {
 	Output string `json:"output,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
+
+var consoleKeyRE = regexp.MustCompile(`^[A-Za-z0-9+/=_-]{16,256}$`)
+
+// ValidConsoleKey accepts the shape of a CrowdSec console enrollment key.
+func ValidConsoleKey(key string) bool { return consoleKeyRE.MatchString(key) }
 
 // HelperSocketPath returns the configured socket, defaulting to the path the
 // installer creates.

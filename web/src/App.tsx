@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { api, setCSRF } from "./api";
 import { errText } from "./ui";
 import { Me, SetupStatus } from "./types";
+import { NAV, NAV_GROUPS, NAV_UTILITY, pageFromHash, type NavItem } from "./nav";
 import Dashboard from "./pages/Dashboard";
 import Statistics from "./pages/Statistics";
 import Proxies from "./pages/Proxies";
@@ -23,61 +24,13 @@ import Account from "./pages/Account";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 
-type NavItem = { id: string; label: string; icon: string };
-
-// Grouped so the sidebar reads as a few areas instead of one long list.
-// Settings and Account stay pinned at the bottom.
-const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
-  {
-    title: "Overview",
-    items: [
-      { id: "dashboard", label: "Dashboard", icon: "◎" },
-      { id: "statistics", label: "Statistics", icon: "▤" },
-    ],
-  },
-  {
-    title: "Traffic",
-    items: [
-      { id: "proxies", label: "Proxies", icon: "⇄" },
-      { id: "streaming", label: "Streaming", icon: "▶" },
-      { id: "policies", label: "Policies", icon: "⛨" },
-      { id: "sources", label: "Sources", icon: "◉" },
-      { id: "logs", label: "Logs", icon: "≡" },
-    ],
-  },
-  {
-    title: "Security",
-    items: [
-      { id: "access", label: "Access gate", icon: "⚿" },
-      { id: "intel", label: "Threat intel", icon: "☣" },
-      { id: "crowdsec", label: "CrowdSec", icon: "◈" },
-      { id: "certs", label: "Certificates", icon: "▣" },
-    ],
-  },
-  {
-    title: "System",
-    items: [
-      { id: "agent", label: "Agent access", icon: "⌘" },
-      { id: "notifications", label: "Notifications", icon: "✉" },
-      { id: "updates", label: "Updates", icon: "⇪" },
-      { id: "tailscale", label: "Tailscale", icon: "⌁" },
-    ],
-  },
-];
-
-const NAV_UTILITY: NavItem[] = [
-  { id: "settings", label: "Settings", icon: "⚙" },
-  { id: "account", label: "Account", icon: "⊙" },
-];
-
-const NAV = [...NAV_GROUPS.flatMap((g) => g.items), ...NAV_UTILITY];
 
 type Enrolment = { username: string; secret: string; url: string; codes: string[] };
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [me, setMe] = useState<Me | null>(null);
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState(() => pageFromHash(window.location.hash));
   const [toast, setToast] = useState("");
   const [enrol, setEnrol] = useState<Enrolment | null>(null);
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
@@ -107,6 +60,14 @@ export default function App() {
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // The active section lives in the URL, so a reload or a shared link opens the
+  // same page instead of dropping back to the dashboard.
+  useEffect(() => {
+    const onHash = () => setPage(pageFromHash(window.location.hash));
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
   useEffect(() => {
@@ -193,6 +154,7 @@ export default function App() {
       onClick={() => {
         setPage(n.id);
         setNavOpen(false);
+        if (window.location.hash !== `#/${n.id}`) window.location.hash = `#/${n.id}`;
       }}
     >
       <span className="ico">{n.icon}</span>

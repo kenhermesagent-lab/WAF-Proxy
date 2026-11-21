@@ -122,6 +122,9 @@ func serve(conn net.Conn, gid, uid int) {
 	if req.Action == updates.HelperActionAppCheck {
 		_ = conn.SetDeadline(time.Now().Add(2 * time.Minute))
 	}
+	if req.Action == updates.HelperActionCrowdSecInstall {
+		_ = conn.SetDeadline(time.Now().Add(16 * time.Minute))
+	}
 	switch req.Action {
 	case updates.HelperActionPing:
 		writeResponse(conn, updates.HelperResponse{OK: true})
@@ -152,6 +155,22 @@ func serve(conn net.Conn, gid, uid int) {
 		resp := runFixedScript(updates.AppSelfUpdateScript, 20*time.Minute)
 		aptMu.Unlock()
 		writeResponse(conn, resp)
+	case updates.HelperActionCrowdSecInstall:
+		aptMu.Lock()
+		resp := runFixedScript(updates.CrowdSecInstallScript, 15*time.Minute)
+		aptMu.Unlock()
+		writeResponse(conn, resp)
+	case updates.HelperActionCrowdSecEnroll:
+		if !updates.ValidConsoleKey(req.Key) {
+			writeResponse(conn, updates.HelperResponse{Error: "invalid CrowdSec console enrollment key"})
+			return
+		}
+		cscli, err := exec.LookPath("cscli")
+		if err != nil {
+			writeResponse(conn, updates.HelperResponse{Error: "cscli is not installed on this host"})
+			return
+		}
+		writeResponse(conn, runCommand(2*time.Minute, cscli, "console", "enroll", req.Key))
 	default:
 		writeResponse(conn, updates.HelperResponse{Error: "unsupported action"})
 	}
@@ -196,11 +215,25 @@ func runFixedScript(script string, timeout time.Duration) updates.HelperResponse
 	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
 		return updates.HelperResponse{Error: "update helper scripts are not configured; reinstall from the git checkout"}
 	}
+	return runCommand(timeout, script)
+}
+
+func runApt(timeout time.Duration, args ...string) updates.HelperResponse {
+	if _, err := exec.LookPath("apt-get"); err != nil {
+		return updates.HelperResponse{Error: "apt-get is not installed"}
+	}
+	return runCommand(timeout, "apt-get", args...)
+}
+
+// runCommand runs one fixed program without a shell. Output keeps its tail: the
+// installer prints its result lines last, and apt prints its error last.
+func runCommand(timeout time.Duration, name string, args ...string) updates.HelperResponse {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, script)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = []string{
 		"PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"DEBIAN_FRONTEND=noninteractive",
 		"HOME=/root",
 		"LC_ALL=C",
 		"LANG=C",
@@ -209,39 +242,11 @@ func runFixedScript(script string, timeout time.Duration) updates.HelperResponse
 	out, err := cmd.CombinedOutput()
 	output := strings.TrimSpace(string(out))
 	if len(output) > 32<<10 {
-		output = output[len(output)-(32<<10):] + "\n… output truncated"
+		output = "… output truncated\n" + output[len(output)-(32<<10):]
 	}
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return updates.HelperResponse{Output: output, Error: "self-update timed out"}
-		}
-		return updates.HelperResponse{Output: output, Error: err.Error()}
-	}
-	return updates.HelperResponse{OK: true, Output: output}
-}
-
-func runApt(timeout time.Duration, args ...string) updates.HelperResponse {
-	if _, err := exec.LookPath("apt-get"); err != nil {
-		return updates.HelperResponse{Error: "apt-get is not installed"}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "apt-get", args...)
-	cmd.Env = []string{
-		"PATH=/usr/sbin:/usr/bin:/sbin:/bin",
-		"DEBIAN_FRONTEND=noninteractive",
-		"LC_ALL=C",
-		"LANG=C",
-		"HOME=/root",
-	}
-	out, err := cmd.CombinedOutput()
-	output := strings.TrimSpace(string(out))
-	if len(output) > 16<<10 {
-		output = output[:16<<10] + "\n… output truncated"
-	}
-	if err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return updates.HelperResponse{Output: output, Error: "apt-get timed out"}
+			return updates.HelperResponse{Output: output, Error: name + " timed out"}
 		}
 		return updates.HelperResponse{Output: output, Error: err.Error()}
 	}

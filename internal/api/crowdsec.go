@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -93,11 +94,22 @@ func (s *Server) putCrowdSec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	settings := map[string]string{
-		settingCrowdSecEnabled: "0",
-		settingCrowdSecURL:     lapi,
+	if err := s.saveCrowdSecConfig(in.Enabled, lapi, key); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	if in.Enabled {
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "crowdsec.configure", lapi, clientIP(r))
+	s.getCrowdSec(w, r)
+}
+
+// saveCrowdSecConfig stores the bouncer endpoint and key and applies them to the
+// running manager. The key is sealed with the installation master key; an empty
+// endpoint or key disables polling.
+func (s *Server) saveCrowdSecConfig(enabled bool, lapi, key string) error {
+	lapi = strings.TrimRight(strings.TrimSpace(lapi), "/")
+	settings := map[string]string{settingCrowdSecEnabled: "0", settingCrowdSecURL: lapi}
+	if enabled && lapi != "" && key != "" {
 		settings[settingCrowdSecEnabled] = "1"
 	}
 	if key == "" {
@@ -105,23 +117,19 @@ func (s *Server) putCrowdSec(w http.ResponseWriter, r *http.Request) {
 	} else {
 		enc, err := s.box.Seal(key)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "encryption error")
-			return
+			return errors.New("encryption error")
 		}
 		settings[settingCrowdSecKey] = enc
 	}
 	if err := s.st.SetSettings(settings); err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot save CrowdSec settings")
-		return
+		return errors.New("cannot save CrowdSec settings")
 	}
-	if in.Enabled {
+	if settings[settingCrowdSecEnabled] == "1" {
 		s.cs.SetConfig(lapi, key)
 	} else {
 		s.cs.SetConfig("", "")
 	}
-	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "crowdsec.configure", lapi, clientIP(r))
-	s.getCrowdSec(w, r)
+	return nil
 }
 
 func (s *Server) testCrowdSec(w http.ResponseWriter, r *http.Request) {

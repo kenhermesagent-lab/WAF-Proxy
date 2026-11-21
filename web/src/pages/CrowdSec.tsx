@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Field, errText, fmtAgo } from "../ui";
-import type { CrowdSecStatus } from "../types";
+import type { CrowdSecInstall, CrowdSecStatus } from "../types";
 
 export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [status, setStatus] = useState<CrowdSecStatus | null>(null);
+  const [inst, setInst] = useState<CrowdSecInstall | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [url, setUrl] = useState("");
   const [key, setKey] = useState("");
   const [clearKey, setClearKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [enrollKey, setEnrollKey] = useState("");
+  const [enrolling, setEnrolling] = useState(false);
 
   const applyStatus = (s: CrowdSecStatus) => {
     setStatus(s);
@@ -24,13 +27,36 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
       .then(applyStatus)
       .catch((e) => onError(errText(e)));
 
+  const loadInstall = () =>
+    api
+      .get<CrowdSecInstall>("/api/crowdsec/install")
+      .then(setInst)
+      .catch(() => undefined);
+
   useEffect(() => {
     load();
+    loadInstall();
     const t = setInterval(() => {
       api.get<CrowdSecStatus>("/api/crowdsec").then(setStatus).catch(() => undefined);
     }, 15000);
     return () => clearInterval(t);
   }, []);
+
+  // A host install runs in the background: adding the CrowdSec repository and
+  // installing the engine takes minutes, so poll instead of one long request.
+  useEffect(() => {
+    if (!inst?.running) return;
+    const t = setInterval(() => {
+      api
+        .get<CrowdSecInstall>("/api/crowdsec/install")
+        .then((next) => {
+          setInst(next);
+          if (!next.running) load();
+        })
+        .catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(t);
+  }, [inst?.running]);
 
   const save = async () => {
     setSaving(true);
@@ -61,6 +87,30 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
       onError(errText(e));
     } finally {
       setTesting(false);
+    }
+  };
+
+  const install = async () => {
+    try {
+      await api.post("/api/crowdsec/install");
+      onOK("Installing CrowdSec — this page updates when it finishes");
+      loadInstall();
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
+
+  const enroll = async () => {
+    setEnrolling(true);
+    try {
+      await api.post("/api/crowdsec/console", { key: enrollKey });
+      setEnrollKey("");
+      onOK("Enrollment sent — accept the engine in your CrowdSec console");
+      loadInstall();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setEnrolling(false);
     }
   };
 
@@ -104,6 +154,81 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
           installed and running separately. No CrowdSec port is exposed to the WAN.
         </p>
       </Card>
+
+      {inst && !inst.container && (
+        <Card title="Automatic install (native Linux)">
+          {inst.supported ? (
+            <>
+              <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
+                Installs the Security Engine from the CrowdSec repository, adds the nginx collection, points
+                its acquisition at the WAF access log, creates the bouncer key and enables the bouncer here.
+                Nothing else is needed except enrolling the engine in your CrowdSec account.
+              </p>
+              <div className="row" style={{ gap: 8 }}>
+                <button className="primary" onClick={install} disabled={inst.running}>
+                  {inst.running
+                    ? "Installing…"
+                    : inst.installed
+                      ? "Re-run installer"
+                      : "Install and configure CrowdSec"}
+                </button>
+                {inst.running && (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    This page refreshes itself while the host installs.
+                  </span>
+                )}
+              </div>
+              {inst.installed && (
+                <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+                  Engine {inst.version ? `v${inst.version}` : "installed"} ·{" "}
+                  {inst.engine_running ? "running" : "not running"}
+                  {inst.console_enrolled ? " · enrolled in your CrowdSec console" : ""}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>{inst.reason}</p>
+          )}
+          {inst.error && <p className="err-text">{inst.error}</p>}
+          {inst.output && (
+            <pre
+              className="mono"
+              style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 11.5, maxHeight: 260, overflowY: "auto", marginBottom: 0 }}
+            >
+              {inst.output}
+            </pre>
+          )}
+        </Card>
+      )}
+
+      {inst?.installed && !inst.container && !inst.console_enrolled && (
+        <Card title="Link to your CrowdSec account">
+          <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
+            In app.crowdsec.net open Security Engines → Add engine and copy the enrollment key. Enrolling
+            sends this engine's scenarios and decisions to your account.
+          </p>
+          <div className="row grow">
+            <Field label="Enrollment key">
+              <input
+                type="password"
+                value={enrollKey}
+                onChange={(e) => setEnrollKey(e.target.value)}
+                placeholder="paste the key from the CrowdSec console"
+                autoComplete="off"
+              />
+            </Field>
+          </div>
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button
+              className="primary"
+              onClick={enroll}
+              disabled={enrolling || enrollKey.trim().length < 16}
+            >
+              {enrolling ? "Enrolling…" : "Enroll engine"}
+            </button>
+          </div>
+        </Card>
+      )}
 
       <Card title="Bouncer configuration">
         <div className="row grow">
@@ -159,10 +284,11 @@ http://127.0.0.1:8081`}</pre>
           </p>
         </Card>
 
-        <Card title="Native engine">
+        <Card title="Native engine by hand">
           <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
-            Install the CrowdSec Security Engine from the CrowdSec repository, add the nginx collection,
-            and create a bouncer key. Point its acquisition at the WAF access log with the nginx parser.
+            Prefer the manual path, or the automatic install above did not fit? Install the engine from the
+            CrowdSec repository, add the nginx collection, and create a bouncer key. Point its acquisition at
+            the WAF access log with the nginx parser.
           </p>
           <pre className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, margin: 0 }}>{`sudo cscli collections install crowdsecurity/nginx
 sudo cscli bouncers add wafproxy

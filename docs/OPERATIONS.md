@@ -74,6 +74,18 @@ certificates and settings. Restore a JSON backup afterwards to recover configura
   expose the LAPI to the WAN.
 - The engine must be running separately. WAF-Proxy configures the bouncer, not the engine.
 
+### The CrowdSec install button is missing or fails
+
+- It only appears on a native host: inside a container the console refuses to install host
+  packages, so use the Compose sidecar. It also needs the privileged helper — if the page says
+  the helper is not installed, re-run `sudo ./deploy/install.sh`.
+- Failures are shown in the card with the captured output. `journalctl -u wafproxy-updates -n
+  100` shows the helper side. Common causes: no outbound HTTPS to `install.crowdsec.net` and the
+  CrowdSec package repository, or a host that is not Debian/Ubuntu.
+- After a successful install the page reports the engine version and whether it is running. If
+  the engine is installed but not running, `journalctl -u crowdsec -n 50` shows why; the
+  installer leaves the package's own configuration in place rather than overwriting it.
+
 ### Application update fails
 
 - Native: the Updates page shows the captured pull/build output; `journalctl -u

@@ -368,6 +368,21 @@ export interface CrowdSecStatus {
   };
 }
 
+export interface CrowdSecInstall {
+  supported: boolean;
+  reason?: string;
+  platform?: string;
+  container: boolean;
+  installed: boolean;
+  engine_running: boolean;
+  version?: string;
+  console_enrolled: boolean;
+  lapi: string;
+  running: boolean;
+  error?: string;
+  output?: string;
+}
+
 export interface MCPToken {
   id: number;
   name: string;

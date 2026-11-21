@@ -65,6 +65,12 @@ type Server struct {
 	restartFn func()
 	tailscale TailscaleState
 
+	// CrowdSec one-click install progress, polled by the CrowdSec page.
+	csMu      sync.Mutex
+	csRunning bool
+	csErr     string
+	csOutput  string
+
 	// Pending TOTP rotations are held server-side and keyed by session, so a
 	// stolen session cannot confirm an authenticator of its own choosing.
 	totpMu      sync.Mutex
@@ -153,6 +159,9 @@ func (s *Server) routes() {
 	m.HandleFunc("PUT /api/crowdsec", s.authed(s.putCrowdSec))
 	m.HandleFunc("POST /api/crowdsec/test", s.authed(s.testCrowdSec))
 	m.HandleFunc("GET /api/crowdsec/status", s.authed(s.crowdsecStatus))
+	m.HandleFunc("GET /api/crowdsec/install", s.authed(s.getCrowdSecInstall))
+	m.HandleFunc("POST /api/crowdsec/install", s.authed(s.startCrowdSecInstall))
+	m.HandleFunc("POST /api/crowdsec/console", s.authed(s.enrollCrowdSecConsole))
 	m.HandleFunc("GET /api/globe", s.authed(s.getGlobe))
 	m.HandleFunc("GET /api/audit", s.authed(s.listAudit))
 
