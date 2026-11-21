@@ -739,7 +739,7 @@ func (m *Manager) checkApp(ctx context.Context) appInfo {
 	if resp.StatusCode != http.StatusOK {
 		info.err = fmt.Sprintf("repository check returned HTTP %d", resp.StatusCode)
 		if resp.StatusCode == http.StatusNotFound {
-			info.err = "repository is private or missing; install the update helper and make sure the checkout owner can run git fetch with its existing credentials"
+			info.err = "repository not found on GitHub; check the repository name, or install the update helper for a private fork"
 		}
 		return info
 	}
@@ -784,10 +784,10 @@ func (m *Manager) checkApp(ctx context.Context) appInfo {
 	return m.appAvailability(info)
 }
 
-// checkAppWithHelper asks the fixed root helper to fetch the recorded checkout
-// with its owner's git credentials. This is the only path that works for a
-// private repository; the public GitHub API is a fallback when no helper is
-// installed yet.
+// checkAppWithHelper asks the fixed root helper to fetch the recorded checkout.
+// Public repositories fetch anonymously; a private fork uses the checkout
+// owner's existing git credentials. The public GitHub API is the fallback when
+// no helper is installed.
 func (m *Manager) checkAppWithHelper(ctx context.Context) (appInfo, bool) {
 	if ready, _ := m.helperState(); !ready {
 		return appInfo{}, false

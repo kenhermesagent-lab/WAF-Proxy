@@ -6,6 +6,8 @@
 set -euo pipefail
 
 # The service has no terminal; fail instead of waiting for a git password.
+# Public checkouts fetch anonymously; a private fork needs the owner's existing
+# git credential helper or SSH key.
 export GIT_TERMINAL_PROMPT=0
 
 conf=/etc/wafproxy/self-update.conf

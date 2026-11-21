@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Root-owned repository check used by the Updates page. It fetches the
-# recorded checkout with that checkout owner's git credentials, so a private
-# repository works without putting a token in the console.
+# recorded checkout as its owner. The public repository needs no credentials;
+# a private fork uses that owner's existing git helper or SSH key.
 set -euo pipefail
 
 # The service has no terminal; fail instead of waiting for a git password.

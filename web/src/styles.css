@@ -63,6 +63,12 @@ code, .mono {
 .nav-toggle { display: none; }
 .nav-scrim { display: none; }
 .nav-foot { font-size: 11px; color: var(--faint); padding: 8px 10px; }
+.nav-coffee {
+  display: block; margin-top: 4px; padding: 8px 10px; border-radius: 9px;
+  color: var(--faint); font-size: 11px; line-height: 1.45; text-decoration: none;
+}
+.nav-coffee:hover { background: #141a23; color: var(--text); }
+.nav-coffee span { color: var(--accent); overflow-wrap: anywhere; }
 
 .main { flex: 1; min-width: 0; }
 .topbar {

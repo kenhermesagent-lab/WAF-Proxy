@@ -16,8 +16,9 @@ const (
 )
 
 // The self-update scripts are installed root-owned by deploy/install.sh. They
-// use the checkout recorded at install time, so a private repository's existing
-// git credentials work, and they accept no argument from the browser.
+// use the checkout recorded at install time, so a public repository needs no
+// credentials and a private fork can use the owner's existing git auth. They
+// accept no argument from the browser.
 const (
 	AppSelfUpdateScript = "/usr/local/lib/wafproxy/self-update"
 	AppCheckScript      = "/usr/local/lib/wafproxy/self-update-check"

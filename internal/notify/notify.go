@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/smtp"
@@ -229,19 +229,29 @@ func (m *Manager) secret(kv map[string]string, key string) string {
 	return plain
 }
 
+type telegramMessage struct {
+	ChatID                string `json:"chat_id"`
+	Text                  string `json:"text"`
+	ParseMode             string `json:"parse_mode"`
+	DisableWebPagePreview bool   `json:"disable_web_page_preview"`
+}
+
 func (m *Manager) sendTelegram(kv map[string]string, text string) error {
-	token := m.secret(kv, "notify_telegram_token")
-	chat := kv["notify_telegram_chat"]
+	token := strings.TrimSpace(m.secret(kv, "notify_telegram_token"))
+	chat := normalizeTelegramChat(kv["notify_telegram_chat"])
 	if token == "" || chat == "" {
 		return fmt.Errorf("telegram is not configured")
 	}
-	payload := map[string]string{
-		"chat_id":                  chat,
-		"text":                     "<b>WAF-Proxy</b>\n" + html.EscapeString(text),
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": "true",
+	payload := telegramMessage{
+		ChatID:                chat,
+		Text:                  "<b>WAF-Proxy</b>\n" + escapeTelegramHTML(text),
+		ParseMode:             "HTML",
+		DisableWebPagePreview: true,
 	}
-	raw, _ := json.Marshal(payload)
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequest(http.MethodPost, "https://api.telegram.org/bot"+token+"/sendMessage", bytes.NewReader(raw))
 	if err != nil {
 		return err
@@ -253,9 +263,42 @@ func (m *Manager) sendTelegram(kv map[string]string, text string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		var apiErr struct {
+			Description string `json:"description"`
+		}
+		if json.Unmarshal(body, &apiErr) == nil && apiErr.Description != "" {
+			return fmt.Errorf("telegram: %s", apiErr.Description)
+		}
+		if msg := strings.TrimSpace(string(body)); msg != "" {
+			return fmt.Errorf("telegram returned %d: %s", resp.StatusCode, msg)
+		}
 		return fmt.Errorf("telegram returned %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// Telegram's HTML mode only requires &, < and > to be escaped.
+func escapeTelegramHTML(s string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
+}
+
+// Public channels accept @username while private channels need the numeric
+// -100… ID. Accept the URL forms users copy from Telegram as well.
+func normalizeTelegramChat(raw string) string {
+	chat := strings.TrimSpace(raw)
+	chat = strings.TrimPrefix(chat, "https://")
+	chat = strings.TrimPrefix(chat, "http://")
+	chat = strings.TrimPrefix(chat, "t.me/")
+	chat = strings.TrimPrefix(chat, "telegram.me/")
+	chat = strings.Trim(chat, "/")
+	if chat == "" || strings.HasPrefix(chat, "@") || strings.HasPrefix(chat, "-") {
+		return chat
+	}
+	if _, err := strconv.ParseInt(chat, 10, 64); err == nil {
+		return chat
+	}
+	return "@" + chat
 }
 
 func (m *Manager) sendEmail(kv map[string]string, kind, text string) error {
@@ -350,7 +393,7 @@ func mask(v string) string {
 func (m *Manager) Update(in map[string]string) error {
 	kv := map[string]string{
 		"notify_telegram_enabled": boolString(in["telegram_enabled"]),
-		"notify_telegram_chat":    strings.TrimSpace(in["telegram_chat"]),
+		"notify_telegram_chat":    normalizeTelegramChat(in["telegram_chat"]),
 		"notify_email_enabled":    boolString(in["email_enabled"]),
 		"smtp_host":               strings.TrimSpace(in["smtp_host"]),
 		"smtp_port":               strings.TrimSpace(in["smtp_port"]),
@@ -371,6 +414,9 @@ func (m *Manager) Update(in map[string]string) error {
 		"webhook_url":    "notify_webhook_url",
 	} {
 		v := in[field]
+		if field == "telegram_token" || field == "webhook_url" {
+			v = strings.TrimSpace(v)
+		}
 		if v == "" || v == "********" {
 			continue
 		}

@@ -180,6 +180,14 @@ export default function App() {
           {me?.username} · v{me?.version}
         </div>
         <button className="nav-item" onClick={logout}><span className="ico">⏻</span>Sign out</button>
+        <a
+          className="nav-coffee"
+          href="https://buymeacoffee.com/kenhermesagent"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          If you like this tool, you can buy me a coffee at <span>buymeacoffee.com/kenhermesagent</span>
+        </a>
       </aside>
       <main className="main">
         <div className="topbar">

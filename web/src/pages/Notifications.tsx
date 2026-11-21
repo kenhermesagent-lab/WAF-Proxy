@@ -82,7 +82,10 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
           </div>
           <div className="mt">
             <Field label="Bot token"><input type="password" value={settings.telegram_token ?? ""} onChange={(e) => set("telegram_token", e.target.value)} placeholder="123456:ABC..." /></Field>
-            <Field label="Chat ID"><input value={settings.telegram_chat ?? ""} onChange={(e) => set("telegram_chat", e.target.value)} placeholder="-1001234567890" /></Field>
+            <Field label="Chat ID"><input value={settings.telegram_chat ?? ""} onChange={(e) => set("telegram_chat", e.target.value)} placeholder="@channelname or -1001234567890" /></Field>
+            <p className="muted" style={{ fontSize: 12, marginTop: -4 }}>
+              Public channels use @name; private channels use their -100… ID. The bot must be a channel admin.
+            </p>
             <label style={{ display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
               <input type="checkbox" style={{ width: "auto" }} checked={settings.telegram_enabled === "1"} onChange={(e) => set("telegram_enabled", e.target.checked ? "1" : "0")} /> enabled
             </label>

@@ -243,8 +243,9 @@ else
 fi
 
 # The helper can rebuild the checked-out repository on request. Record the
-# checkout and its owner once, as root, so a private repository's existing git
-# credentials work and the browser never supplies a URL or command.
+# checkout and its owner once, as root, so a private fork's existing git
+# credentials work; the public repository needs none. The browser never
+# supplies a URL or command.
 self_update_installed=0
 update_source="$(pwd)"
 update_user="$(stat -c '%U' "$update_source" 2>/dev/null || true)"

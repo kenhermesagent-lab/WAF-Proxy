@@ -538,8 +538,8 @@ and never runs apt or a build itself.
 
 `install.sh` records the checkout path and its owner in `/etc/wafproxy/self-update.conf` and
 installs `/usr/local/lib/wafproxy/self-update` and `self-update-check`. The check runs
-`git fetch` as the checkout owner, so private repositories use that user's existing git
-credentials; no token is stored in the console. The application action refuses a dirty
+`git fetch` as the checkout owner. The public repository needs no token or login; a private
+fork uses that user's existing git credentials. The application action refuses a dirty
 checkout, runs `git pull --ff-only` and `make all` as the owner, installs both binaries as
 root and reloads systemd units; the console then exits so systemd starts the new build. It
 never accepts an argument from the browser, and the data directory is untouched. Only install

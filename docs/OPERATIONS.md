@@ -80,12 +80,12 @@ certificates and settings. Restore a JSON backup afterwards to recover configura
   wafproxy-updates -n 100` shows the helper's start/stop and timeout errors. Check `git`, `make`,
   Go 1.27 and Node 22 are available to the checkout owner
   (`/usr/local/go/bin` and `$HOME/toolchain/go/bin` are included). A dirty checkout is
-  refused; commit or stash local changes first. For a private repository, the owner needs a
-  working git credential helper or SSH key.
+  refused; commit or stash local changes first. The public repository needs no credentials;
+  a private fork needs the owner's git credential helper or SSH key.
 - Docker: the Updates page shows the captured pull/build output; `journalctl -u
   wafproxy-docker-updates -n 100` shows helper failures. The helper needs Docker Compose v2, the
-  Docker socket, the original `deploy/.env` and a clean checkout. For a private repository,
-  the checkout owner needs a working git credential helper or SSH key.
+  Docker socket, the original `deploy/.env` and a clean checkout. The public repository needs
+  no credentials; a private fork needs the checkout owner's git credential helper or SSH key.
 - A failed build does not replace the running binary or container. Fix the cause and press the
   button again.
 

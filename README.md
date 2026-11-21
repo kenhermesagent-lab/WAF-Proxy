@@ -288,8 +288,8 @@ The **Updates** page has two parts:
 
 The console never supplies a URL, branch, package or shell command for the application
 update. `deploy/install.sh` records the checkout and its owner once; the root-owned helper runs
-only the fixed `self-update-check` and `self-update` scripts. This uses the checkout's existing
-git credentials, so a private repository works without storing a token in the console. A Docker
+only the fixed `self-update-check` and `self-update` scripts. The public repository needs no
+token or login; a private fork can use the checkout owner's existing git credentials. A Docker
 image still cannot update itself without the host helper, so an install without it stays
 check-only. See
 [docs/INSTALL.md](docs/INSTALL.md#13-host-updates-on-systemd) for the helper details.
