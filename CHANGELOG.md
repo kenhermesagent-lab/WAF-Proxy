@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.5.1] — 2026-11-21
+
+### Fixed
+
+- **Recent deliveries on Notifications were blank.** Alerts were serialized with Go field names
+  (`Channel`, `CreatedAt`) while the page reads `channel` and `created_at`, so every queued Telegram or webhook
+  delivery rendered as an empty row. `model.Alert` now carries the same lowercase JSON tags as the rest of the
+  models, and a store test pins the keys.
+
 ## [1.5.0] — 2026-11-21
 
 ### Added

@@ -231,15 +231,15 @@ type MCPToken struct {
 
 // Alert is a queued notification.
 type Alert struct {
-	ID        int64
-	Channel   string
-	Kind      string
-	Dedupe    string
-	Payload   string
-	State     string
-	Attempts  int
-	CreatedAt time.Time
-	SentAt    *time.Time
+	ID        int64      `json:"id"`
+	Channel   string     `json:"channel"`
+	Kind      string     `json:"kind"`
+	Dedupe    string     `json:"dedupe,omitempty"`
+	Payload   string     `json:"payload"`
+	State     string     `json:"state"`
+	Attempts  int        `json:"attempts"`
+	CreatedAt time.Time  `json:"created_at"`
+	SentAt    *time.Time `json:"sent_at,omitempty"`
 }
 
 // AuditEntry records an administrative mutation.
