@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import Proxies from "./pages/Proxies";
 import Streaming from "./pages/Streaming";
 import UpdatesPage from "./pages/Updates";
+import AgentPage from "./pages/Agent";
 import TailscalePage from "./pages/Tailscale";
 import Policies from "./pages/Policies";
 import Sources from "./pages/Sources";
@@ -25,6 +26,7 @@ const NAV = [
   { id: "proxies", label: "Proxies", icon: "⇄" },
   { id: "streaming", label: "Streaming", icon: "▶" },
   { id: "updates", label: "Updates", icon: "⇪" },
+  { id: "agent", label: "Agent access", icon: "⌘" },
   { id: "tailscale", label: "Tailscale", icon: "⌁" },
   { id: "policies", label: "Policies", icon: "⛨" },
   { id: "sources", label: "Sources", icon: "◉" },
@@ -194,6 +196,7 @@ export default function App() {
           {page === "proxies" && <Proxies onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
           {page === "streaming" && <Streaming onError={notify} onOK={notify} />}
           {page === "updates" && <UpdatesPage onError={notify} onOK={notify} />}
+          {page === "agent" && <AgentPage onError={notify} onOK={notify} />}
           {page === "tailscale" && <TailscalePage onError={notify} onOK={notify} />}
           {page === "policies" && <Policies onError={notify} onOK={notify} />}
           {page === "sources" && <Sources onError={notify} onOK={notify} />}

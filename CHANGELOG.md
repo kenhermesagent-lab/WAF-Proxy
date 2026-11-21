@@ -15,6 +15,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **MCP gateway for standalone security agents.** The console now exposes an authenticated
+  Model Context Protocol endpoint at `/mcp` and an **Agent access** page for named tokens.
+  A Hermes-style agent can review events, inspect one IP's byte/path history, block an IP or
+  CIDR, block an access-gate username, list live gate sessions, kill one session by a
+  non-secret ref, and revoke every session from an address. The gateway is a fixed tool
+  catalog with no shell or filesystem access; mutations require a reason and are written to
+  the audit log as `mcp:<token name>`. Tokens are stored as SHA-256 hashes and can be revoked
+  from the console; a static `WAFPROXY_MCP_TOKEN` remains available for headless installs.
+  See `docs/MCP.md` and the README's **Agent access** section.
+- Go tests for MCP authentication, protocol negotiation, tool discovery, log review, IP and
+  username blocking, session revocation by ref/IP, over-broad CIDR refusal, audit attribution
+  and token revocation; Vitest coverage for the Agent access page, token creation and
+  one-time display.
+
 - **Host updates on the native install.** A new **Updates** page inventories the fixed host
   package allowlist (`ca-certificates`, `nftables`, `tzdata`), refreshes the apt index, and
   shows available versions plus high/critical OSV advisories. Updates run through a separate

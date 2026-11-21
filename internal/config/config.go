@@ -31,6 +31,10 @@ type Config struct {
 	MasterKey   []byte
 	CrowdSecURL string
 	CrowdSecKey string
+	// MCPToken is an optional static bearer token for the agent gateway. It is
+	// empty when tokens are managed in the console instead.
+	MCPToken string
+	MCPActor string
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -45,6 +49,11 @@ func Load() (*Config, error) {
 		TailscaleIP:    tailscaleIPv4(),
 		CrowdSecURL:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_URL")),
 		CrowdSecKey:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_KEY")),
+		MCPToken:       strings.TrimSpace(os.Getenv("WAFPROXY_MCP_TOKEN")),
+		MCPActor:       envOr("WAFPROXY_MCP_ACTOR", "hermes-agent"),
+	}
+	if c.MCPToken != "" && len(c.MCPToken) < 32 {
+		return nil, errors.New("WAFPROXY_MCP_TOKEN must be at least 32 characters")
 	}
 	if err := os.MkdirAll(c.DataDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)

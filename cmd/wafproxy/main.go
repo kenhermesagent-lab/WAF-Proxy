@@ -26,6 +26,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/gate"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
+	mcpgw "github.com/kenhermesagent-lab/waf-proxy-docker/internal/mcp"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
@@ -347,6 +348,16 @@ func run() error {
 	})
 	gui := http.NewServeMux()
 	gui.Handle("/api/", apiServer.Handler())
+	// The agent gateway is deliberately outside /api: it has its own bearer
+	// authentication and does not use the admin session or CSRF token.
+	mcpGateway := mcpgw.New(st, bans, log, mcpgw.Options{EnvToken: cfg.MCPToken, EnvActor: cfg.MCPActor})
+	gui.Handle(mcpgw.Endpoint, mcpGateway)
+	gui.Handle(mcpgw.Endpoint+"/", mcpGateway)
+	if cfg.MCPToken != "" {
+		log.Info("MCP gateway enabled with the environment token", "endpoint", mcpgw.Endpoint, "actor", cfg.MCPActor)
+	} else {
+		log.Info("MCP gateway available for console-issued tokens", "endpoint", mcpgw.Endpoint)
+	}
 	// The SPA lives outside the API mux, so apply the same hardening headers.
 	gui.Handle("/", api.SecurityHeaders(webui.Handler()))
 
@@ -398,6 +409,7 @@ func run() error {
 	})
 
 	met.Start(ctx)
+	mcpGateway.Start(ctx)
 	go apiServer.Start(ctx)
 	go gateEngine.Start(ctx)
 	go bots.Start(ctx)

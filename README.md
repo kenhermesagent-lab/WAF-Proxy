@@ -24,6 +24,7 @@ sample traffic, not production figures.***
 - [Streaming forwarders (Plex, Jellyfin)](#streaming-forwarders-plex-jellyfin)
 - [Tailscale access](#tailscale-access)
 - [Host updates](#host-updates)
+- [Agent access (MCP gateway)](#agent-access-mcp-gateway)
 - [CrowdSec](#crowdsec)
 - [Day-to-day operations](#day-to-day-operations)
 - [Security model and limitations](#security-model-and-limitations)
@@ -283,6 +284,55 @@ that and stays read-only; rebuild the WAF-Proxy image and recreate the container
 base-image and application updates. See [docs/INSTALL.md](docs/INSTALL.md#13-host-updates-on-systemd)
 for the helper service, failure modes and the exact package list.
 
+### Agent access (MCP gateway)
+
+The **Agent access** page exposes a Model Context Protocol (MCP) endpoint at `/mcp` so a
+standalone agent such as a Hermes agent can review traffic and take containment actions
+without a browser session. Create a named token on that page and give it only to the agent.
+The token is shown once, stored as a SHA-256 hash, and can be revoked immediately. A headless
+install can instead set `WAFPROXY_MCP_TOKEN` to a 32+ character secret in
+`/etc/wafproxy/wafproxy.env`; `WAFPROXY_MCP_ACTOR` names that token in the audit log.
+
+The gateway is stateless Streamable HTTP with bearer authentication. It has a fixed catalog,
+not a shell:
+
+| Agent task | Tool |
+|---|---|
+| Review recent traffic, a host or one IP | `query_logs`, `get_ip_activity`, `get_security_overview` |
+| Add an IP or CIDR to the blacklist | `block_ip` |
+| Add a gate username to the blacklist | `block_username` (also revokes that account's sessions) |
+| Clear every session from an IP | `revoke_sessions_for_ip` |
+| Kill one session that looks like exfiltration | `list_sessions` then `revoke_session` |
+| Undo a block | `unblock_ip`, `unblock_username` |
+
+Every mutating tool requires a `reason`; the action and the reason are written to the audit
+log as `mcp:<token name>`. Session cookie values are never returned: `list_sessions` exposes
+a one-way `ref`, and `revoke_session` accepts only that ref. IP blocks refuse loopback,
+unspecified, multicast, link-local and prefixes broader than `/8` (IPv4) or `/16` (IPv6).
+
+The endpoint is served by the same LAN-only listener as the console. Do not expose it to the
+WAN. An agent running on another host should reach it over the LAN, Tailscale or another
+private tunnel; terminate TLS in front of it if the path crosses an untrusted network. The
+bearer token grants the security operations above to anyone who holds it, so rotate it on the
+**Agent access** page if it is ever logged or copied into the wrong place.
+
+A minimal MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "wafproxy": {
+      "type": "http",
+      "url": "http://192.168.101.2:8443/mcp",
+      "headers": { "Authorization": "Bearer <agent token>" }
+    }
+  }
+}
+```
+
+See [docs/MCP.md](docs/MCP.md) for the protocol exchange, every tool's arguments, the audit
+model and a containment playbook for an agent.
+
 ## First certificate and first site
 
 1. **Certificates → Request certificate.** Provider `duckdns`, domains
@@ -375,6 +425,11 @@ These are deliberate design decisions, not gaps to discover later:
   session cookie is only marked `Secure` when the console is served over TLS. Do not port
   forward it. The optional Tailscale admin listener is also plain HTTP, but only inside
   Tailscale's WireGuard transport and only from `100.64.0.0/10`; it is not public.
+- **The MCP agent token is an operator credential.** It grants security operations — reviewing
+  logs, blocking IPs/usernames and revoking gate sessions — to any client that holds it. The
+  gateway exposes no shell, filesystem, package or settings API, and every mutation is
+  audited. Keep the endpoint on the LAN/Tailscale, use a separate token per agent, and revoke
+  tokens that may have leaked. Session cookies and secret material are never returned.
 - **Host updates use a privileged helper, not sudo.** The console service keeps
   `NoNewPrivileges=yes`; `wafproxy-updated` is the only root component and accepts only the
   compiled package allowlist over a `root:wafproxy` Unix socket. It cannot run arbitrary apt
@@ -412,6 +467,7 @@ container image build.
 
 - [docs/INSTALL.md](docs/INSTALL.md) — full deployment walkthrough, router/DNS, streaming,
   upgrades, uninstall
+- [docs/MCP.md](docs/MCP.md) — agent gateway, tool reference, containment playbook
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — runbook, troubleshooting, capacity
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology
 - [PLAN.md](PLAN.md) — architecture, pipeline, data model, phases, risks

@@ -167,6 +167,11 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/updates", s.authed(s.getUpdates))
 	m.HandleFunc("POST /api/updates/check", s.authed(s.checkUpdates))
 	m.HandleFunc("POST /api/updates/apply", s.authed(s.applyUpdate))
+
+	m.HandleFunc("GET /api/mcp", s.authed(s.getMCP))
+	m.HandleFunc("GET /api/mcp/tokens", s.authed(s.getMCP))
+	m.HandleFunc("POST /api/mcp/tokens", s.authed(s.createMCPToken))
+	m.HandleFunc("DELETE /api/mcp/tokens/{id}", s.authed(s.revokeMCPToken))
 }
 
 // SetStreaming attaches the media forwarder manager. A nil manager keeps the

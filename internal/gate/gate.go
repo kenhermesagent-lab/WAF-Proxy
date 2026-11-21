@@ -129,6 +129,20 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 		g.fail(w, p, src, "lockout")
 		return
 	}
+	// A username block is checked before the password so an agent can cut off a
+	// compromised account immediately. DummyVerify keeps the response timing
+	// close to a normal bad password.
+	if username != "" {
+		banned, err := g.st.UsernameBanned(username)
+		if err != nil {
+			g.log.Error("check username ban", "err", err)
+		}
+		if banned {
+			auth.DummyVerify(password)
+			g.fail(w, p, src, "blocked-username")
+			return
+		}
+	}
 
 	ok := false
 	switch p.GateMode {
@@ -184,6 +198,9 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 }
 
 func (g *Gate) allowed(proxyID int64, username string) bool {
+	if banned, err := g.st.UsernameBanned(username); err != nil || banned {
+		return false
+	}
 	acl, err := g.st.GateACL(proxyID)
 	if err != nil {
 		return false

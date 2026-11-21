@@ -268,11 +268,30 @@ CREATE TABLE IF NOT EXISTS gate_sessions (
   expires_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_gate_sessions_exp ON gate_sessions(expires_at);
+CREATE TABLE IF NOT EXISTS username_bans (
+  username TEXT PRIMARY KEY,
+  reason TEXT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_username_bans_exp ON username_bans(expires_at);
+CREATE TABLE IF NOT EXISTS mcp_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  prefix TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  last_used_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 `
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "2"
+const schemaVersion = "3"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {

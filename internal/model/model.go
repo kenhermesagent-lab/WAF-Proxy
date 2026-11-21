@@ -101,7 +101,7 @@ type Ban struct {
 	ID        int64      `json:"id"`
 	CIDR      string     `json:"cidr"`
 	Reason    string     `json:"reason"`
-	Source    string     `json:"source"` // manual | scan | waf | bot | crowdsec | feed | decoy | gate
+	Source    string     `json:"source"` // manual | scan | waf | bot | crowdsec | feed | decoy | gate | mcp
 	Permanent bool       `json:"permanent"`
 	Hits      int64      `json:"hits"`
 	CreatedBy string     `json:"created_by"`
@@ -169,6 +169,43 @@ type GateUser struct {
 	TOTPSecret   string    `json:"-"`
 	TOTPEnabled  bool      `json:"totp_enabled"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// UsernameBan denies a gate username without deleting its account. It also
+// invalidates any visitor sessions that account already has.
+type UsernameBan struct {
+	Username  string     `json:"username"`
+	Reason    string     `json:"reason"`
+	CreatedBy string     `json:"created_by"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// GateSession is one live access-gate visitor session. Ref is a one-way hash of
+// the session cookie, safe to show to an operator or an agent.
+type GateSession struct {
+	// ID is the session cookie value. It is intentionally never serialized.
+	ID            string    `json:"-"`
+	Ref           string    `json:"ref"`
+	ProxyID       int64     `json:"proxy_id"`
+	ProxyHostname string    `json:"proxy_hostname"`
+	Username      string    `json:"username"`
+	IP            string    `json:"ip"`
+	UA            string    `json:"ua"`
+	CreatedAt     time.Time `json:"created_at"`
+	ExpiresAt     time.Time `json:"expires_at"`
+}
+
+// MCPToken is an agent credential. Only its hash is stored; the plaintext is
+// returned once when it is created.
+type MCPToken struct {
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	Prefix     string     `json:"prefix"`
+	CreatedBy  string     `json:"created_by"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }
 
 // Alert is a queued notification.

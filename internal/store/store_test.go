@@ -108,6 +108,52 @@ func TestDeleteGateUserRevokesSessionsAndACL(t *testing.T) {
 	}
 }
 
+func TestUsernameBanInvalidatesLiveGateSession(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	proxyID, err := st.CreateProxy(&model.Proxy{Hostname: "media.example.com", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateGateUser("alice", "hash", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateGateSession("cookie-secret", proxyID, "alice", "203.0.113.5", "ua", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.LookupGateSession("cookie-secret", proxyID); !ok {
+		t.Fatal("session missing before the username block")
+	}
+	if err := st.AddUsernameBan("alice", "compromised", "admin", nil); err != nil {
+		t.Fatal(err)
+	}
+	if banned, err := st.UsernameBanned("alice"); err != nil || !banned {
+		t.Fatalf("UsernameBanned = (%v, %v)", banned, err)
+	}
+	// Even if the revocation delete is lost, the session lookup must refuse a
+	// blocked username.
+	if _, ok := st.LookupGateSession("cookie-secret", proxyID); ok {
+		t.Fatal("blocked username still passed the session lookup")
+	}
+	sessions, err := st.GateSessions(10)
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("GateSessions = (%+v, %v)", sessions, err)
+	}
+	if sessions[0].Ref == "cookie-secret" {
+		t.Fatalf("session ref exposed the cookie: %+v", sessions[0])
+	}
+	if _, err := st.DeleteGateSessionByRef(sessions[0].Ref); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := st.CountGateSessions(); n != 0 {
+		t.Fatalf("session count after revoke = %d", n)
+	}
+}
+
 func TestDeleteFeedReportsRowsAffected(t *testing.T) {
 	st, err := Open(t.TempDir())
 	if err != nil {

@@ -452,8 +452,18 @@ func (s *Store) DeleteGateUser(id int64) error {
 // DeleteGateSessionsFor ends every visitor session of one gate account, which is
 // what a password change requires.
 func (s *Store) DeleteGateSessionsFor(username string) error {
-	_, err := s.db.Exec(`DELETE FROM gate_sessions WHERE username = ?`, username)
+	_, err := s.RevokeGateSessionsFor(username)
 	return err
+}
+
+// RevokeGateSessionsFor ends every visitor session of one gate account and
+// reports how many were removed, so an agent can show the effect of a block.
+func (s *Store) RevokeGateSessionsFor(username string) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM gate_sessions WHERE username = ?`, username)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // SetGateACL replaces the accounts allowed through one proxy.
@@ -499,11 +509,17 @@ func (s *Store) CreateGateSession(id string, proxyID int64, username, ip, ua str
 	return err
 }
 
-// LookupGateSession returns a live visitor session.
+// LookupGateSession returns a live visitor session. A username blocked after
+// the session was issued is treated as signed out even if a revocation write
+// was lost.
 func (s *Store) LookupGateSession(id string, proxyID int64) (string, bool) {
 	var username string
-	err := s.db.QueryRow(`SELECT username FROM gate_sessions
-		WHERE id = ? AND proxy_id = ? AND expires_at > ?`, id, proxyID, stamp(time.Now())).Scan(&username)
+	now := stamp(time.Now())
+	err := s.db.QueryRow(`SELECT gs.username FROM gate_sessions gs
+		WHERE gs.id = ? AND gs.proxy_id = ? AND gs.expires_at > ?
+		AND NOT EXISTS (SELECT 1 FROM username_bans ub
+			WHERE ub.username = gs.username AND (ub.expires_at IS NULL OR ub.expires_at > ?))`,
+		id, proxyID, now, now).Scan(&username)
 	if err != nil {
 		return "", false
 	}

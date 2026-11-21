@@ -286,6 +286,24 @@ export interface CrowdSecStatus {
   applied: number;
 }
 
+export interface MCPToken {
+  id: number;
+  name: string;
+  prefix: string;
+  created_by: string;
+  created_at: string;
+  last_used_at?: string | null;
+  revoked_at?: string | null;
+}
+
+export interface MCPStatus {
+  endpoint: string;
+  env_token: boolean;
+  token_count: number;
+  tokens: MCPToken[];
+  protocols: string[];
+}
+
 export interface AuditEntry {
   id: number;
   ts: string;

@@ -37,6 +37,10 @@ services:
       #   docker exec crowdsec cscli bouncers add wafproxy
       WAFPROXY_CROWDSEC_URL: ${WAFPROXY_CROWDSEC_URL:-}
       WAFPROXY_CROWDSEC_KEY: ${WAFPROXY_CROWDSEC_KEY:-}
+      # Optional static token for the /mcp agent gateway. Console-issued tokens
+      # work without this; see docs/MCP.md.
+      WAFPROXY_MCP_TOKEN: ${WAFPROXY_MCP_TOKEN:-}
+      WAFPROXY_MCP_ACTOR: ${WAFPROXY_MCP_ACTOR:-hermes-agent}
       TZ: ${TZ:-UTC}
       # Optional: lets the Plex page mirror its settings into the compose env
       # file. The path must already exist on the host; see docs/INSTALL.md.
