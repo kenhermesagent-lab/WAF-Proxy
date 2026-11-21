@@ -34,6 +34,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/tailnet"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/webui"
@@ -333,8 +334,10 @@ func run() error {
 		defer dnsSrv.Close()
 	}
 
+	updateManager := updates.New(log)
 	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
 	apiServer.SetStreaming(streams)
+	apiServer.SetUpdates(updateManager)
 	restartCh := make(chan struct{}, 1)
 	apiServer.SetRestart(func() {
 		select {

@@ -22,6 +22,7 @@ sample traffic, not production figures.***
 - [First certificate and first site](#first-certificate-and-first-site)
 - [Streaming forwarders (Plex, Jellyfin)](#streaming-forwarders-plex-jellyfin)
 - [Tailscale access](#tailscale-access)
+- [Host updates](#host-updates)
 - [CrowdSec](#crowdsec)
 - [Day-to-day operations](#day-to-day-operations)
 - [Security model and limitations](#security-model-and-limitations)
@@ -62,6 +63,7 @@ sample traffic, not production figures.***
 | **Logs** | Filterable request log (source, host, stage, action, blocked-only), pagination and CSV export with spreadsheet-formula neutralisation. |
 | **Sources** | Per-IP explorer: request and block counts, distinct hosts, first/last seen, ban state, recent requests, and one-click ban/unban. |
 | **Audit log** | Every sign-in, settings change, proxy/certificate change, ban and restore is recorded and shown under **Settings → Recent administrator activity**. |
+| **Host updates** | Native systemd installs can inspect the packages WAF-Proxy uses, refresh the apt index, see high/critical OSV advisories and apply one allowlisted package upgrade through a root-owned helper. |
 | **Notifications** | Telegram, SMTP/Gmail and a generic webhook (Slack, Teams, …). Five-minute digest for bans, instant alerts for permanent bans, certificate problems and feed freezes, with per-event routing. |
 | **Backup** | One-click JSON export/import of settings, sites, routes, policies, feeds and bans. Secrets, private keys and password hashes are excluded by design. |
 | **Admin security** | LAN-only console, argon2id passwords, mandatory TOTP with single-use codes and recovery codes, CSRF tokens, login rate limits, 12-hour idle / 7-day absolute sessions, password and authenticator rotation, sign-out-everywhere, CSP and secrets encrypted at rest. |
@@ -70,7 +72,7 @@ sample traffic, not production figures.***
 
 A dark single-page console: **Dashboard**, **Proxies**, **Streaming**, **Policies** (bans,
 countries/IPs/ASN, WAF profiles), **Sources**, **Threat intel**, **Certificates**, **Access
-gate**, **Notifications**, **Logs**, **Settings** and **Account**. It uses native controls and
+gate**, **Notifications**, **Updates**, **Logs**, **Settings** and **Account**. It uses native controls and
 is responsive down to a phone.
 
 ![WAF profiles](docs/screenshots/waf-profiles.png)
@@ -226,6 +228,24 @@ or run `tailscale up` for you. See [docs/INSTALL.md](docs/INSTALL.md#12-optional
 for the ACL and split-DNS setup. Tailscale ACLs still gate who can reach the ports; the admin
 console still requires password + TOTP.
 
+### Host updates
+
+The **Updates** page manages the small set of host packages the native service actually uses:
+`ca-certificates`, `nftables` and `tzdata`. It shows the installed and candidate versions,
+refreshes the apt package index on demand, and flags high/critical advisories from the OSV
+database for the installed version. A package from a distribution security repository is shown
+as a security update even when the advisory record has no CVSS score.
+
+The **Update** button does not give the console root. It asks `wafproxy-updated`, a separate
+root-owned helper installed by `deploy/install.sh`, to upgrade exactly one package. The helper
+listens on a `root:wafproxy` Unix socket and accepts only its compiled allowlist; the admin
+service keeps `NoNewPrivileges=yes` and only `CAP_NET_BIND_SERVICE`/`CAP_NET_ADMIN`.
+
+Docker deployments cannot manage host packages from inside the container. The page explains
+that and stays read-only; rebuild the WAF-Proxy image and recreate the container to pick up
+base-image and application updates. See [docs/INSTALL.md](docs/INSTALL.md#13-host-updates-on-systemd)
+for the helper service, failure modes and the exact package list.
+
 ## First certificate and first site
 
 1. **Certificates → Request certificate.** Provider `duckdns`, domains
@@ -317,6 +337,10 @@ These are deliberate design decisions, not gaps to discover later:
   session cookie is only marked `Secure` when the console is served over TLS. Do not port
   forward it. The optional Tailscale admin listener is also plain HTTP, but only inside
   Tailscale's WireGuard transport and only from `100.64.0.0/10`; it is not public.
+- **Host updates use a privileged helper, not sudo.** The console service keeps
+  `NoNewPrivileges=yes`; `wafproxy-updated` is the only root component and accepts only the
+  compiled package allowlist over a `root:wafproxy` Unix socket. It cannot run arbitrary apt
+  commands or install packages outside that list. This is a native-systemd feature only.
 - **Subdomains are not a secrecy boundary.** Every certificate is published to Certificate
   Transparency logs, so `*.example.duckdns.org` is discoverable. Protection comes from
   443-only exposure, no default vhost, DROP-by-default, the WAF and the ban engine.

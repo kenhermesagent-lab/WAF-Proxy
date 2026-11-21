@@ -1,0 +1,29 @@
+[Unit]
+Description=WAF-Proxy privileged host update helper
+Documentation=https://github.com/kenhermesagent-lab/WAF-Proxy-Docker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wafproxy-updated --socket /run/wafproxy-updates/updates.sock
+RuntimeDirectory=wafproxy-updates
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+User=root
+Group=root
+
+# apt needs to write /etc, /var/lib/dpkg, /var/lib/apt and the package cache.
+# The helper itself has no network listener and accepts only the compiled
+# package allowlist over a root:wafproxy 0660 Unix socket.
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

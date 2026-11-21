@@ -1,0 +1,6 @@
+# Host packages WAF-Proxy uses at runtime on a native Linux install.
+# The Updates page shows these exact packages; it never accepts arbitrary
+# package names. Keep this list in sync with docs/INSTALL.md.
+ca-certificates
+nftables
+tzdata

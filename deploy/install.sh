@@ -228,6 +228,20 @@ fi
 install -d -m 0750 -o wafproxy -g wafproxy /var/lib/wafproxy /var/log/wafproxy
 install -d -m 0750 -o root -g wafproxy /etc/wafproxy
 install -m 0755 "$binary" /usr/local/bin/wafproxy
+
+# The Updates page uses a separate root helper instead of sudo: the main unit
+# has NoNewPrivileges=yes, so a setuid sudo could not elevate it. The helper
+# owns a Unix socket and accepts only its compiled package allowlist.
+helper_binary="bin/wafproxy-updated"
+helper_installed=0
+if [[ -x "$helper_binary" ]]; then
+  install -m 0755 "$helper_binary" /usr/local/bin/wafproxy-updated
+  install -m 0644 deploy/wafproxy-updates.service /etc/systemd/system/wafproxy-updates.service
+  helper_installed=1
+else
+  echo "warning: $helper_binary not found; the Updates page will be read-only" >&2
+fi
+
 if [[ ! -e /etc/wafproxy/wafproxy.env ]]; then
   install -m 0640 -o root -g wafproxy deploy/wafproxy.env.example /etc/wafproxy/wafproxy.env
   echo "installed /etc/wafproxy/wafproxy.env"
@@ -262,6 +276,15 @@ if ! command -v nft >/dev/null; then
 fi
 
 systemctl daemon-reload
+if ((helper_installed)); then
+  if ! systemctl enable wafproxy-updates.service >/dev/null 2>&1; then
+    echo "warning: could not enable wafproxy-updates.service at boot" >&2
+  fi
+  if ! systemctl restart wafproxy-updates.service; then
+    echo "warning: wafproxy-updates.service did not start; host updates will be read-only" >&2
+    journalctl -u wafproxy-updates.service -n 20 --no-pager >&2 || true
+  fi
+fi
 systemctl enable wafproxy.service
 if ! systemctl restart wafproxy.service; then
   journalctl -u wafproxy.service -n 30 --no-pager >&2 || true

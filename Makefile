@@ -16,6 +16,7 @@ ui:
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/wafproxy ./cmd/wafproxy
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/wafproxy-updated ./cmd/wafproxy-updated
 
 run: build
 	WAFPROXY_DATA_DIR=./data ./bin/wafproxy

@@ -15,6 +15,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **Host updates on the native install.** A new **Updates** page inventories the fixed host
+  package allowlist (`ca-certificates`, `nftables`, `tzdata`), refreshes the apt index, and
+  shows available versions plus high/critical OSV advisories. Updates run through a separate
+  root-owned `wafproxy-updated` Unix-socket helper with a compiled package allowlist; the
+  console service keeps `NoNewPrivileges=yes`. Docker shows the page read-only because host
+  packages belong to the image. See `docs/INSTALL.md` §13.
+- Go tests for apt policy parsing, CVSS ranking, inventory snapshots and the helper allowlist;
+  Vitest coverage for unsupported Docker/container and high/critical update states.
+
 - **Native Tailscale access.** The console now has a **Tailscale** page with two default-off
   listeners. **Admin console over Tailscale** adds a `tailscale0` listener on the GUI port and
   accepts only `100.64.0.0/10` clients while keeping the LAN console unchanged. **Proxy app

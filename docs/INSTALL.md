@@ -11,8 +11,8 @@ Internet → Firewalla 192.168.191.1 → DNAT 443 → 192.168.191.2:443 (this st
 Only `443/tcp` is exposed. The admin GUI binds to the LAN address only.
 
 There are two supported deployment modes for the same binary: **Docker Compose** (§2–§10) and a
-**systemd service** on the host (§11). The wizard, database and configuration are identical;
-pick the one that matches how the host is managed.
+**systemd service** on the host (§11, with host package updates in §13). The wizard, database and
+configuration are identical; pick the one that matches how the host is managed.
 
 ## 1. Host prerequisites
 
@@ -341,10 +341,11 @@ sudo ./deploy/install.sh            # keeps the env file and /var/lib/wafproxy
 journalctl -u wafproxy -f           # service log
 sudo env WAFPROXY_DATA_DIR=/var/lib/wafproxy wafproxy unban 203.0.113.7
 
-sudo systemctl disable --now wafproxy
-# destructive: also remove the state, logs, unit and binary
+sudo systemctl disable --now wafproxy wafproxy-updates
+# destructive: also remove the state, logs, units and binaries
 sudo rm -rf /var/lib/wafproxy /var/log/wafproxy /etc/wafproxy
-sudo rm -f /usr/local/bin/wafproxy /etc/systemd/system/wafproxy.service
+sudo rm -f /usr/local/bin/wafproxy /usr/local/bin/wafproxy-updated
+sudo rm -f /etc/systemd/system/wafproxy.service /etc/systemd/system/wafproxy-updates.service
 sudo systemctl daemon-reload
 ```
 
@@ -456,3 +457,84 @@ provider; Tailscale is only the private path to the WAF.
   headers and is not a replacement for password + TOTP.
 - No Tailscale Funnel, public exposure, subnet routing, or exit-node behavior is added. The
   feature does not install Tailscale or edit the tailnet policy.
+
+## 13. Host updates on systemd
+
+The **Updates** page is available on the native systemd deployment. It is deliberately
+read-only in Docker: packages inside the WAF-Proxy image are updated by rebuilding the image
+and recreating the container, not by changing the host from inside the container.
+
+### 13.1 What is tracked
+
+The page uses a fixed catalog of the host packages the native service needs:
+
+| Package | Used for |
+|---|---|
+| `ca-certificates` | ACME and upstream TLS trust roots |
+| `nftables` | Kernel-mode ban enforcement (`nft`) |
+| `tzdata` | Host time-zone data used by the console |
+
+It shows the installed version, the candidate version from the apt index, and whether the
+candidate comes from a distribution security repository. High and critical advisories are
+matched with the [OSV database](https://osv.dev/) for the installed package version; low and
+medium advisories are intentionally not shown on this page. A security-repository update with
+no published CVSS record is shown as a security update with an unknown severity instead of
+being hidden.
+
+Checking advisories sends only the package name, distribution version and installed version to
+`api.osv.dev`. It does not send hostnames, proxy traffic, credentials, settings or certificates.
+
+Go modules and the React console are compiled into the WAF-Proxy binary. They are listed as
+application dependencies on the page but are not changed by the host upgrade helper; deploy a
+new WAF-Proxy release to update them.
+
+### 13.2 The privileged helper
+
+The console service runs with `NoNewPrivileges=yes`, so it cannot use `sudo`. `install.sh`
+installs two pieces instead:
+
+- `/usr/local/bin/wafproxy-updated` — a root-owned helper service;
+- `/etc/systemd/system/wafproxy-updates.service` — the unit that starts it.
+
+The helper listens on `/run/wafproxy-updates/updates.sock` with mode `0660`, owned by
+`root:wafproxy`. It accepts only `check` (apt index refresh) and `apply` for an exact package
+from the compiled catalog. Package names are validated again by both the console and the
+helper; arbitrary package names, shell commands and options are rejected. The console still
+keeps its reduced capabilities and never runs apt itself.
+
+```bash
+sudo systemctl status wafproxy-updates
+sudo journalctl -u wafproxy-updates -f
+```
+
+If the helper is missing or stopped, the Updates page lists installed and candidate versions
+but disables the Update buttons and shows the reason. Re-run `sudo ./deploy/install.sh` after
+building to install/repair it.
+
+### 13.3 Checking and applying
+
+1. Open **Updates** and click **Check for updates**. This asks the helper to run
+   `apt-get update`, then rebuilds the inventory.
+2. A high/critical advisory is shown with its CVE/OSV identifier and summary. The package row
+   also shows a security badge and the available version.
+3. Click **Update** on one package, confirm, and wait for apt to finish. The page refreshes and
+   shows the helper output.
+
+Only one helper operation runs at a time. The distribution package manager remains the
+authority: if no newer candidate exists, the page reports that instead of inventing a version.
+Applying an update does not automatically restart WAF-Proxy; if the package maintainer requires
+a service restart, the package output will say so and the operator should restart the relevant
+service.
+
+### 13.4 Docker
+
+Docker does not expose an update button for host packages. Use the normal image upgrade:
+
+```bash
+git pull
+docker compose -f deploy/docker-compose.yml build
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+The Updates page in a container explains this limitation and shows the compiled application
+version. It never tries to run apt against the host from inside the container.

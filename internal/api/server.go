@@ -30,6 +30,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
+	updatepkg "github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
 )
 
@@ -58,6 +59,7 @@ type Server struct {
 	mux       *http.ServeMux
 	started   time.Time
 	streams   *streaming.Manager
+	updates   *updatepkg.Manager
 	restartFn func()
 	tailscale TailscaleState
 
@@ -161,11 +163,18 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/system/restart", s.authed(s.restartProcess))
 	m.HandleFunc("GET /api/tailscale", s.authed(s.getTailscale))
 	m.HandleFunc("PUT /api/tailscale", s.authed(s.putTailscale))
+
+	m.HandleFunc("GET /api/updates", s.authed(s.getUpdates))
+	m.HandleFunc("POST /api/updates/check", s.authed(s.checkUpdates))
+	m.HandleFunc("POST /api/updates/apply", s.authed(s.applyUpdate))
 }
 
 // SetStreaming attaches the media forwarder manager. A nil manager keeps the
 // page readable and disables the controls that would change it.
 func (s *Server) SetStreaming(m *streaming.Manager) { s.streams = m }
+
+// SetUpdates attaches the host package inventory and the root-helper client.
+func (s *Server) SetUpdates(m *updatepkg.Manager) { s.updates = m }
 
 // SetRestart installs the callback used by POST /api/system/restart.
 func (s *Server) SetRestart(fn func()) { s.restartFn = fn }

@@ -12,6 +12,43 @@ export interface SetupStatus {
   lan_iface?: string;
 }
 
+export interface UpdateAdvisory {
+  id: string;
+  severity: string;
+  score?: string;
+  summary: string;
+}
+
+export interface UpdatePackage {
+  name: string;
+  role?: string;
+  current?: string;
+  candidate?: string;
+  status: string;
+  severity?: string;
+  security: boolean;
+  advisories?: UpdateAdvisory[];
+  can_update: boolean;
+  note?: string;
+}
+
+export interface UpdatesSnapshot {
+  available: boolean;
+  reason?: string;
+  platform?: string;
+  container: boolean;
+  checked_at?: string;
+  packages: UpdatePackage[];
+  advisory_error?: string;
+  helper_ready: boolean;
+  helper_error?: string;
+  updating: boolean;
+  app_version: string;
+  app_commit: string;
+  app_build_date: string;
+  go_version: string;
+}
+
 export interface TailscaleStatus {
   available: boolean;
   ip: string;
