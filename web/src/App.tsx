@@ -41,6 +41,7 @@ export default function App() {
   const [page, setPage] = useState("dashboard");
   const [toast, setToast] = useState("");
   const [enrol, setEnrol] = useState<Enrolment | null>(null);
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [home, setHome] = useState({ lat: 51.5, lon: -0.12 });
   const [navOpen, setNavOpen] = useState(false);
 
@@ -74,6 +75,7 @@ export default function App() {
       try {
         const st = await api.get<SetupStatus>("/api/setup/status");
         if (st.needs_setup) {
+          setSetupStatus(st);
           setPhase("setup");
           return;
         }
@@ -107,7 +109,7 @@ export default function App() {
   }
 
   if (phase === "setup") {
-    return <Setup onDone={(e) => { setEnrol(e); setPhase("enrol"); }} />;
+    return <Setup defaults={setupStatus} onDone={(e) => { setEnrol(e); setPhase("enrol"); }} />;
   }
 
   if (phase === "enrol" && enrol) {
@@ -217,18 +219,19 @@ export default function App() {
   );
 }
 
-function Setup({ onDone }: { onDone: (e: Enrolment) => void }) {
+function Setup({ defaults, onDone }: { defaults: SetupStatus | null; onDone: (e: Enrolment) => void }) {
   const [form, setForm] = useState({
     username: "admin",
     password: "",
-    // Left blank on purpose: the wizard must not prefill another network's
-    // addresses, because saving them makes the GUI bind an address this host
-    // does not own.
+    // The native installer returns its real first-boot listener addresses, so
+    // the wizard cannot silently undo the LAN-only admin binding. Without them
+    // (Docker's all-interface fallback) the fields stay blank rather than
+    // prefill another network's addresses.
     base_domain: "",
-    wan_ip: "",
-    wan_port: 443,
-    lan_ip: "",
-    gui_port: 8443,
+    wan_ip: defaults?.wan_ip ?? "",
+    wan_port: defaults?.wan_port ?? 443,
+    lan_ip: defaults?.lan_ip ?? "",
+    gui_port: defaults?.gui_port ?? 8443,
     duckdns_token: "",
     email: "",
   });

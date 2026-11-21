@@ -4,6 +4,12 @@ export interface SetupStatus {
   version: string;
   geoip: boolean;
   kernel: { active: boolean; reason: string };
+  wan_ip?: string;
+  wan_port?: number;
+  lan_ip?: string;
+  gui_port?: number;
+  wan_iface?: string;
+  lan_iface?: string;
 }
 
 export interface Me {

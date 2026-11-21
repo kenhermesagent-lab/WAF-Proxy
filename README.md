@@ -177,14 +177,17 @@ sudo ./deploy/install.sh
 sudo systemctl status wafproxy
 ```
 
-The installer creates the `wafproxy` user and `/var/lib/wafproxy`, installs the unit with only
-`CAP_NET_BIND_SERVICE` and `CAP_NET_ADMIN` (so 443 and kernel bans work without root), and
-starts the service. First boot binds the console to `127.0.0.1:8080`; either use
-`ssh -L 8080:127.0.0.1:8080 <host>` and open `http://127.0.0.1:8080`, or set
-`WAFPROXY_LISTEN_GUI` to the LAN address in `/etc/wafproxy/wafproxy.env` before starting. The
-wizard, addresses, firewall rules and first certificate are identical. Upgrade with
-`git pull && make build && sudo ./deploy/install.sh`; see
-[docs/INSTALL.md](docs/INSTALL.md#11-bare-metal-with-systemd).
+The installer lists the host’s IPv4 interfaces and asks which one is **WAN** and which is
+**LAN** (plus the WAN and GUI ports, defaulting to 443 and 8443). It creates the `wafproxy`
+user and `/var/lib/wafproxy`, installs the unit with only `CAP_NET_BIND_SERVICE` and
+`CAP_NET_ADMIN` (so 443 and kernel bans work without root), and starts the service. The proxy
+is bound to the WAN address and the admin GUI to the LAN address only; the admin listener also
+refuses every client outside RFC1918, with loopback also accepted for local checks. The wizard is
+prefilled with those addresses, so open `http://<LAN-IP>:8443` and finish setup. The wizard,
+firewall rules and first certificate are otherwise identical. Upgrade with
+`git pull && make build && sudo ./deploy/install.sh` (it prompts again and keeps the database;
+on an existing install the addresses stored in **Settings** still take precedence over the env
+file); see [docs/INSTALL.md](docs/INSTALL.md#11-bare-metal-with-systemd).
 
 ## First certificate and first site
 

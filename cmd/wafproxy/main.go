@@ -103,6 +103,15 @@ func run() error {
 		return err
 	}
 	wanIface, lanIface := kv["wan_iface"], kv["lan_iface"]
+	// The native installer records the interfaces in the environment. They are
+	// used until the wizard exists and are copied into the database by setup,
+	// so the dashboard and stealth rules agree with the bind addresses.
+	if strings.TrimSpace(wanIface) == "" {
+		wanIface = cfg.WANIface
+	}
+	if strings.TrimSpace(lanIface) == "" {
+		lanIface = cfg.LANIface
+	}
 	// Listener addresses are chosen in the setup wizard and stored in the
 	// database; the environment only supplies the first-boot fallback.
 	fallbackWAN, fallbackGUI := cfg.ListenWAN, cfg.ListenGUI
@@ -272,9 +281,13 @@ func run() error {
 	// The SPA lives outside the API mux, so apply the same hardening headers.
 	gui.Handle("/", api.SecurityHeaders(webui.Handler()))
 
+	var guiHandler http.Handler = gui
+	if cfg.GUIPrivateOnly {
+		guiHandler = api.PrivateNetworksOnly(gui)
+	}
 	guiSrv := &http.Server{
 		Addr:              cfg.ListenGUI,
-		Handler:           gui,
+		Handler:           guiHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    32 << 10,

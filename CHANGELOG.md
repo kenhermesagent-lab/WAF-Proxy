@@ -22,9 +22,16 @@ adds Plex forwarding as an add-on inside the 1.1 series.
   `make build && sudo ./deploy/install.sh` installs `deploy/wafproxy.service`, creates the
   `wafproxy` user and `/var/lib/wafproxy`, and grants only `CAP_NET_BIND_SERVICE` and
   `CAP_NET_ADMIN` through systemd ambient capabilities, so 443 and nftables work as a
-  non-root service. `deploy/wafproxy.env.example` keeps the first-boot listeners on loopback
-  until the wizard stores the real WAN/LAN addresses. Docker Compose is unchanged and remains
-  the reference deployment; both paths share the wizard, database and console.
+  non-root service. The installer lists the host interfaces and asks which is WAN and which is
+  LAN, then binds the proxy to the WAN address and the admin GUI to the LAN address only. It
+  also enables an RFC1918-only client check on the admin listener (loopback is kept for an SSH
+  tunnel) and prefills the wizard with the same addresses, so finishing setup cannot silently
+  move the GUI back to another interface. `deploy/wafproxy.env.example` keeps the manual-install
+  fallback on loopback. Docker Compose is unchanged and remains the reference deployment; both
+  paths share the wizard, database and console.
+- **Console regression test for the certificate dialog.** Vitest and Testing Library now cover
+  the failed-`/api/certs` and empty-provider states, including the disabled select and
+  **Request** button, and keep the normal provider path enabled.
 - **Streaming forwarding** (`Streaming` page, `GET /api/streaming`,
   `PUT /api/streaming/{id}`): one transparent TCP relay per media application, with a section
   for **Plex** (`32400`) and **Jellyfin** (`8096`) and room for more through the catalog. Each

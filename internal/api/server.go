@@ -275,18 +275,47 @@ func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base, _ := s.st.GetSetting("base_domain")
+	wanIP, wanPort := listenerParts(s.cfg.ListenWAN, 443)
+	lanIP, guiPort := listenerParts(s.cfg.ListenGUI, 8443)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"needs_setup": n == 0,
 		"base_domain": base,
 		"version":     version.Version,
 		"geoip":       s.geo.Available(),
 		"kernel":      kernelStatus(s.bans),
+		// The native installer supplies real first-boot addresses. Prefilling
+		// the wizard with them prevents it from silently rebinding the GUI to a
+		// different address after the installer chose the LAN interface.
+		"wan_ip":    wanIP,
+		"wan_port":  wanPort,
+		"lan_ip":    lanIP,
+		"gui_port":  guiPort,
+		"wan_iface": s.cfg.WANIface,
+		"lan_iface": s.cfg.LANIface,
 	})
 }
 
 func kernelStatus(b *ban.Engine) map[string]any {
 	active, reason := b.KernelStatus()
 	return map[string]any{"active": active, "reason": reason}
+}
+
+// listenerParts splits a listen address for the setup form. An unspecified or
+// malformed host is returned empty so the wizard does not save "0.0.0.0" as a
+// concrete address.
+func listenerParts(addr string, fallbackPort int) (string, int) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", fallbackPort
+	}
+	if ip := net.ParseIP(host); ip == nil || ip.IsUnspecified() || ip.IsLoopback() {
+		return "", fallbackPort
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		n = fallbackPort
+	}
+	return host, n
 }
 
 type setupRequest struct {
@@ -399,6 +428,12 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		"max_body":           "131072",
 		"gate_ttl_hours":     "12",
 		"acme_email":         strings.TrimSpace(req.Email),
+	}
+	if s.cfg.WANIface != "" {
+		settings["wan_iface"] = s.cfg.WANIface
+	}
+	if s.cfg.LANIface != "" {
+		settings["lan_iface"] = s.cfg.LANIface
 	}
 	if err := s.st.SetSettings(settings); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save settings")

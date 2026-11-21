@@ -16,22 +16,28 @@ import (
 // WAN bind address are stored in the database and edited through the setup
 // wizard; this struct only holds what is needed to boot.
 type Config struct {
-	DataDir     string
-	ListenWAN   string
-	ListenGUI   string
-	MasterKey   []byte
-	CrowdSecURL string
-	CrowdSecKey string
+	DataDir        string
+	ListenWAN      string
+	ListenGUI      string
+	WANIface       string
+	LANIface       string
+	GUIPrivateOnly bool
+	MasterKey      []byte
+	CrowdSecURL    string
+	CrowdSecKey    string
 }
 
 // Load reads configuration from the environment, applying safe defaults.
 func Load() (*Config, error) {
 	c := &Config{
-		DataDir:     envOr("WAFPROXY_DATA_DIR", "./data"),
-		ListenWAN:   envOr("WAFPROXY_LISTEN_WAN", ":8443"),
-		ListenGUI:   envOr("WAFPROXY_LISTEN_GUI", ":8080"),
-		CrowdSecURL: strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_URL")),
-		CrowdSecKey: strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_KEY")),
+		DataDir:        envOr("WAFPROXY_DATA_DIR", "./data"),
+		ListenWAN:      envOr("WAFPROXY_LISTEN_WAN", ":8443"),
+		ListenGUI:      envOr("WAFPROXY_LISTEN_GUI", ":8080"),
+		WANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_WAN_IFACE")),
+		LANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_LAN_IFACE")),
+		GUIPrivateOnly: envBool("WAFPROXY_GUI_PRIVATE_ONLY"),
+		CrowdSecURL:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_URL")),
+		CrowdSecKey:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_KEY")),
 	}
 	if err := os.MkdirAll(c.DataDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
@@ -110,4 +116,12 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }

@@ -244,6 +244,11 @@ make build
 sudo ./deploy/install.sh
 ```
 
+The installer lists the interfaces that have a global IPv4 address and asks which is **WAN**
+and which is **LAN**, then asks for the WAN and GUI ports (defaults 443 and 8443). For
+unattended installs pass `--wan-iface`, `--lan-iface`, `--wan-port`, `--gui-port` and `--yes`.
+The LAN address must be RFC1918 because the admin listener rejects non-private clients.
+
 Install `nftables` first (`apt install nftables` or `dnf install nftables`); the unit expects
 the `nft` binary and the host firewall is yours to configure.
 
@@ -259,42 +264,50 @@ root. It does not need `setcap` on the binary, and `ProtectSystem=strict` leaves
 
 ### 11.2 Two interfaces
 
-The listener addresses are stored by the wizard, not fixed in the unit: `wan_ip`/`wan_port`
-and `lan_ip`/`gui_port` are read from SQLite on every boot. On a dual-homed host:
+`install.sh` writes the selected addresses to `/etc/wafproxy/wafproxy.env`:
+
+```ini
+WAFPROXY_LISTEN_WAN=192.168.191.2:443
+WAFPROXY_LISTEN_GUI=192.168.101.2:8443
+WAFPROXY_WAN_IFACE=<wan-iface>
+WAFPROXY_LAN_IFACE=<lan-iface>
+WAFPROXY_GUI_PRIVATE_ONLY=true
+```
+
+On a dual-homed host:
 
 - **WAN interface** (for example `192.168.191.2`): proxy listener `443` and any streaming ports.
 - **LAN interface** (for example `192.168.101.2`): admin GUI `8443` and egress to backends.
 - **Router**: DNAT `443` to `192.168.191.2:443`, no SNAT, exactly as in §4.
 
-Both addresses must be assigned to the host. If a stored address is later missing (DHCP change
-or a renamed NIC), the listener falls back to the first-boot address and logs a warning. On a
-single-NIC host enter the same address for both, as described in §3.
+Both addresses must be assigned to the host before running the installer. If a stored address
+is later missing (DHCP change or a renamed NIC), the listener falls back to the env address and
+logs a warning. On a single-NIC host choose the same interface twice, as described in §3.
 
-Before the first start, set the first-boot listeners in `/etc/wafproxy/wafproxy.env` if the
-wizard should be reachable from the LAN:
+The admin listener only accepts clients from `10/8`, `172.16/12`, `192.168/16` and loopback.
+The bind is already LAN-only; the client check is a second layer in case the host firewall or
+routing changes. Loopback stays allowed for an SSH tunnel and local health checks; IPv6 ULA is
+not RFC1918 and is not accepted by this check.
 
-```ini
-WAFPROXY_LISTEN_GUI=192.168.101.2:8080
-WAFPROXY_LISTEN_WAN=192.168.191.2:8443
-```
-
-The shipped file binds both to `127.0.0.1`, which keeps the unauthenticated wizard off every
-network. In that case use an SSH tunnel:
-
-```bash
-ssh -L 8080:127.0.0.1:8080 <this-host>
-# open http://127.0.0.1:8080 in the browser on your workstation
-```
-
-Complete the wizard exactly as in §3 (same fields), save the TOTP secret and recovery codes,
-then restart so the stored addresses are used:
+The wizard receives the installer’s addresses prefilled through `GET /api/setup/status`, so
+reviewing them and completing the wizard cannot silently move the GUI back to another
+interface. Complete the wizard as in §3, save the TOTP secret and recovery codes, then restart
+so the stored addresses are used:
 
 ```bash
 sudo systemctl restart wafproxy
 ```
 
 The GUI is now `http://192.168.101.2:8443`, the proxy is on `192.168.191.2:443`, and later edits
-to the env file no longer move the listeners (change them in **Settings** and restart).
+to the env file no longer move the listeners (change them in **Settings** and restart). On an
+existing install, the addresses already stored in SQLite take precedence over the installer’s
+env file; re-run the installer only to update the binary/unit, and change moved interfaces in
+**Settings**.
+
+If you install the unit by hand instead of running `install.sh`, the shipped env file still
+binds both listeners to loopback. Set `WAFPROXY_LISTEN_GUI` and `WAFPROXY_LISTEN_WAN`, or use
+`ssh -L 8080:127.0.0.1:8080 <this-host>` and add `WAFPROXY_GUI_PRIVATE_ONLY=true` before
+starting the service.
 
 ### 11.3 Firewall and nftables
 
