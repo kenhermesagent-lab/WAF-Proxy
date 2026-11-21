@@ -2,7 +2,11 @@
 
 ## Daily checks
 
-- **Dashboard** — WAN/LAN throughput, blocked ratio, top blocked sources, globe.
+- **Dashboard** — WAN/LAN throughput, blocked ratio, top blocked sources, per-proxy live
+  request and traffic rates, and the attack globe (1 h / 6 h / 24 h, category filters).
+- **Statistics** — date-range request outcomes, hourly traffic, per-proxy shares, visitor
+  countries and backend uptime. A red probe means the backend returned 5xx or timed out; the
+  down/recovery transition is also sent to the **Backend up/down** notification channels.
 - **Policies → Temp/Permanent bans** — unexpected permanent bans usually mean a decoy hit
   or a feed false positive; both carry a reason and source.
 - **Certificates** — expiry and `last_error`. Renewal is automatic inside 30 days.

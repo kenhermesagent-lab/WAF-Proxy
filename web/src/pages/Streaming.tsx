@@ -232,8 +232,12 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
                 </Field>
 
                 <div className="row grow">
-                  <Field label="Allowed sources (CIDR, empty = any)">
-                    <input value={f.allow} onChange={(e) => setField(svc.id, "allow", e.target.value)} placeholder="203.0.113.0/24" />
+                  <Field label="Allowed sources (IP / CIDR, comma separated, empty = any)">
+                    <input
+                      value={f.allow}
+                      onChange={(e) => setField(svc.id, "allow", e.target.value)}
+                      placeholder="203.0.113.7, 10.0.0.0/8, 2001:db8::/32"
+                    />
                   </Field>
                   <Field label="Max connections">
                     <input
@@ -245,6 +249,11 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
                     />
                   </Field>
                 </div>
+
+                <p className="muted" style={{ fontSize: 12, margin: "-2px 0 12px" }}>
+                  One or more addresses are accepted: a single IPv4/IPv6 address, a CIDR block, or a comma-separated
+                  mix of both. An empty list means any source; the connection cap and active bans still apply.
+                </p>
 
                 <button className="primary mt" onClick={() => save(svc)} disabled={saving === svc.id}>
                   {saving === svc.id ? "Saving…" : "Save and apply"}

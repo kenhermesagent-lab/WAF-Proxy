@@ -1073,7 +1073,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getGlobe(w http.ResponseWriter, r *http.Request) {
-	points, err := s.st.Globe(time.Now().Add(-15 * time.Minute))
+	points, err := s.st.Globe(globeSince(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
@@ -1319,7 +1319,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "event: metrics\ndata: %s\n\n", data)
 			fl.Flush()
 		case <-globeTick.C:
-			points, err := s.st.Globe(time.Now().Add(-15 * time.Minute))
+			points, err := s.st.Globe(time.Now().Add(-time.Hour))
 			if err != nil {
 				continue
 			}

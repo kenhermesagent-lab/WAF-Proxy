@@ -101,6 +101,41 @@ func TestCountryWhitelistWins(t *testing.T) {
 	}
 }
 
+func TestCountryAllowListBlocksOtherCountries(t *testing.T) {
+	pol, st, _ := newEngine(t)
+	if _, err := st.CreatePolicy(&model.Policy{
+		Scope: "global", Kind: model.PolicyCountryWhitelist, Value: "RU", Action: "allow", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	v := pol.Screen(&Request{
+		Addr: netip.MustParseAddr("198.51.100.11"), Method: "GET", Path: "/",
+		Loc: geoip.Location{Country: "US"},
+	})
+	if v.Action != "block" || v.Stage != "country-allow" {
+		t.Fatalf("country outside the allow list was not blocked: %+v", v)
+	}
+	// An explicit IP whitelist still wins over the country allow list.
+	if _, err := st.CreatePolicy(&model.Policy{
+		Scope: "global", Kind: model.PolicyIPWhitelist, Value: "198.51.100.11", Action: "allow", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	v = pol.Screen(&Request{
+		Addr: netip.MustParseAddr("198.51.100.11"), Method: "GET", Path: "/",
+		Loc: geoip.Location{Country: "US"},
+	})
+	if v.Action != "allow" || v.Stage != "whitelist" {
+		t.Fatalf("IP whitelist did not override the country allow list: %+v", v)
+	}
+}
+
 func TestDecoyBan(t *testing.T) {
 	pol, _, _ := newEngine(t)
 	v := screen(pol, "198.51.100.20", "/.env")

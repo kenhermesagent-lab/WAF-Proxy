@@ -36,6 +36,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/tailnet"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/uptime"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/webui"
@@ -206,6 +207,7 @@ func run() error {
 	wafs := waf.NewSet(profiles, log)
 	certs := acme.New(st, box, log)
 	notifier := notify.New(st, box, log)
+	uptimeMon := uptime.New(st, notifier, log)
 
 	// Assigned once the listeners exist; the ban callback needs it to cut
 	// streams that were already running when the ban landed.
@@ -355,6 +357,7 @@ func run() error {
 	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
 	apiServer.SetStreaming(streams)
 	apiServer.SetUpdates(updateManager)
+	apiServer.SetUptime(uptimeMon)
 	restartCh := make(chan struct{}, 1)
 	apiServer.SetRestart(func() {
 		select {
@@ -434,6 +437,7 @@ func run() error {
 	go bans.Start(ctx)
 	go certs.RenewLoop(ctx)
 	notifier.Start(ctx)
+	uptimeMon.Start(ctx)
 	cs.Start(ctx)
 	go retentionLoop(ctx, st, log)
 	go certWatch(ctx, st, certs, notifier, log)

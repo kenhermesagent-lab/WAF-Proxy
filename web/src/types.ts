@@ -221,6 +221,55 @@ export interface Event {
   ua: string;
 }
 
+export interface AnalyticsBucket {
+  bucket: string;
+  requests: number;
+  success: number;
+  errors: number;
+  bytes_in: number;
+  bytes_out: number;
+}
+
+export interface Analytics {
+  from: string;
+  to: string;
+  totals: { requests: number; blocked: number; bytes_in: number; bytes_out: number; src_ips: number };
+  series: AnalyticsBucket[];
+  proxies: {
+    proxy_id: number;
+    host: string;
+    requests: number;
+    success: number;
+    errors: number;
+    bytes_in: number;
+    bytes_out: number;
+  }[];
+  countries: { name: string; count: number }[];
+  stages: { name: string; count: number }[];
+}
+
+export interface UptimeTarget {
+  id: string;
+  proxy_id: number;
+  proxy_host: string;
+  url: string;
+  state: "up" | "down" | "unknown";
+  status_code: number;
+  latency_ms: number;
+  last_check: string;
+  last_change: string;
+  error: string;
+  uptime_24: number;
+  checks_24: number;
+}
+
+export interface Uptime {
+  process_uptime_s: number;
+  targets: UptimeTarget[];
+  proxies: { proxy_id: number; host: string; state: string; targets: number; up: number }[];
+  checked_at: string;
+}
+
 export interface GlobePoint {
   country: string;
   host: string;

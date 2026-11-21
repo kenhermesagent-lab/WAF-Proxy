@@ -463,6 +463,18 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 		allowlisted = true
 		allowRule = "country:" + country
 	}
+	// An allow list is exclusive: once it names any country, traffic from
+	// everywhere else is refused. An IP whitelist still wins above. With no
+	// country data the allow list fails closed rather than silently opening
+	// the site; the UI already reports GeoIP as unavailable in that case.
+	if !allowlisted && len(rules.countryAllow) > 0 {
+		rule := "country:" + country
+		if country == "" {
+			rule = "country:unknown"
+		}
+		return model.Verdict{Action: "block", Stage: "country-allow", Rule: rule,
+			Reason: "country not on the allow list", Status: http.StatusForbidden}
+	}
 
 	if !allowlisted {
 		if country != "" && rules.countryDeny[country] {

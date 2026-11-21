@@ -1,0 +1,86 @@
+package api
+
+import (
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// analyticsRange accepts an explicit date range (YYYY-MM-DD or RFC3339), the
+// older hours parameter, or defaults to the last 24 hours.
+func analyticsRange(r *http.Request) (time.Time, time.Time) {
+	q := r.URL.Query()
+	now := time.Now().UTC()
+	from, to := now.Add(-24*time.Hour), now
+	if v := strings.TrimSpace(q.Get("hours")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 2160 {
+			from = now.Add(-time.Duration(n) * time.Hour)
+		}
+	}
+	if v := strings.TrimSpace(q.Get("from")); v != "" {
+		if t, ok := parseRangeTime(v, false); ok {
+			from = t
+		}
+	}
+	if v := strings.TrimSpace(q.Get("to")); v != "" {
+		if t, ok := parseRangeTime(v, true); ok {
+			to = t
+		}
+	}
+	if from.After(to) {
+		from, to = to, from
+	}
+	if to.Sub(from) > 90*24*time.Hour {
+		from = to.Add(-90 * 24 * time.Hour)
+	}
+	return from, to
+}
+
+func parseRangeTime(v string, endOfDay bool) (time.Time, bool) {
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t.UTC(), true
+	}
+	// Date-only inputs follow the host's configured timezone (TZ in the
+	// container), which is what an operator means by "today".
+	t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if endOfDay {
+		return t.Add(24*time.Hour - time.Nanosecond), true
+	}
+	return t, true
+}
+
+func (s *Server) getAnalytics(w http.ResponseWriter, r *http.Request) {
+	from, to := analyticsRange(r)
+	out, err := s.st.AnalyticsRange(from, to)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) getUptime(w http.ResponseWriter, r *http.Request) {
+	if s.uptime == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"process_uptime_s": 0,
+			"targets":          []any{},
+			"proxies":          []any{},
+			"checked_at":       "",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.uptime.Snapshot())
+}
+
+// globeSince parses the 1h–24h history selector and falls back to one hour.
+func globeSince(r *http.Request) time.Time {
+	hours := 1
+	if n, err := strconv.Atoi(r.URL.Query().Get("hours")); err == nil && n >= 1 && n <= 24 {
+		hours = n
+	}
+	return time.Now().Add(-time.Duration(hours) * time.Hour)
+}

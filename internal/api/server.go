@@ -31,6 +31,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 	updatepkg "github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/uptime"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
 )
 
@@ -60,6 +61,7 @@ type Server struct {
 	started   time.Time
 	streams   *streaming.Manager
 	updates   *updatepkg.Manager
+	uptime    *uptime.Manager
 	restartFn func()
 	tailscale TailscaleState
 
@@ -141,6 +143,8 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/certs/{id}", s.authed(s.deleteCert))
 
 	m.HandleFunc("GET /api/metrics", s.authed(s.getMetrics))
+	m.HandleFunc("GET /api/analytics", s.authed(s.getAnalytics))
+	m.HandleFunc("GET /api/uptime", s.authed(s.getUptime))
 	m.HandleFunc("GET /api/events", s.authed(s.listEvents))
 	m.HandleFunc("GET /api/events/export.csv", s.authed(s.exportEventsCSV))
 	m.HandleFunc("GET /api/ips", s.authed(s.listIPs))
@@ -189,6 +193,9 @@ func (s *Server) SetStreaming(m *streaming.Manager) { s.streams = m }
 
 // SetUpdates attaches the host package inventory and the root-helper client.
 func (s *Server) SetUpdates(m *updatepkg.Manager) { s.updates = m }
+
+// SetUptime attaches the backend availability monitor.
+func (s *Server) SetUptime(m *uptime.Manager) { s.uptime = m }
 
 // SetRestart installs the callback used by POST /api/system/restart.
 func (s *Server) SetRestart(fn func()) { s.restartFn = fn }

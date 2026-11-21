@@ -6,7 +6,7 @@ live observability. One Go binary and one React console, deployed either as a Do
 stack or as a systemd service on a two-NIC Linux host. Built to run on a home server, a lab box
 or a small office network without a cloud dependency.
 
-**Version 1.2.0** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
+**Version 1.3.0** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -28,6 +28,7 @@ sample traffic, not production figures.***
 - [CrowdSec](#crowdsec)
 - [Updating from the repository](#updating-from-the-repository)
 - [Day-to-day operations](#day-to-day-operations)
+- [Statistics and uptime](#statistics-and-uptime)
 - [Security model and limitations](#security-model-and-limitations)
 - [Development](#development)
 - [Documentation](#documentation)
@@ -41,7 +42,7 @@ sample traffic, not production figures.***
 | **OWASP CRS WAF** | Coraza v3 with the embedded Core Rule Set. Five profiles (Generic Web, WordPress, API-only, Static/CDN, Admin panel), paranoia level 1–4, anomaly thresholds, per-profile method allowlists, body limits and per-rule exceptions — all editable from **Policies → WAF profiles**. Each site can inherit its profile, or override with `block`, `detect` or `off`. |
 | **Ban engine** | Temporary and permanent bans with a mandatory reason and source. Enforced in the kernel with nftables (IPv4 + IPv6), so banned traffic is dropped before it reaches the proxy, and expires on its own. Every ban is listed in the console and can be lifted there or with the `unban` CLI. |
 | **Rate limiting** | Global per-IP request rate with burst, plus per-scope `rate_limit` policies (`rps/burst`) that can be global or attached to one site. |
-| **Country / ASN policy** | Allow and block lists by ISO country code and by ASN, using MaxMind GeoLite2 or DB-IP Lite databases. **Settings → GeoIP database** can download and install the DB-IP Lite city and ASN files, validate them and reload without a restart. Without a database the stages report “unavailable” instead of silently allowing traffic. |
+| **Country / ASN policy** | Allow and block lists by ISO country code and by ASN, using MaxMind GeoLite2 or DB-IP Lite databases. The country picker lists every ISO code, and a country allow list is exclusive: countries not on it are blocked unless the source matches an explicit IP allow list. **Settings → GeoIP database** can download and install the DB-IP Lite city and ASN files, validate them and reload without a restart. Without a database the stages report “unavailable” instead of silently allowing traffic. |
 | **Threat feeds** | Nine built-in lists (FireHOL 1/2, Spamhaus DROP/EDROP, Tor exits, Feodo C2, URLhaus, ET compromised, DShield), your own HTTP(S) feeds, and uploaded `.txt`/`.csv` local lists. ETag/If-Modified-Since caching, CIDR de-duplication, a 5× growth freeze and last-good retention so a broken upstream cannot empty the table. Local uploads are always global blocks. |
 | **CrowdSec** | A dedicated **CrowdSec** page configures the LAPI bouncer, tests the key, shows poll status and links the Docker sidecar or native Security Engine setup. Decisions are applied as local bans and removals are honoured. |
 | **Bot challenge** | JavaScript proof-of-work challenge with four levels, a 24-hour cookie and auto-ban after repeated failures. |
@@ -55,25 +56,27 @@ sample traffic, not production figures.***
 | **Reverse proxy** | HTTPS with SNI + Host routing, WebSocket passthrough, weighted round-robin upstreams, active health checks, path redirects and aliases, gzip, a conservative GET cache, and streamed responses. |
 | **Tailscale ingress** | Optional native `tailscale0` listeners for the admin console and for app traffic. The app path keeps the existing TLS/SNI certificate and WAF pipeline, and a tailnet-only DNS responder supplies split-DNS answers for configured sites. |
 | **TLS** | DNS-01 wildcard certificates through lego — DuckDNS, Cloudflare, Route53, DigitalOcean, Hetzner, OVH, GoDaddy and RFC2136. Per-site assignment, per-certificate renewal policy (monthly, every 2 or 3 months, or 1 month before expiry), serialised ACME orders, staging toggle. |
-| **Streaming forwarders** | Transparent TCP relays for **Plex** and **Jellyfin** on their own WAN ports, with a source allowlist, connection cap, banned-source refusal that also cuts running streams, and live counters. |
+| **Streaming forwarders** | Transparent TCP relays for **Plex** and **Jellyfin** on their own WAN ports, with a source allowlist (one or more IPs/CIDRs, comma separated, empty = any), connection cap, banned-source refusal that also cuts running streams, and live counters. |
 | **Maintenance mode** | Per-site switch that answers with a maintenance response instead of the backend. |
 
 ### Operations
 
 | Feature | Behaviour |
 |---|---|
-| **Live dashboard** | WAN/LAN throughput and packet rates, conntrack sessions, per-site counters, a canvas attack globe, and the newest blocked requests — pushed over SSE, no polling. |
+| **Live dashboard** | WAN/LAN throughput and packet rates, conntrack sessions, per-site request counts, live inbound/outbound bps and req/s per proxy, a rotating world-map attack globe with 1 h / 6 h / 24 h history and clickable category filters, and the newest blocked requests — pushed over SSE, no polling. |
+| **Statistical analysis** | **Statistics** page with a date range, total/success/error requests, hourly traffic, per-proxy request and byte shares, visitor countries, request stages, and 24-hour uptime for every proxy and backend. |
+| **Uptime monitor** | Every enabled upstream is checked with HTTP HEAD every 30 seconds. The proxy and each backend show up/down, latency, status code and 24-hour uptime; a down or recovery transition can be sent to Telegram, email or a webhook. |
 | **Logs** | Filterable request log (source, host, stage, action, blocked-only), pagination and CSV export with spreadsheet-formula neutralisation. |
 | **Sources** | Per-IP explorer: request and block counts, distinct hosts, first/last seen, ban state, recent requests, and one-click ban/unban. |
 | **Audit log** | Every sign-in, settings change, proxy/certificate change, ban and restore is recorded and shown under **Settings → Recent administrator activity**. |
 | **Host updates** | Native systemd installs can inspect the packages WAF-Proxy uses, refresh the apt index, see high/critical OSV advisories and apply one allowlisted package upgrade through a root-owned helper. |
-| **Notifications** | Telegram, SMTP/Gmail and a generic webhook (Slack, Teams, …). Five-minute digest for bans, instant alerts for permanent bans, certificate problems and feed freezes, with per-event routing. |
+| **Notifications** | Telegram, SMTP/Gmail and a generic webhook (Slack, Teams, …). Five-minute digest for bans, instant alerts for permanent bans, certificate problems, feed freezes and backend up/down transitions, with per-event routing. |
 | **Backup** | One-click JSON export/import of settings, sites, routes, policies, feeds and bans. Secrets, private keys and password hashes are excluded by design. |
 | **Admin security** | LAN-only console, argon2id passwords, mandatory TOTP with single-use codes and recovery codes, CSRF tokens, login rate limits, 12-hour idle / 7-day absolute sessions, password and authenticator rotation, sign-out-everywhere, CSP and secrets encrypted at rest. |
 
 ### Console
 
-A dark single-page console: **Dashboard**, **Proxies**, **Streaming**, **Policies** (bans,
+A dark single-page console: **Dashboard**, **Statistics**, **Proxies**, **Streaming**, **Policies** (bans,
 countries/IPs/ASN, WAF profiles), **Sources**, **Threat intel**, **CrowdSec**, **Certificates**,
 **Access gate**, **Notifications**, **Updates**, **Logs**, **Settings** and **Account**. It uses
 native controls and is responsive down to a phone.
@@ -376,7 +379,7 @@ entry its allow list needs.
 1. **Streaming → Plex** (or **Jellyfin**) → enable, then set the listen address (this host),
    the port clients will use (defaults `32400` / `8096`), and the application’s LAN address
    and port.
-2. Optional source CIDRs and a maximum concurrent connection count.
+2. Optional allowed sources — a single IP, a CIDR, or several separated by commas — and a maximum concurrent connection count. Leave it empty to allow any source.
 3. **Save and apply** binds the port immediately — no restart with `network_mode: host`.
 4. Forward the same port on the router, **DNAT only, no SNAT**.
 5. In the application:
@@ -495,6 +498,22 @@ With the systemd install, use
 `sudo systemctl restart wafproxy` in place of the container commands above; the data lives in
 `/var/lib/wafproxy`.
 
+## Statistics and uptime
+
+**Statistics** answers “what happened in this period?” without reading the event log row by
+row. Pick a from/to date (or use **Today** / **Last 7 days**) and it shows total, successful and
+blocked requests, an hourly traffic chart, request and byte share per proxy, visitor countries,
+and the stages that produced the events. Country names and flags come from the browser's
+ISO-3166 list. Counts are approximate at very high traffic because allowed requests above the
+sampling threshold are recorded as a sample.
+
+The same page runs the uptime monitor. Every enabled upstream is probed with an HTTP `HEAD`
+request every 30 seconds (5-second timeout). A response below 500 counts as up; a connection
+failure, timeout or 5xx counts as down. Each proxy shows its aggregate state and each backend
+shows state, latency, status code, last check, error and 24-hour uptime. A transition to down
+or back to up is sent immediately to whichever notification channels have **Backend up/down**
+enabled. The probe state is kept in memory and resets when the service restarts.
+
 ## Security model and limitations
 
 These are deliberate design decisions, not gaps to discover later:
@@ -527,7 +546,7 @@ These are deliberate design decisions, not gaps to discover later:
   requests them.
 - **Streaming traffic is a byte relay**, not an inspected proxy — see above.
 - **One administrator account.** There are no multi-user roles.
-- Not included in 1.2.0 (tracked in [PLAN.md](PLAN.md) §13): AbuseIPDB enrichment, tarpit,
+- Not included in 1.3.0 (tracked in [PLAN.md](PLAN.md) §13): AbuseIPDB enrichment, tarpit,
   HTTP basic auth/mTLS per site, brotli, per-site bandwidth history, encrypted backup
   archives, HTTP/3, HA and multi-user roles.
 

@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import Globe from "../components/Globe";
-import { Card, Empty, fmtAgo, fmtBps, fmtBytes } from "../ui";
-import { Event, GlobePoint, Metrics } from "../types";
+import { Badge, Card, Empty, fmtAgo, fmtBps, fmtBytes } from "../ui";
+import { Event, GlobePoint, Metrics, Proxy } from "../types";
+
+type Rate = { requests: number; bytesIn: number; bytesOut: number };
 
 function Spark({ values, color }: { values: number[]; color: string }) {
   const max = Math.max(1, ...values);
@@ -24,7 +26,38 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [points, setPoints] = useState<GlobePoint[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
+  const [proxies, setProxies] = useState<Proxy[]>([]);
+  const [rates, setRates] = useState<Record<string, Rate>>({});
+  const [hours, setHours] = useState(1);
   const [connected, setConnected] = useState(false);
+  const previous = useRef<{ at: number; proxies: Metrics["proxies"] } | null>(null);
+  const hoursRef = useRef(hours);
+  hoursRef.current = hours;
+
+  // Rates are derived from the cumulative counters that arrive every second.
+  // Keeping the previous frame in a ref avoids a second server-side counter.
+  const applyMetrics = useCallback((m: Metrics) => {
+    const at = Date.now();
+    const prev = previous.current;
+    if (prev) {
+      const dt = (at - prev.at) / 1000;
+      if (dt >= 0.2 && dt <= 30) {
+        const next: Record<string, Rate> = {};
+        for (const [id, c] of Object.entries(m.proxies || {})) {
+          const before = prev.proxies[id];
+          next[id] = {
+            requests: before ? Math.max(0, (c.requests - before.requests) / dt) : 0,
+            bytesIn: before ? Math.max(0, (c.bytes_in - before.bytes_in) / dt) : 0,
+            bytesOut: before ? Math.max(0, (c.bytes_out - before.bytes_out) / dt) : 0,
+          };
+        }
+        setRates(next);
+      }
+    }
+    previous.current = { at, proxies: m.proxies || {} };
+    setMetrics(m);
+    setConnected(true);
+  }, []);
 
   useEffect(() => {
     const es = new EventSource("/api/stream");
@@ -32,13 +65,13 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
     es.addEventListener("error", () => setConnected(false));
     es.addEventListener("metrics", (ev) => {
       try {
-        setMetrics(JSON.parse((ev as MessageEvent).data));
-        setConnected(true);
+        applyMetrics(JSON.parse((ev as MessageEvent).data));
       } catch {
         /* ignore malformed frame */
       }
     });
     es.addEventListener("globe", (ev) => {
+      if (hoursRef.current !== 1) return;
       try {
         setPoints(JSON.parse((ev as MessageEvent).data));
       } catch {
@@ -46,7 +79,7 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
       }
     });
     return () => es.close();
-  }, []);
+  }, [applyMetrics]);
 
   // Paint once from the REST endpoints: the first SSE frame is up to a second
   // away, and a blocked EventSource (an extension or proxy) would otherwise
@@ -54,13 +87,30 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
   useEffect(() => {
     api
       .get<Metrics>("/api/metrics")
-      .then((m) => setMetrics((cur) => cur ?? m))
+      .then((m) => {
+        if (!previous.current) applyMetrics(m);
+      })
       .catch(() => undefined);
-    api
-      .get<GlobePoint[]>("/api/globe")
-      .then((p) => setPoints((cur) => (cur.length ? cur : p || [])))
-      .catch(() => undefined);
-  }, []);
+    api.get<Proxy[]>("/api/proxies").then(setProxies).catch(() => undefined);
+  }, [applyMetrics]);
+
+  // The SSE globe feed is one hour; longer ranges are fetched on a slower poll
+  // so the database query stays cheap while the user explores the history.
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api
+        .get<GlobePoint[]>(`/api/globe?hours=${hours}`)
+        .then((p) => alive && setPoints(p || []))
+        .catch(() => undefined);
+    load();
+    if (hours === 1) return () => { alive = false; };
+    const t = setInterval(load, 15000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [hours]);
 
   useEffect(() => {
     let alive = true;
@@ -92,6 +142,13 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
 
   const wanRx = metrics?.history.map((h) => h.wan_rx) ?? [];
   const wanTx = metrics?.history.map((h) => h.wan_tx) ?? [];
+
+  const proxyRows = useMemo(() => {
+    const names = new Map(proxies.map((p) => [String(p.id), p.hostname]));
+    return Object.entries(metrics?.proxies ?? {})
+      .map(([id, c]) => ({ id, host: names.get(id) || `proxy #${id}`, ...c, rate: rates[id] }))
+      .sort((a, b) => b.requests - a.requests);
+  }, [metrics, proxies, rates]);
 
   const topSources = useMemo(() => {
     const map = new Map<string, { count: number; country: string }>();
@@ -142,8 +199,66 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
         </Card>
       </div>
 
+      <Card
+        title="Proxy traffic"
+        actions={<span className="muted" style={{ fontSize: 11 }}>live rates over the last second</span>}
+      >
+        {proxyRows.length === 0 ? (
+          <Empty>No requests since the service started.</Empty>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Proxy</th>
+                  <th className="num">Requests</th>
+                  <th className="num">Req/s</th>
+                  <th className="num">Inbound</th>
+                  <th className="num">Outbound</th>
+                  <th className="num">Blocked</th>
+                  <th className="num">Total traffic</th>
+                </tr>
+              </thead>
+              <tbody>
+                {proxyRows.map((p, i) => (
+                  <tr key={p.id}>
+                    <td>
+                      <span>{p.host}</span>{" "}
+                      {i === 0 && <Badge tone="info">most used</Badge>}
+                    </td>
+                    <td className="num">{p.requests.toLocaleString()}</td>
+                    <td className="num">{p.rate ? p.rate.requests.toFixed(1) : "—"}</td>
+                    <td className="num">{p.rate ? fmtBps(p.rate.bytesIn) : "—"}</td>
+                    <td className="num">{p.rate ? fmtBps(p.rate.bytesOut) : "—"}</td>
+                    <td className="num">{p.blocked.toLocaleString()}</td>
+                    <td className="num">{fmtBytes(p.bytes_in + p.bytes_out)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
       <div className="split">
-        <Card title="Live attacks" actions={<span className={`badge ${connected ? "ok" : "warn"}`}>{connected ? "live" : "reconnecting"}</span>}>
+        <Card
+          title="Live attacks"
+          actions={
+            <div className="row" style={{ gap: 6 }}>
+              {[1, 6, 24].map((h) => (
+                <button
+                  key={h}
+                  className={`small ${hours === h ? "primary" : ""}`}
+                  onClick={() => setHours(h)}
+                  aria-pressed={hours === h}
+                >
+                  {h}h
+                </button>
+              ))}
+              <span className={`badge ${connected ? "ok" : "warn"}`}>{connected ? "live" : "reconnecting"}</span>
+            </div>
+          }
+        >
           <Globe points={points} home={home} />
           <div className="grid cols-2 mt">
             <div>

@@ -35,6 +35,7 @@ var EventKinds = []EventKind{
 	{Kind: "permanent_ban", Label: "Permanent ban"},
 	{Kind: "gate", Label: "Access gate lockout"},
 	{Kind: "cert", Label: "Certificate expiry"},
+	{Kind: "uptime", Label: "Backend up/down"},
 }
 
 // Manager owns channel configuration and delivery.

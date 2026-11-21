@@ -11,6 +11,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.3.0] — 2026-11-21
+
+### Added
+
+- **Statistical analysis.** A new Statistics page aggregates a selected date range into total,
+  successful and blocked requests, hourly traffic, per-proxy request and byte shares, visitor
+  countries and request stages, with Today and Last 7 days shortcuts.
+- **Uptime monitoring.** Enabled upstreams are probed with an HTTP HEAD every 30 seconds. The
+  page shows aggregate proxy state, per-backend latency, status code, error and 24-hour uptime,
+  and sends backend down/recovery transitions to the notification channels that enable the new
+  **Backend up/down** event.
+- **Per-proxy live traffic.** The dashboard ranks proxies by requests and shows live req/s plus
+  inbound and outbound bps derived from the cumulative counters, alongside cumulative bytes and
+  blocked requests.
+- **Richer attack globe.** The globe now has 1 h / 6 h / 24 h history, a coarse world map,
+  clickable WAF/DoS/ban/feed filters with counts, travelling arc pulses and a reduced-motion-safe
+  matrix-style background.
+- **Country picker.** Country allow/block policies use a complete ISO-3166 dropdown with flags
+  and names, plus an explicit Allow or Block action instead of a free-text country code. A
+  country allow list is now exclusive: countries not on it are blocked, while an explicit IP
+  allow list still wins. With no GeoIP country the allow list fails closed.
+- **Multiple streaming sources.** The Streaming allow list accepts one IP, a CIDR, or a
+  comma-separated mix, with an empty list still meaning any source; matching remains
+  any-of and the existing connection cap and ban engine apply.
+
 ## [1.2.0] — 2026-11-21
 
 ### Added

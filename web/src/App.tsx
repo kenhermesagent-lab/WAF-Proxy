@@ -4,6 +4,7 @@ import { api, setCSRF } from "./api";
 import { errText } from "./ui";
 import { Me, SetupStatus } from "./types";
 import Dashboard from "./pages/Dashboard";
+import Statistics from "./pages/Statistics";
 import Proxies from "./pages/Proxies";
 import Streaming from "./pages/Streaming";
 import UpdatesPage from "./pages/Updates";
@@ -24,6 +25,7 @@ type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "◎" },
+  { id: "statistics", label: "Statistics", icon: "▤" },
   { id: "proxies", label: "Proxies", icon: "⇄" },
   { id: "streaming", label: "Streaming", icon: "▶" },
   { id: "updates", label: "Updates", icon: "⇪" },
@@ -195,6 +197,7 @@ export default function App() {
         </div>
         <div className="content">
           {page === "dashboard" && <Dashboard onError={notify} home={home} />}
+          {page === "statistics" && <Statistics onError={notify} />}
           {page === "proxies" && <Proxies onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
           {page === "streaming" && <Streaming onError={notify} onOK={notify} />}
           {page === "updates" && <UpdatesPage onError={notify} onOK={notify} />}

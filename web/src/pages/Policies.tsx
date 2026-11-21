@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { COUNTRIES, countryFlag, countryName } from "../countries";
 import { Badge, Card, Empty, Field, Modal, errText, fmtAgo } from "../ui";
 import { Ban, Policy, Profile, Proxy } from "../types";
 
@@ -24,7 +25,15 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   const [showAll, setShowAll] = useState(false);
 
   const [ban, setBan] = useState({ cidr: "", reason: "", permanent: false, ttl_seconds: 86400 });
-  const [pol, setPol] = useState({ kind: "country_blacklist", value: "", scope: "global", proxy_id: "", note: "" });
+  const [pol, setPol] = useState({
+    kind: "country_blacklist",
+    value: "",
+    action: "block",
+    scope: "global",
+    proxy_id: "",
+    note: "",
+  });
+  const isCountry = pol.kind === "country_whitelist" || pol.kind === "country_blacklist";
 
   const load = () => {
     api
@@ -83,7 +92,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
         scope: pol.scope,
         proxy_id: pol.scope === "proxy" && pol.proxy_id ? Number(pol.proxy_id) : null,
         note: pol.note,
-        action: "block",
+        action: pol.action,
         enabled: true,
       });
       setPol({ ...pol, value: "", note: "" });
@@ -257,17 +266,55 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           <Card title="Add policy">
             <div className="row grow">
               <Field label="Type">
-                <select value={pol.kind} onChange={(e) => setPol({ ...pol, kind: e.target.value })}>
+                <select
+                  value={pol.kind}
+                  onChange={(e) => {
+                    const kind = e.target.value;
+                    setPol({
+                      ...pol,
+                      kind,
+                      value: "",
+                      action: kind === "country_whitelist" ? "allow" : "block",
+                    });
+                  }}
+                >
                   {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
               </Field>
-              <Field label="Value">
-                <input
-                  value={pol.value}
-                  onChange={(e) => setPol({ ...pol, value: e.target.value })}
-                  placeholder={pol.kind === "country_blacklist" ? "RU,CN,KP" : pol.kind === "rate_limit" ? "40/80" : pol.kind === "asn_block" ? "16509,8075" : "/.env,/wp-login.php"}
-                />
+              <Field label={isCountry ? "Country" : "Value"}>
+                {isCountry ? (
+                  <select value={pol.value} onChange={(e) => setPol({ ...pol, value: e.target.value })}>
+                    <option value="">Select a country…</option>
+                    {COUNTRIES.map((c) => (
+                      <option key={c.code} value={c.code}>{countryFlag(c.code)} {c.name} ({c.code})</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={pol.value}
+                    onChange={(e) => setPol({ ...pol, value: e.target.value })}
+                    placeholder={pol.kind === "rate_limit" ? "40/80" : pol.kind === "asn_block" ? "16509,8075" : "/.env,/wp-login.php"}
+                  />
+                )}
               </Field>
+              {isCountry && (
+                <Field label="Action">
+                  <select
+                    value={pol.action}
+                    onChange={(e) => {
+                      const action = e.target.value;
+                      setPol({
+                        ...pol,
+                        action,
+                        kind: action === "allow" ? "country_whitelist" : "country_blacklist",
+                      });
+                    }}
+                  >
+                    <option value="allow">Allow</option>
+                    <option value="block">Block</option>
+                  </select>
+                </Field>
+              )}
               <Field label="Scope">
                 <select value={pol.scope} onChange={(e) => setPol({ ...pol, scope: e.target.value })}>
                   <option value="global">Global</option>
@@ -285,20 +332,27 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
               <button className="primary" style={{ marginTop: 18 }} onClick={addPolicy}>Add</button>
             </div>
             <p className="muted" style={{ fontSize: 12 }}>
-              Country codes are ISO-3166 alpha-2. Rate limits use <code>requests-per-second/burst</code>. Decoy paths trigger an
-              instant permanent ban, so only list paths no legitimate visitor requests.
+              Country codes are ISO-3166 alpha-2. A country allow list is exclusive: once it names any country,
+              traffic from every other country is blocked (an explicit IP allow list still wins). Rate limits use
+              <code>requests-per-second/burst</code>. Decoy paths trigger an instant permanent ban, so only list paths
+              no legitimate visitor requests.
             </p>
           </Card>
 
           <Card title="Policies">
             {policies.length === 0 ? <Empty>No policies yet.</Empty> : (
               <table>
-                <thead><tr><th>Type</th><th>Value</th><th>Scope</th><th>State</th><th /></tr></thead>
+                <thead><tr><th>Type</th><th>Value</th><th>Effect</th><th>Scope</th><th>State</th><th /></tr></thead>
                 <tbody>
                   {policies.map((p) => (
                     <tr key={p.id}>
                       <td>{KINDS[p.kind] ?? p.kind}</td>
-                      <td className="mono">{p.value}</td>
+                      <td className="mono">
+                        {p.kind === "country_whitelist" || p.kind === "country_blacklist"
+                          ? `${countryFlag(p.value)} ${countryName(p.value)} (${p.value})`
+                          : p.value}
+                      </td>
+                      <td><Badge tone={p.kind === "country_whitelist" || p.action === "allow" ? "ok" : "bad"}>{p.kind === "country_whitelist" || p.action === "allow" ? "allow" : "block"}</Badge></td>
                       <td className="muted">{p.scope === "proxy" ? proxies.find((x) => x.id === p.proxy_id)?.hostname ?? `#${p.proxy_id}` : "global"}</td>
                       <td>{p.enabled ? <Badge tone="ok">on</Badge> : <Badge tone="warn">off</Badge>}</td>
                       <td className="right" style={{ whiteSpace: "nowrap" }}>
