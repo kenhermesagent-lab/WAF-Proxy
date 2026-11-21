@@ -338,9 +338,15 @@ On a native install the console can do this for you. Open **CrowdSec → Automat
 click **Install and configure CrowdSec**. The root helper installs the engine from the CrowdSec
 repository, adds `crowdsecurity/nginx`, writes `/etc/crowdsec/acquis.d/wafproxy.yaml` pointing
 at `/var/log/wafproxy/access.log`, adds the `crowdsec` user to the `wafproxy` group so it can
-read the log, creates the bouncer key and enables the bouncer with it. It prints the progress
-in the page; nothing restarts the console. Then paste the enrollment key from app.crowdsec.net
-under **Link to your CrowdSec account**. Re-running the installer recreates the bouncer key.
+read the log, creates the bouncer key, writes the engine's LAPI URL and that key into the console
+and enables the bouncer. There is nothing to paste: the installer chooses the key, so **Bouncer
+configuration** already shows it saved, and the page reports progress while it runs. Re-running
+the installer creates a fresh key and replaces the saved one.
+
+The only manual step is linking the engine to a CrowdSec account under **CrowdSec Cloud**:
+app.crowdsec.net → **Security Engines** → **Add security engine**, paste the enrollment key into
+the page, then accept the pending engine in the console and run
+`sudo systemctl restart crowdsec` on the host. `cscli console status` shows the result.
 
 The button needs the privileged helper (`wafproxy-updates.service`) that `deploy/install.sh`
 installs; without it the page explains that and stays read-only. It is hidden inside a

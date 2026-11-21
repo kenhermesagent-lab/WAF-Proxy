@@ -161,8 +161,9 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
             <>
               <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
                 Installs the Security Engine from the CrowdSec repository, adds the nginx collection, points
-                its acquisition at the WAF access log, creates the bouncer key and enables the bouncer here.
-                Nothing else is needed except enrolling the engine in your CrowdSec account.
+                its acquisition at the WAF access log, then writes the LAPI URL and a fresh bouncer key into
+                this page and enables the bouncer. There is no key to copy: the only remaining step is
+                linking the engine to your CrowdSec account below, which is optional.
               </p>
               <div className="row" style={{ gap: 8 }}>
                 <button className="primary" onClick={install} disabled={inst.running}>
@@ -201,32 +202,57 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
         </Card>
       )}
 
-      {inst?.installed && !inst.container && !inst.console_enrolled && (
-        <Card title="Link to your CrowdSec account">
-          <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
-            In app.crowdsec.net open Security Engines → Add engine and copy the enrollment key. Enrolling
-            sends this engine's scenarios and decisions to your account.
-          </p>
-          <div className="row grow">
-            <Field label="Enrollment key">
-              <input
-                type="password"
-                value={enrollKey}
-                onChange={(e) => setEnrollKey(e.target.value)}
-                placeholder="paste the key from the CrowdSec console"
-                autoComplete="off"
-              />
-            </Field>
-          </div>
-          <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button
-              className="primary"
-              onClick={enroll}
-              disabled={enrolling || enrollKey.trim().length < 16}
-            >
-              {enrolling ? "Enrolling…" : "Enroll engine"}
-            </button>
-          </div>
+      {inst?.installed && !inst.container && (
+        <Card
+          title="CrowdSec Cloud (optional)"
+          actions={
+            inst.console_enrolled ? <Badge tone="ok">enrollment sent</Badge> : <Badge>not linked</Badge>
+          }
+        >
+          {inst.console_enrolled ? (
+            <p className="muted" style={{ fontSize: 12, lineHeight: 1.7, marginTop: 0 }}>
+              This engine is enrolled. If app.crowdsec.net → Security Engines still shows it as pending,
+              accept it there, then run <code>sudo systemctl restart crowdsec</code> on this host so it picks
+              up the console settings. <code>cscli console status</code> prints the current state.
+            </p>
+          ) : (
+            <>
+              <p className="muted" style={{ fontSize: 12, lineHeight: 1.7, marginTop: 0 }}>
+                Linking uploads this engine's alerts to your account and lets the console push blocklists
+                back. The bouncer is already configured, so this is the only manual step.
+              </p>
+              <ol className="muted" style={{ fontSize: 12, lineHeight: 1.8, paddingLeft: 18, marginTop: 0 }}>
+                <li>Open app.crowdsec.net and sign in, or create a free account.</li>
+                <li>Go to <strong>Security Engines</strong> → <strong>Add security engine</strong>.</li>
+                <li>Copy the enrollment key it shows.</li>
+                <li>Paste it below and choose <strong>Enroll engine</strong>.</li>
+                <li>
+                  Accept the pending engine in the console, then run{" "}
+                  <code>sudo systemctl restart crowdsec</code> on this host.
+                </li>
+              </ol>
+              <div className="row grow">
+                <Field label="Enrollment key">
+                  <input
+                    type="password"
+                    value={enrollKey}
+                    onChange={(e) => setEnrollKey(e.target.value)}
+                    placeholder="paste the key from app.crowdsec.net"
+                    autoComplete="off"
+                  />
+                </Field>
+              </div>
+              <div className="row" style={{ justifyContent: "flex-end" }}>
+                <button
+                  className="primary"
+                  onClick={enroll}
+                  disabled={enrolling || enrollKey.trim().length < 16}
+                >
+                  {enrolling ? "Enrolling…" : "Enroll engine"}
+                </button>
+              </div>
+            </>
+          )}
         </Card>
       )}
 

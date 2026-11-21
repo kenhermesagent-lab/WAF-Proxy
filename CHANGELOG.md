@@ -11,6 +11,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.3.4] — 2026-11-21
+
+### Fixed
+
+- **CrowdSec install no longer fails at the bouncer step.** The installer generates the key itself
+  and passes it to `cscli bouncers add --key` instead of reading the key back from the command's
+  output, which newer engines leave empty — the install used to abort with "cannot read the bouncer
+  key from cscli" after the engine was already running. Releases without `--key` still fall back to
+  parsing their output.
+
+### Changed
+
+- **Linking to CrowdSec Cloud is the only manual step, and it is documented in the page.** The
+  installer already fills in the LAPI URL and bouncer key by itself; the CrowdSec page now walks
+  through app.crowdsec.net → Security Engines → Add engine → enrol → accept →
+  `systemctl restart crowdsec`, and keeps that guidance visible after enrolment.
+
 ## [1.3.3] — 2026-11-21
 
 ### Changed

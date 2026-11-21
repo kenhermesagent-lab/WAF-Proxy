@@ -5,14 +5,15 @@
 #
 # It installs the Security Engine from the official CrowdSec repository, adds
 # the nginx collection, points acquisition at the WAF access log (which is
-# written in nginx combined format), creates the bouncer key, and prints it:
+# written in nginx combined format), creates the bouncer key, and prints:
 #
 #   WAFPROXY_LAPI=http://127.0.0.1:8080
 #   WAFPROXY_KEY=<bouncer key>
 #
-# The console seals that key in its database and enables the bouncer, so the
-# only thing left for the operator is enrolling the engine in their CrowdSec
-# account (`cscli console enroll <key>`, offered on the same page).
+# The console seals that key in its database and enables the bouncer, so there
+# is nothing to copy: the installer fills in the LAPI URL and the key itself.
+# The only thing left for the operator is linking the engine to their CrowdSec
+# account (`cscli console enroll <key>`), offered on the same page.
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
@@ -75,16 +76,32 @@ for _ in $(seq 1 30); do
 done
 
 step "creating the bouncer key"
-cscli bouncers delete wafproxy --ignore-missing >/dev/null 2>&1 || true
-bouncer_out="$(cscli bouncers add wafproxy -o raw 2>&1 || true)"
-key="$(printf '%s\n' "$bouncer_out" | tail -n 1 | tr -d '[:space:]')"
-if [[ ! $key =~ ^[A-Za-z0-9_-]{16,128}$ ]]; then
-  # Older releases print "Api key for 'wafproxy': <key>" instead.
-  key="$(printf '%s\n' "$bouncer_out" \
-    | sed -n "s/.*Api key for '[^']*': *//p" \
-    | tail -n 1 | tr -d '[:space:]')"
+cscli bouncers delete wafproxy >/dev/null 2>&1 || true
+
+# Choose the key here and hand it to cscli, instead of reading it back from the
+# command's output: the printed format changes between releases and may be
+# empty, which used to abort the whole install after the engine was ready.
+key=""
+if command -v openssl >/dev/null 2>&1; then
+  key="$(openssl rand -hex 16)"
+else
+  key="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 fi
-[[ $key =~ ^[A-Za-z0-9_-]{16,128}$ ]] || die "cannot read the bouncer key from cscli: $bouncer_out"
+[[ $key =~ ^[A-Za-z0-9_-]{16,128}$ ]] || die "cannot generate a bouncer key"
+
+if ! create_out="$(cscli bouncers add wafproxy --key "$key" 2>&1)"; then
+  # Releases without --key print the key instead; read it as a fallback.
+  step "cscli did not accept a supplied key, reading its generated one"
+  cscli bouncers delete wafproxy >/dev/null 2>&1 || true
+  create_out="$(cscli bouncers add wafproxy -o raw 2>&1 || true)"
+  key="$(printf '%s\n' "$create_out" | tail -n 1 | tr -d '[:space:]')"
+  if [[ ! $key =~ ^[A-Za-z0-9_-]{16,128}$ ]]; then
+    key="$(printf '%s\n' "$create_out" \
+      | sed -n "s/.*Api key for '[^']*': *//p" \
+      | tail -n 1 | tr -d '[:space:]')"
+  fi
+  [[ $key =~ ^[A-Za-z0-9_-]{16,128}$ ]] || die "cannot create a bouncer key: $create_out"
+fi
 
 # Report the listen address the engine actually uses, so a customised LAPI is
 # still written back to the console correctly.
