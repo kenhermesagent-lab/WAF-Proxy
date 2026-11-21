@@ -47,6 +47,16 @@ export interface UpdatesSnapshot {
   app_commit: string;
   app_build_date: string;
   go_version: string;
+  app_update_available: boolean;
+  app_remote_version?: string;
+  app_remote_commit?: string;
+  app_remote_date?: string;
+  app_remote_url?: string;
+  app_remote_branch?: string;
+  app_update_error?: string;
+  app_update_supported: boolean;
+  app_update_reason?: string;
+  app_updating: boolean;
 }
 
 export interface TailscaleStatus {
@@ -158,10 +168,25 @@ export interface Feed {
   interval_s: number;
   enabled: boolean;
   builtin: boolean;
+  local?: boolean;
+  filename?: string;
   last_fetch?: string | null;
   last_count: number;
   state: string;
   last_error?: string;
+}
+
+export interface GeoIPStatus {
+  available: boolean;
+  city: boolean;
+  asn: boolean;
+  city_path?: string;
+  asn_path?: string;
+  city_updated?: string;
+  asn_updated?: string;
+  installing: boolean;
+  last_error?: string;
+  attribution: string;
 }
 
 export interface Cert {
@@ -286,6 +311,12 @@ export interface CrowdSecStatus {
   last_poll?: string;
   last_error?: string;
   applied: number;
+  config?: {
+    enabled: boolean;
+    url: string;
+    key_set: boolean;
+    attribution?: string;
+  };
 }
 
 export interface MCPToken {

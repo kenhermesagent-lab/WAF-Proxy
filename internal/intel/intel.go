@@ -5,12 +5,14 @@ package intel
 import (
 	"bufio"
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -156,14 +158,20 @@ func (m *Manager) refreshOne(ctx context.Context, id int64) {
 	var feed *storeFeed
 	for _, f := range feeds {
 		if f.ID == id {
-			feed = &storeFeed{f.Name, f.URL, f.Action, f.ETag, f.LastModified, f.LastCount, f.State}
+			feed = &storeFeed{name: f.Name, url: f.URL, action: f.Action, localPath: f.LocalPath,
+				etag: f.ETag, lastModified: f.LastModified, lastCount: f.LastCount, state: f.State}
 			break
 		}
 	}
-	if feed == nil || feed.url == "" {
+	if feed == nil || (feed.url == "" && feed.localPath == "") {
 		return
 	}
-	count, err := m.fetch(ctx, id, feed)
+	var count int
+	if feed.localPath != "" {
+		count, err = m.refreshLocal(id, feed)
+	} else {
+		count, err = m.fetch(ctx, id, feed)
+	}
 	if err != nil {
 		_ = m.st.UpdateFeedFetch(id, feed.etag, feed.lastModified, feed.lastCount, "error", err.Error())
 		m.log.Warn("feed refresh failed", "feed", feed.name, "err", err)
@@ -173,9 +181,10 @@ func (m *Manager) refreshOne(ctx context.Context, id int64) {
 }
 
 type storeFeed struct {
-	name, url, action, etag, lastModified string
-	lastCount                             int
-	state                                 string
+	name, url, action, localPath string
+	etag, lastModified           string
+	lastCount                    int
+	state                        string
 }
 
 func (m *Manager) fetch(ctx context.Context, id int64, f *storeFeed) (int, error) {
@@ -207,18 +216,46 @@ func (m *Manager) fetch(ctx context.Context, id int64, f *storeFeed) (int, error
 		return 0, fmt.Errorf("http %d", resp.StatusCode)
 	}
 
-	prefixes, err := parseReader(io.LimitReader(resp.Body, m.maxBytes))
+	prefixes, err := Parse(io.LimitReader(resp.Body, m.maxBytes))
 	if err != nil {
 		return 0, err
 	}
+	count, err := m.applyPrefixes(id, f, prefixes)
+	if err != nil {
+		return 0, err
+	}
+	if et := resp.Header.Get("ETag"); et != "" {
+		f.etag = et
+	}
+	if lm := resp.Header.Get("Last-Modified"); lm != "" {
+		f.lastModified = lm
+	}
+	return count, nil
+}
+
+// refreshLocal reads an uploaded blocklist from the data directory. It never
+// accepts a path from a request; the path is stored when the file is created.
+func (m *Manager) refreshLocal(id int64, f *storeFeed) (int, error) {
+	file, err := os.Open(f.localPath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	prefixes, err := Parse(io.LimitReader(file, m.maxBytes))
+	if err != nil {
+		return 0, err
+	}
+	return m.applyPrefixes(id, f, prefixes)
+}
+
+func (m *Manager) applyPrefixes(id int64, f *storeFeed, prefixes []netip.Prefix) (int, error) {
 	if len(prefixes) == 0 {
 		return 0, errors.New("feed contained no usable entries")
 	}
 
 	// Guardrail: a sudden order-of-magnitude growth is treated as poisoning.
 	if f.lastCount > 1000 && len(prefixes) > f.lastCount*5 {
-		_ = m.st.UpdateFeedFetch(id, resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"),
-			f.lastCount, "frozen", "size spike: refusing to apply")
+		_ = m.st.UpdateFeedFetch(id, f.etag, f.lastModified, f.lastCount, "frozen", "size spike: refusing to apply")
 		m.log.Error("feed frozen after size spike", "feed", f.name, "previous", f.lastCount, "new", len(prefixes))
 		return f.lastCount, nil
 	}
@@ -233,13 +270,6 @@ func (m *Manager) fetch(ctx context.Context, id int64, f *storeFeed) (int, error
 	m.mu.Lock()
 	m.feeds[id] = &feedSet{meta: entry, count: len(agg), set: set}
 	m.mu.Unlock()
-
-	if et := resp.Header.Get("ETag"); et != "" {
-		f.etag = et
-	}
-	if lm := resp.Header.Get("Last-Modified"); lm != "" {
-		f.lastModified = lm
-	}
 	return len(agg), nil
 }
 
@@ -362,13 +392,18 @@ func (m *Manager) Refresh(ctx context.Context, id int64) {
 	m.rebuild()
 }
 
-// parseReader extracts prefixes from common feed formats.
-func parseReader(r io.Reader) ([]netip.Prefix, error) {
+// Parse extracts prefixes from common text feed formats.
+func Parse(r io.Reader) ([]netip.Prefix, error) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	out := make([]netip.Prefix, 0, 65536)
+	first := true
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
+		if first {
+			line = strings.TrimPrefix(line, "\ufeff")
+			first = false
+		}
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
@@ -379,18 +414,75 @@ func parseReader(r io.Reader) ([]netip.Prefix, error) {
 		if len(fields) == 0 {
 			continue
 		}
-		if p, err := netmatch.ParsePrefix(fields[0]); err == nil {
+		// DShield "start end netmask" format must be checked before parsing the
+		// first field as a single address, or its start IP becomes a /32.
+		if len(fields) >= 3 {
+			if _, err := netip.ParseAddr(fields[1]); err == nil {
+				if p, ok := dshield(fields[0], fields[2]); ok {
+					out = append(out, p)
+					continue
+				}
+			}
+		}
+		if p, err := netmatch.ParsePrefix(strings.Trim(fields[0], `"'`)); err == nil {
 			out = append(out, p)
 			continue
 		}
-		// DShield "start end netmask" format.
-		if len(fields) >= 3 {
-			if p, ok := dshield(fields[0], fields[2]); ok {
+	}
+	return out, sc.Err()
+}
+
+// ParseCSV extracts the first IP or CIDR from each CSV record. Uploaded lists
+// commonly put the address in a named column rather than the first one.
+func ParseCSV(r io.Reader) ([]netip.Prefix, error) {
+	cr := csv.NewReader(r)
+	cr.FieldsPerRecord = -1
+	cr.LazyQuotes = true
+	cr.TrimLeadingSpace = true
+	out := make([]netip.Prefix, 0, 65536)
+	first := true
+	for {
+		record, err := cr.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(record) == 0 {
+			continue
+		}
+		if first {
+			record[0] = strings.TrimPrefix(record[0], "\ufeff")
+			first = false
+		}
+		cell := strings.TrimSpace(record[0])
+		if cell == "" || strings.HasPrefix(cell, "#") || strings.HasPrefix(cell, ";") {
+			continue
+		}
+		// DShield rows are start,end,mask; check them before the general scan
+		// turns the start address into a /32.
+		if len(record) >= 3 {
+			if _, err := netip.ParseAddr(strings.TrimSpace(strings.Trim(record[1], `"'`))); err == nil {
+				if p, ok := dshield(strings.TrimSpace(strings.Trim(record[0], `"'`)), strings.TrimSpace(strings.Trim(record[2], `"'`))); ok {
+					out = append(out, p)
+					continue
+				}
+			}
+		}
+		for _, raw := range record {
+			value := strings.TrimSpace(raw)
+			value = strings.TrimSpace(strings.Trim(value, `"'`))
+			if value == "" || strings.HasPrefix(value, "#") || strings.HasPrefix(value, ";") {
+				continue
+			}
+			if p, err := netmatch.ParsePrefix(value); err == nil {
 				out = append(out, p)
+				break
 			}
 		}
 	}
-	return out, sc.Err()
+	return out, nil
 }
 
 func dshield(start, mask string) (netip.Prefix, bool) {

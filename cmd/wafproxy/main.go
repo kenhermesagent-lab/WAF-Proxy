@@ -249,9 +249,25 @@ func run() error {
 		notifier.Enqueue("gate", fmt.Sprintf("%s: %s — access gate (%s)", kind, ip, reason), "gate:"+ip, permanent)
 	}
 	bots := botguard.New(cfg.MasterKey, bans, st, log)
-	cs := crowdsec.New(cfg.CrowdSecURL, cfg.CrowdSecKey, bans, log)
-	if cs != nil {
-		log.Info("crowdsec bouncer enabled", "lapi", cfg.CrowdSecURL)
+	csURL, csKey := cfg.CrowdSecURL, cfg.CrowdSecKey
+	csEnabled := true
+	if raw, ok := kv["crowdsec_enabled"]; ok {
+		csEnabled = raw == "1"
+	}
+	if v := strings.TrimSpace(kv["crowdsec_url"]); v != "" {
+		csURL = v
+	}
+	if enc := kv["crowdsec_key"]; enc != "" {
+		if plain, err := box.Open(enc); err == nil {
+			csKey = plain
+		}
+	}
+	if !csEnabled {
+		csURL, csKey = "", ""
+	}
+	cs := crowdsec.New(csURL, csKey, bans, log)
+	if csURL != "" && csKey != "" {
+		log.Info("crowdsec bouncer enabled", "lapi", csURL)
 	}
 
 	pol, err := policy.New(st, bans, feeds, geo, wafs, log)

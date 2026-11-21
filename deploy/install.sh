@@ -242,6 +242,37 @@ else
   echo "warning: $helper_binary not found; the Updates page will be read-only" >&2
 fi
 
+# The helper can rebuild the checked-out repository on request. Record the
+# checkout and its owner once, as root, so a private repository's existing git
+# credentials work and the browser never supplies a URL or command.
+self_update_installed=0
+update_source="$(pwd)"
+update_user="$(stat -c '%U' "$update_source" 2>/dev/null || true)"
+if [[ "$update_user" == "root" || "$update_user" == "" ]]; then
+  update_user=""
+fi
+update_remote=""
+update_branch="main"
+if command -v git >/dev/null 2>&1; then
+  update_remote="$(git -C "$update_source" config --get remote.origin.url 2>/dev/null || true)"
+  update_branch="$(git -C "$update_source" symbolic-ref --short HEAD 2>/dev/null || echo main)"
+fi
+if [[ -n "$update_remote" && -d "$update_source/.git" && -f deploy/wafproxy-self-update.sh ]]; then
+  install -d -m 0755 /usr/local/lib/wafproxy
+  install -m 0755 deploy/wafproxy-self-update.sh /usr/local/lib/wafproxy/self-update
+  install -m 0755 deploy/wafproxy-self-update-check.sh /usr/local/lib/wafproxy/self-update-check
+  {
+    printf 'WAFPROXY_UPDATE_SOURCE_DIR=%q\n' "$update_source"
+    printf 'WAFPROXY_UPDATE_USER=%q\n' "$update_user"
+    printf 'WAFPROXY_UPDATE_BRANCH=%q\n' "$update_branch"
+    printf 'WAFPROXY_UPDATE_MODE=%q\n' "native"
+  } >/etc/wafproxy/self-update.conf
+  chmod 0644 /etc/wafproxy/self-update.conf
+  self_update_installed=1
+else
+  echo "warning: no git checkout origin found; the Updates page can check but not apply application updates" >&2
+fi
+
 if [[ ! -e /etc/wafproxy/wafproxy.env ]]; then
   install -m 0640 -o root -g wafproxy deploy/wafproxy.env.example /etc/wafproxy/wafproxy.env
   echo "installed /etc/wafproxy/wafproxy.env"
@@ -335,6 +366,7 @@ LAN interface:  $lan_iface ($lan_ip:$gui_port, admin GUI only)
 Admin access:   http://$lan_ip:$gui_port
                 Only RFC1918 clients are accepted (loopback remains allowed for local checks).
 WAN proxy:      https://$wan_ip:$wan_port
+App updates:    $([[ $self_update_installed == 1 ]] && echo "enabled from $update_source" || echo "check-only; no git checkout")
 Tailscale:      $tailscale_status
                 Enable admin/proxy access on the Tailscale page after setup.
                 Tailnet clients must be granted tcp:$wan_port, tcp:$gui_port and DNS 53 by ACL.

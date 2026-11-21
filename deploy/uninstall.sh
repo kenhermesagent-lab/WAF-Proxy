@@ -85,7 +85,7 @@ if (( !assume_yes )); then
 fi
 
 # Stop the console before the helper so no new package operation can start.
-for unit in wafproxy.service wafproxy-updates.service; do
+for unit in wafproxy.service wafproxy-updates.service wafproxy-docker-updates.service; do
   systemctl disable --now "$unit" >/dev/null 2>&1 || true
   systemctl stop "$unit" >/dev/null 2>&1 || true
 done
@@ -104,11 +104,13 @@ fi
 
 remove_path /etc/systemd/system/wafproxy.service
 remove_path /etc/systemd/system/wafproxy-updates.service
+remove_path /etc/systemd/system/wafproxy-docker-updates.service
 systemctl daemon-reload >/dev/null 2>&1 || true
-systemctl reset-failed wafproxy.service wafproxy-updates.service >/dev/null 2>&1 || true
+systemctl reset-failed wafproxy.service wafproxy-updates.service wafproxy-docker-updates.service >/dev/null 2>&1 || true
 
 remove_path /usr/local/bin/wafproxy
 remove_path /usr/local/bin/wafproxy-updated
+remove_path /usr/local/lib/wafproxy
 remove_path /run/wafproxy-updates
 
 if ((keep_data)); then

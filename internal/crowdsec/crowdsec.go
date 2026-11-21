@@ -47,19 +47,38 @@ type Manager struct {
 	lastPoll time.Time
 	lastErr  string
 	applied  int
+	startup  bool
 }
 
-// New returns nil when the bouncer is not configured.
+// New returns a manager even when the bouncer is disabled, so the console can
+// enable it later without restarting the process. A nil ban engine still yields
+// a nil manager because there is nothing to apply decisions to.
 func New(base, key string, bans *ban.Engine, log *slog.Logger) *Manager {
-	base = strings.TrimRight(strings.TrimSpace(base), "/")
-	if base == "" || key == "" || bans == nil {
+	if bans == nil {
 		return nil
 	}
 	return &Manager{
-		base: base, key: key, bans: bans, log: log,
-		client: &http.Client{Timeout: 20 * time.Second},
-		now:    time.Now,
+		base: strings.TrimRight(strings.TrimSpace(base), "/"), key: strings.TrimSpace(key),
+		bans: bans, log: log,
+		client:  &http.Client{Timeout: 20 * time.Second},
+		now:     time.Now,
+		startup: true,
 	}
+}
+
+// SetConfig changes the LAPI endpoint and bouncer key at runtime. An empty
+// endpoint or key disables polling but keeps the manager available.
+func (m *Manager) SetConfig(base, key string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.base = strings.TrimRight(strings.TrimSpace(base), "/")
+	m.key = strings.TrimSpace(key)
+	m.lastPoll = time.Time{}
+	m.lastErr = ""
+	m.startup = true
+	m.mu.Unlock()
 }
 
 // Start begins polling. It is a no-op on a nil manager.
@@ -68,12 +87,20 @@ func (m *Manager) Start(ctx context.Context) {
 		return
 	}
 	go func() {
-		startup := true
 		for {
-			if err := m.poll(ctx, startup); err != nil {
-				m.log.Warn("crowdsec poll failed", "err", err)
-			} else {
-				startup = false
+			m.mu.Lock()
+			base, key, startup := m.base, m.key, m.startup
+			m.mu.Unlock()
+			if base != "" && key != "" {
+				if err := m.poll(ctx, base, key, startup); err != nil {
+					m.log.Warn("crowdsec poll failed", "err", err)
+				} else {
+					m.mu.Lock()
+					if m.base == base && m.key == key {
+						m.startup = false
+					}
+					m.mu.Unlock()
+				}
 			}
 			select {
 			case <-ctx.Done():
@@ -87,7 +114,7 @@ func (m *Manager) Start(ctx context.Context) {
 // Status reports the last successful poll for the API.
 func (m *Manager) Status() map[string]any {
 	if m == nil {
-		return map[string]any{"configured": false}
+		return map[string]any{"configured": false, "lapi_configured": false}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -95,9 +122,48 @@ func (m *Manager) Status() map[string]any {
 	if !m.lastPoll.IsZero() {
 		lastPoll = m.lastPoll
 	}
+	lapiConfigured := m.base != ""
 	return map[string]any{
-		"configured": true, "lapi": redactURL(m.base), "mode": "stream",
+		"configured": lapiConfigured && m.key != "", "lapi_configured": lapiConfigured,
+		"lapi": redactURL(m.base), "mode": "stream",
 		"last_poll": lastPoll, "last_error": m.lastErr, "applied": m.applied,
+	}
+}
+
+// Probe verifies that the engine is reachable and that the bouncer key is
+// accepted. It reads one decision rather than the stream so a test does not
+// change the polling cursor.
+func (m *Manager) Probe(ctx context.Context, base, key string) error {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	key = strings.TrimSpace(key)
+	if base == "" || key == "" {
+		return fmt.Errorf("LAPI URL and bouncer key are required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/decisions?limit=1", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Api-Key", key)
+	req.Header.Set("Accept", "application/json")
+	var client *http.Client
+	if m != nil {
+		client = m.client
+	}
+	if client == nil {
+		client = &http.Client{Timeout: 20 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connect to CrowdSec LAPI: %w", err)
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return fmt.Errorf("the LAPI rejected the bouncer key")
+	default:
+		return fmt.Errorf("LAPI returned HTTP %d", resp.StatusCode)
 	}
 }
 
@@ -112,13 +178,13 @@ func redactURL(raw string) string {
 	return u.String()
 }
 
-func (m *Manager) poll(ctx context.Context, startup bool) error {
-	url := fmt.Sprintf("%s/v1/decisions/stream?startup=%t&scopes=Ip,Range", m.base, startup)
+func (m *Manager) poll(ctx context.Context, base, key string, startup bool) error {
+	url := fmt.Sprintf("%s/v1/decisions/stream?startup=%t&scopes=Ip,Range", base, startup)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("X-Api-Key", m.key)
+	req.Header.Set("X-Api-Key", key)
 	req.Header.Set("Accept", "application/json")
 	resp, err := m.client.Do(req)
 	if err != nil {

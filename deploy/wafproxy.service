@@ -1,8 +1,8 @@
 [Unit]
 Description=WAF-Proxy reverse proxy and admin console
 Documentation=https://github.com/kenhermesagent-lab/WAF-Proxy-Docker
-After=network-online.target nftables.service tailscaled.service
-Wants=network-online.target
+After=network-online.target nftables.service tailscaled.service wafproxy-updates.service
+Wants=network-online.target wafproxy-updates.service
 
 [Service]
 Type=simple
@@ -33,6 +33,9 @@ StateDirectoryMode=0750
 LogsDirectory=wafproxy
 LogsDirectoryMode=0750
 ProtectSystem=strict
+# The app only connects to the helper socket; this keeps /run writable enough
+# for that socket even when the helper starts after the app.
+ReadWritePaths=-/run/wafproxy-updates
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

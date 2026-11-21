@@ -18,7 +18,9 @@ Group=root
 # apt needs to write /etc, /var/lib/dpkg, /var/lib/apt and the package cache.
 # The helper itself has no network listener and accepts only the compiled
 # package allowlist over a root:wafproxy 0660 Unix socket.
-ProtectHome=yes
+# The checkout may live under /home and the recorded owner runs git pull and
+# make there, so the service must be able to write that directory.
+ProtectHome=no
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes

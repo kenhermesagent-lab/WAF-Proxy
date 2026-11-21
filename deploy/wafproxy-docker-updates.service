@@ -1,0 +1,30 @@
+[Unit]
+Description=WAF-Proxy privileged Docker application updater
+Documentation=https://github.com/kenhermesagent-lab/WAF-Proxy-Docker
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wafproxy-updated --socket /run/wafproxy-updates/updates.sock
+Environment=WAFPROXY_UPDATE_SOCKET_GID=10001
+RuntimeDirectory=wafproxy-updates
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+User=root
+Group=root
+
+# The fixed updater script talks to the Docker socket and rebuilds the compose
+# stack. It accepts no arguments from the browser. The checkout and compose env
+# file often live under /home; the recorded owner runs git pull there first.
+ProtectHome=no
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

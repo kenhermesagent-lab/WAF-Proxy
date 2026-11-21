@@ -195,6 +195,10 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 
 	for i := range in.Feeds {
 		f := in.Feeds[i]
+		if f.Local {
+			problems = append(problems, "feed "+f.Name+": local uploads are not included in backups; upload the file again")
+			continue
+		}
 		parsed, err := url.Parse(strings.TrimSpace(f.URL))
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 			problems = append(problems, "feed "+f.Name+": bad url")

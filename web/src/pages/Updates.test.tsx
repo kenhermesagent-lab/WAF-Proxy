@@ -47,10 +47,13 @@ const base = {
   ],
   helper_ready: true,
   updating: false,
-  app_version: "1.1.1",
+  app_version: "1.2.0",
   app_commit: "abc123",
   app_build_date: "2026-11-21T00:00:00Z",
   go_version: "go1.27.4",
+  app_update_available: false,
+  app_update_supported: true,
+  app_updating: false,
 };
 
 function renderPage() {
@@ -81,18 +84,23 @@ describe("Updates page", () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/updates/apply", { package: "nftables" }));
   });
 
-  it("disables host management inside a container", async () => {
+  it("checks application updates but keeps host packages read-only in a container", async () => {
     get.mockResolvedValue({
       ...base,
       available: false,
       container: true,
       reason: "Host package updates are unavailable inside a container.",
       packages: [],
+      app_update_available: true,
+      app_remote_version: "1.2.1",
+      app_remote_commit: "def4567890ab",
+      app_update_supported: true,
     });
     renderPage();
 
     expect(await screen.findByText(/unavailable inside a container/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Update application" })).toBeTruthy();
     expect(screen.getByText(/compiled into the binary/)).toBeTruthy();
   });
 });

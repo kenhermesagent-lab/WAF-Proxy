@@ -127,7 +127,7 @@ type Ban struct {
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
-// Feed is an external threat-intelligence list.
+// Feed is an external threat-intelligence list or an uploaded local blocklist.
 type Feed struct {
 	ID           int64      `json:"id"`
 	Name         string     `json:"name"`
@@ -136,6 +136,9 @@ type Feed struct {
 	IntervalS    int        `json:"interval_s"`
 	Enabled      bool       `json:"enabled"`
 	Builtin      bool       `json:"builtin"`
+	Local        bool       `json:"local"`
+	Filename     string     `json:"filename,omitempty"`
+	LocalPath    string     `json:"-"`
 	ETag         string     `json:"-"`
 	LastModified string     `json:"-"`
 	LastFetch    *time.Time `json:"last_fetch,omitempty"`

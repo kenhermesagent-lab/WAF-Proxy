@@ -72,6 +72,37 @@ func (s *Server) applyUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+func (s *Server) applyAppUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.updates == nil {
+		writeError(w, http.StatusConflict, "application updates are unavailable")
+		return
+	}
+	err := s.updates.StartAppUpdate(func() {
+		if s.restartFn == nil {
+			return
+		}
+		go func() {
+			time.Sleep(1500 * time.Millisecond)
+			s.restartFn()
+		}()
+	})
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "updates.apply_app", "application rebuild requested", clientIP(r))
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "updating"})
+}
+
+func (s *Server) getAppUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	if s.updates == nil {
+		writeError(w, http.StatusConflict, "application updates are unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.updates.AppUpdateStatus())
+}
+
 func writeUpdateError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, updatepkg.ErrUnavailable):

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
 import { Feed } from "../types";
@@ -7,6 +7,9 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [total, setTotal] = useState(0);
   const [form, setForm] = useState({ name: "", url: "", action: "block", interval_s: 900 });
+  const [uploadName, setUploadName] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const file = useRef<HTMLInputElement>(null);
 
   const load = () =>
     api
@@ -53,6 +56,29 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
     }
   };
 
+  const upload = async () => {
+    const chosen = file.current?.files?.[0];
+    if (!chosen) {
+      onError("Choose a .txt or .csv file first");
+      return;
+    }
+    setUploading(true);
+    try {
+      const body = new FormData();
+      body.append("file", chosen);
+      if (uploadName.trim()) body.append("name", uploadName.trim());
+      const r = await api.upload<{ id: number; entries: number }>("/api/feeds/upload", body);
+      onOK(`Uploaded ${r.entries.toLocaleString()} entries as a local feed`);
+      setUploadName("");
+      if (file.current) file.current.value = "";
+      setTimeout(load, 1200);
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const remove = async (f: Feed) => {
     if (!confirm(`Delete feed ${f.name}?`)) return;
     try {
@@ -76,6 +102,24 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
           <div className="stat"><div className="k">Frozen</div><div className="v">{feeds.filter((f) => f.state === "frozen").length}</div><div className="sub">guardrails held a suspicious list</div></div>
         </Card>
       </div>
+
+      <Card title="Upload local blocklist">
+        <div className="row grow">
+          <Field label="Name (optional)">
+            <input value={uploadName} onChange={(e) => setUploadName(e.target.value)} placeholder="Defaults to the file name" />
+          </Field>
+          <Field label="File (.txt or .csv, max 10 MB)">
+            <input ref={file} type="file" accept=".txt,.csv,text/plain,text/csv" />
+          </Field>
+          <button className="primary" style={{ marginTop: 18 }} onClick={upload} disabled={uploading}>
+            {uploading ? "Uploading…" : "Upload and enable"}
+          </button>
+        </div>
+        <p className="muted" style={{ fontSize: 12 }}>
+          The file is stored locally and appears in Feeds as a local list. Its action is always
+          <strong> block</strong>, so every address is dropped globally. CSV files may have the IP in any column.
+        </p>
+      </Card>
 
       <Card title="Add custom feed">
         <div className="row grow">
@@ -104,7 +148,9 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
                 <tr key={f.id}>
                   <td>
                     <div>{f.name}</div>
-                    <div className="faint mono" style={{ fontSize: 11, maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.url}</div>
+                    <div className="faint mono" style={{ fontSize: 11, maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {f.local ? `Local upload · ${f.filename || "file"}` : f.url}
+                    </div>
                   </td>
                   <td><Badge tone={f.action === "block" ? "bad" : "info"}>{f.action}</Badge></td>
                   <td className="num">{f.last_count.toLocaleString()}</td>

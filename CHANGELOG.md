@@ -11,6 +11,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.2.0] — 2026-11-21
+
+### Added
+
+- **Application updates from the console.** The Updates page compares the running build with
+  the repository checkout and offers an **Update application** button. Native installs rebuild and
+  reinstall both binaries through the existing root helper, then restart under systemd. Docker
+  Compose installs can add `deploy/install-docker-updater.sh`, which exposes the same fixed
+  socket action and rebuilds/recreates the container while keeping the data volume. The
+  browser never supplies a repository URL, branch or command; the install records the checkout
+  and its owner and the helper runs one fixed check and one fixed update script. Rebuilds run in the background and the page
+  reconnects after the service restarts.
+- **Local threat-intel uploads.** Threat intel accepts `.txt` and `.csv` files up to 10 MB,
+  stores them in the data directory, validates that they contain IPs/CIDRs and lists them as
+  local feeds. Local lists are always global blocks and can be enabled, disabled, refreshed
+  or deleted like any other feed. CSV files may put the address in any column.
+- **GeoIP installation.** Settings → GeoIP database downloads the current DB-IP Lite city and
+  ASN MMDB files, validates both before replacing either, reloads them and reports file dates.
+  DB-IP Lite is CC BY 4.0 and attributed in the console.
+- **Dedicated CrowdSec page.** The bouncer configuration is persisted in SQLite with the key
+  encrypted, can be enabled, disabled and tested at runtime, and shows poll/error/applied
+  status. The page documents the required Security Engine/LAPI, the Docker sidecar and native
+  `cscli` setup. Environment variables remain first-boot defaults.
+
+### Changed
+
+- Feed source URLs are fixed at creation; updating a feed changes only its action, interval
+  and enabled state, so a local upload cannot be redirected to a remote fetch.
+- DB-IP files installed by the console take precedence over a manually supplied GeoLite2
+  file; `GeoLite2-*` still works when no DB-IP file is present.
+
 ## [Unreleased]
 
 ### Added

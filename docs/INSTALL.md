@@ -26,9 +26,9 @@ configuration are identical; pick the one that matches how the host is managed.
   `no-new-privileges` on the container — it makes the kernel ignore those capabilities.
 - The host firewall must allow `443/tcp` to the WAN address and the GUI port on the LAN
   address.
-- Optional GeoIP: place `GeoLite2-City.mmdb` / `GeoLite2-ASN.mmdb` (or the DB-IP Lite
-  equivalents) in the data volume (`/data` in the container). Country and ASN policy is
-  reported as unavailable without them.
+- Optional GeoIP: install DB-IP Lite from **Settings → GeoIP database**, or place
+  `GeoLite2-City.mmdb` / `GeoLite2-ASN.mmdb` in the data volume (`/data` in the container).
+  Country and ASN policy is reported as unavailable without them.
 
 ## 2. Start the stack
 
@@ -140,15 +140,19 @@ curl -v https://kendk.duckdns.org/        # connection closed, no response
 
 ## 7. Optional CrowdSec
 
+The bouncer needs a CrowdSec Security Engine and its Local API. The Docker sidecar is included:
+
 ```bash
-docker compose -f deploy/docker-compose.yml --profile crowdsec up -d
+docker compose -f deploy/docker-compose.yml --profile crowdsec up -d crowdsec
 docker exec crowdsec cscli bouncers add wafproxy
-# put the key in deploy/.env as WAFPROXY_CROWDSEC_KEY, then
-docker compose -f deploy/docker-compose.yml up -d wafproxy
 ```
 
-The access log written to `/logs/access.log` is tailed by the sidecar with the stock nginx
-parser. Decisions arrive over the LAPI stream and are applied as `source=crowdsec` bans.
+Open **CrowdSec** in the console, enter `http://127.0.0.1:8081` and the printed key, then click
+**Save and apply**. The page can test the key, enable/disable the bouncer without a restart and
+shows last poll, applied decisions and the last error. The access log written to
+`/logs/access.log` is tailed by the sidecar with the stock nginx parser; decisions arrive over
+the LAPI stream and are applied as `source=crowdsec` bans. The legacy
+`WAFPROXY_CROWDSEC_URL` / `WAFPROXY_CROWDSEC_KEY` variables remain first-boot defaults.
 
 ## 8. Optional streaming (Plex, Jellyfin)
 
@@ -320,8 +324,10 @@ Check it with `sudo nft list table inet wafproxy`; **Settings** reports `active`
 process can manage it. If `nft` is missing or the capabilities were removed, the console shows
 the reason and bans fall back to the proxy layer.
 
-For GeoIP, copy `GeoLite2-City.mmdb` / `GeoLite2-ASN.mmdb` (or the DB-IP Lite equivalents) into
-`/var/lib/wafproxy`, owned by `wafproxy`, and restart.
+For GeoIP, use **Settings → GeoIP database → Install database**. It downloads and validates the
+DB-IP Lite city and ASN files into `/var/lib/wafproxy` and reloads them without a restart.
+Alternatively copy `GeoLite2-City.mmdb` / `GeoLite2-ASN.mmdb` (or the DB-IP Lite equivalents)
+into `/var/lib/wafproxy`, owned by `wafproxy`, and restart.
 
 ### 11.4 CrowdSec (optional)
 
@@ -329,12 +335,18 @@ Install CrowdSec on the same host and point it at `/var/log/wafproxy/access.log`
 nginx parser (copy `deploy/crowdsec/acquis.d/wafproxy.yaml` and change the path), then:
 
 ```bash
-cscli bouncers add wafproxy
-# put the key in /etc/wafproxy/wafproxy.env as WAFPROXY_CROWDSEC_KEY
-sudo systemctl restart wafproxy
+sudo cscli bouncers add wafproxy
+# open the CrowdSec page, enter the LAPI URL (stock default http://127.0.0.1:8080)
+# and the key, then Save and apply
 ```
 
+The page can test the key and enable/disable the bouncer without a restart. The legacy
+`WAFPROXY_CROWDSEC_URL` / `WAFPROXY_CROWDSEC_KEY` environment values remain first-boot
+defaults.
+
 ### 11.5 Upgrade, logs and uninstall
+
+Use **Updates → Update application** for the in-console rebuild, or the manual path:
 
 ```bash
 git pull
@@ -356,10 +368,11 @@ sudo ./deploy/uninstall.sh --yes
 sudo ./deploy/uninstall.sh --keep-data
 ```
 
-It stops and disables `wafproxy.service` and `wafproxy-updates.service`, removes the unit
-files and both binaries, deletes the app-owned `inet wafproxy` nftables table, and removes
-`/etc/wafproxy`, `/var/lib/wafproxy`, `/var/log/wafproxy`, the runtime helper socket and the
-`wafproxy` user/group. With `--keep-data`, the config, data, logs and user/group are kept.
+It stops and disables `wafproxy.service`, `wafproxy-updates.service` and any installed
+`wafproxy-docker-updates.service`, removes the unit files, both binaries, the updater scripts
+under `/usr/local/lib/wafproxy`, deletes the app-owned `inet wafproxy` nftables table, and
+removes `/etc/wafproxy`, `/var/lib/wafproxy`, `/var/log/wafproxy`, the runtime helper socket
+and the `wafproxy` user/group. With `--keep-data`, the config, data, logs and user/group are kept.
 
 The script intentionally does **not** remove shared OS packages (`nftables`, `ca-certificates`,
 `tzdata`), the Go toolchain, Tailscale, CrowdSec, Docker, host firewall/router rules, or the
@@ -478,11 +491,11 @@ provider; Tailscale is only the private path to the WAF.
 - No Tailscale Funnel, public exposure, subnet routing, or exit-node behavior is added. The
   feature does not install Tailscale or edit the tailnet policy.
 
-## 13. Host updates on systemd
+## 13. Application and host updates
 
-The **Updates** page is available on the native systemd deployment. It is deliberately
-read-only in Docker: packages inside the WAF-Proxy image are updated by rebuilding the image
-and recreating the container, not by changing the host from inside the container.
+The **Updates** page has an application section and a native host-package section. Applying an
+application update is available on native systemd installs and on Docker Compose installs that
+have run the optional host updater. Host-package updates remain native-only.
 
 ### 13.1 What is tracked
 
@@ -517,10 +530,20 @@ installs two pieces instead:
 - `/etc/systemd/system/wafproxy-updates.service` — the unit that starts it.
 
 The helper listens on `/run/wafproxy-updates/updates.sock` with mode `0660`, owned by
-`root:wafproxy`. It accepts only `check` (apt index refresh) and `apply` for an exact package
-from the compiled catalog. Package names are validated again by both the console and the
-helper; arbitrary package names, shell commands and options are rejected. The console still
-keeps its reduced capabilities and never runs apt itself.
+`root:wafproxy`. It accepts only `check` (apt index refresh), `apply` for an exact package from
+the compiled catalog, `app-check` and `app-update` (the fixed repository scripts). Package names are
+validated again by both the console and the helper; arbitrary package names, shell commands,
+repository URLs and options are rejected. The console still keeps its reduced capabilities
+and never runs apt or a build itself.
+
+`install.sh` records the checkout path and its owner in `/etc/wafproxy/self-update.conf` and
+installs `/usr/local/lib/wafproxy/self-update` and `self-update-check`. The check runs
+`git fetch` as the checkout owner, so private repositories use that user's existing git
+credentials; no token is stored in the console. The application action refuses a dirty
+checkout, runs `git pull --ff-only` and `make all` as the owner, installs both binaries as
+root and reloads systemd units; the console then exits so systemd starts the new build. It
+never accepts an argument from the browser, and the data directory is untouched. Only install
+from a repository you trust: the helper builds that checkout's code.
 
 ```bash
 sudo systemctl status wafproxy-updates
@@ -533,28 +556,50 @@ building to install/repair it.
 
 ### 13.3 Checking and applying
 
-1. Open **Updates** and click **Check for updates**. This asks the helper to run
-   `apt-get update`, then rebuilds the inventory.
-2. A high/critical advisory is shown with its CVE/OSV identifier and summary. The package row
-   also shows a security badge and the available version.
-3. Click **Update** on one package, confirm, and wait for apt to finish. The page refreshes and
-   shows the helper output.
+1. Open **Updates**. The application card compares the running build with `main` and offers
+   **Update application** when a newer version/commit exists.
+2. Click **Check for updates** to refresh the repository check and, on native, the apt index.
+3. Click **Update** on one host package, confirm, and wait for apt to finish. The page refreshes
+   and shows the helper output.
+4. For an application update, confirm the button and leave the page open. The rebuild runs in
+   the background; the page reconnects and reports the new commit when the service returns.
+   Docker recreates the container, so the page may briefly show connection errors while that
+   happens.
 
 Only one helper operation runs at a time. The distribution package manager remains the
 authority: if no newer candidate exists, the page reports that instead of inventing a version.
-Applying an update does not automatically restart WAF-Proxy; if the package maintainer requires
-a service restart, the package output will say so and the operator should restart the relevant
-service.
+Applying a package update does not automatically restart WAF-Proxy; an application update
+does.
 
-### 13.4 Docker
+### 13.4 Docker application updates
 
-Docker does not expose an update button for host packages. Use the normal image upgrade:
+Docker cannot run a build or access its own socket from inside the console container. Install
+the optional host updater once from the checkout, after the image has been built at least once:
 
 ```bash
-git pull
-docker compose -f deploy/docker-compose.yml build
-docker compose -f deploy/docker-compose.yml up -d
+sudo ./deploy/install-docker-updater.sh
 ```
 
-The Updates page in a container explains this limitation and shows the compiled application
-version. It never tries to run apt against the host from inside the container.
+It copies `wafproxy-updated` out of the running container, installs
+`wafproxy-docker-updates.service`, records the checkout path, its owner and `deploy/.env`,
+and starts the root helper. Compose mounts `/run/wafproxy-updates` into the console, so the
+**Update application** button then pulls the checkout as its owner, rebuilds the image with
+the new `VERSION`,
+`COMMIT` and `BUILD_DATE`, and recreates only the `wafproxy` service. The named data volume,
+crowdsec sidecar and host settings are retained.
+
+Without the updater the page still checks for a newer application build, explains the
+limitation, and shows the manual command:
+
+```bash
+git pull --ff-only
+# Keep the image tag in deploy/.env aligned with the new VERSION file.
+if grep -q '^VERSION=' deploy/.env; then
+  sed -i "s/^VERSION=.*/VERSION=$(cat VERSION)/" deploy/.env
+else
+  echo "VERSION=$(cat VERSION)" >> deploy/.env
+fi
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+Host-package buttons remain unavailable in Docker; those packages come from the rebuilt image.

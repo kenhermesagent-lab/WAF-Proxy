@@ -38,6 +38,8 @@ export default function UpdatesPage({
   const [loadError, setLoadError] = useState("");
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [appOutput, setAppOutput] = useState("");
   const [output, setOutput] = useState("");
 
   const load = () =>
@@ -61,11 +63,66 @@ export default function UpdatesPage({
     try {
       const next = await api.post<UpdatesSnapshot>("/api/updates/check");
       setSnap(next);
-      onOK("Package index refreshed");
+      onOK("Update check refreshed");
     } catch (e) {
       onError(errText(e));
     } finally {
       setChecking(false);
+    }
+  };
+
+  const waitForAppUpdate = async (target: string) => {
+    for (let i = 0; i < 240; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      let st: { updating: boolean; error?: string; output?: string };
+      try {
+        st = await api.get<{ updating: boolean; error?: string; output?: string }>("/api/updates/app");
+      } catch {
+        // Docker recreates this container; wait for the new one to listen.
+        continue;
+      }
+      if (st.output) setAppOutput(st.output);
+      if (st.updating) continue;
+      if (st.error) {
+        onError(st.error);
+        await load();
+        return;
+      }
+      if (!target) {
+        await new Promise((r) => setTimeout(r, 2000));
+        await load();
+        onOK("Update applied");
+        return;
+      }
+      try {
+        const v = await api.get<{ commit: string }>("/api/version");
+        if (v.commit && (target.startsWith(v.commit) || v.commit.startsWith(target))) {
+          await load();
+          onOK("Update applied");
+          return;
+        }
+      } catch {
+        // The service is between the old and new process.
+      }
+    }
+    onOK("Update finished; reload this page when the service is back");
+  };
+
+  const applyApp = async () => {
+    if (!snap) return;
+    if (!confirm("Pull the tracked branch, rebuild the application, then restart or recreate WAF-Proxy? The console will be unavailable for a short time.")) return;
+    setApplying(true);
+    setAppOutput("");
+    const target = (snap.app_remote_commit || "").slice(0, 12);
+    try {
+      await api.post("/api/updates/app");
+      onOK(snap.container ? "Rebuilding the image and recreating the container" : "Rebuilding; the service will restart when it finishes");
+      await waitForAppUpdate(target);
+    } catch (e) {
+      onError(errText(e));
+      await load();
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -99,14 +156,78 @@ export default function UpdatesPage({
   const security = snap.packages.filter((p) => p.security || p.status === "security" || p.status === "vulnerable");
   const updates = snap.packages.filter((p) => p.can_update || p.status === "security" || p.status === "update");
   const current = snap.packages.filter((p) => p.status === "current");
-  const busy = checking || updating !== null || snap.updating;
+  const busy = checking || updating !== null || applying || snap.updating || snap.app_updating;
 
   return (
     <div className="grid" style={{ gap: 14 }}>
       <Card
+        title="WAF-Proxy application"
+        actions={
+          snap.app_update_available && snap.app_update_supported ? (
+            <button className="small primary" onClick={applyApp} disabled={busy}>
+              {applying ? "Rebuilding and restarting…" : "Update application"}
+            </button>
+          ) : undefined
+        }
+      >
+        <div className="bar-row">
+          <div>Running</div>
+          <div className="mono">v{snap.app_version || "?"}{snap.app_commit ? ` · ${snap.app_commit}` : ""}</div>
+        </div>
+        <div className="bar-row">
+          <div>Repository {snap.app_remote_branch || "branch"}</div>
+          <div className="mono">
+            {snap.app_remote_version ? `v${snap.app_remote_version}` : "—"}
+            {snap.app_remote_commit ? ` · ${snap.app_remote_commit.slice(0, 12)}` : ""}
+          </div>
+        </div>
+        <div className="bar-row" style={{ borderBottom: 0 }}>
+          <div>Status</div>
+          <div>
+            {snap.app_update_available ? (
+              <Badge tone="warn">update available</Badge>
+            ) : snap.app_update_error ? (
+              <Badge tone="bad">check failed</Badge>
+            ) : (
+              <Badge tone="ok">up to date</Badge>
+            )}
+          </div>
+        </div>
+        {snap.app_remote_date && (
+          <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+            Latest commit {fmtAgo(snap.app_remote_date)} on {snap.app_remote_branch || "the tracked branch"}
+            {snap.app_remote_url?.startsWith("http") ? <> · <a href={snap.app_remote_url} target="_blank" rel="noreferrer">view commit</a></> : null}
+          </p>
+        )}
+        {snap.app_update_available && !snap.app_update_supported && (
+          <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
+            {snap.app_update_reason || "This deployment cannot rebuild itself."}
+            {snap.container ? (
+              <>
+                {" "}On the host run <code>git pull --ff-only</code>, then{" "}
+                <code>docker compose -f deploy/docker-compose.yml up -d --build</code>.
+              </>
+            ) : null}
+          </p>
+        )}
+        {snap.app_update_supported && snap.app_update_available && (
+          <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
+            {snap.container
+              ? "The host helper pulls the recorded checkout as its owner, rebuilds the image and recreates the wafproxy container. The named data volume is preserved."
+              : "The privileged helper pulls the installed checkout as its owner, rebuilds the console and both Go binaries, installs them, then the console exits so systemd starts the new build. Data in /var/lib/wafproxy is not touched."}
+          </p>
+        )}
+        {snap.app_update_error && (
+          <p className="muted" style={{ fontSize: 12, borderLeft: "2px solid #8a6d1d", paddingLeft: 10 }}>
+            Repository check unavailable: {snap.app_update_error}. The installed version is still shown.
+          </p>
+        )}
+      </Card>
+
+      <Card
         title="Host updates"
         actions={
-          <button className="small" onClick={check} disabled={!snap.available || busy}>
+          <button className="small" onClick={check} disabled={busy}>
             {checking ? "Checking…" : "Check for updates"}
           </button>
         }
@@ -233,9 +354,9 @@ export default function UpdatesPage({
         </Card>
       )}
 
-      {output && (
+      {(output || appOutput) && (
         <Card title="Last update output">
-          <pre className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, margin: 0 }}>{output}</pre>
+          <pre className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, margin: 0 }}>{[appOutput, output].filter(Boolean).join("\n")}</pre>
         </Card>
       )}
 
@@ -253,8 +374,9 @@ export default function UpdatesPage({
           <div className="muted" style={{ fontSize: 12 }}>compiled into the binary</div>
         </div>
         <p className="muted" style={{ fontSize: 12, marginBottom: 0, lineHeight: 1.6 }}>
-          Application modules are not changed on the host. Build or deploy a newer WAF-Proxy release to update
-          them; this page deliberately cannot rebuild or replace the running binary.
+          Native installs can apply the application update above through the fixed root helper. Docker installs
+          rebuild from the host with <code>docker compose up -d --build</code>, because the runtime image has no
+          build toolchain or Docker socket.
         </p>
       </Card>
     </div>

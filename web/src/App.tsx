@@ -17,6 +17,7 @@ import Access from "./pages/Access";
 import Notifications from "./pages/Notifications";
 import Logs from "./pages/Logs";
 import SettingsPage from "./pages/Settings";
+import CrowdSecPage from "./pages/CrowdSec";
 import Account from "./pages/Account";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
@@ -31,6 +32,7 @@ const NAV = [
   { id: "policies", label: "Policies", icon: "⛨" },
   { id: "sources", label: "Sources", icon: "◉" },
   { id: "intel", label: "Threat intel", icon: "☣" },
+  { id: "crowdsec", label: "CrowdSec", icon: "◈" },
   { id: "certs", label: "Certificates", icon: "▣" },
   { id: "access", label: "Access gate", icon: "⚿" },
   { id: "notifications", label: "Notifications", icon: "✉" },
@@ -201,6 +203,7 @@ export default function App() {
           {page === "policies" && <Policies onError={notify} onOK={notify} />}
           {page === "sources" && <Sources onError={notify} onOK={notify} />}
           {page === "intel" && <Intel onError={notify} onOK={notify} />}
+          {page === "crowdsec" && <CrowdSecPage onError={notify} onOK={notify} />}
           {page === "certs" && <Certs onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
           {page === "access" && <Access onError={notify} onOK={notify} />}
           {page === "notifications" && <Notifications onError={notify} onOK={notify} />}

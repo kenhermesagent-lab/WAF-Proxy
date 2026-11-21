@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,7 +33,14 @@ var (
 	ErrUnavailable = errors.New("host package updates are unavailable")
 	// ErrNotManaged means the requested package is not in the embedded allowlist.
 	ErrNotManaged = errors.New("package is not managed by WAF-Proxy")
+	// ErrAppUpdateUnsupported means this deployment cannot rebuild its own
+	// application binary, for example because it runs from a container image.
+	ErrAppUpdateUnsupported = errors.New("application self-update is unavailable")
 )
+
+// AppRepo is the fallback repository used for update checks when the privileged
+// helper is not installed. The helper reads the actual checkout instead.
+const AppRepo = "kenhermesagent-lab/WAF-Proxy-Docker"
 
 type runner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
@@ -50,9 +58,33 @@ type Manager struct {
 	cache   Snapshot
 	expires time.Time
 
+	appMu      sync.Mutex
+	app        appInfo
+	appExpires time.Time
+	appRepo    string
+	appAPIBase string
+	appRawBase string
+	appBusy    atomic.Bool
+
+	appRunMu     sync.Mutex
+	appRunActive bool
+	appRunErr    string
+	appRunOutput string
+
 	buildMu sync.Mutex
 	opMu    sync.Mutex
 	busy    atomic.Bool
+}
+
+type appInfo struct {
+	available     bool
+	remoteVersion string
+	remoteCommit  string
+	remoteDate    string
+	remoteURL     string
+	remoteBranch  string
+	err           string
+	checked       bool
 }
 
 type hostInfo struct {
@@ -79,6 +111,26 @@ type Snapshot struct {
 	AppCommit     string    `json:"app_commit"`
 	AppBuildDate  string    `json:"app_build_date"`
 	GoVersion     string    `json:"go_version"`
+
+	AppUpdateAvailable bool   `json:"app_update_available"`
+	AppRemoteVersion   string `json:"app_remote_version,omitempty"`
+	AppRemoteCommit    string `json:"app_remote_commit,omitempty"`
+	AppRemoteDate      string `json:"app_remote_date,omitempty"`
+	AppRemoteURL       string `json:"app_remote_url,omitempty"`
+	AppRemoteBranch    string `json:"app_remote_branch,omitempty"`
+	AppUpdateError     string `json:"app_update_error,omitempty"`
+	AppUpdateSupported bool   `json:"app_update_supported"`
+	AppUpdateReason    string `json:"app_update_reason,omitempty"`
+	AppUpdating        bool   `json:"app_updating"`
+	AppUpdateRunError  string `json:"app_update_run_error,omitempty"`
+	AppUpdateOutput    string `json:"app_update_output,omitempty"`
+}
+
+// AppUpdateStatus is polled while an application rebuild is running.
+type AppUpdateStatus struct {
+	Updating bool   `json:"updating"`
+	Error    string `json:"error,omitempty"`
+	Output   string `json:"output,omitempty"`
 }
 
 // Package is one managed host package.
@@ -118,6 +170,9 @@ func New(log *slog.Logger) *Manager {
 		host:         detectHost(),
 		helperSocket: HelperSocketPath(),
 		osvBase:      "https://api.osv.dev",
+		appRepo:      AppRepo,
+		appAPIBase:   "https://api.github.com",
+		appRawBase:   "https://raw.githubusercontent.com",
 		client:       &http.Client{Timeout: 12 * time.Second},
 		run:          execRunner,
 		now:          time.Now,
@@ -207,12 +262,15 @@ func readOSRelease() (id, versionID, pretty string) {
 }
 
 func (m *Manager) baseSnapshot() Snapshot {
+	ready, helperErr := m.helperState()
 	return Snapshot{
 		Available:    m.host.available,
 		Reason:       m.host.reason,
 		Platform:     m.host.platform,
 		Container:    m.host.container,
 		Packages:     []Package{},
+		HelperReady:  ready,
+		HelperError:  helperErr,
 		Updating:     m.busy.Load(),
 		AppVersion:   version.Version,
 		AppCommit:    version.Commit,
@@ -225,7 +283,7 @@ func (m *Manager) baseSnapshot() Snapshot {
 // expires. Package names and versions are sent to OSV for advisory matching;
 // no host data or credentials are sent.
 func (m *Manager) Snapshot(ctx context.Context) Snapshot {
-	base := m.baseSnapshot()
+	base := m.mergeApp(m.baseSnapshot(), m.appSnapshot(ctx))
 	if !m.host.available {
 		return base
 	}
@@ -236,7 +294,7 @@ func (m *Manager) Snapshot(ctx context.Context) Snapshot {
 		out := m.cache
 		m.cacheMu.Unlock()
 		out.Updating = m.busy.Load()
-		return out
+		return m.mergeApp(out, m.appSnapshot(ctx))
 	}
 	m.cacheMu.Unlock()
 
@@ -250,10 +308,42 @@ func (m *Manager) Snapshot(ctx context.Context) Snapshot {
 	snap.CheckedAt = m.now().UTC().Format(time.RFC3339)
 	snap.HelperReady, snap.HelperError = m.helperState()
 	snap.Updating = m.busy.Load()
+	snap = m.mergeApp(snap, m.appSnapshot(ctx))
 	m.cacheMu.Lock()
 	m.cache = snap
 	m.expires = m.now().Add(10 * time.Minute)
 	m.cacheMu.Unlock()
+	return snap
+}
+
+func (m *Manager) mergeApp(snap Snapshot, app appInfo) Snapshot {
+	snap.AppUpdateAvailable = app.available
+	snap.AppRemoteVersion = app.remoteVersion
+	snap.AppRemoteCommit = app.remoteCommit
+	snap.AppRemoteDate = app.remoteDate
+	snap.AppRemoteURL = app.remoteURL
+	snap.AppRemoteBranch = app.remoteBranch
+	snap.AppUpdateError = app.err
+	snap.AppUpdating = m.appBusy.Load()
+	m.appRunMu.Lock()
+	snap.AppUpdateRunError = m.appRunErr
+	snap.AppUpdateOutput = m.appRunOutput
+	m.appRunMu.Unlock()
+	ready, msg := m.helperState()
+	switch {
+	case m.host.container && !ready:
+		snap.AppUpdateSupported = false
+		snap.AppUpdateReason = "Docker images cannot rebuild themselves from inside the container. On the host run sudo ./deploy/install-docker-updater.sh once, then use this button."
+	case !ready:
+		snap.AppUpdateSupported = false
+		snap.AppUpdateReason = msg
+	case m.appRepo == "":
+		snap.AppUpdateSupported = false
+		snap.AppUpdateReason = "No application repository is configured for update checks."
+	default:
+		snap.AppUpdateSupported = true
+		snap.AppUpdateReason = ""
+	}
 	return snap
 }
 
@@ -441,13 +531,19 @@ func (m *Manager) invalidate() {
 	m.cacheMu.Lock()
 	m.expires = time.Time{}
 	m.cacheMu.Unlock()
+	m.appMu.Lock()
+	m.appExpires = time.Time{}
+	m.appMu.Unlock()
 }
 
 // Check refreshes the apt package index through the helper, then rebuilds the
 // inventory. It is a privileged operation because apt update needs root.
 func (m *Manager) Check(ctx context.Context) (Snapshot, error) {
+	m.invalidate()
 	if !m.host.available {
-		return m.baseSnapshot(), ErrUnavailable
+		snap := m.Snapshot(ctx)
+		snap.Updating = false
+		return snap, nil
 	}
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
@@ -493,6 +589,65 @@ func (m *Manager) Apply(ctx context.Context, name string) (ApplyResult, error) {
 	return ApplyResult{Snapshot: snap, Output: resp.Output}, nil
 }
 
+// StartAppUpdate asks the fixed root helper to pull, rebuild and install the
+// application from the repository recorded by deploy/install.sh. It accepts no
+// URL, branch, command or package from the request. The rebuild runs in the
+// background so the browser can keep polling even when a Docker rebuild
+// recreates the container running this process.
+func (m *Manager) StartAppUpdate(onSuccess func()) error {
+	if ready, msg := m.helperState(); !ready {
+		return fmt.Errorf("%w: %s", ErrAppUpdateUnsupported, msg)
+	}
+	m.appRunMu.Lock()
+	if m.appRunActive {
+		m.appRunMu.Unlock()
+		return errors.New("an application update is already running")
+	}
+	m.appRunActive = true
+	m.appRunErr = ""
+	m.appRunOutput = ""
+	m.appRunMu.Unlock()
+	m.appBusy.Store(true)
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+		defer cancel()
+		resp, err := m.callHelper(ctx, HelperRequest{Action: HelperActionAppUpdate})
+		message := ""
+		if err != nil {
+			message = err.Error()
+		} else if !resp.OK {
+			message = resp.Error
+		}
+		m.appRunMu.Lock()
+		m.appRunActive = false
+		m.appRunErr = message
+		m.appRunOutput = tailText(resp.Output, 4000)
+		m.appRunMu.Unlock()
+		m.appBusy.Store(false)
+		m.invalidate()
+		if message == "" && onSuccess != nil {
+			onSuccess()
+		}
+	}()
+	return nil
+}
+
+// AppUpdateStatus reports the background rebuild without hitting the network.
+func (m *Manager) AppUpdateStatus() AppUpdateStatus {
+	m.appRunMu.Lock()
+	defer m.appRunMu.Unlock()
+	return AppUpdateStatus{Updating: m.appRunActive, Error: m.appRunErr, Output: m.appRunOutput}
+}
+
+func tailText(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
+}
+
 func managed(name string) bool {
 	for _, e := range Catalog() {
 		if e.Name == name {
@@ -525,6 +680,235 @@ func (m *Manager) callHelper(ctx context.Context, req HelperRequest) (HelperResp
 		return HelperResponse{}, fmt.Errorf("read helper response: %w", err)
 	}
 	return resp, nil
+}
+
+// ---------- application repository check ----------
+
+func (m *Manager) appSnapshot(ctx context.Context) appInfo {
+	if m.appRepo == "" {
+		return appInfo{}
+	}
+	m.appMu.Lock()
+	if m.app.checked && m.now().Before(m.appExpires) {
+		out := m.app
+		m.appMu.Unlock()
+		return out
+	}
+	m.appMu.Unlock()
+
+	info := m.checkApp(ctx)
+	m.appMu.Lock()
+	m.app = info
+	m.app.checked = true
+	wait := 10 * time.Minute
+	if info.err != "" {
+		wait = 5 * time.Minute
+	}
+	m.appExpires = m.now().Add(wait)
+	m.appMu.Unlock()
+	return info
+}
+
+func (m *Manager) checkApp(ctx context.Context) appInfo {
+	if info, ok := m.checkAppWithHelper(ctx); ok {
+		return info
+	}
+	var info appInfo
+	client := m.client
+	if client == nil {
+		client = &http.Client{Timeout: 12 * time.Second}
+	}
+	apiBase := strings.TrimRight(m.appAPIBase, "/")
+	if apiBase == "" {
+		apiBase = "https://api.github.com"
+	}
+	commitURL := fmt.Sprintf("%s/repos/%s/commits/main", apiBase, m.appRepo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, commitURL, nil)
+	if err != nil {
+		info.err = err.Error()
+		return info
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "wafproxy-update-check/1.0")
+	resp, err := client.Do(req)
+	if err != nil {
+		info.err = "repository check failed: " + err.Error()
+		return info
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		info.err = fmt.Sprintf("repository check returned HTTP %d", resp.StatusCode)
+		if resp.StatusCode == http.StatusNotFound {
+			info.err = "repository is private or missing; install the update helper and make sure the checkout owner can run git fetch with its existing credentials"
+		}
+		return info
+	}
+	var commit struct {
+		SHA     string `json:"sha"`
+		HTMLURL string `json:"html_url"`
+		Commit  struct {
+			Committer struct {
+				Date string `json:"date"`
+			} `json:"committer"`
+		} `json:"commit"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&commit); err != nil {
+		info.err = "decode repository response: " + err.Error()
+		return info
+	}
+	info.remoteCommit = strings.TrimSpace(commit.SHA)
+	info.remoteDate = strings.TrimSpace(commit.Commit.Committer.Date)
+	info.remoteURL = strings.TrimSpace(commit.HTMLURL)
+	info.remoteBranch = "main"
+
+	rawBase := strings.TrimRight(m.appRawBase, "/")
+	if rawBase == "" {
+		rawBase = "https://raw.githubusercontent.com"
+	}
+	versionURL := fmt.Sprintf("%s/%s/main/VERSION", rawBase, m.appRepo)
+	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil); err == nil {
+		req.Header.Set("User-Agent", "wafproxy-update-check/1.0")
+		if vresp, err := client.Do(req); err == nil {
+			defer vresp.Body.Close()
+			if vresp.StatusCode == http.StatusOK {
+				body, _ := io.ReadAll(io.LimitReader(vresp.Body, 4096))
+				info.remoteVersion = strings.TrimSpace(string(body))
+			}
+		}
+	}
+
+	if info.remoteVersion == "" && info.remoteCommit == "" {
+		info.err = "repository check returned no version or commit"
+		return info
+	}
+	return m.appAvailability(info)
+}
+
+// checkAppWithHelper asks the fixed root helper to fetch the recorded checkout
+// with its owner's git credentials. This is the only path that works for a
+// private repository; the public GitHub API is a fallback when no helper is
+// installed yet.
+func (m *Manager) checkAppWithHelper(ctx context.Context) (appInfo, bool) {
+	if ready, _ := m.helperState(); !ready {
+		return appInfo{}, false
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	resp, err := m.callHelper(checkCtx, HelperRequest{Action: HelperActionAppCheck})
+	if err != nil || !resp.OK {
+		return appInfo{}, false
+	}
+	line := strings.TrimSpace(resp.Output)
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = line[:i]
+	}
+	parts := strings.Split(line, "\t")
+	if len(parts) < 3 || strings.TrimSpace(parts[0]) == "" {
+		return appInfo{}, false
+	}
+	info := appInfo{
+		remoteCommit:  strings.TrimSpace(parts[0]),
+		remoteVersion: strings.TrimSpace(parts[1]),
+		remoteDate:    strings.TrimSpace(parts[2]),
+	}
+	if len(parts) > 3 {
+		info.remoteURL = redactRemoteURL(parts[3])
+	}
+	if len(parts) > 4 {
+		info.remoteBranch = strings.TrimSpace(parts[4])
+	}
+	return m.appAvailability(info), true
+}
+
+func (m *Manager) appAvailability(info appInfo) appInfo {
+	localCommit := strings.TrimSpace(version.Commit)
+	commitKnown := localCommit != "" && localCommit != "dev" && localCommit != "unknown"
+	if info.remoteVersion == "" && !commitKnown {
+		info.err = "remote VERSION is unavailable and this build has no commit stamp"
+	}
+	cmp := 0
+	if info.remoteVersion != "" && version.Version != "" {
+		cmp = compareVersions(info.remoteVersion, version.Version)
+	}
+	switch {
+	case cmp > 0:
+		info.available = true
+	case cmp < 0:
+		info.available = false
+	case commitKnown && info.remoteCommit != "" && !sameCommit(localCommit, info.remoteCommit):
+		info.available = true
+	}
+	return info
+}
+
+// redactRemoteURL keeps a repository link useful without exposing credentials
+// that an operator may have embedded in remote.origin.url.
+func redactRemoteURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	u.User = nil
+	return u.String()
+}
+
+func sameCommit(local, remote string) bool {
+	return strings.HasPrefix(remote, local) || strings.HasPrefix(local, remote)
+}
+
+// compareVersions compares dotted semantic versions, treating a release as
+// newer than a pre-release with the same numeric core.
+func compareVersions(a, b string) int {
+	core := func(v string) ([]int, string) {
+		v = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(v), "v"))
+		suffix := ""
+		if i := strings.IndexAny(v, "-+"); i >= 0 {
+			suffix = v[i:]
+			v = v[:i]
+		}
+		parts := strings.Split(v, ".")
+		nums := make([]int, 0, len(parts))
+		for _, p := range parts {
+			n := 0
+			for _, r := range p {
+				if r < '0' || r > '9' {
+					break
+				}
+				n = n*10 + int(r-'0')
+			}
+			nums = append(nums, n)
+		}
+		return nums, suffix
+	}
+	an, as := core(a)
+	bn, bs := core(b)
+	for i := 0; i < len(an) || i < len(bn); i++ {
+		av, bv := 0, 0
+		if i < len(an) {
+			av = an[i]
+		}
+		if i < len(bn) {
+			bv = bn[i]
+		}
+		if av > bv {
+			return 1
+		}
+		if av < bv {
+			return -1
+		}
+	}
+	switch {
+	case as == bs:
+		return 0
+	case as == "":
+		return 1
+	case bs == "":
+		return -1
+	case as > bs:
+		return 1
+	default:
+		return -1
+	}
 }
 
 // ---------- OSV advisories ----------

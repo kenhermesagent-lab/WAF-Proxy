@@ -3,10 +3,12 @@ package geoip
 
 import (
 	"errors"
+	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/oschwald/maxminddb-golang/v2"
 )
@@ -47,19 +49,30 @@ type Geo struct {
 	asn      *maxminddb.Reader
 	cityPath string
 	asnPath  string
+	dir      string
+
+	installMu  sync.Mutex
+	installing bool
+	installErr string
+	client     *http.Client
+	baseURL    string
+	now        func() time.Time
 }
 
-// Open loads whichever databases exist in dir. Recognised names:
-// GeoLite2-City.mmdb, GeoLite2-ASN.mmdb, dbip-city-lite.mmdb, dbip-asn-lite.mmdb.
+// Open loads whichever databases exist in dir. A console-installed DB-IP Lite
+// database takes precedence over a manually supplied GeoLite2 file.
 func Open(dir string) *Geo {
-	g := &Geo{
-		cityPath: firstExisting(dir, "GeoLite2-City.mmdb", "dbip-city-lite.mmdb", "DBIP-City-Lite.mmdb"),
-		asnPath:  firstExisting(dir, "GeoLite2-ASN.mmdb", "dbip-asn-lite.mmdb", "DBIP-ASN-Lite.mmdb"),
-	}
+	g := &Geo{dir: dir}
 	g.mu.Lock()
+	g.discoverLocked()
 	g.loadLocked()
 	g.mu.Unlock()
 	return g
+}
+
+func (g *Geo) discoverLocked() {
+	g.cityPath = firstExisting(g.dir, "dbip-city-lite.mmdb", "DBIP-City-Lite.mmdb", "GeoLite2-City.mmdb")
+	g.asnPath = firstExisting(g.dir, "dbip-asn-lite.mmdb", "DBIP-ASN-Lite.mmdb", "GeoLite2-ASN.mmdb")
 }
 
 func firstExisting(dir string, names ...string) string {
@@ -97,20 +110,12 @@ func (g *Geo) loadLocked() {
 func (g *Geo) Reload() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.cityPath = firstExisting(filepath.Dir(orPath(g.cityPath, ".")), "GeoLite2-City.mmdb", "dbip-city-lite.mmdb", "DBIP-City-Lite.mmdb")
-	g.asnPath = firstExisting(filepath.Dir(orPath(g.asnPath, ".")), "GeoLite2-ASN.mmdb", "dbip-asn-lite.mmdb", "DBIP-ASN-Lite.mmdb")
+	g.discoverLocked()
 	g.loadLocked()
 	if g.cityPath == "" && g.asnPath == "" {
 		return errors.New("no GeoIP database found")
 	}
 	return nil
-}
-
-func orPath(p, fallback string) string {
-	if p == "" {
-		return fallback
-	}
-	return p
 }
 
 // Available reports whether country/coordinates can be resolved.
@@ -141,9 +146,11 @@ func (g *Geo) Lookup(addr netip.Addr) Location {
 		return loc
 	}
 	addr = addr.Unmap()
+	// Hold the read lock while the readers are used: Reload closes and replaces
+	// them under the write lock.
 	g.mu.RLock()
+	defer g.mu.RUnlock()
 	city, asn := g.city, g.asn
-	g.mu.RUnlock()
 
 	if city != nil {
 		var rec cityRecord

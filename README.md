@@ -6,7 +6,7 @@ live observability. One Go binary and one React console, deployed either as a Do
 stack or as a systemd service on a two-NIC Linux host. Built to run on a home server, a lab box
 or a small office network without a cloud dependency.
 
-**Version 1.1.1** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
+**Version 1.2.0** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -41,9 +41,9 @@ sample traffic, not production figures.***
 | **OWASP CRS WAF** | Coraza v3 with the embedded Core Rule Set. Five profiles (Generic Web, WordPress, API-only, Static/CDN, Admin panel), paranoia level 1–4, anomaly thresholds, per-profile method allowlists, body limits and per-rule exceptions — all editable from **Policies → WAF profiles**. Each site can inherit its profile, or override with `block`, `detect` or `off`. |
 | **Ban engine** | Temporary and permanent bans with a mandatory reason and source. Enforced in the kernel with nftables (IPv4 + IPv6), so banned traffic is dropped before it reaches the proxy, and expires on its own. Every ban is listed in the console and can be lifted there or with the `unban` CLI. |
 | **Rate limiting** | Global per-IP request rate with burst, plus per-scope `rate_limit` policies (`rps/burst`) that can be global or attached to one site. |
-| **Country / ASN policy** | Allow and block lists by ISO country code and by ASN, using MaxMind GeoLite2 or DB-IP Lite databases. Without a database the stages report “unavailable” in the console instead of silently allowing traffic. |
-| **Threat feeds** | Nine built-in lists (FireHOL 1/2, Spamhaus DROP/EDROP, Tor exits, Feodo C2, URLhaus, ET compromised, DShield) plus your own HTTP(S) feeds. ETag/If-Modified-Since caching, CIDR de-duplication, a 5× growth freeze and last-good retention so a broken upstream cannot empty the table. |
-| **CrowdSec** | LAPI decision stream applied as local bans (and removals honoured), with an optional sidecar that reads the same access log. Status and last poll are shown in **Settings**. |
+| **Country / ASN policy** | Allow and block lists by ISO country code and by ASN, using MaxMind GeoLite2 or DB-IP Lite databases. **Settings → GeoIP database** can download and install the DB-IP Lite city and ASN files, validate them and reload without a restart. Without a database the stages report “unavailable” instead of silently allowing traffic. |
+| **Threat feeds** | Nine built-in lists (FireHOL 1/2, Spamhaus DROP/EDROP, Tor exits, Feodo C2, URLhaus, ET compromised, DShield), your own HTTP(S) feeds, and uploaded `.txt`/`.csv` local lists. ETag/If-Modified-Since caching, CIDR de-duplication, a 5× growth freeze and last-good retention so a broken upstream cannot empty the table. Local uploads are always global blocks. |
+| **CrowdSec** | A dedicated **CrowdSec** page configures the LAPI bouncer, tests the key, shows poll status and links the Docker sidecar or native Security Engine setup. Decisions are applied as local bans and removals are honoured. |
 | **Bot challenge** | JavaScript proof-of-work challenge with four levels, a 24-hour cookie and auto-ban after repeated failures. |
 | **Access gate** | Per-site passphrase, accounts, or accounts + TOTP, with a per-site account allowlist. Escalating bans for repeated failures and per-account lockout that survives IP changes. |
 | **Decoys** | Requests for configured decoy paths or hostnames never reach a backend and permanently ban the source. Defaults contain only paths no real application serves. |
@@ -74,9 +74,9 @@ sample traffic, not production figures.***
 ### Console
 
 A dark single-page console: **Dashboard**, **Proxies**, **Streaming**, **Policies** (bans,
-countries/IPs/ASN, WAF profiles), **Sources**, **Threat intel**, **Certificates**, **Access
-gate**, **Notifications**, **Updates**, **Logs**, **Settings** and **Account**. It uses native controls and
-is responsive down to a phone.
+countries/IPs/ASN, WAF profiles), **Sources**, **Threat intel**, **CrowdSec**, **Certificates**,
+**Access gate**, **Notifications**, **Updates**, **Logs**, **Settings** and **Account**. It uses
+native controls and is responsive down to a phone.
 
 ![WAF profiles](docs/screenshots/waf-profiles.png)
 
@@ -108,9 +108,9 @@ small on a busy site.
 - nftables available inside the container. The image grants `NET_ADMIN` and
   `NET_BIND_SERVICE` through file capabilities; do **not** add `no-new-privileges`, because
   that makes the kernel ignore them.
-- **Optional:** `GeoLite2-City.mmdb` / `GeoLite2-ASN.mmdb` (or the DB-IP Lite equivalents) in
-  the data volume for country and ASN policy.
-- **Optional:** the CrowdSec sidecar profile.
+- **Optional:** GeoIP for country and ASN policy. Install DB-IP Lite from **Settings → GeoIP
+  database**, or place `GeoLite2-City.mmdb` / `GeoLite2-ASN.mmdb` in the data volume.
+- **Optional:** the CrowdSec sidecar profile and its LAPI bouncer.
 - **Optional:** a native Tailscale installation (`tailscale0`) for private admin and app access; no Tailscale sidecar or auth key is needed by WAF-Proxy.
 
 ### Native VM sizing
@@ -267,23 +267,29 @@ or run `tailscale up` for you. See [docs/INSTALL.md](docs/INSTALL.md#12-optional
 for the ACL and split-DNS setup. Tailscale ACLs still gate who can reach the ports; the admin
 console still requires password + TOTP.
 
-### Host updates
+### Updates
 
-The **Updates** page manages the small set of host packages the native service actually uses:
-`ca-certificates`, `nftables` and `tzdata`. It shows the installed and candidate versions,
-refreshes the apt package index on demand, and flags high/critical advisories from the OSV
-database for the installed version. A package from a distribution security repository is shown
-as a security update even when the advisory record has no CVSS score.
+The **Updates** page has two parts:
 
-The **Update** button does not give the console root. It asks `wafproxy-updated`, a separate
-root-owned helper installed by `deploy/install.sh`, to upgrade exactly one package. The helper
-listens on a `root:wafproxy` Unix socket and accepts only its compiled allowlist; the admin
-service keeps `NoNewPrivileges=yes` and only `CAP_NET_BIND_SERVICE`/`CAP_NET_ADMIN`.
+- **WAF-Proxy application** — compares the running build with its tracked branch and shows an
+  **Update application** button when a newer build is available. On native systemd installs the
+  root helper pulls the recorded checkout as its owner, runs `make all`, installs both binaries
+  and lets systemd restart the service. For Docker Compose, install the optional host updater
+  once with `sudo ./deploy/install-docker-updater.sh`; Compose mounts its socket and the button
+  then rebuilds the image and recreates the container. The database volume is kept.
+  The rebuild runs in the background, so the page can reconnect while Docker recreates the
+  container.
+- **Host packages** — native systemd installs can inspect `ca-certificates`, `nftables` and
+  `tzdata`, refresh the apt index and apply one allowlisted package through the same helper.
+  OSV high/critical advisories are shown for the installed version.
 
-Docker deployments cannot manage host packages from inside the container. The page explains
-that and stays read-only; rebuild the WAF-Proxy image and recreate the container to pick up
-base-image and application updates. See [docs/INSTALL.md](docs/INSTALL.md#13-host-updates-on-systemd)
-for the helper service, failure modes and the exact package list.
+The console never supplies a URL, branch, package or shell command for the application
+update. `deploy/install.sh` records the checkout and its owner once; the root-owned helper runs
+only the fixed `self-update-check` and `self-update` scripts. This uses the checkout's existing
+git credentials, so a private repository works without storing a token in the console. A Docker
+image still cannot update itself without the host helper, so an install without it stays
+check-only. See
+[docs/INSTALL.md](docs/INSTALL.md#13-host-updates-on-systemd) for the helper details.
 
 ### Agent access (MCP gateway)
 
@@ -388,22 +394,35 @@ events (one per source per minute, so a retry loop cannot flood the table).
 
 ## CrowdSec
 
+The bouncer needs a running CrowdSec Security Engine and its Local API (LAPI). WAF-Proxy does
+not install a third-party engine from the console; it configures and runs the outbound bouncer.
+
+Docker Compose includes an optional engine sidecar:
+
 ```bash
-docker compose -f deploy/docker-compose.yml --profile crowdsec up -d
+docker compose -f deploy/docker-compose.yml --profile crowdsec up -d crowdsec
 docker exec crowdsec cscli bouncers add wafproxy
-# put the key in deploy/.env as WAFPROXY_CROWDSEC_KEY, then
-docker compose -f deploy/docker-compose.yml up -d wafproxy
 ```
 
-The sidecar tails `/logs/access.log` with the stock nginx parser; decisions arrive over the
-LAPI stream and become `source=crowdsec` bans.
+Then open **CrowdSec**, enter the LAPI URL (`http://127.0.0.1:8081` for the shipped sidecar;
+a stock native engine defaults to `http://127.0.0.1:8080`) and the key, and click **Save and
+apply**. The page tests the key, shows the last successful poll, applied decision count and
+last error, and can enable or disable the bouncer without a restart. The sidecar tails
+`/logs/access.log` with the stock nginx parser; decisions arrive over the LAPI stream and
+become `source=crowdsec` bans. The LAPI stays on loopback.
+
+For a native engine, install CrowdSec from its repository, install
+`crowdsecurity/nginx`, create the bouncer with `sudo cscli bouncers add wafproxy`, and use the
+same page. The legacy `WAFPROXY_CROWDSEC_URL` / `WAFPROXY_CROWDSEC_KEY` environment variables
+still work as first-boot defaults; values saved on the page override them.
 
 ## Updating from the repository
 
-Pull application updates from the checkout that matches the running deployment. The database
+The console can apply application updates itself when its privileged helper is installed; use
+**Updates → Update application**. It keeps the existing data volume or `/var/lib/wafproxy`.
+For the manual path, pull from the checkout that matches the running deployment. The database
 and `deploy/.env` are outside the tracked files, so a normal update does not replace them. Take
-a **Settings → Download JSON** backup and note the current `VERSION` before starting; both
-paths below keep the existing data volume or `/var/lib/wafproxy`.
+a **Settings → Download JSON** backup and note the current `VERSION` before starting.
 
 ### Docker Compose
 
@@ -411,6 +430,12 @@ paths below keep the existing data volume or `/var/lib/wafproxy`.
 cd /path/to/WAF-Proxy-Docker
 git status --short                    # expect no local changes before pulling
 git pull --ff-only                    # or: git fetch --tags && git checkout vX.Y.Z
+# Keep the image tag in deploy/.env aligned with the new VERSION file.
+if grep -q '^VERSION=' deploy/.env; then
+  sed -i "s/^VERSION=.*/VERSION=$(cat VERSION)/" deploy/.env
+else
+  echo "VERSION=$(cat VERSION)" >> deploy/.env
+fi
 docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml ps
 curl -fsS http://<LAN-IP>:8443/api/health
@@ -419,7 +444,9 @@ curl -fsS http://<LAN-IP>:8443/api/health
 `up -d --build` rebuilds the image from the updated checkout and recreates the container. The
 named `data` volume is retained. If the pull reports local changes, commit or stash them first;
 do not force the pull over an edited checkout. To go back to a release, check out its tag and
-run the same `up -d --build` command.
+run the same `up -d --build` command. If you installed the optional host updater, it is a
+separate service: stop it with `sudo systemctl disable --now wafproxy-docker-updates` before
+removing the checkout.
 
 ### Native systemd
 
@@ -481,10 +508,15 @@ These are deliberate design decisions, not gaps to discover later:
   gateway exposes no shell, filesystem, package or settings API, and every mutation is
   audited. Keep the endpoint on the LAN/Tailscale, use a separate token per agent, and revoke
   tokens that may have leaked. Session cookies and secret material are never returned.
-- **Host updates use a privileged helper, not sudo.** The console service keeps
+- **App and host updates use a privileged helper, not sudo.** The console service keeps
   `NoNewPrivileges=yes`; `wafproxy-updated` is the only root component and accepts only the
-  compiled package allowlist over a `root:wafproxy` Unix socket. It cannot run arbitrary apt
-  commands or install packages outside that list. This is a native-systemd feature only.
+  compiled package allowlist or the fixed repository check/update actions over a Unix socket.
+  The checkout, its owner and its branch are recorded at install time; the browser cannot
+  supply a URL, package or   shell command. A compromised upstream repository still controls code that the helper installs
+  as root, so only install from an origin you trust.
+- **Docker updates need an explicit host helper.** The container has no build toolchain or
+  Docker socket. `install-docker-updater.sh` installs a root service that exposes only the
+  fixed rebuild action; without it the Updates page stays check-only.
 - **Subdomains are not a secrecy boundary.** Every certificate is published to Certificate
   Transparency logs, so `*.example.duckdns.org` is discoverable. Protection comes from
   443-only exposure, no default vhost, DROP-by-default, the WAF and the ban engine.
@@ -495,7 +527,7 @@ These are deliberate design decisions, not gaps to discover later:
   requests them.
 - **Streaming traffic is a byte relay**, not an inspected proxy — see above.
 - **One administrator account.** There are no multi-user roles.
-- Not included in 1.1.1 (tracked in [PLAN.md](PLAN.md) §13): AbuseIPDB enrichment, tarpit,
+- Not included in 1.2.0 (tracked in [PLAN.md](PLAN.md) §13): AbuseIPDB enrichment, tarpit,
   HTTP basic auth/mTLS per site, brotli, per-site bandwidth history, encrypted backup
   archives, HTTP/3, HA and multi-user roles.
 

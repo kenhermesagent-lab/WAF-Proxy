@@ -175,6 +175,9 @@ CREATE TABLE IF NOT EXISTS feeds (
   interval_s INTEGER NOT NULL DEFAULT 900,
   enabled INTEGER NOT NULL DEFAULT 0,
   builtin INTEGER NOT NULL DEFAULT 0,
+  local INTEGER NOT NULL DEFAULT 0,
+  filename TEXT NOT NULL DEFAULT '',
+  local_path TEXT NOT NULL DEFAULT '',
   etag TEXT NOT NULL DEFAULT '',
   last_modified TEXT NOT NULL DEFAULT '',
   last_fetch TEXT,
@@ -292,7 +295,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "4"
+const schemaVersion = "5"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -314,6 +317,9 @@ func (s *Store) migrateAddColumns() error {
 	steps := []struct{ table, column, ddl string }{
 		{"users", "totp_last_step", `ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
 		{"certificates", "renew_mode", `ALTER TABLE certificates ADD COLUMN renew_mode TEXT NOT NULL DEFAULT 'before_expiry'`},
+		{"feeds", "local", `ALTER TABLE feeds ADD COLUMN local INTEGER NOT NULL DEFAULT 0`},
+		{"feeds", "filename", `ALTER TABLE feeds ADD COLUMN filename TEXT NOT NULL DEFAULT ''`},
+		{"feeds", "local_path", `ALTER TABLE feeds ADD COLUMN local_path TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)

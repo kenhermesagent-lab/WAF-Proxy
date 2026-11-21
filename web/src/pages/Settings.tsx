@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Field, errText, fmtAgo, fmtTime } from "../ui";
-import type { AuditEntry, CrowdSecStatus } from "../types";
+import type { AuditEntry, CrowdSecStatus, GeoIPStatus } from "../types";
 
 type Settings = Record<string, string>;
 
@@ -9,6 +9,8 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
   const [s, setS] = useState<Settings>({});
   const [saving, setSaving] = useState(false);
   const [cs, setCs] = useState<CrowdSecStatus | null>(null);
+  const [geo, setGeo] = useState<GeoIPStatus | null>(null);
+  const [installingGeo, setInstallingGeo] = useState(false);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [iface, setIface] = useState<{ wan: string; lan: string; wanAuto: boolean; lanAuto: boolean; available: string[] }>({
     wan: "",
@@ -34,11 +36,35 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
       })
       .catch((e) => onError(errText(e)));
 
+  const loadGeo = () =>
+    api.get<GeoIPStatus>("/api/geoip").then(setGeo).catch(() => undefined);
+
   useEffect(() => {
     load();
     api.get<CrowdSecStatus>("/api/crowdsec/status").then(setCs).catch(() => undefined);
+    loadGeo();
     loadAudit();
   }, []);
+
+  useEffect(() => {
+    if (!geo?.installing) return;
+    const t = setInterval(loadGeo, 2000);
+    return () => clearInterval(t);
+  }, [geo?.installing]);
+
+  const installGeo = async () => {
+    setInstallingGeo(true);
+    try {
+      await api.post("/api/geoip/install");
+      onOK("Downloading DB-IP Lite city and ASN databases");
+      setGeo((prev) => (prev ? { ...prev, installing: true, last_error: "" } : prev));
+      setTimeout(loadGeo, 1500);
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setInstallingGeo(false);
+    }
+  };
 
   const loadAudit = () =>
     api.get<AuditEntry[]>("/api/audit").then((r) => setAudit((r || []).slice(0, 20))).catch(() => undefined);
@@ -197,6 +223,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
               {cs?.configured
                 ? <Badge tone="ok">stream · {cs.applied} applied</Badge>
                 : <Badge tone="warn">{cs?.lapi_configured ? "configured, not connected" : "disabled"}</Badge>}
+              <div className="faint" style={{ fontSize: 11 }}>configure on the CrowdSec page</div>
             </div>
           </div>
           {cs?.configured && (
@@ -230,6 +257,41 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
           </p>
         </Card>
       </div>
+
+      <Card
+        title="GeoIP database"
+        actions={
+          <button className="small primary" onClick={installGeo} disabled={installingGeo || geo?.installing}>
+            {geo?.installing ? "Installing…" : geo?.available ? "Update database" : "Install database"}
+          </button>
+        }
+      >
+        <div className="bar-row">
+          <div>City database</div>
+          <div>
+            {geo?.city ? <Badge tone="ok">loaded</Badge> : <Badge tone="warn">missing</Badge>}
+            {geo?.city_updated && <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>updated {fmtTime(geo.city_updated)}</span>}
+          </div>
+        </div>
+        <div className="bar-row">
+          <div>ASN database</div>
+          <div>
+            {geo?.asn ? <Badge tone="ok">loaded</Badge> : <Badge tone="warn">missing</Badge>}
+            {geo?.asn_updated && <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>updated {fmtTime(geo.asn_updated)}</span>}
+          </div>
+        </div>
+        <div className="bar-row" style={{ borderBottom: 0 }}>
+          <div>Database source</div>
+          <div className="muted" style={{ fontSize: 12 }}>DB-IP Lite · downloads into the data directory and reloads without a restart</div>
+        </div>
+        {geo?.installing && <p className="muted" style={{ fontSize: 12 }}>Downloading and validating the databases. This can take a few minutes.</p>}
+        {geo?.last_error && <p className="err-text">{geo.last_error}</p>}
+        <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
+          The free DB-IP Lite databases are licensed under CC BY 4.0.{" "}
+          <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a>. Country and
+          ASN policy use these files immediately after installation.
+        </p>
+      </Card>
 
       <Card
         title="Recent administrator activity"

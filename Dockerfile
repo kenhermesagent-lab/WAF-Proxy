@@ -22,13 +22,16 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.Version=${VERSION} \
       -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.Commit=${COMMIT} \
       -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.BuildDate=${BUILD_DATE}" \
-    -o /out/wafproxy ./cmd/wafproxy
+    -o /out/wafproxy ./cmd/wafproxy \
+    && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/wafproxy-updated ./cmd/wafproxy-updated
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata nftables libcap \
-    && adduser -D -H -u 10001 -s /sbin/nologin wafproxy \
+    && addgroup -g 10001 wafproxy \
+    && adduser -D -H -u 10001 -G wafproxy -s /sbin/nologin wafproxy \
     && mkdir -p /data /logs && chown -R wafproxy:wafproxy /data /logs
 COPY --from=build /out/wafproxy /usr/local/bin/wafproxy
+COPY --from=build /out/wafproxy-updated /usr/local/bin/wafproxy-updated
 # Bind 443 and manage nftables without running as root. If the runtime drops
 # these capabilities, kernel-mode bans are skipped and userspace bans still work.
 RUN setcap cap_net_bind_service,cap_net_admin+ep /usr/local/bin/wafproxy \

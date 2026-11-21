@@ -2,17 +2,23 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
@@ -669,7 +675,12 @@ func (s *Server) createFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name and an http(s) url are required")
 		return
 	}
+	// A local path is only ever assigned by uploadFeed. Ignoring these fields
+	// stops a crafted request from pointing the reader at an arbitrary file.
 	in.Enabled = true
+	in.Local = false
+	in.LocalPath = ""
+	in.Filename = ""
 	id, err := s.st.CreateFeed(&in)
 	if err != nil {
 		writeError(w, http.StatusConflict, "feed already exists")
@@ -693,9 +704,19 @@ func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
-	if !validFeedURL(in.URL) {
-		writeError(w, http.StatusBadRequest, "feed url must be http(s)")
+	current, err := s.st.FeedByID(id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "feed not found")
 		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	if current.Local {
+		// Uploaded lists are a blocklist; neither the UI nor a crafted request
+		// may downgrade them to challenge or log-only.
+		in.Action = "block"
 	}
 	if in.IntervalS <= 0 {
 		in.IntervalS = 900
@@ -710,10 +731,132 @@ func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+const maxLocalFeedBytes = 10 << 20
+
+// uploadFeed stores a .txt or .csv IP list in the data directory and registers
+// it as a local, always-blocking feed. The upload is parsed before it is saved,
+// so an empty or malformed file cannot install a feed that silently does
+// nothing.
+func (s *Server) uploadFeed(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxLocalFeedBytes+(1<<20))
+	if err := r.ParseMultipartForm(maxLocalFeedBytes + (1 << 20)); err != nil {
+		writeError(w, http.StatusBadRequest, "upload a .txt or .csv file up to 10 MB")
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "file is required")
+		return
+	}
+	defer file.Close()
+
+	filename := filepath.Base(strings.TrimSpace(header.Filename))
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext != ".txt" && ext != ".csv" {
+		writeError(w, http.StatusBadRequest, "only .txt and .csv files are accepted")
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		name = strings.TrimSuffix(filename, filepath.Ext(filename))
+	}
+	if name == "" || len(name) > 120 {
+		writeError(w, http.StatusBadRequest, "name must be 1-120 characters")
+		return
+	}
+
+	feedDir := filepath.Join(s.cfg.DataDir, "feeds")
+	if err := os.MkdirAll(feedDir, 0o750); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot create feed directory")
+		return
+	}
+	tmp, err := os.CreateTemp(feedDir, ".upload-*")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot store upload")
+		return
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if tmpPath != "" {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	written, err := io.Copy(tmp, io.LimitReader(file, maxLocalFeedBytes+1))
+	if err != nil {
+		tmp.Close()
+		writeError(w, http.StatusBadRequest, "cannot read upload")
+		return
+	}
+	if written == 0 || written > maxLocalFeedBytes {
+		tmp.Close()
+		writeError(w, http.StatusBadRequest, "file must be between 1 byte and 10 MB")
+		return
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		tmp.Close()
+		writeError(w, http.StatusInternalServerError, "cannot read upload")
+		return
+	}
+	var prefixes []netip.Prefix
+	if ext == ".csv" {
+		prefixes, err = intel.ParseCSV(tmp)
+	} else {
+		prefixes, err = intel.Parse(tmp)
+	}
+	tmp.Close()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "cannot parse file: "+err.Error())
+		return
+	}
+	if len(prefixes) == 0 {
+		writeError(w, http.StatusBadRequest, "no IP addresses or CIDRs found in the file")
+		return
+	}
+
+	random := make([]byte, 12)
+	if _, err := rand.Read(random); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot allocate feed name")
+		return
+	}
+	localPath := filepath.Join(feedDir, hex.EncodeToString(random)+ext)
+	if err := os.Chmod(tmpPath, 0o640); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot secure upload")
+		return
+	}
+	if err := os.Rename(tmpPath, localPath); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot save upload")
+		return
+	}
+	// The rename consumed the temporary path; the saved file now belongs to the
+	// feed and must survive this handler.
+	tmpPath = ""
+
+	feed := &model.Feed{
+		Name: name, Action: "block", IntervalS: 3600, Enabled: true,
+		Local: true, Filename: filename, LocalPath: localPath,
+	}
+	id, err := s.st.CreateFeed(feed)
+	if err != nil {
+		_ = os.Remove(localPath)
+		writeError(w, http.StatusConflict, "a feed with that name already exists")
+		return
+	}
+	go s.feeds.Refresh(context.Background(), id)
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "feed.upload", name+" ("+filename+")", clientIP(r))
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "entries": len(prefixes)})
+}
+
 func (s *Server) deleteFeed(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	feed, err := s.st.FeedByID(id)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
 	removed, err := s.st.DeleteFeed(id)
@@ -724,6 +867,12 @@ func (s *Server) deleteFeed(w http.ResponseWriter, r *http.Request) {
 	if !removed {
 		writeError(w, http.StatusNotFound, "feed not found or built in")
 		return
+	}
+	if feed != nil && feed.LocalPath != "" {
+		feedDir := filepath.Join(s.cfg.DataDir, "feeds")
+		if rel, err := filepath.Rel(feedDir, feed.LocalPath); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			_ = os.Remove(feed.LocalPath)
+		}
 	}
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "feed.delete", strconv.FormatInt(id, 10), clientIP(r))

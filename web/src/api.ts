@@ -36,9 +36,29 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
   return data as T;
 }
 
+async function upload<T>(path: string, form: FormData): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+  const res = await fetch(path, { method: "POST", headers, credentials: "same-origin", body: form });
+  const text = await res.text();
+  let data: { error?: string } | null = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+  if (!res.ok) {
+    throw new Error(data?.error || res.statusText || `request failed (${res.status})`);
+  }
+  return data as T;
+}
+
 export const api = {
   get: <T>(p: string) => request<T>(p),
   post: <T>(p: string, body?: unknown) => request<T>(p, { method: "POST", body }),
   put: <T>(p: string, body?: unknown) => request<T>(p, { method: "PUT", body }),
   del: <T>(p: string) => request<T>(p, { method: "DELETE" }),
+  upload,
 };

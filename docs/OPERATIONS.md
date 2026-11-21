@@ -7,7 +7,15 @@
   or a feed false positive; both carry a reason and source.
 - **Certificates** — expiry and `last_error`. Renewal is automatic inside 30 days.
 - **Threat intel** — a feed stuck in `frozen` means the 5× growth guardrail tripped;
-  inspect before enabling it again.
+  inspect before enabling it again. Uploaded `.txt`/`.csv` lists appear as local feeds and are
+  always global blocks. To replace one, delete it first and upload the new file.
+- **GeoIP** — Settings shows the city and ASN file dates. Reinstall monthly if country/ASN
+  policy matters; DB-IP Lite publishes monthly. A failed install leaves the previous files
+  loaded and shows the download error.
+- **CrowdSec** — the dedicated page shows last successful poll, applied decisions and last
+  error. A blank LAPI or key disables the bouncer without restarting WAF-Proxy.
+- **Updates** — the application card names the remote commit. A failed rebuild leaves the old
+  binary/container running and shows the helper output.
 - **Logs** — filter by stage `waf` or `access-gate` after changing a profile or gate.
 - Native (systemd) installs: replace `docker exec wafproxy ...` with `sudo wafproxy ...`,
   `docker compose ... logs` with `journalctl -u wafproxy -f`, and restart with `sudo systemctl restart wafproxy`. Prefix the
@@ -44,6 +52,39 @@ and remove `wafproxy.db` to re-run the setup wizard. This deletes proxies, bans,
 certificates and settings. Restore a JSON backup afterwards to recover configuration
 (secrets and certificates excluded).
 
+### GeoIP install fails
+
+- Settings shows the last error. The console tries the current month's DB-IP Lite URL and then
+  the previous month.
+- The data directory needs about 200 MB free for the compressed and expanded files, plus the
+  old databases.
+- Both files are validated as MMDB before either is replaced, so a timeout or invalid download
+  does not break country/ASN policy.
+
+### CrowdSec shows configured but never polls
+
+- Open **CrowdSec → Test connection**. A rejected key means the bouncer was deleted on the
+  engine; recreate it with `cscli bouncers add wafproxy` and paste the new key.
+- LAPI URL is `http://127.0.0.1:8081` for the Compose sidecar and normally
+  `http://127.0.0.1:8080` for a stock native engine. The bouncer connects outbound; do not
+  expose the LAPI to the WAN.
+- The engine must be running separately. WAF-Proxy configures the bouncer, not the engine.
+
+### Application update fails
+
+- Native: the Updates page shows the captured pull/build output; `journalctl -u
+  wafproxy-updates -n 100` shows the helper's start/stop and timeout errors. Check `git`, `make`,
+  Go 1.27 and Node 22 are available to the checkout owner
+  (`/usr/local/go/bin` and `$HOME/toolchain/go/bin` are included). A dirty checkout is
+  refused; commit or stash local changes first. For a private repository, the owner needs a
+  working git credential helper or SSH key.
+- Docker: the Updates page shows the captured pull/build output; `journalctl -u
+  wafproxy-docker-updates -n 100` shows helper failures. The helper needs Docker Compose v2, the
+  Docker socket, the original `deploy/.env` and a clean checkout. For a private repository,
+  the checkout owner needs a working git credential helper or SSH key.
+- A failed build does not replace the running binary or container. Fix the cause and press the
+  button again.
+
 ### Certificate issuance fails
 
 - Read the certificate row's `last_error` and the container log.
@@ -78,7 +119,7 @@ capabilities).
 
 - Settings → **Download JSON** exports settings, proxies, upstreams, routes, policies,
   feeds and bans. It intentionally excludes secrets, DNS credentials, certificates/private
-  keys and password hashes.
+  keys and password hashes; uploaded local blocklist files must be uploaded again.
 - Restore is additive: existing hostnames are skipped and reported in `problems`.
 - After a restore: re-enter DNS credentials, re-issue certificates, reset gate secrets and
   passwords as needed. Gate modes are forced to `off`.

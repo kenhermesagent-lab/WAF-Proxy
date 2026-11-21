@@ -106,6 +106,8 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/settings", s.authed(s.getSettings))
 	m.HandleFunc("PUT /api/settings", s.authed(s.putSettings))
+	m.HandleFunc("GET /api/geoip", s.authed(s.getGeoIP))
+	m.HandleFunc("POST /api/geoip/install", s.authed(s.installGeoIP))
 
 	m.HandleFunc("GET /api/proxies", s.authed(s.listProxies))
 	m.HandleFunc("POST /api/proxies", s.authed(s.createProxy))
@@ -127,6 +129,7 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/feeds", s.authed(s.listFeeds))
 	m.HandleFunc("POST /api/feeds", s.authed(s.createFeed))
+	m.HandleFunc("POST /api/feeds/upload", s.authed(s.uploadFeed))
 	m.HandleFunc("PUT /api/feeds/{id}", s.authed(s.updateFeed))
 	m.HandleFunc("DELETE /api/feeds/{id}", s.authed(s.deleteFeed))
 	m.HandleFunc("POST /api/feeds/{id}/refresh", s.authed(s.refreshFeed))
@@ -142,6 +145,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/events/export.csv", s.authed(s.exportEventsCSV))
 	m.HandleFunc("GET /api/ips", s.authed(s.listIPs))
 	m.HandleFunc("GET /api/ips/{ip}", s.authed(s.getIP))
+	m.HandleFunc("GET /api/crowdsec", s.authed(s.getCrowdSec))
+	m.HandleFunc("PUT /api/crowdsec", s.authed(s.putCrowdSec))
+	m.HandleFunc("POST /api/crowdsec/test", s.authed(s.testCrowdSec))
 	m.HandleFunc("GET /api/crowdsec/status", s.authed(s.crowdsecStatus))
 	m.HandleFunc("GET /api/globe", s.authed(s.getGlobe))
 	m.HandleFunc("GET /api/audit", s.authed(s.listAudit))
@@ -168,6 +174,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/updates", s.authed(s.getUpdates))
 	m.HandleFunc("POST /api/updates/check", s.authed(s.checkUpdates))
 	m.HandleFunc("POST /api/updates/apply", s.authed(s.applyUpdate))
+	m.HandleFunc("GET /api/updates/app", s.authed(s.getAppUpdateStatus))
+	m.HandleFunc("POST /api/updates/app", s.authed(s.applyAppUpdate))
 
 	m.HandleFunc("GET /api/mcp", s.authed(s.getMCP))
 	m.HandleFunc("GET /api/mcp/tokens", s.authed(s.getMCP))

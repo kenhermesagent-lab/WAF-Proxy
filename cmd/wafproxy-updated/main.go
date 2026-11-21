@@ -1,6 +1,6 @@
-// Command wafproxy-updated is the narrowly scoped root helper for the native
-// Updates page. It listens only on a Unix socket, accepts only the compiled
-// package allowlist, and runs apt without a shell.
+// Command wafproxy-updated is the narrowly scoped root helper for the Updates
+// page. It listens only on a Unix socket, runs apt without a shell for the
+// compiled package allowlist, and runs the two fixed repository scripts.
 package main
 
 import (
@@ -37,13 +37,22 @@ func run(socket string) error {
 	if err := os.MkdirAll(updates.SocketDir(socket), 0o755); err != nil {
 		return fmt.Errorf("create socket directory: %w", err)
 	}
-	group, err := user.LookupGroup("wafproxy")
-	if err != nil {
-		return fmt.Errorf("lookup wafproxy group: %w", err)
-	}
-	gid, err := strconv.Atoi(group.Gid)
-	if err != nil {
-		return fmt.Errorf("parse wafproxy group id: %w", err)
+	gid := 0
+	if raw := strings.TrimSpace(os.Getenv("WAFPROXY_UPDATE_SOCKET_GID")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			return fmt.Errorf("invalid WAFPROXY_UPDATE_SOCKET_GID %q", raw)
+		}
+		gid = parsed
+	} else {
+		group, err := user.LookupGroup("wafproxy")
+		if err != nil {
+			return fmt.Errorf("lookup wafproxy group: %w", err)
+		}
+		gid, err = strconv.Atoi(group.Gid)
+		if err != nil {
+			return fmt.Errorf("parse wafproxy group id: %w", err)
+		}
 	}
 	uid := -1
 	if u, err := user.Lookup("wafproxy"); err == nil {
@@ -107,6 +116,12 @@ func serve(conn net.Conn, gid, uid int) {
 		writeResponse(conn, updates.HelperResponse{Error: "invalid request"})
 		return
 	}
+	if req.Action == updates.HelperActionAppUpdate {
+		_ = conn.SetDeadline(time.Now().Add(20 * time.Minute))
+	}
+	if req.Action == updates.HelperActionAppCheck {
+		_ = conn.SetDeadline(time.Now().Add(2 * time.Minute))
+	}
 	switch req.Action {
 	case updates.HelperActionPing:
 		writeResponse(conn, updates.HelperResponse{OK: true})
@@ -128,6 +143,14 @@ func serve(conn net.Conn, gid, uid int) {
 		if resp.OK {
 			resp.Output = resp.Output + "\nupdated " + req.Package
 		}
+		writeResponse(conn, resp)
+	case updates.HelperActionAppCheck:
+		resp := runFixedScript(updates.AppCheckScript, 90*time.Second)
+		writeResponse(conn, resp)
+	case updates.HelperActionAppUpdate:
+		aptMu.Lock()
+		resp := runFixedScript(updates.AppSelfUpdateScript, 20*time.Minute)
+		aptMu.Unlock()
 		writeResponse(conn, resp)
 	default:
 		writeResponse(conn, updates.HelperResponse{Error: "unsupported action"})
@@ -166,6 +189,35 @@ func allowedPackage(name string) bool {
 		}
 	}
 	return false
+}
+
+func runFixedScript(script string, timeout time.Duration) updates.HelperResponse {
+	info, err := os.Stat(script)
+	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+		return updates.HelperResponse{Error: "update helper scripts are not configured; reinstall from the git checkout"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, script)
+	cmd.Env = []string{
+		"PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"HOME=/root",
+		"LC_ALL=C",
+		"LANG=C",
+	}
+	cmd.Dir = "/"
+	out, err := cmd.CombinedOutput()
+	output := strings.TrimSpace(string(out))
+	if len(output) > 32<<10 {
+		output = output[len(output)-(32<<10):] + "\n… output truncated"
+	}
+	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return updates.HelperResponse{Output: output, Error: "self-update timed out"}
+		}
+		return updates.HelperResponse{Output: output, Error: err.Error()}
+	}
+	return updates.HelperResponse{OK: true, Output: output}
 }
 
 func runApt(timeout time.Duration, args ...string) updates.HelperResponse {
