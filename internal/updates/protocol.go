@@ -25,6 +25,9 @@ const (
 	// because the credential files it reads are root-only, and the console
 	// service is unprivileged.
 	HelperActionCrowdSecStatus = "crowdsec-status"
+	// CrowdSecDecisions reads `cscli metrics show decisions`: the aggregated
+	// decisions the engine is enforcing, including console blocklists.
+	HelperActionCrowdSecDecisions = "crowdsec-decisions"
 )
 
 // The self-update scripts are installed root-owned by deploy/install.sh. They

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { countryFlag, countryName } from "../countries";
-import { Analytics, Uptime, UptimeTarget } from "../types";
+import { Analytics, GateFailure, Uptime, UptimeTarget } from "../types";
 import { Badge, Card, Empty, errText, fmtBytes, fmtTime } from "../ui";
 
 const day = (offset: number) => {
@@ -52,7 +52,16 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
   const [to, setTo] = useState(day(0));
   const [stats, setStats] = useState<Analytics | null>(null);
   const [uptime, setUptime] = useState<Uptime | null>(null);
+  const [failures, setFailures] = useState<GateFailure[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const loadFailures = () =>
+    api
+      .get<{ failures: GateFailure[] }>(
+        `/api/gate-failures?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      )
+      .then((r) => setFailures(r.failures || []))
+      .catch((e) => onError(errText(e)));
 
   const load = () => {
     setLoading(true);
@@ -61,6 +70,20 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
       .then(setStats)
       .catch((e) => onError(errText(e)))
       .finally(() => setLoading(false));
+    loadFailures();
+  };
+
+  const block = async (f: GateFailure) => {
+    try {
+      await api.post("/api/bans", {
+        cidr: f.ip,
+        reason: `access gate: ${f.attempts} failed logins${f.username ? ` as ${f.username}` : ""}`,
+        permanent: true,
+      });
+      loadFailures();
+    } catch (e) {
+      onError(errText(e));
+    }
   };
 
   useEffect(() => {
@@ -172,6 +195,57 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
           </div>
         </Card>
       </div>
+
+      <Card
+        title="Failed access-gate logins"
+        actions={<span className="muted" style={{ fontSize: 11 }}>usernames and addresses the gate rejected</span>}
+      >
+        {failures.length === 0 ? (
+          <Empty>No failed logins in this range.</Empty>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr><th>Address</th><th>Username tried</th><th>Proxy</th><th className="num">Attempts</th><th>Last attempt</th><th>State</th><th /></tr>
+              </thead>
+              <tbody>
+                {failures.map((f) => (
+                  <tr key={`${f.ip}:${f.username}:${f.proxy_id}`}>
+                    <td className="mono">{f.ip}</td>
+                    <td>{f.username || <span className="faint">passphrase</span>}</td>
+                    <td>{f.proxy_host || `proxy #${f.proxy_id}`}</td>
+                    <td className="num">{f.attempts.toLocaleString()}</td>
+                    <td className="muted">{fmtTime(f.last)}</td>
+                    <td>
+                      {!f.blocked ? (
+                        <Badge tone="warn">not blocked</Badge>
+                      ) : f.blocked_permanent ? (
+                        <Badge tone="bad">permanent ban</Badge>
+                      ) : (
+                        <Badge tone="info">temp ban</Badge>
+                      )}
+                      {f.blocked && f.blocked_reason ? (
+                        <div className="faint" style={{ fontSize: 11 }}>{f.blocked_reason}</div>
+                      ) : null}
+                    </td>
+                    <td className="right">
+                      {!f.blocked && (
+                        <button className="small danger" onClick={() => block(f)}>
+                          Block permanently
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+          The gate already bans by itself: three failures in ten minutes earns 15 minutes, ten in a day earns 24 hours.
+          A permanent ban here also covers the whole address at the proxy and in nftables, and is listed under Policies.
+        </p>
+      </Card>
 
       <Card title="Traffic by hour">
         {series.length === 0 ? (

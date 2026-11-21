@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -52,10 +53,17 @@ type crowdsecInstall struct {
 	// awaits acceptance, "none" without credentials and "unknown" otherwise.
 	ConsoleState  string `json:"console_state"`
 	ConsoleDetail string `json:"console_detail,omitempty"`
-	LAPI          string `json:"lapi"`
-	Running       bool   `json:"running"`
-	Error         string `json:"error,omitempty"`
-	Output        string `json:"output,omitempty"`
+	// ConsolePlan and ConsoleDecision decide whether console-pushed decisions
+	// and blocklists actually reach this engine.
+	ConsolePlan           string `json:"console_plan,omitempty"`
+	ConsoleCAPI           string `json:"console_capi,omitempty"`
+	ConsoleDecision       string `json:"console_decision,omitempty"`
+	ConsoleDecisionActive bool   `json:"console_decision_active"`
+	ConsolePAPI           string `json:"console_papi,omitempty"`
+	LAPI                  string `json:"lapi"`
+	Running               bool   `json:"running"`
+	Error                 string `json:"error,omitempty"`
+	Output                string `json:"output,omitempty"`
 }
 
 // crowdsecInstallStatus decides whether the console may install the engine.
@@ -68,10 +76,16 @@ func (s *Server) crowdsecInstallStatus() crowdsecInstall {
 		st.Installed = true
 		st.Version = csPackageVersion()
 		st.EngineRunning = csServiceActive()
+		info := s.consoleInfo()
+		st.ConsoleState, st.ConsoleDetail = info.State, info.Detail
+		st.ConsolePlan, st.ConsoleCAPI = info.Plan, info.CAPI
+		st.ConsoleDecision, st.ConsoleDecisionActive = info.Decision, info.DecisionsActive
+		st.ConsolePAPI = info.PAPI
+		// ConsoleEnrolled records that credentials exist on disk; the state is
+		// what the console reports and is authoritative for display.
 		if _, err := csStat(consoleCredentials); err == nil {
 			st.ConsoleEnrolled = true
 		}
-		st.ConsoleState, st.ConsoleDetail = s.consoleState()
 	} else {
 		st.ConsoleState = "none"
 	}
@@ -91,28 +105,64 @@ func (s *Server) crowdsecInstallStatus() crowdsecInstall {
 	return st
 }
 
-// consoleState reports whether the CrowdSec console has accepted this engine.
-// Enrolling only queues the request, and the engine keeps sending nothing until
-// the operator accepts it, so the status row is the only honest answer.
-func (s *Server) consoleState() (state, detail string) {
-	if _, err := csStat(consoleCredentials); err != nil {
-		return "none", ""
+// consoleInfo is everything the CrowdSec page reports about the link between
+// this engine and the CrowdSec console.
+type consoleInfo struct {
+	State           string
+	Detail          string
+	Plan            string
+	CAPI            string
+	Decision        string
+	DecisionsActive bool
+	PAPI            string
+}
+
+// consoleInfo reports whether the console accepted this engine and whether
+// console-pushed decisions will reach it. Enrolling only queues the request, so
+// the status table is the only honest answer; the credential file is checked
+// last and only to tell "not linked" from "cannot tell", because it is
+// root-only and an unprivileged stat may simply be denied.
+func (s *Server) consoleInfo() consoleInfo {
+	_, statErr := csStat(consoleCredentials)
+	return consoleInfoFromRows(s.consoleRows(), statErr)
+}
+
+// consoleInfoFromRows separates "the status table says nothing" from "there are
+// no credentials at all", and never turns a permission error into "not linked".
+func consoleInfoFromRows(rows map[string]string, statErr error) consoleInfo {
+	info := consoleInfo{
+		State:    "unknown",
+		Plan:     plainCell(rowValue(rows, "plan")),
+		CAPI:     plainCell(rowValue(rows, "central api (capi)", "central api")),
+		Decision: plainCell(rowValue(rows, "decision management")),
+		PAPI:     plainCell(rowValue(rows, "papi subscriptions")),
 	}
+	info.State, info.Detail = consoleStatusFromRows(rows)
+	info.DecisionsActive = decisionRowActive(info.Decision)
+	if (info.State == "none" || info.State == "unknown") && errors.Is(statErr, fs.ErrNotExist) {
+		info.State, info.Detail = "none", ""
+	}
+	return info
+}
+
+// consoleRows runs `cscli console status` at most once every 15 seconds: the
+// CrowdSec page polls while an install runs.
+func (s *Server) consoleRows() map[string]string {
 	s.csMu.Lock()
-	cached, cachedDetail, at := s.csConsoleState, s.csConsoleDetail, s.csConsoleAt
+	rows, at := s.csConsoleRows, s.csConsoleAt
 	s.csMu.Unlock()
-	if cached != "" && time.Since(at) < 15*time.Second {
-		return cached, cachedDetail
+	if rows != nil && time.Since(at) < 15*time.Second {
+		return rows
 	}
 	out, err := s.crowdsecConsoleStatus()
-	state, detail = "unknown", ""
+	rows = map[string]string{}
 	if err == nil {
-		state, detail = parseConsoleStatus(out)
+		rows = parseConsoleRows(out)
 	}
 	s.csMu.Lock()
-	s.csConsoleState, s.csConsoleDetail, s.csConsoleAt = state, detail, time.Now()
+	s.csConsoleRows, s.csConsoleAt = rows, time.Now()
 	s.csMu.Unlock()
-	return state, detail
+	return rows
 }
 
 // crowdsecConsoleStatus runs `cscli console status` through the root helper,
@@ -137,37 +187,85 @@ func (s *Server) crowdsecConsoleStatus() (string, error) {
 	return string(out), err
 }
 
-// parseConsoleStatus reads the "Enrolled" row of the table `cscli console
-// status` prints. Older engines label the row with a tick and the word
-// "enrolled"; a pending request shows a cross or "not enrolled".
-func parseConsoleStatus(out string) (state, detail string) {
+// parseConsoleRows turns the table `cscli console status` prints into a map of
+// lowercased label to value, so Enrolled, Plan, Decision management and PAPI
+// subscriptions all come from the engine instead of being guessed.
+func parseConsoleRows(out string) map[string]string {
+	rows := map[string]string{}
 	for _, line := range strings.Split(out, "\n") {
-		if !strings.Contains(line, "│") {
+		cells, ok := tableCells(line)
+		if !ok || len(cells) < 2 {
 			continue
 		}
-		cells := strings.Split(line, "│")
-		if len(cells) < 3 {
+		label := strings.ToLower(strings.TrimSpace(cells[0]))
+		value := strings.TrimSpace(cells[1])
+		if label == "" || value == "" || label == "console connection" {
 			continue
 		}
-		label := strings.ToLower(strings.TrimSpace(strings.Trim(cells[1], "─ ")))
-		if !strings.HasPrefix(label, "enrolled") {
-			continue
-		}
-		detail = strings.TrimSpace(cells[2])
-		value := strings.ToLower(detail)
-		switch {
-		case strings.Contains(value, "not enrolled"),
-			strings.Contains(value, "pending"),
-			strings.Contains(value, "✗"),
-			strings.Contains(value, "✘"),
-			strings.Contains(value, "❌"):
-			return "pending", detail
-		case strings.Contains(value, "enrolled"):
-			return "enrolled", detail
-		}
-		return "unknown", detail
+		rows[label] = value
 	}
-	return "unknown", ""
+	return rows
+}
+
+// consoleStatusFromRows classifies the Enrolled row. A pending request shows a
+// cross or "not enrolled"; the console sets "enrolled" once it accepted the
+// engine.
+func consoleStatusFromRows(rows map[string]string) (state, detail string) {
+	detail, ok := rows["enrolled"]
+	if !ok {
+		return "unknown", ""
+	}
+	value := strings.ToLower(detail)
+	switch {
+	case strings.Contains(value, "not enrolled"),
+		strings.Contains(value, "pending"),
+		strings.Contains(value, "✗"),
+		strings.Contains(value, "✘"),
+		strings.Contains(value, "❌"):
+		return "pending", detail
+	case strings.Contains(value, "enrolled"):
+		return "enrolled", detail
+	}
+	return "unknown", detail
+}
+
+func parseConsoleStatus(out string) (state, detail string) {
+	return consoleStatusFromRows(parseConsoleRows(out))
+}
+
+// rowValue returns the first non-empty value among the given labels.
+func rowValue(rows map[string]string, labels ...string) string {
+	for _, label := range labels {
+		if v := strings.TrimSpace(rows[label]); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// plainCell drops the tick or cross a status cell starts with.
+func plainCell(v string) string {
+	v = strings.TrimSpace(v)
+	for _, prefix := range []string{"✅", "✔️", "✔", "✓", "❌", "✗", "✘", "⚠️", "⚠"} {
+		v = strings.TrimSpace(strings.TrimPrefix(v, prefix))
+	}
+	return v
+}
+
+// decisionRowActive reads the Decision management row: the console can only
+// push decisions and blocklists when it is active, which needs a plan that
+// includes decision management.
+func decisionRowActive(v string) bool {
+	l := strings.ToLower(v)
+	if !strings.Contains(l, "active") {
+		return false
+	}
+	for _, off := range []string{"inactive", "not active", "✗", "✘", "❌", "not included", "requires"} {
+		if strings.Contains(l, off) {
+			return false
+		}
+	}
+	return true
 }
 
 func csPackageVersion() string {

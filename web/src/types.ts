@@ -401,10 +401,44 @@ export interface CrowdSecInstall {
   /** enrolled = accepted by the console, pending = awaiting acceptance, none, unknown */
   console_state: "enrolled" | "pending" | "none" | "unknown";
   console_detail?: string;
+  console_plan?: string;
+  console_capi?: string;
+  console_decision?: string;
+  console_decision_active: boolean;
+  console_papi?: string;
   lapi: string;
   running: boolean;
   error?: string;
   output?: string;
+}
+
+export interface CrowdSecBlocklistRow {
+  reason: string;
+  origin: string;
+  action: string;
+  count: number;
+}
+
+export interface CrowdSecBlocklists {
+  available: boolean;
+  reason?: string;
+  rows: CrowdSecBlocklistRow[];
+  total: number;
+  raw?: string;
+}
+
+export interface GateFailure {
+  ip: string;
+  username: string;
+  proxy_id: number;
+  proxy_host?: string;
+  attempts: number;
+  first: string;
+  last: string;
+  blocked: boolean;
+  blocked_permanent: boolean;
+  blocked_reason?: string;
+  blocked_source?: string;
 }
 
 export interface MCPToken {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
-import { Feed } from "../types";
+import { CrowdSecBlocklists, Feed } from "../types";
 
 export default function Intel({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [feeds, setFeeds] = useState<Feed[]>([]);
@@ -9,6 +9,7 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
   const [form, setForm] = useState({ name: "", url: "", action: "block", interval_s: 900 });
   const [uploadName, setUploadName] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [consoleLists, setConsoleLists] = useState<CrowdSecBlocklists | null>(null);
   const file = useRef<HTMLInputElement>(null);
 
   const load = () =>
@@ -24,6 +25,21 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
     load();
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const refresh = () =>
+      api
+        .get<CrowdSecBlocklists>("/api/crowdsec/blocklists")
+        .then((r) => alive && setConsoleLists(r))
+        .catch(() => undefined);
+    refresh();
+    const t = setInterval(refresh, 30000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
   }, []);
 
   const toggle = async (f: Feed) => {
@@ -135,6 +151,56 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
           <Field label="Interval (s)"><input type="number" value={form.interval_s} onChange={(e) => setForm({ ...form, interval_s: Number(e.target.value) })} /></Field>
           <button className="primary" style={{ marginTop: 18 }} onClick={add}>Add feed</button>
         </div>
+      </Card>
+
+      <Card
+        title="CrowdSec console blocklists"
+        actions={
+          consoleLists?.available ? (
+            <Badge>{consoleLists.total.toLocaleString()} decisions</Badge>
+          ) : (
+            <Badge tone="warn">not reported</Badge>
+          )
+        }
+      >
+        {!consoleLists ? (
+          <Empty>Loading…</Empty>
+        ) : !consoleLists.available ? (
+          <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+            {consoleLists.reason || "The Security Engine did not report its decisions."}
+          </p>
+        ) : consoleLists.rows.length === 0 ? (
+          <Empty>No console-pushed decisions are active on this engine.</Empty>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr><th>Reason</th><th>Origin</th><th>Action</th><th className="num">Decisions</th></tr>
+              </thead>
+              <tbody>
+                {consoleLists.rows.map((r) => (
+                  <tr key={`${r.origin}:${r.reason}:${r.action}`}>
+                    <td className="mono">{r.reason}</td>
+                    <td>
+                      <Badge tone={r.origin === "console" ? "bad" : "info"}>{r.origin}</Badge>
+                    </td>
+                    <td>{r.action}</td>
+                    <td className="num">{r.count.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {consoleLists?.raw && (
+          <pre className="mono" style={{ fontSize: 11, maxHeight: 220, overflow: "auto" }}>{consoleLists.raw}</pre>
+        )}
+        <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
+          Reported by the Security Engine (<code>cscli metrics show decisions</code>) and enforced by the bouncer, so
+          every row is a decision that is actually in force. Origins <code>lists</code> (subscribed blocklists),
+          <code> CAPI</code> (community blocklist) and <code>console</code> (pushed from the console) are managed at
+          app.crowdsec.net and cannot be edited here.
+        </p>
       </Card>
 
       <Card title="Feeds">

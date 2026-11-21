@@ -11,6 +11,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.4.0] — 2026-11-21
+
+### Added
+
+- **Failed access-gate logins on Statistics.** Every rejected gate login is stored with the username that was
+  tried, grouped by address, username and proxy, and shown with the attempt count, the last attempt and whether
+  the address is already blocked. A **Block permanently** button creates a permanent ban from the row; the gate's
+  own ladder (15 minutes, 24 hours) stays as it was.
+- **Console-pushed blocklists on Threat intel.** A read-only card reports what the engine is enforcing from
+  `cscli metrics show decisions`: subscribed blocklists (`lists`), the community blocklist (`CAPI`) and decisions
+  pushed from the console (`console`). The console owns those subscriptions, so they cannot be edited here.
+- **Plan and Decision management on the CrowdSec page.** The rows `cscli console status` prints (plan, Central
+  API, decision management, PAPI subscriptions) are shown as read, with a plain statement of whether
+  console-pushed decisions will reach this engine.
+
+### Fixed
+
+- **Console enrolment state is read before the credentials file.** `cscli console status` runs through the root
+  helper first, so a host where the console service cannot stat `/etc/crowdsec` is no longer reported as
+  "not linked"; a permission error now reads as unknown, and only a missing file reads as not linked.
+- **The installer's key check cannot hang.** The verification `curl` is bounded with `--connect-timeout 3` and
+  `--max-time 8`, so a Local API that accepts the connection but never answers fails the check instead of
+  hanging the install.
+
 ## [1.3.5] — 2026-11-21
 
 ### Added

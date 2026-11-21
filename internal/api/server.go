@@ -72,9 +72,8 @@ type Server struct {
 	csOutput  string
 	// Console enrolment state from `cscli console status`, cached briefly: the
 	// page polls this endpoint every two seconds during an install.
-	csConsoleState  string
-	csConsoleDetail string
-	csConsoleAt     time.Time
+	csConsoleRows map[string]string
+	csConsoleAt   time.Time
 
 	// Pending TOTP rotations are held server-side and keyed by session, so a
 	// stolen session cannot confirm an authenticator of its own choosing.
@@ -157,6 +156,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/analytics", s.authed(s.getAnalytics))
 	m.HandleFunc("GET /api/uptime", s.authed(s.getUptime))
 	m.HandleFunc("GET /api/events", s.authed(s.listEvents))
+	m.HandleFunc("GET /api/gate-failures", s.authed(s.listGateFailures))
 	m.HandleFunc("GET /api/events/export.csv", s.authed(s.exportEventsCSV))
 	m.HandleFunc("GET /api/ips", s.authed(s.listIPs))
 	m.HandleFunc("GET /api/ips/{ip}", s.authed(s.getIP))
@@ -165,6 +165,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/crowdsec/test", s.authed(s.testCrowdSec))
 	m.HandleFunc("GET /api/crowdsec/status", s.authed(s.crowdsecStatus))
 	m.HandleFunc("GET /api/crowdsec/install", s.authed(s.getCrowdSecInstall))
+	m.HandleFunc("GET /api/crowdsec/blocklists", s.authed(s.getCrowdSecBlocklists))
 	m.HandleFunc("POST /api/crowdsec/install", s.authed(s.startCrowdSecInstall))
 	m.HandleFunc("POST /api/crowdsec/console", s.authed(s.enrollCrowdSecConsole))
 	m.HandleFunc("GET /api/globe", s.authed(s.getGlobe))

@@ -116,7 +116,7 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 	ip := src.String()
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	if err := r.ParseForm(); err != nil {
-		g.fail(w, p, src, "bad-request")
+		g.fail(w, p, src, "", "bad-request")
 		return
 	}
 	username := strings.TrimSpace(r.PostFormValue("username"))
@@ -126,7 +126,7 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 
 	// Account lockout works even when the attacker rotates source IPs.
 	if username != "" && !g.limiter.Allow("user:"+username, 5, 15*time.Minute) {
-		g.fail(w, p, src, "lockout")
+		g.fail(w, p, src, username, "lockout")
 		return
 	}
 	// A username block is checked before the password so an agent can cut off a
@@ -139,7 +139,7 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 		}
 		if banned {
 			auth.DummyVerify(password)
-			g.fail(w, p, src, "blocked-username")
+			g.fail(w, p, src, username, "blocked-username")
 			return
 		}
 	}
@@ -165,7 +165,7 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 	}
 
 	if !ok {
-		g.fail(w, p, src, "bad-credentials")
+		g.fail(w, p, src, username, "bad-credentials")
 		return
 	}
 
@@ -216,9 +216,9 @@ func (g *Gate) allowed(proxyID int64, username string) bool {
 	return false
 }
 
-func (g *Gate) fail(w http.ResponseWriter, p *model.Proxy, src netip.Addr, reason string) {
+func (g *Gate) fail(w http.ResponseWriter, p *model.Proxy, src netip.Addr, username, reason string) {
 	ip := src.String()
-	_ = g.st.RecordGateFailure(ip, p.ID)
+	_ = g.st.RecordGateFailure(ip, p.ID, username, reason)
 	last10m, last24h, days, err := g.st.GateFailureStats(ip)
 	if err != nil {
 		g.log.Error("gate failure stats", "err", err)

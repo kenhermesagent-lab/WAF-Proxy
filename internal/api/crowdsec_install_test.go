@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"strings"
 	"testing"
@@ -51,6 +52,65 @@ func TestParseConsoleStatus(t *testing.T) {
 		if state, _ := parseConsoleStatus(out); state != "unknown" {
 			t.Errorf("%q reported %q, want unknown", out, state)
 		}
+	}
+}
+
+func TestConsoleRowsReportPlanAndDecisionManagement(t *testing.T) {
+	out := " │ Console connection  │                                │\n" +
+		" │ Central API (CAPI)  │ ✅ authenticated               │\n" +
+		" │ Enrolled            │ ✅ enrolled                    │\n" +
+		" │ Plan                │ SECOPS                         │\n" +
+		" │ Decision management │ ✅ active                      │\n" +
+		" │ PAPI subscriptions  │ blocklist, management          │\n"
+	rows := parseConsoleRows(out)
+	if state, _ := consoleStatusFromRows(rows); state != "enrolled" {
+		t.Fatalf("state = %q, want enrolled", state)
+	}
+	if got := plainCell(rowValue(rows, "plan")); got != "SECOPS" {
+		t.Errorf("plan = %q, want SECOPS", got)
+	}
+	if got := plainCell(rowValue(rows, "central api (capi)")); got != "authenticated" {
+		t.Errorf("capi = %q, want authenticated", got)
+	}
+	if got := plainCell(rowValue(rows, "decision management")); got != "active" || !decisionRowActive(got) {
+		t.Errorf("decision management = %q (active=%v), want active", got, decisionRowActive(got))
+	}
+	if got := plainCell(rowValue(rows, "papi subscriptions")); got != "blocklist, management" {
+		t.Errorf("papi = %q, want the subscriptions", got)
+	}
+}
+
+// A console that cannot stat /etc/crowdsec (the credential files are root-only)
+// must still report what the engine says, not "not linked".
+func TestConsoleInfoPrefersStatusOverUnreadableCredentials(t *testing.T) {
+	rows := map[string]string{"enrolled": "✅ enrolled", "plan": "SECOPS", "decision management": "✅ active"}
+	denied := errors.New("permission denied")
+	info := consoleInfoFromRows(rows, denied)
+	if info.State != "enrolled" {
+		t.Fatalf("state = %q, want enrolled even though the stat was denied", info.State)
+	}
+	if !info.DecisionsActive || info.Plan != "SECOPS" {
+		t.Fatalf("plan/decisions = %q/%v, want SECOPS and active", info.Plan, info.DecisionsActive)
+	}
+
+	// No table and no credentials really does mean not linked.
+	if info := consoleInfoFromRows(map[string]string{}, fs.ErrNotExist); info.State != "none" {
+		t.Fatalf("state = %q, want none without credentials", info.State)
+	}
+	// A denied stat without a table stays unknown rather than claiming not linked.
+	if info := consoleInfoFromRows(map[string]string{}, denied); info.State != "unknown" {
+		t.Fatalf("state = %q, want unknown when the credentials cannot be read", info.State)
+	}
+}
+
+func TestDecisionRowInactiveIsNotActive(t *testing.T) {
+	for _, v := range []string{"", "not active", "✗ inactive", "not included", "requires a SECOPS plan"} {
+		if decisionRowActive(v) {
+			t.Errorf("%q reported active, want inactive", v)
+		}
+	}
+	if !decisionRowActive("✅ active") {
+		t.Error("✅ active reported inactive, want active")
 	}
 }
 

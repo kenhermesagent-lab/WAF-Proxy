@@ -47,7 +47,7 @@ type Guard struct {
 }
 
 type storeLogger interface {
-	RecordGateFailure(ip string, proxyID int64) error
+	RecordGateFailure(ip string, proxyID int64, username, reason string) error
 }
 
 // New returns a guard signing cookies with secret.

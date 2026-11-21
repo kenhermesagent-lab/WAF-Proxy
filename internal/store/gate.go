@@ -2,11 +2,60 @@ package store
 
 import "time"
 
-// RecordGateFailure logs one failed access-gate login.
-func (s *Store) RecordGateFailure(ip string, proxyID int64) error {
-	_, err := s.db.Exec(`INSERT INTO gate_failures(ip, proxy_id, ts) VALUES(?, ?, ?)`,
-		ip, proxyID, stamp(time.Now()))
+// truncate bounds user-supplied text before it is stored. Counted in runes so a
+// multi-byte username is never cut mid-character.
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}
+
+// RecordGateFailure logs one failed access-gate login. The username is stored
+// as submitted, including unknown accounts: an operator reviewing the page
+// needs to see which accounts are being tried.
+func (s *Store) RecordGateFailure(ip string, proxyID int64, username, reason string) error {
+	_, err := s.db.Exec(`INSERT INTO gate_failures(ip, proxy_id, username, reason, ts) VALUES(?, ?, ?, ?, ?)`,
+		ip, proxyID, truncate(username, 190), truncate(reason, 40), stamp(time.Now()))
 	return err
+}
+
+// GateFailureRow aggregates failed logins by source address, username and proxy.
+type GateFailureRow struct {
+	IP       string
+	Username string
+	ProxyID  int64
+	Attempts int
+	First    time.Time
+	Last     time.Time
+}
+
+// GateFailureReport lists failed logins in [from, to], newest first. Grouping
+// keeps a scanning bot to one row per username rather than thousands.
+func (s *Store) GateFailureReport(from, to time.Time, limit int) ([]GateFailureRow, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	rows, err := s.db.Query(`SELECT ip, username, proxy_id, COUNT(*), MIN(ts), MAX(ts)
+		FROM gate_failures WHERE ts >= ? AND ts <= ?
+		GROUP BY ip, username, proxy_id
+		ORDER BY MAX(ts) DESC LIMIT ?`, stamp(from), stamp(to), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]GateFailureRow, 0, 32)
+	for rows.Next() {
+		var r GateFailureRow
+		var first, last string
+		if err := rows.Scan(&r.IP, &r.Username, &r.ProxyID, &r.Attempts, &first, &last); err != nil {
+			return nil, err
+		}
+		r.First, r.Last = parseStamp(first), parseStamp(last)
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // GateFailureStats returns the counts used by the escalation ladder:

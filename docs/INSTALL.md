@@ -351,6 +351,12 @@ the page, then accept the pending engine in the console and run
 whether the console accepted the engine rather than only that the request was sent: **pending
 acceptance** until you accept it, **accepted by console** afterwards.
 
+The page also shows the plan, Central API, **Decision management** and PAPI subscription rows the same command
+reports. Decision management is the one that matters for blocklists: while it is inactive, the console cannot
+push decisions to the engine, and nothing will be enforced no matter how many blocklists are subscribed. Once
+it is active, the blocklists the engine pulls are listed read-only under **Threat intel → CrowdSec console
+blocklists**, with the number of decisions each one contributes.
+
 The button needs the privileged helper (`wafproxy-updates.service`) that `deploy/install.sh`
 installs; without it the page explains that and stays read-only. It is hidden inside a
 container, where the Compose sidecar in section 7 is the supported path.

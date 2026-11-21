@@ -3,6 +3,38 @@ import { api } from "../api";
 import { Badge, Card, Field, errText, fmtAgo } from "../ui";
 import type { CrowdSecInstall, CrowdSecStatus } from "../types";
 
+// ConsoleConnection shows the rows `cscli console status` reports, so the plan
+// and decision management state are visible instead of inferred.
+function ConsoleConnection({ inst }: { inst: CrowdSecInstall }) {
+  if (!inst.console_plan && !inst.console_capi && !inst.console_decision && !inst.console_papi) return null;
+  return (
+    <div style={{ marginTop: 12 }}>
+      <table>
+        <tbody>
+          <tr><td className="muted">Plan</td><td>{inst.console_plan || "—"}</td></tr>
+          <tr><td className="muted">Central API</td><td>{inst.console_capi || "—"}</td></tr>
+          <tr>
+            <td className="muted">Decision management</td>
+            <td>
+              {inst.console_decision_active ? (
+                <Badge tone="ok">{inst.console_decision || "active"}</Badge>
+              ) : (
+                <Badge tone="warn">{inst.console_decision || "not available"}</Badge>
+              )}
+            </td>
+          </tr>
+          <tr><td className="muted">PAPI subscriptions</td><td>{inst.console_papi || "—"}</td></tr>
+        </tbody>
+      </table>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+        {inst.console_decision_active
+          ? "The console can push decisions and blocklists to this engine; what it is currently enforcing is listed, read-only, on Threat intel."
+          : "Console-pushed decisions and blocklists will not reach this engine until Decision management is active, which needs a plan that includes it."}
+      </p>
+    </div>
+  );
+}
+
 export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [status, setStatus] = useState<CrowdSecStatus | null>(null);
   const [inst, setInst] = useState<CrowdSecInstall | null>(null);
@@ -224,6 +256,7 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
               {inst.console_detail && (
                 <p className="mono muted" style={{ fontSize: 11.5, marginBottom: 0 }}>{inst.console_detail}</p>
               )}
+              <ConsoleConnection inst={inst} />
             </>
           ) : inst.console_state === "pending" || inst.console_enrolled ? (
             <>
@@ -242,6 +275,7 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
               {inst.console_detail && (
                 <p className="mono muted" style={{ fontSize: 11.5, marginBottom: 0 }}>{inst.console_detail}</p>
               )}
+              <ConsoleConnection inst={inst} />
             </>
           ) : (
             <>

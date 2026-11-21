@@ -121,7 +121,9 @@ fi
 base="http://$lapi"
 code=""
 for _ in $(seq 1 10); do
-  code="$(curl -sS -o /dev/null -w '%{http_code}' \
+  # Bounded: a LAPI that accepts the connection but never answers must not hang
+  # the installer, and a slow answer is retried rather than accepted.
+  code="$(curl -sS --connect-timeout 3 --max-time 8 -o /dev/null -w '%{http_code}' \
     -H "X-Api-Key: $key" "$base/v1/decisions?limit=1" 2>/dev/null || true)"
   [[ "$code" == "200" ]] && break
   sleep 1
