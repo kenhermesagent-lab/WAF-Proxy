@@ -13,7 +13,7 @@ import (
 func (s *Store) ListProxies() ([]model.Proxy, error) {
 	rows, err := s.db.Query(`SELECT id, hostname, enabled, cert_id, profile_id, gate_mode, gate_secret,
 		gate_totp_hint, fingerprint, bot_level, maintenance, waf_mode, created_at,
-		protection_profile_id, access_profile_id FROM proxies ORDER BY hostname`)
+		protection_profile_id, access_profile_id, auth_provider_id FROM proxies ORDER BY hostname`)
 	if err != nil {
 		return nil, err
 	}
@@ -31,11 +31,11 @@ func (s *Store) ListProxies() ([]model.Proxy, error) {
 
 func scanProxy(row interface{ Scan(...any) error }) (*model.Proxy, error) {
 	var p model.Proxy
-	var certID, profileID, protectionID, accessID sql.NullInt64
+	var certID, profileID, protectionID, accessID, providerID sql.NullInt64
 	var enabled, maint int
 	var created string
 	err := row.Scan(&p.ID, &p.Hostname, &enabled, &certID, &profileID, &p.GateMode, &p.GateSecret,
-		&p.GateTOTPHint, &p.Fingerprint, &p.BotLevel, &maint, &p.WAFMode, &created, &protectionID, &accessID)
+		&p.GateTOTPHint, &p.Fingerprint, &p.BotLevel, &maint, &p.WAFMode, &created, &protectionID, &accessID, &providerID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -56,6 +56,9 @@ func scanProxy(row interface{ Scan(...any) error }) (*model.Proxy, error) {
 	if accessID.Valid {
 		p.AccessProfileID = &accessID.Int64
 	}
+	if providerID.Valid {
+		p.AuthProviderID = &providerID.Int64
+	}
 	p.CreatedAt = parseStamp(created)
 	return &p, nil
 }
@@ -64,25 +67,25 @@ func scanProxy(row interface{ Scan(...any) error }) (*model.Proxy, error) {
 func (s *Store) GetProxy(id int64) (*model.Proxy, error) {
 	return scanProxy(s.db.QueryRow(`SELECT id, hostname, enabled, cert_id, profile_id, gate_mode, gate_secret,
 		gate_totp_hint, fingerprint, bot_level, maintenance, waf_mode, created_at,
-		protection_profile_id, access_profile_id FROM proxies WHERE id = ?`, id))
+		protection_profile_id, access_profile_id, auth_provider_id FROM proxies WHERE id = ?`, id))
 }
 
 // ProxyByHost loads a proxy by hostname.
 func (s *Store) ProxyByHost(host string) (*model.Proxy, error) {
 	return scanProxy(s.db.QueryRow(`SELECT id, hostname, enabled, cert_id, profile_id, gate_mode, gate_secret,
 		gate_totp_hint, fingerprint, bot_level, maintenance, waf_mode, created_at,
-		protection_profile_id, access_profile_id FROM proxies WHERE hostname = ?`, host))
+		protection_profile_id, access_profile_id, auth_provider_id FROM proxies WHERE hostname = ?`, host))
 }
 
 // CreateProxy inserts a proxy and returns its ID.
 func (s *Store) CreateProxy(p *model.Proxy) (int64, error) {
 	res, err := s.db.Exec(`INSERT INTO proxies(hostname, enabled, cert_id, profile_id, gate_mode, gate_secret,
 		gate_totp_hint, fingerprint, bot_level, maintenance, waf_mode, created_at,
-		protection_profile_id, access_profile_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		protection_profile_id, access_profile_id, auth_provider_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Hostname, b2i(p.Enabled), p.CertID, p.ProfileID, p.GateMode, p.GateSecret,
 		p.GateTOTPHint, p.Fingerprint, defaultStr(p.BotLevel, "light"), b2i(p.Maintenance), p.WAFMode,
-		stamp(time.Now()), p.ProtectionProfileID, p.AccessProfileID)
+		stamp(time.Now()), p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID)
 	if err != nil {
 		return 0, err
 	}
@@ -93,11 +96,11 @@ func (s *Store) CreateProxy(p *model.Proxy) (int64, error) {
 func (s *Store) UpdateProxy(p *model.Proxy) error {
 	_, err := s.db.Exec(`UPDATE proxies SET hostname = ?, enabled = ?, cert_id = ?, profile_id = ?,
 		gate_mode = ?, gate_secret = ?, gate_totp_hint = ?, fingerprint = ?, bot_level = ?, maintenance = ?, waf_mode = ?,
-		protection_profile_id = ?, access_profile_id = ?
+		protection_profile_id = ?, access_profile_id = ?, auth_provider_id = ?
 		WHERE id = ?`,
 		p.Hostname, b2i(p.Enabled), p.CertID, p.ProfileID, p.GateMode, p.GateSecret,
 		p.GateTOTPHint, p.Fingerprint, defaultStr(p.BotLevel, "light"), b2i(p.Maintenance), p.WAFMode,
-		p.ProtectionProfileID, p.AccessProfileID, p.ID)
+		p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID, p.ID)
 	return err
 }
 

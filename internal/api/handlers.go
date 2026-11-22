@@ -46,6 +46,7 @@ type proxyBody struct {
 	CertID              *int64         `json:"cert_id"`
 	ProtectionProfileID *int64         `json:"protection_profile_id"`
 	AccessProfileID     *int64         `json:"access_profile_id"`
+	AuthProviderID      *int64         `json:"auth_provider_id"`
 	GateMode            string         `json:"gate_mode"`
 	GateSecret          string         `json:"gate_secret"`
 	Fingerprint         string         `json:"fingerprint"`
@@ -102,10 +103,11 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		Enabled:  in.Enabled == nil || *in.Enabled,
 		CertID:   in.CertID, ProfileID: in.ProfileID,
 		ProtectionProfileID: in.ProtectionProfileID, AccessProfileID: in.AccessProfileID,
-		GateMode:    defaultStr(in.GateMode, "off"),
-		Fingerprint: defaultStr(in.Fingerprint, "strict"),
-		BotLevel:    defaultStr(in.BotLevel, "light"),
-		WAFMode:     defaultStr(in.WAFMode, "inherit"),
+		AuthProviderID: in.AuthProviderID,
+		GateMode:       defaultStr(in.GateMode, "off"),
+		Fingerprint:    defaultStr(in.Fingerprint, "strict"),
+		BotLevel:       defaultStr(in.BotLevel, "light"),
+		WAFMode:        defaultStr(in.WAFMode, "inherit"),
 	}
 	if in.Maintenance != nil {
 		p.Maintenance = *in.Maintenance
@@ -115,6 +117,10 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if msg := validateUpstreams(in.Upstreams); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := s.checkAuthProvider(in.AuthProviderID); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -176,6 +182,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	current.ProfileID = in.ProfileID
 	current.ProtectionProfileID = in.ProtectionProfileID
 	current.AccessProfileID = in.AccessProfileID
+	current.AuthProviderID = in.AuthProviderID
 	if in.GateMode != "" {
 		current.GateMode = in.GateMode
 	}
@@ -193,6 +200,10 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if msg := validateUpstreams(in.Upstreams); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := s.checkAuthProvider(in.AuthProviderID); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -223,6 +234,9 @@ func validateProxyOptions(in proxyBody) string {
 	if in.GateMode != "" && !gateModes[in.GateMode] {
 		return "invalid gate mode"
 	}
+	if in.GateMode == "forward_auth" && in.AuthProviderID == nil {
+		return "choose an identity provider for the forward-auth gate"
+	}
 	if in.WAFMode != "" && !validWAFMode(in.WAFMode) {
 		return "invalid WAF mode"
 	}
@@ -251,7 +265,19 @@ func validateUpstreams(ups []upstreamBody) string {
 }
 
 // gateModes is the set of accepted access-gate modes.
-var gateModes = map[string]bool{"off": true, "passphrase": true, "accounts": true, "accounts_totp": true}
+// checkAuthProvider stops a proxy from pointing at a provider that no longer
+// exists, which would leave the site failing closed with no obvious cause.
+func (s *Server) checkAuthProvider(id *int64) string {
+	if id == nil {
+		return ""
+	}
+	if _, err := s.st.GetAuthProvider(*id); err != nil {
+		return "unknown identity provider"
+	}
+	return ""
+}
+
+var gateModes = map[string]bool{"off": true, "passphrase": true, "accounts": true, "accounts_totp": true, "forward_auth": true}
 
 func validWAFMode(mode string) bool {
 	return mode == "inherit" || mode == "off" || mode == "detect" || mode == "block"

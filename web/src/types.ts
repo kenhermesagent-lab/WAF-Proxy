@@ -111,6 +111,16 @@ export interface AccessProfile {
   policy_ids: number[];
 }
 
+export interface AuthProvider {
+  id: number;
+  name: string;
+  kind: string;
+  verify_url: string;
+  login_url: string;
+  header: string;
+  has_secret: boolean;
+}
+
 export interface Proxy {
   id: number;
   hostname: string;
@@ -119,6 +129,7 @@ export interface Proxy {
   profile_id?: number | null;
   protection_profile_id?: number | null;
   access_profile_id?: number | null;
+  auth_provider_id?: number | null;
   gate_mode: string;
   gate_totp_hint?: string;
   fingerprint: string;

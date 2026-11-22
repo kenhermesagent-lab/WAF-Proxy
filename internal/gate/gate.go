@@ -1,5 +1,6 @@
-// Package gate implements the optional per-proxy access gate (shared passphrase
-// or accounts with TOTP) and the login-failure ban escalation ladder.
+// Package gate implements the optional per-proxy access gate (shared passphrase,
+// accounts with TOTP, or an external forward-auth provider) and the
+// login-failure ban escalation ladder.
 package gate
 
 import (
@@ -87,6 +88,9 @@ func (g *Gate) Handle(w http.ResponseWriter, r *http.Request, p *model.Proxy, sr
 	}
 	if isHealthPath(r.URL.Path) {
 		return false
+	}
+	if p.GateMode == "forward_auth" {
+		return g.forwardAuth(w, r, p)
 	}
 
 	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {

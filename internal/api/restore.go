@@ -149,6 +149,7 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		// would lock the proxy with no working credential.
 		p.GateMode = "off"
 		p.GateSecret = ""
+		p.AuthProviderID = nil
 		p.GateTOTPHint = ""
 		if p.Fingerprint == "" {
 			p.Fingerprint = "strict"

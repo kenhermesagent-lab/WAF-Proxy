@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
-import { AccessProfile, Cert, Profile, ProtectionProfile, Proxy, Route, Upstream } from "../types";
+import { AccessProfile, AuthProvider, Cert, Profile, ProtectionProfile, Proxy, Route, Upstream } from "../types";
 
 type Draft = {
   id?: number;
@@ -10,6 +10,7 @@ type Draft = {
   profile_id: number | null;
   protection_profile_id: number | null;
   access_profile_id: number | null;
+  auth_provider_id: number | null;
   cert_id: number | null;
   gate_mode: string;
   gate_secret: string;
@@ -29,6 +30,7 @@ function emptyDraft(): Draft {
     profile_id: null,
     protection_profile_id: null,
     access_profile_id: null,
+    auth_provider_id: null,
     cert_id: null,
     gate_mode: "off",
     gate_secret: "",
@@ -47,6 +49,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [protections, setProtections] = useState<ProtectionProfile[]>([]);
   const [accessProfiles, setAccessProfiles] = useState<AccessProfile[]>([]);
+  const [providers, setProviders] = useState<AuthProvider[]>([]);
   const [certs, setCerts] = useState<Cert[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -57,13 +60,15 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
       api.get<Profile[]>("/api/profiles"),
       api.get<ProtectionProfile[]>("/api/protection-profiles"),
       api.get<AccessProfile[]>("/api/access-profiles"),
+      api.get<AuthProvider[]>("/api/auth-providers"),
       api.get<{ certs: Cert[] }>("/api/certs"),
     ])
-      .then(([p, pr, pp, ap, c]) => {
+      .then(([p, pr, pp, ap, prov, c]) => {
         setList(p);
         setProfiles(pr);
         setProtections(pp);
         setAccessProfiles(ap);
+        setProviders(prov);
         setCerts(c.certs || []);
       })
       .catch((e) => onError(errText(e)));
@@ -88,6 +93,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
       profile_id: p.profile_id ?? null,
       protection_profile_id: p.protection_profile_id ?? null,
       access_profile_id: p.access_profile_id ?? null,
+      auth_provider_id: p.auth_provider_id ?? null,
       cert_id: p.cert_id ?? null,
       gate_mode: p.gate_mode || "off",
       gate_secret: "",
@@ -301,8 +307,22 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
                   <option value="passphrase">Shared passphrase</option>
                   <option value="accounts">Accounts</option>
                   <option value="accounts_totp">Accounts + TOTP</option>
+                  <option value="forward_auth">Identity provider (forward-auth)</option>
                 </select>
               </Field>
+              {draft.gate_mode === "forward_auth" && (
+                <Field label="Provider">
+                  <select
+                    value={draft.auth_provider_id ?? ""}
+                    onChange={(e) => patch((d) => (d.auth_provider_id = e.target.value ? Number(e.target.value) : null))}
+                  >
+                    <option value="">Choose a provider…</option>
+                    {providers.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               {draft.gate_mode === "passphrase" && (
                 <Field label="Passphrase (leave blank to keep)">
                   <input type="password" value={draft.gate_secret} onChange={(e) => patch((d) => (d.gate_secret = e.target.value))} />

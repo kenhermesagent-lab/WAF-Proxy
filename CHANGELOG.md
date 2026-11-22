@@ -11,6 +11,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.8.0] — 2026-11-22
+
+### Added
+
+- **Identity-provider access gate.** A proxy's access gate can now be handed to a provider you already run.
+  **Policies → Identity providers** registers an Authelia, authentik or generic forward-auth endpoint with
+  its verify URL, the portal unauthenticated visitors are sent to, an optional shared-secret header, and
+  the product-specific URL hints for each. The proxy form's gate mode gains **Identity provider
+  (forward-auth)** plus a provider picker. Every request is checked against the verify URL with the
+  visitor's cookies and the usual `X-Forwarded-*`/`X-Original-URL` headers: a 2xx allows it, a 401 sends
+  the visitor to the portal with `?rd=` back to the page, a provider redirect is followed by the browser
+  rather than the proxy, and an unreachable provider refuses access instead of opening the site. Secrets
+  are sealed with the console key and never returned; a provider a proxy still uses cannot be deleted.
+
 ## [1.7.0] — 2026-11-22
 
 ### Added

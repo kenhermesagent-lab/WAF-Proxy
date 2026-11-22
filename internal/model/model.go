@@ -12,14 +12,29 @@ type Proxy struct {
 	ProfileID           *int64    `json:"profile_id,omitempty"`
 	ProtectionProfileID *int64    `json:"protection_profile_id,omitempty"`
 	AccessProfileID     *int64    `json:"access_profile_id,omitempty"`
-	GateMode            string    `json:"gate_mode"` // off | passphrase | accounts | accounts_totp
+	GateMode            string    `json:"gate_mode"` // off | passphrase | accounts | accounts_totp | forward_auth
 	GateSecret          string    `json:"-"`         // argon2 hash, write-only in the API
+	AuthProviderID      *int64    `json:"auth_provider_id,omitempty"`
 	GateTOTPHint        string    `json:"gate_totp_hint,omitempty"`
 	Fingerprint         string    `json:"fingerprint"` // strict | minimal
 	BotLevel            string    `json:"bot_level"`   // off | light | standard | aggressive
 	Maintenance         bool      `json:"maintenance"`
 	WAFMode             string    `json:"waf_mode"` // inherit | off | detect | block
 	CreatedAt           time.Time `json:"created_at"`
+}
+
+// AuthProvider is an external forward-auth endpoint — Authelia, authentik or any
+// server that answers 2xx for an authenticated session — that a proxy can hand
+// its access gate to.
+type AuthProvider struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`       // authelia | authentik | generic
+	VerifyURL string `json:"verify_url"` // forward-auth endpoint, e.g. http://authelia:9091/api/verify
+	LoginURL  string `json:"login_url"`  // portal an unauthenticated visitor is sent to
+	Header    string `json:"header"`     // header carrying the shared secret
+	Secret    string `json:"-"`          // sealed, write-only in the API
+	HasSecret bool   `json:"has_secret"`
 }
 
 // ProtectionProfile is a named set of response-hardening options a proxy can

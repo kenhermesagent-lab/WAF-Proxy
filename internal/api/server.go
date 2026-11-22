@@ -143,6 +143,11 @@ func (s *Server) routes() {
 	m.HandleFunc("PUT /api/profiles/{id}", s.authed(s.updateProfile))
 	m.HandleFunc("DELETE /api/profiles/{id}", s.authed(s.deleteProfile))
 
+	m.HandleFunc("GET /api/auth-providers", s.authed(s.listAuthProviders))
+	m.HandleFunc("POST /api/auth-providers", s.authed(s.createAuthProvider))
+	m.HandleFunc("PUT /api/auth-providers/{id}", s.authed(s.updateAuthProvider))
+	m.HandleFunc("DELETE /api/auth-providers/{id}", s.authed(s.deleteAuthProvider))
+
 	m.HandleFunc("GET /api/protection-profiles", s.authed(s.listProtectionProfiles))
 	m.HandleFunc("POST /api/protection-profiles", s.authed(s.createProtectionProfile))
 	m.HandleFunc("PUT /api/protection-profiles/{id}", s.authed(s.updateProtectionProfile))

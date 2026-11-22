@@ -112,6 +112,16 @@ CREATE TABLE IF NOT EXISTS dns_credentials (
   creds_enc TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS auth_providers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  kind TEXT NOT NULL DEFAULT 'generic',
+  verify_url TEXT NOT NULL,
+  login_url TEXT NOT NULL DEFAULT '',
+  header TEXT NOT NULL DEFAULT 'X-Wafproxy-Auth',
+  secret TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS proxies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   hostname TEXT NOT NULL UNIQUE,
@@ -319,7 +329,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "6"
+const schemaVersion = "7"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -351,6 +361,7 @@ func (s *Store) migrateAddColumns() error {
 		{"feeds", "local_path", `ALTER TABLE feeds ADD COLUMN local_path TEXT NOT NULL DEFAULT ''`},
 		{"proxies", "protection_profile_id", `ALTER TABLE proxies ADD COLUMN protection_profile_id INTEGER REFERENCES protection_profiles(id) ON DELETE SET NULL`},
 		{"proxies", "access_profile_id", `ALTER TABLE proxies ADD COLUMN access_profile_id INTEGER REFERENCES access_profiles(id) ON DELETE SET NULL`},
+		{"proxies", "auth_provider_id", `ALTER TABLE proxies ADD COLUMN auth_provider_id INTEGER REFERENCES auth_providers(id) ON DELETE SET NULL`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)
