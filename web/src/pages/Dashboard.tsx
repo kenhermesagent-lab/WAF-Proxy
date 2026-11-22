@@ -259,21 +259,19 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
           </div>
         </Card>
         <Card>
-          <div className="stat">
-            <div className="k">Requests</div>
-            <div className="v">{totals.requests.toLocaleString()}</div>
-            <div className="sub">{totals.blocked.toLocaleString()} blocked · {fmtBytes(totals.bytesOut)} out</div>
-          </div>
-        </Card>
-        <Card>
-          <div className="stat">
-            <div className="k">Request budget</div>
-            <div className="v">
-              {metrics?.inflight ?? 0}
-              <span className="muted" style={{ fontSize: 13 }}> / {metrics?.max_inflight ?? 0}</span>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+            <div className="stat" style={{ flex: 1 }}>
+              <div className="k">Requests</div>
+              <div className="v">{totals.requests.toLocaleString()}</div>
+              <div className="sub">{totals.blocked.toLocaleString()} blocked · {fmtBytes(totals.bytesOut)} out</div>
             </div>
-            <div className="sub">
-              {(metrics?.shed ?? 0).toLocaleString()} refused while full
+            <div className="stat" style={{ textAlign: "right" }}>
+              <div className="k">Request budget</div>
+              <div className="v">
+                {metrics?.inflight ?? 0}
+                <span className="muted" style={{ fontSize: 13 }}> / {metrics?.max_inflight ?? 0}</span>
+              </div>
+              <div className="sub">{(metrics?.shed ?? 0).toLocaleString()} refused while full</div>
             </div>
           </div>
         </Card>

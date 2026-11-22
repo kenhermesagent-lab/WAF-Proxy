@@ -89,6 +89,40 @@ export interface Me {
   version: string;
   base_domain: string;
   totp_enabled: boolean;
+  role: string;
+  permissions: string[];
+}
+
+export interface PermissionArea {
+  key: string;
+  label: string;
+}
+
+export interface Role {
+  id: number;
+  name: string;
+  description: string;
+  builtin: boolean;
+  permissions: string[];
+}
+
+export interface AdminUser {
+  id: number;
+  username: string;
+  role_id: number;
+  role: string;
+  totp_enabled: boolean;
+  created_at: string;
+}
+
+// can() mirrors the server's permission check so the console hides what the
+// signed-in role cannot use.
+export function can(perms: string[] | undefined, permission: string): boolean {
+  const list = perms ?? [];
+  if (list.includes("*")) return true;
+  if (list.includes(permission)) return true;
+  if (permission.endsWith(".read")) return list.includes(permission.slice(0, -5) + ".write");
+  return false;
 }
 
 export interface ProtectionProfile {
@@ -327,8 +361,28 @@ export interface Cert {
   expires_at: string;
   renews_at?: string;
   renew_mode: string;
+  challenge: string;
   wildcard: boolean;
   last_error?: string;
+}
+
+export interface HeaderCheck {
+  setting: string;
+  header: string;
+  backend: string;
+  profile: string;
+  verdict: string;
+  advice: string;
+}
+
+export interface HeaderAudit {
+  proxy: string;
+  upstream: string;
+  status: number;
+  self_signed: boolean;
+  headers: Record<string, string>;
+  checks: HeaderCheck[];
+  summary: string[];
 }
 
 export interface Event {

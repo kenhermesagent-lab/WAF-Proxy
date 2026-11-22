@@ -6,6 +6,7 @@ import { Ban, Policy, Profile, Proxy } from "../types";
 import AccessLists from "../components/AccessLists";
 import AccessProfiles from "../components/AccessProfiles";
 import AuthProviders from "../components/AuthProviders";
+import BotFilter from "../components/BotFilter";
 import ProtectionProfiles from "../components/ProtectionProfiles";
 
 const KINDS: Record<string, string> = {
@@ -242,6 +243,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           <button className={`tab ${tab === "whitelists" ? "active" : ""}`} onClick={() => setTab("whitelists")}>Whitelist profiles</button>
           <button className={`tab ${tab === "access" ? "active" : ""}`} onClick={() => setTab("access")}>Access profiles</button>
           <button className={`tab ${tab === "providers" ? "active" : ""}`} onClick={() => setTab("providers")}>Identity providers</button>
+          <button className={`tab ${tab === "bots" ? "active" : ""}`} onClick={() => setTab("bots")}>Bot filter</button>
         </div>
         {kernel && (
           <span className={`badge ${kernel.active ? "ok" : "warn"}`}>
@@ -426,6 +428,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       {tab === "whitelists" && <AccessLists kind="whitelist" onError={onError} onOK={onOK} />}
       {tab === "access" && <AccessProfiles policies={policies} onError={onError} onOK={onOK} />}
       {tab === "providers" && <AuthProviders onError={onError} onOK={onOK} />}
+      {tab === "bots" && <BotFilter onError={onError} onOK={onOK} />}
 
       {tab === "rules" && (
         <>

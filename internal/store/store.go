@@ -8,11 +8,15 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/rbac"
 	_ "modernc.org/sqlite"
 )
 
@@ -41,8 +45,24 @@ func Open(dir string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	db.SetMaxOpenConns(4)
-	db.SetMaxIdleConns(4)
+	// SQLite writes serialise, but reads scale with the connection pool. The
+	// default tracks the host's CPUs so a 8 vCPU edge does not queue every
+	// analytics query behind the four connections a small VM needs. An operator
+	// can pin it with WAFPROXY_DB_CONNS.
+	conns := runtime.NumCPU() * 2
+	if conns < 4 {
+		conns = 4
+	}
+	if conns > 32 {
+		conns = 32
+	}
+	if raw := os.Getenv("WAFPROXY_DB_CONNS"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 1 && n <= 64 {
+			conns = n
+		}
+	}
+	db.SetMaxOpenConns(conns)
+	db.SetMaxIdleConns(conns)
 	db.SetConnMaxLifetime(time.Hour)
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
@@ -89,7 +109,15 @@ CREATE TABLE IF NOT EXISTS users (
   totp_enabled INTEGER NOT NULL DEFAULT 0,
   recovery_codes TEXT NOT NULL DEFAULT '',
   totp_last_step INTEGER NOT NULL DEFAULT 0,
+  role_id INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS roles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  builtin INTEGER NOT NULL DEFAULT 0,
+  permissions TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -129,6 +157,7 @@ CREATE TABLE IF NOT EXISTS certificates (
   key_pem BLOB,
   is_wildcard INTEGER NOT NULL DEFAULT 0,
   renew_mode TEXT NOT NULL DEFAULT 'before_expiry',
+  challenge TEXT NOT NULL DEFAULT 'dns-01',
   last_error TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
@@ -404,13 +433,16 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "14"
+const schemaVersion = "15"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
 	if err := s.migrateAddColumns(); err != nil {
+		return err
+	}
+	if err := s.seedRoles(); err != nil {
 		return err
 	}
 	if err := s.seedProfiles(); err != nil {
@@ -428,7 +460,9 @@ func (s *Store) migrate() error {
 func (s *Store) migrateAddColumns() error {
 	steps := []struct{ table, column, ddl string }{
 		{"users", "totp_last_step", `ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
+		{"users", "role_id", `ALTER TABLE users ADD COLUMN role_id INTEGER NOT NULL DEFAULT 0`},
 		{"certificates", "renew_mode", `ALTER TABLE certificates ADD COLUMN renew_mode TEXT NOT NULL DEFAULT 'before_expiry'`},
+		{"certificates", "challenge", `ALTER TABLE certificates ADD COLUMN challenge TEXT NOT NULL DEFAULT 'dns-01'`},
 		{"gate_failures", "username", `ALTER TABLE gate_failures ADD COLUMN username TEXT NOT NULL DEFAULT ''`},
 		{"gate_failures", "reason", `ALTER TABLE gate_failures ADD COLUMN reason TEXT NOT NULL DEFAULT ''`},
 		{"feeds", "local", `ALTER TABLE feeds ADD COLUMN local INTEGER NOT NULL DEFAULT 0`},
@@ -613,6 +647,7 @@ type User struct {
 	TOTPSecret   string
 	TOTPEnabled  bool
 	Recovery     string
+	RoleID       int64
 	CreatedAt    time.Time
 }
 
@@ -625,8 +660,13 @@ func (s *Store) CountUsers() (int, error) {
 
 // CreateUser inserts an administrator.
 func (s *Store) CreateUser(username, hash, totpSecret, recovery string, totpEnabled bool) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, totp_secret, totp_enabled, recovery_codes, created_at)
-		VALUES(?, ?, ?, ?, ?, ?)`, username, hash, totpSecret, b2i(totpEnabled), recovery, stamp(time.Now()))
+	return s.CreateUserWithRole(username, hash, totpSecret, recovery, totpEnabled, s.AdminRoleID())
+}
+
+// CreateUserWithRole inserts an administrator with an explicit role.
+func (s *Store) CreateUserWithRole(username, hash, totpSecret, recovery string, totpEnabled bool, roleID int64) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?)`, username, hash, totpSecret, b2i(totpEnabled), recovery, roleID, stamp(time.Now()))
 	if err != nil {
 		return 0, err
 	}
@@ -638,9 +678,9 @@ func (s *Store) CreateUser(username, hash, totpSecret, recovery string, totpEnab
 // it. The insert is a single statement, so the check and the write cannot be
 // separated by a concurrent request.
 func (s *Store) CreateFirstUser(username, hash, totpSecret, recovery string, totpEnabled bool) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, totp_secret, totp_enabled, recovery_codes, created_at)
-		SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)`,
-		username, hash, totpSecret, b2i(totpEnabled), recovery, stamp(time.Now()))
+	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at)
+		SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)`,
+		username, hash, totpSecret, b2i(totpEnabled), recovery, s.AdminRoleID(), stamp(time.Now()))
 	if err != nil {
 		return 0, err
 	}
@@ -660,7 +700,7 @@ func scanUser(row interface {
 	var u User
 	var created string
 	var enabled int
-	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.TOTPSecret, &enabled, &u.Recovery, &created)
+	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.TOTPSecret, &enabled, &u.Recovery, &u.RoleID, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -674,13 +714,13 @@ func scanUser(row interface {
 
 // UserByUsername loads an administrator by name.
 func (s *Store) UserByUsername(username string) (*User, error) {
-	return scanUser(s.db.QueryRow(`SELECT id, username, password_hash, totp_secret, totp_enabled, recovery_codes, created_at
+	return scanUser(s.db.QueryRow(`SELECT id, username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at
 		FROM users WHERE username = ?`, username))
 }
 
 // UserByID loads an administrator by ID.
 func (s *Store) UserByID(id int64) (*User, error) {
-	return scanUser(s.db.QueryRow(`SELECT id, username, password_hash, totp_secret, totp_enabled, recovery_codes, created_at
+	return scanUser(s.db.QueryRow(`SELECT id, username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at
 		FROM users WHERE id = ?`, id))
 }
 
@@ -699,13 +739,18 @@ func (s *Store) UpdateUserPassword(id int64, hash string) error {
 
 // Session is an authenticated administrator session.
 type Session struct {
-	ID        string
-	UserID    int64
-	Username  string
-	CSRF      string
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	ID          string
+	UserID      int64
+	Username    string
+	CSRF        string
+	Role        string
+	Permissions []string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
 }
+
+// Can reports whether the session holds a permission.
+func (s *Session) Can(permission string) bool { return rbac.Allows(s.Permissions, permission) }
 
 // CreateSession stores a new session. The cookie value is hashed on the way in;
 // only the caller ever holds the token itself.
@@ -719,16 +764,20 @@ func (s *Store) CreateSession(id string, userID int64, csrf, ip, ua string, expi
 func (s *Store) LookupSession(id string) (*Session, error) {
 	var out Session
 	var created, exp string
-	err := s.db.QueryRow(`SELECT s.user_id, u.username, s.csrf, s.created_at, s.expires_at
+	var perms string
+	err := s.db.QueryRow(`SELECT s.user_id, u.username, s.csrf, s.created_at, s.expires_at,
+		COALESCE(r.name, ''), COALESCE(r.permissions, '')
 		FROM sessions s JOIN users u ON u.id = s.user_id
+		LEFT JOIN roles r ON r.id = u.role_id
 		WHERE s.id = ? AND s.expires_at > ?`, s.sessionID(id), stamp(time.Now())).
-		Scan(&out.UserID, &out.Username, &out.CSRF, &created, &exp)
+		Scan(&out.UserID, &out.Username, &out.CSRF, &created, &exp, &out.Role, &perms)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	out.Permissions = rbac.Parse(perms)
 	// Callers keep using the token they hold; the digest never leaves the store.
 	out.ID = id
 	out.CreatedAt = parseStamp(created)

@@ -28,7 +28,8 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ domains: "", provider: "duckdns", creds: "" });
+  const [form, setForm] = useState({ domains: "", provider: "duckdns", creds: "", challenge: "dns-01" });
+  const dns = form.challenge === "dns-01";
 
   const load = () =>
     api
@@ -76,14 +77,14 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
         : "";
 
   const issue = async () => {
-    if (!providers.length) {
+    if (dns && !providers.length) {
       onError("No DNS provider is available; reload the page and try again");
       return;
     }
     const provider = form.provider;
     const example = PROVIDER_HINTS[provider] ?? "{}";
     let creds: Record<string, string> | undefined;
-    const raw = form.creds.trim();
+    const raw = dns ? form.creds.trim() : "";
     if (raw) {
       let parsed: unknown;
       try {
@@ -97,14 +98,14 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
         return;
       }
       creds = parsed as Record<string, string>;
-    } else if (!configured.includes(provider)) {
+    } else if (dns && !configured.includes(provider)) {
       // Without stored credentials the request would be accepted and then fail
       // in the background, which looks like the provider itself is broken.
       onError(`Enter ${provider} credentials as JSON, for example ${example}`);
       return;
     }
     try {
-      await api.post("/api/certs", { domains: form.domains, provider, creds });
+      await api.post("/api/certs", { domains: form.domains, provider, creds, challenge: form.challenge });
       setOpen(false);
       onOK("Certificate request started");
       setTimeout(load, 500);
@@ -158,7 +159,7 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
               {certs.map((c) => (
                 <tr key={c.id}>
                   <td className="mono">{c.domains}{c.wildcard ? <div className="faint" style={{ fontSize: 11 }}>wildcard</div> : null}</td>
-                  <td className="muted">{c.provider}</td>
+                  <td className="muted">{c.challenge === "dns-01" ? c.provider : c.challenge}</td>
                   <td>
                     <Badge tone={c.status === "issued" ? "ok" : c.status === "error" ? "bad" : "info"}>{c.status}</Badge>
                     {c.last_error ? <div className="faint" style={{ fontSize: 11, maxWidth: 320 }}>{c.last_error}</div> : null}
@@ -187,8 +188,10 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
           </table>
         )}
         <p className="muted mt" style={{ fontSize: 12 }}>
-          DNS-01 is used because port 80 is not exposed. DuckDNS stores only one TXT record per domain, so use a single wildcard
-          certificate there; the manager serialises ACME orders to avoid overwriting challenges.
+          DNS-01 needs no inbound port. HTTP-01 answers <code>/.well-known/acme-challenge/</code> on port 80, and TLS-ALPN-01
+          answers the <code>acme-tls/1</code> handshake on the normal HTTPS listener — both need the domain to point at this
+          host and the port reachable from Let&apos;s Encrypt. DuckDNS stores only one TXT record per domain, so use a single
+          wildcard certificate there; wildcards require DNS-01.
         </p>
         <p className="muted" style={{ fontSize: 12 }}>
           Renewal is checked every 12 hours. Let&apos;s Encrypt certificates last 90 days, so the three-month policy is capped at
@@ -201,23 +204,41 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
           <Field label="Domains (comma separated)">
             <input value={form.domains} onChange={(e) => setForm({ ...form, domains: e.target.value })} placeholder={`*.${base},${base}`} />
           </Field>
-          <Field label="DNS provider">
-            <select
-              value={form.provider}
-              disabled={!providers.length}
-              onChange={(e) => setForm({ ...form, provider: e.target.value, creds: "" })}
-            >
-              {providers.length === 0 && <option value="">No providers available</option>}
-              {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+          <Field label="Challenge">
+            <select aria-label="Challenge" value={form.challenge} onChange={(e) => setForm({ ...form, challenge: e.target.value })}>
+              <option value="dns-01">DNS-01 — no inbound port (supports wildcards)</option>
+              <option value="http-01">HTTP-01 — port 80 must be reachable</option>
+              <option value="tls-alpn-01">TLS-ALPN-01 — answered on the HTTPS port</option>
             </select>
           </Field>
-          {unavailableMessage && <div className="err-text" style={{ marginTop: 0 }}>{unavailableMessage}</div>}
-          <Field label={configured.includes(form.provider) ? "Credentials (JSON, stored encrypted) — leave empty to reuse the stored ones" : "Credentials (JSON, stored encrypted)"}>
-            <textarea value={form.creds} onChange={(e) => setForm({ ...form, creds: e.target.value })} placeholder={PROVIDER_HINTS[form.provider] ?? "{}"} />
-          </Field>
+          {dns && (
+            <>
+              <Field label="DNS provider">
+                <select
+                  aria-label="DNS provider"
+                  value={form.provider}
+                  disabled={!providers.length}
+                  onChange={(e) => setForm({ ...form, provider: e.target.value, creds: "" })}
+                >
+                  {providers.length === 0 && <option value="">No providers available</option>}
+                  {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </Field>
+              {unavailableMessage && <div className="err-text" style={{ marginTop: 0 }}>{unavailableMessage}</div>}
+              <Field label={configured.includes(form.provider) ? "Credentials (JSON, stored encrypted) — leave empty to reuse the stored ones" : "Credentials (JSON, stored encrypted)"}>
+                <textarea value={form.creds} onChange={(e) => setForm({ ...form, creds: e.target.value })} placeholder={PROVIDER_HINTS[form.provider] ?? "{}"} />
+              </Field>
+            </>
+          )}
+          {!dns && (
+            <p className="muted" style={{ fontSize: 12 }}>
+              No credentials are needed: {form.challenge === "http-01" ? "the challenge is served on port 80" : "the challenge is served by this proxy's TLS listener"}.
+              Wildcard names are only possible with DNS-01.
+            </p>
+          )}
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button onClick={() => setOpen(false)}>Cancel</button>
-            <button className="primary" onClick={issue} disabled={!loaded || providersUnavailable}>Request</button>
+            <button className="primary" onClick={issue} disabled={!loaded || (dns && providersUnavailable)}>Request</button>
           </div>
         </Modal>
       )}

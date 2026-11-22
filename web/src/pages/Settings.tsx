@@ -147,6 +147,17 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
             <Field label="Home latitude (globe)"><input value={s.home_lat ?? "51.5"} onChange={(e) => set("home_lat", e.target.value)} /></Field>
             <Field label="Home longitude"><input value={s.home_lon ?? "-0.12"} onChange={(e) => set("home_lon", e.target.value)} /></Field>
           </div>
+          <Field label="Admin allowlist (IPs / CIDRs; empty allows any address)">
+            <input
+              value={s.admin_allow_cidrs ?? ""}
+              onChange={(e) => set("admin_allow_cidrs", e.target.value)}
+              placeholder="192.168.0.0/16, 10.0.0.0/8"
+            />
+          </Field>
+          <p className="muted" style={{ fontSize: 12, marginTop: -4 }}>
+            When set, only these addresses can open the sign-in form or call the admin API. The save is refused if the
+            list would exclude your current address. Clear the field to allow any address again.
+          </p>
           <p className="muted" style={{ fontSize: 12 }}>
             Both addresses must be configured on this host. A single-NIC host uses the same address for WAN and
             LAN — then the GUI port must be firewalled from the WAN. Restart WAF-Proxy after changing the bind
@@ -283,10 +294,26 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
             {geo?.asn_updated && <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>updated {fmtTime(geo.asn_updated)}</span>}
           </div>
         </div>
+        <div className="bar-row">
+          <div>Automatic update</div>
+          <label style={{ margin: 0, display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
+            <input
+              type="checkbox"
+              style={{ width: "auto" }}
+              checked={s.geoip_auto_update !== "0"}
+              onChange={(e) => set("geoip_auto_update", e.target.checked ? "1" : "0")}
+            />
+            refresh daily when a database is installed
+          </label>
+        </div>
         <div className="bar-row" style={{ borderBottom: 0 }}>
           <div>Database source</div>
           <div className="muted" style={{ fontSize: 12 }}>DB-IP Lite · downloads into the data directory and reloads without a restart</div>
         </div>
+        <p className="muted" style={{ fontSize: 12 }}>
+          The daily refresh keeps country and ASN rules current. The Update database button above still works at any
+          time. Remember to save settings after changing the checkbox.
+        </p>
         {geo?.installing && <p className="muted" style={{ fontSize: 12 }}>Downloading and validating the databases. This can take a few minutes.</p>}
         {geo?.last_error && <p className="err-text">{geo.last_error}</p>}
         <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>

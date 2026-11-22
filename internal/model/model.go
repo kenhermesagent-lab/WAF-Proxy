@@ -234,6 +234,23 @@ const (
 	CertRenewBeforeExpiry = "before_expiry"
 )
 
+// Certificate challenge types. DNS-01 needs no inbound port; HTTP-01 needs
+// port 80 and TLS-ALPN-01 needs the TLS listener to answer the acme-tls/1 ALPN.
+const (
+	CertChallengeDNS     = "dns-01"
+	CertChallengeHTTP    = "http-01"
+	CertChallengeTLSALPN = "tls-alpn-01"
+)
+
+// ValidCertChallenge reports whether mode is an accepted ACME challenge.
+func ValidCertChallenge(mode string) bool {
+	switch mode {
+	case CertChallengeDNS, CertChallengeHTTP, CertChallengeTLSALPN:
+		return true
+	}
+	return false
+}
+
 // ValidCertRenewMode reports whether mode is an accepted renewal policy.
 func ValidCertRenewMode(mode string) bool {
 	switch mode {
@@ -255,6 +272,7 @@ type Cert struct {
 	KeyPEM    []byte     `json:"-"`
 	Wildcard  bool       `json:"wildcard"`
 	RenewMode string     `json:"renew_mode"`
+	Challenge string     `json:"challenge"`
 	LastError string     `json:"last_error,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 }
@@ -268,6 +286,16 @@ const (
 	PolicyASNBlock         = "asn_block"
 	PolicyDecoy            = "decoy"
 )
+
+// Role is a named set of administrator permissions. Permissions are
+// "area.action" strings; "*" is every permission.
+type Role struct {
+	ID          int64    `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Builtin     bool     `json:"builtin"`
+	Permissions []string `json:"permissions"`
+}
 
 // Policy is a single allow/deny rule evaluated before routing.
 type Policy struct {

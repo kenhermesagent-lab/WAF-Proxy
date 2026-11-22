@@ -34,6 +34,10 @@ type Settings struct {
 	SampleAboveRPS int
 	MaxBody        int64
 	Enabled        bool
+	// BotFilter refuses whole categories of automation; the proof-of-work
+	// challenge is separate and still applies to the traffic it lets through.
+	BotFilter      string
+	BotFilterAllow string
 	DecoyHosts     map[string]bool
 }
 
@@ -399,6 +403,8 @@ func parseSettings(kv map[string]string) Settings {
 	s.StealthDrop = kv["stealth_drop"] != "0"
 	s.StealthPing = kv["stealth_ping"] == "1"
 	s.Enabled = kv["protection_enabled"] != "0"
+	s.BotFilter = defaultBotMode(kv["bot_filter"])
+	s.BotFilterAllow = kv["bot_filter_allow"]
 	s.DecoyHosts = parseDecoyHosts(kv["decoy_hosts"])
 	if v, err := strconv.Atoi(kv["retention_days"]); err == nil && v >= 1 && v <= 30 {
 		s.RetentionDays = v
@@ -410,6 +416,18 @@ func parseSettings(kv map[string]string) Settings {
 		s.MaxBody = v
 	}
 	return s
+}
+
+func defaultBotMode(mode string) string {
+	switch mode {
+	case "scrapers", "all":
+		return mode
+	case "off":
+		return mode
+	}
+	// An unset value is off: enabling a user-agent block must be a decision, so
+	// an upgraded install never starts refusing crawlers on its own.
+	return "off"
 }
 
 // NormalizeHost lowercases a hostname and removes a trailing dot, matching the

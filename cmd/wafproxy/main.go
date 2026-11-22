@@ -304,6 +304,9 @@ func run() error {
 	}
 	px.SetMaxInflight(cfg.MaxInflight)
 	px.SetCertProvider(certs)
+	// TLS-ALPN-01 validations are answered by the WAN listener itself; lego's
+	// own server would have to bind port 443 a second time.
+	px.SetALPNProvider(certs.TLSALPN())
 	cur := pol.CurrentSettings()
 	px.SetBodyLimit(cur.MaxBody)
 	bans.SetStealth(cur.StealthPing, cur.WANIface)
@@ -504,6 +507,7 @@ func run() error {
 	go pol.Start(ctx)
 	go bans.Start(ctx)
 	go certs.RenewLoop(ctx)
+	go geoAutoUpdate(ctx, st, geo, log)
 	notifier.Start(ctx)
 	uptimeMon.Start(ctx)
 	cs.Start(ctx)
@@ -623,6 +627,27 @@ func retentionLoop(ctx context.Context, st *store.Store, log *slog.Logger) {
 			return
 		case <-t.C:
 			run()
+		}
+	}
+}
+
+// geoAutoUpdate refreshes an installed GeoIP database once a day. The manual
+// Update database button stays available; the setting only controls the timer.
+func geoAutoUpdate(ctx context.Context, st *store.Store, geo *geoip.Geo, log *slog.Logger) {
+	timer := time.NewTimer(30 * time.Minute)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			kv, err := st.Settings()
+			if err == nil && kv["geoip_auto_update"] != "0" && geo.Available() {
+				if geo.StartInstall() {
+					log.Info("daily GeoIP update started")
+				}
+			}
+			timer.Reset(24 * time.Hour)
 		}
 	}
 }

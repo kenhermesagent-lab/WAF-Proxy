@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { api } from "../api";
 import { Card, Field, errText } from "../ui";
+import Team from "../components/Team";
+import { Me, can } from "../types";
 
 export default function Account({
+  me,
   onError,
   onOK,
   onSignedOut,
 }: {
+  me: Me | null;
   onError: (m: string) => void;
   onOK: (m: string) => void;
   onSignedOut: () => void;
@@ -188,6 +192,8 @@ export default function Account({
           device is lost or a session may be stolen.
         </p>
       </Card>
+
+      {can(me?.permissions, "accounts.read") && <Team me={me} onError={onError} onOK={onOK} />}
     </div>
   );
 }

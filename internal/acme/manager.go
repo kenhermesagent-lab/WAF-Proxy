@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge"
+	"github.com/go-acme/lego/v4/challenge/http01"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
@@ -37,6 +38,7 @@ type Manager struct {
 	// order serialises ACME orders (DuckDNS stores one TXT record per domain).
 	order sync.Mutex
 	certs []cached
+	alpn  *ALPNChallenge
 	now   func() time.Time
 }
 
@@ -60,12 +62,16 @@ func (a *account) SetRegistration(r *registration.Resource) { a.reg = r }
 
 // New creates a manager and loads existing certificates.
 func New(st *store.Store, box *wfcrypto.Box, log *slog.Logger) *Manager {
-	m := &Manager{st: st, box: box, log: log, now: time.Now}
+	m := &Manager{st: st, box: box, log: log, alpn: NewALPNChallenge(), now: time.Now}
 	if err := m.Load(); err != nil {
 		log.Error("load certificates", "err", err)
 	}
 	return m
 }
+
+// TLSALPN returns the challenge store the proxy's TLS listener consults for
+// acme-tls/1 handshakes.
+func (m *Manager) TLSALPN() *ALPNChallenge { return m.alpn }
 
 // Load refreshes the in-memory certificate cache from the database.
 func (m *Manager) Load() error {
@@ -170,10 +176,17 @@ func (m *Manager) Issue(id int64) error {
 		return errors.New("certificate has no domains")
 	}
 
-	provider, err := m.provider(row.Provider)
-	if err != nil {
-		m.fail(id, err)
-		return err
+	challengeType := row.Challenge
+	if !model.ValidCertChallenge(challengeType) {
+		challengeType = model.CertChallengeDNS
+	}
+	var provider challenge.Provider
+	if challengeType == model.CertChallengeDNS {
+		provider, err = m.provider(row.Provider)
+		if err != nil {
+			m.fail(id, err)
+			return err
+		}
 	}
 	acct, err := m.account()
 	if err != nil {
@@ -192,9 +205,22 @@ func (m *Manager) Issue(id int64) error {
 		m.fail(id, err)
 		return err
 	}
-	if err := client.Challenge.SetDNS01Provider(provider); err != nil {
-		m.fail(id, err)
-		return err
+	switch challengeType {
+	case model.CertChallengeHTTP:
+		if err := client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "")); err != nil {
+			m.fail(id, err)
+			return err
+		}
+	case model.CertChallengeTLSALPN:
+		if err := client.Challenge.SetTLSALPN01Provider(m.alpn); err != nil {
+			m.fail(id, err)
+			return err
+		}
+	default:
+		if err := client.Challenge.SetDNS01Provider(provider); err != nil {
+			m.fail(id, err)
+			return err
+		}
 	}
 	if acct.reg == nil {
 		reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
@@ -208,7 +234,7 @@ func (m *Manager) Issue(id int64) error {
 		}
 	}
 
-	m.log.Info("requesting certificate", "domains", domains, "provider", row.Provider)
+	m.log.Info("requesting certificate", "domains", domains, "provider", row.Provider, "challenge", challengeType)
 	res, err := client.Certificate.Obtain(certificate.ObtainRequest{
 		Domains: domains,
 		Bundle:  true,
@@ -440,9 +466,14 @@ func (m *Manager) CertSummary(c model.Cert) map[string]any {
 	if !model.ValidCertRenewMode(mode) {
 		mode = model.CertRenewBeforeExpiry
 	}
+	challenge := c.Challenge
+	if !model.ValidCertChallenge(challenge) {
+		challenge = model.CertChallengeDNS
+	}
 	out := map[string]any{
 		"id": c.ID, "domains": c.Domains, "provider": c.Provider, "status": c.Status,
-		"expires_at": expires, "wildcard": c.Wildcard, "renew_mode": mode, "last_error": c.LastError,
+		"expires_at": expires, "wildcard": c.Wildcard, "renew_mode": mode, "challenge": challenge,
+		"last_error": c.LastError,
 	}
 	if at, ok := renewalTime(c); ok {
 		out["renews_at"] = at.Format(time.RFC3339)

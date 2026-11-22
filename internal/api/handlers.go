@@ -1265,6 +1265,7 @@ type certBody struct {
 	Provider  string            `json:"provider"`
 	Creds     map[string]string `json:"creds"`
 	RenewMode string            `json:"renew_mode"`
+	Challenge string            `json:"challenge"`
 }
 
 func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
@@ -1274,19 +1275,33 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Domains = strings.TrimSpace(in.Domains)
-	if in.Domains == "" || in.Provider == "" {
-		writeError(w, http.StatusBadRequest, "domains and provider are required")
+	if in.Domains == "" {
+		writeError(w, http.StatusBadRequest, "domains are required")
 		return
 	}
-	valid := false
-	for _, p := range acme.Providers {
-		if p == in.Provider {
-			valid = true
+	if in.Challenge == "" {
+		in.Challenge = model.CertChallengeDNS
+	}
+	if !model.ValidCertChallenge(in.Challenge) {
+		writeError(w, http.StatusBadRequest, "unsupported challenge type")
+		return
+	}
+	// A DNS provider is only needed for DNS-01; the other challenges prove
+	// control through the proxy's own listeners.
+	if in.Challenge == model.CertChallengeDNS {
+		valid := false
+		for _, p := range acme.Providers {
+			if p == in.Provider {
+				valid = true
+			}
 		}
-	}
-	if !valid {
-		writeError(w, http.StatusBadRequest, "unsupported provider")
-		return
+		if !valid {
+			writeError(w, http.StatusBadRequest, "unsupported provider")
+			return
+		}
+	} else {
+		in.Provider = in.Challenge
+		in.Creds = nil
 	}
 	if in.RenewMode == "" {
 		in.RenewMode = model.CertRenewBeforeExpiry
@@ -1298,6 +1313,10 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 	for _, d := range strings.Split(in.Domains, ",") {
 		d = strings.TrimSpace(d)
 		if strings.HasPrefix(d, "*.") {
+			if in.Challenge != model.CertChallengeDNS {
+				writeError(w, http.StatusBadRequest, "wildcard names need DNS-01; HTTP-01 and TLS-ALPN-01 cannot validate them")
+				return
+			}
 			d = d[2:]
 		}
 		if !validHostname(d) {
@@ -1305,7 +1324,7 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(in.Creds) > 0 {
+	if len(in.Creds) > 0 && in.Challenge == model.CertChallengeDNS {
 		raw, _ := json.Marshal(in.Creds)
 		enc, err := s.box.Seal(string(raw))
 		if err != nil {
@@ -1320,6 +1339,7 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 	c := &model.Cert{
 		Domains: in.Domains, Provider: in.Provider, Status: "pending",
 		Wildcard: strings.Contains(in.Domains, "*."), RenewMode: in.RenewMode,
+		Challenge: in.Challenge,
 	}
 	id, err := s.st.SaveCert(c)
 	if err != nil {

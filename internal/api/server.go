@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
@@ -29,6 +30,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/netmatch"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
@@ -88,6 +90,10 @@ type Server struct {
 	// stolen session cannot confirm an authenticator of its own choosing.
 	totpMu      sync.Mutex
 	totpPending map[string]pendingTOTP
+
+	// adminNets is the source allowlist for the console; nil means every
+	// address may sign in. It is replaced atomically when settings change.
+	adminNets atomic.Pointer[netmatch.Map[bool]]
 }
 
 type pendingTOTP struct {
@@ -107,6 +113,9 @@ func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Serve
 		totpPending: map[string]pendingTOTP{},
 	}
 	s.backup = backup.New(st, box, log, s.backupDocument)
+	if err := s.loadAdminAllowlist(); err != nil {
+		log.Warn("admin allowlist not loaded", "err", err)
+	}
 	s.routes()
 	return s
 }
@@ -125,6 +134,15 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/account/totp", s.authed(s.beginTOTP))
 	m.HandleFunc("POST /api/account/totp/confirm", s.authed(s.confirmTOTP))
 	m.HandleFunc("POST /api/account/logout-all", s.authed(s.logoutAll))
+
+	m.HandleFunc("GET /api/users", s.authed(s.listUsers))
+	m.HandleFunc("POST /api/users", s.authed(s.createUser))
+	m.HandleFunc("PUT /api/users/{id}", s.authed(s.updateUser))
+	m.HandleFunc("DELETE /api/users/{id}", s.authed(s.deleteUser))
+	m.HandleFunc("GET /api/roles", s.authed(s.listRoles))
+	m.HandleFunc("POST /api/roles", s.authed(s.createRole))
+	m.HandleFunc("PUT /api/roles/{id}", s.authed(s.updateRole))
+	m.HandleFunc("DELETE /api/roles/{id}", s.authed(s.deleteRole))
 
 	m.HandleFunc("GET /api/updates/auto", s.authed(s.getAutoUpdate))
 	m.HandleFunc("PUT /api/updates/auto", s.authed(s.putAutoUpdate))
@@ -155,6 +173,7 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/auth-providers/{id}", s.authed(s.deleteAuthProvider))
 
 	m.HandleFunc("GET /api/protection-profiles", s.authed(s.listProtectionProfiles))
+	m.HandleFunc("GET /api/protection-profiles/audit", s.authed(s.auditProtectionHeaders))
 	m.HandleFunc("POST /api/protection-profiles", s.authed(s.createProtectionProfile))
 	m.HandleFunc("PUT /api/protection-profiles/{id}", s.authed(s.updateProtectionProfile))
 	m.HandleFunc("DELETE /api/protection-profiles/{id}", s.authed(s.deleteProtectionProfile))
@@ -317,9 +336,17 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
+		if !s.adminAddressAllowed(clientIP(r)) {
+			writeError(w, http.StatusForbidden, "this address is not allowed to use the admin console")
+			return
+		}
 		sess, err := s.st.LookupSession(c.Value)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "session expired")
+			return
+		}
+		if !s.authorize(sess, r) {
+			writeError(w, http.StatusForbidden, "your role does not allow this action")
 			return
 		}
 		// Sliding idle timeout (12 h) bounded by an absolute 7 day lifetime. It
@@ -549,6 +576,10 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		"max_body":           "131072",
 		"gate_ttl_hours":     "12",
 		"acme_email":         strings.TrimSpace(req.Email),
+		"admin_allow_cidrs":  "",
+		"bot_filter":         "off",
+		"bot_filter_allow":   "Googlebot, Bingbot, DuckDuckBot, Applebot",
+		"geoip_auto_update":  "1",
 	}
 	if s.cfg.WANIface != "" {
 		settings["wan_iface"] = s.cfg.WANIface
@@ -587,6 +618,10 @@ type loginRequest struct {
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
+	if !s.adminAddressAllowed(ip) {
+		writeError(w, http.StatusForbidden, "this address is not allowed to use the admin console")
+		return
+	}
 	if !s.limiter.Allow("login:"+ip, 10, time.Minute) {
 		writeError(w, http.StatusTooManyRequests, "too many attempts")
 		return
@@ -677,6 +712,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		"username": sess.Username, "csrf": sess.CSRF, "version": version.Version,
 		"base_domain": kv["base_domain"], "expires_at": sess.ExpiresAt,
 		"totp_enabled": user != nil && user.TOTPEnabled,
+		"role":         sess.Role, "permissions": sess.Permissions,
 	})
 }
 
@@ -687,6 +723,7 @@ var publicSettingKeys = []string{
 	"dos_rps", "dos_burst", "asn_block", "stealth_drop", "stealth_ping", "retention_days",
 	"sample_above_rps", "max_body", "protection_enabled", "acme_staging", "acme_email",
 	"gate_ttl_hours", "home_lat", "home_lon", "decoy_hosts",
+	"admin_allow_cidrs", "bot_filter", "bot_filter_allow", "geoip_auto_update",
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -761,6 +798,18 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			v = clean
+		case "admin_allow_cidrs":
+			clean, msg := validateAdminAllowlist(v, clientIP(r))
+			if msg != "" {
+				writeError(w, http.StatusBadRequest, msg)
+				return
+			}
+			v = clean
+		case "bot_filter":
+			if v != "off" && v != "scrapers" && v != "all" {
+				writeError(w, http.StatusBadRequest, "bot_filter must be off, scrapers or all")
+				return
+			}
 		}
 		switch k {
 		case "dos_rps", "dos_burst", "retention_days", "sample_above_rps", "max_body", "gate_ttl_hours":
@@ -800,6 +849,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if err := s.st.SetSettings(next); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
 		return
+	}
+	if _, ok := next["admin_allow_cidrs"]; ok {
+		if err := s.loadAdminAllowlist(); err != nil {
+			s.log.Error("reload admin allowlist", "err", err)
+		}
 	}
 	_ = s.policy.Reload()
 	cur := s.policy.CurrentSettings()

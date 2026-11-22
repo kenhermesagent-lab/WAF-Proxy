@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botfilter"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
@@ -172,6 +173,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if verdict.Action == "log" {
 		event.Stage, event.RuleID, event.RuleMsg = verdict.Stage, verdict.Rule, verdict.Reason
+	}
+
+	// The filter runs before the challenge: a crawler the operator asked to
+	// refuse should not be asked to prove it is a browser first.
+	if settings := s.d.Policy.CurrentSettings(); settings.Enabled {
+		if denied, rule := botfilter.Blocked(r.UserAgent(), settings.BotFilter, settings.BotFilterAllow); denied {
+			blocked = true
+			event.Stage, event.RuleID = "bot-filter", "bot:"+rule
+			event.RuleMsg = "user agent matches the " + rule + " bot rule"
+			event.Action = "block"
+			uniformError(rw, http.StatusForbidden)
+			return
+		}
 	}
 
 	if r.URL.Path == botguard.SolvePath {

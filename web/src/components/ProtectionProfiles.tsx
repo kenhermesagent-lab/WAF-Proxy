@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
-import type { ProtectionProfile } from "../types";
+import type { HeaderAudit, ProtectionProfile, Proxy } from "../types";
 
 const REFERRERS = [
   "no-referrer",
@@ -47,12 +47,31 @@ export default function ProtectionProfiles({ onError, onOK }: { onError: (m: str
   const [list, setList] = useState<ProtectionProfile[]>([]);
   const [draft, setDraft] = useState<ProtectionProfile | null>(null);
   const [saving, setSaving] = useState(false);
+  const [proxies, setProxies] = useState<Proxy[]>([]);
+  const [checking, setChecking] = useState<ProtectionProfile | null>(null);
+  const [proxyID, setProxyID] = useState("");
+  const [audit, setAudit] = useState<HeaderAudit | null>(null);
+  const [auditBusy, setAuditBusy] = useState(false);
+
+  const runAudit = async () => {
+    if (!checking || !proxyID) return;
+    setAuditBusy(true);
+    try {
+      const r = await api.get<HeaderAudit>(`/api/protection-profiles/audit?proxy_id=${proxyID}&profile_id=${checking.id}`);
+      setAudit(r);
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setAuditBusy(false);
+    }
+  };
 
   const load = () =>
     api.get<ProtectionProfile[]>("/api/protection-profiles").then(setList).catch((e) => onError(errText(e)));
 
   useEffect(() => {
     load();
+    api.get<Proxy[]>("/api/proxies").then(setProxies).catch(() => undefined);
   }, []);
 
   const save = async () => {
@@ -103,6 +122,7 @@ export default function ProtectionProfiles({ onError, onOK }: { onError: (m: str
                   </td>
                   <td className="muted" style={{ fontSize: 12 }}>{summary(p)}</td>
                   <td className="right" style={{ whiteSpace: "nowrap" }}>
+                    <button className="small" onClick={() => { setChecking(p); setAudit(null); if (!proxyID && proxies[0]) setProxyID(String(proxies[0].id)); }}>Check a site</button>{" "}
                     <button className="small" onClick={() => setDraft({ ...p })}>Edit</button>{" "}
                     {!p.builtin && <button className="small danger" onClick={() => remove(p)}>Delete</button>}
                   </td>
@@ -115,8 +135,59 @@ export default function ProtectionProfiles({ onError, onOK }: { onError: (m: str
       <p className="muted" style={{ fontSize: 12 }}>
         A proxy applies these headers on every response, after the upstream's own. HTTPS enforcement redirects a
         plain-HTTP request before the WAF runs, so the redirected request goes through the normal TLS path. HSTS is
-        only sent over TLS.
+        only sent over TLS. Use <strong>Check a site</strong> to compare a running application's own headers with the
+        profile: turning framing protection off deletes the application's X-Frame-Options, so the check tells you when
+        the profile is unnecessary or actively weakening it.
       </p>
+
+      {checking && (
+        <Modal title={`Backend headers · ${checking.name}`} onClose={() => { setChecking(null); setAudit(null); }}>
+          {proxies.length === 0 ? (
+            <Empty>Create a proxy first; the check fetches its upstream.</Empty>
+          ) : (
+            <>
+              <div className="row grow">
+                <Field label="Proxy to check">
+                  <select value={proxyID} onChange={(e) => { setProxyID(e.target.value); setAudit(null); }}>
+                    {proxies.map((p) => <option key={p.id} value={p.id}>{p.hostname}</option>)}
+                  </select>
+                </Field>
+                <button className="primary" style={{ marginTop: 18 }} onClick={runAudit} disabled={auditBusy || !proxyID}>
+                  {auditBusy ? "Checking…" : "Check headers"}
+                </button>
+              </div>
+              {audit && (
+                <>
+                  <p className="muted" style={{ fontSize: 12 }}>
+                    <span className="mono">{audit.upstream}</span> answered {audit.status}
+                    {audit.self_signed ? " over a self-signed certificate" : ""}. The check requests the backend as
+                    <span className="mono"> {audit.proxy}</span>.
+                  </p>
+                  <table>
+                    <thead><tr><th>Setting</th><th>Application</th><th>Profile</th><th>Advice</th></tr></thead>
+                    <tbody>
+                      {audit.checks.map((c) => (
+                        <tr key={c.setting}>
+                          <td>{c.setting}</td>
+                          <td className="mono" style={{ fontSize: 11, maxWidth: 220, wordBreak: "break-word" }}>{c.backend}</td>
+                          <td className="mono" style={{ fontSize: 11, maxWidth: 220, wordBreak: "break-word" }}>{c.profile}</td>
+                          <td style={{ fontSize: 12 }}>
+                            <Badge tone={c.verdict === "at-risk" || c.verdict === "gap" ? "warn" : "ok"}>{c.verdict}</Badge>{" "}
+                            {c.advice}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {audit.summary.length > 0 && (
+                    <p className="muted" style={{ fontSize: 12 }}>{audit.summary.join(" ")}</p>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </Modal>
+      )}
 
       {draft && (
         <Modal title={draft.id === 0 ? "New protection profile" : `Edit ${draft.name}`} onClose={() => setDraft(null)}>

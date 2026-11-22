@@ -42,7 +42,7 @@ describe("certificate controls", () => {
 
     expect(await screen.findByText(/DNS providers could not be loaded/)).toBeTruthy();
     expect(screen.getByText(/simulated certificate API failure/)).toBeTruthy();
-    expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByRole("combobox", { name: "DNS provider" }) as HTMLSelectElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Request" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -52,7 +52,7 @@ describe("certificate controls", () => {
     await openDialog();
 
     expect(await screen.findByText(/No DNS providers are available/)).toBeTruthy();
-    expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByRole("combobox", { name: "DNS provider" }) as HTMLSelectElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Request" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -61,7 +61,18 @@ describe("certificate controls", () => {
     renderCerts();
     await openDialog();
 
-    await waitFor(() => expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "DNS provider" }) as HTMLSelectElement).disabled).toBe(false));
+    expect(screen.queryByText(/No DNS providers are available/)).toBeNull();
+    expect((screen.getByRole("button", { name: "Request" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("offers HTTP-01 and TLS-ALPN-01 without DNS credentials", async () => {
+    get.mockResolvedValue({ certs: [], providers: [], configured: [] });
+    renderCerts();
+    await openDialog();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Challenge" }), { target: { value: "tls-alpn-01" } });
+    expect(screen.queryByRole("combobox", { name: "DNS provider" })).toBeNull();
     expect(screen.queryByText(/No DNS providers are available/)).toBeNull();
     expect((screen.getByRole("button", { name: "Request" }) as HTMLButtonElement).disabled).toBe(false);
   });
@@ -76,6 +87,7 @@ describe("certificate controls", () => {
         expires_at: "2026-04-01T00:00:00Z",
         renews_at: "2026-02-01T00:00:00Z",
         renew_mode: "before_expiry",
+        challenge: "dns-01",
         wildcard: true,
       }],
       providers: ["duckdns"],

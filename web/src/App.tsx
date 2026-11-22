@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { api, setCSRF } from "./api";
 import { errText } from "./ui";
 import PageBoundary from "./components/PageBoundary";
-import { Me, SetupStatus } from "./types";
+import { Me, SetupStatus, can } from "./types";
 import { NAV, NAV_GROUPS, NAV_UTILITY, pageFromHash, type NavItem } from "./nav";
 import Dashboard from "./pages/Dashboard";
 import Statistics from "./pages/Statistics";
@@ -71,6 +71,18 @@ export default function App() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
+  // A hidden page must not keep rendering after a role change or a bookmarked
+  // hash: the first page the role can see becomes the landing page instead.
+  useEffect(() => {
+    if (!me) return;
+    const item = NAV.find((n) => n.id === page);
+    if (item?.permission && !can(me.permissions, item.permission)) {
+      const first = NAV.find((n) => !n.permission || can(me.permissions, n.permission)) ?? NAV[0];
+      setPage(first.id);
+      window.location.hash = `#/${first.id}`;
+    }
+  }, [me, page]);
 
   useEffect(() => {
     (async () => {
@@ -147,7 +159,10 @@ export default function App() {
     );
   }
 
-  const current = NAV.find((n) => n.id === page) ?? NAV[0];
+  const allowed = (n: NavItem) => !n.permission || can(me?.permissions, n.permission);
+  const visibleNav = NAV.filter(allowed);
+  const current = visibleNav.find((n) => n.id === page) ?? visibleNav[0] ?? NAV[0];
+  const pageAllowed = allowed(NAV.find((n) => n.id === page) ?? current);
 
   const navButton = (n: NavItem) => (
     <button
@@ -172,14 +187,14 @@ export default function App() {
         {NAV_GROUPS.map((g) => (
           <div className="nav-group" key={g.title}>
             <div className="nav-group-title">{g.title}</div>
-            {g.items.map(navButton)}
+            {g.items.filter(allowed).map(navButton)}
           </div>
         ))}
         <div className="nav-spacer" />
         <div className="nav-foot">
           {me?.username} · v{me?.version}
         </div>
-        {NAV_UTILITY.map(navButton)}
+        {NAV_UTILITY.filter(allowed).map(navButton)}
         <button className="nav-item" onClick={logout}><span className="ico">⏻</span>Sign out</button>
         <a
           className="nav-coffee"
@@ -205,6 +220,9 @@ export default function App() {
           {me?.base_domain && <span className="badge info">{me.base_domain}</span>}
         </div>
         <div className="content">
+          {!pageAllowed ? (
+            <div className="card">Your role does not include this page.</div>
+          ) : (
           <PageBoundary page={page}>
           {page === "dashboard" && <Dashboard onError={notify} home={home} />}
           {page === "statistics" && <Statistics onError={notify} />}
@@ -225,12 +243,14 @@ export default function App() {
           {page === "settings" && <SettingsPage onError={notify} onOK={notify} />}
           {page === "account" && (
             <Account
+              me={me}
               onError={notify}
               onOK={notify}
               onSignedOut={() => { setCSRF(""); setMe(null); setPhase("login"); }}
             />
           )}
           </PageBoundary>
+          )}
         </div>
       </main>
       {toast && (

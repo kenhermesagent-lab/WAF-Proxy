@@ -38,6 +38,12 @@ type CertProvider interface {
 	GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
 }
 
+// ALPNProvider serves pending ACME TLS-ALPN-01 validation certificates from the
+// existing listener, so the challenge never needs a second bind on port 443.
+type ALPNProvider interface {
+	Certificate(serverName string, protos []string) (*tls.Certificate, bool)
+}
+
 // Deps are the collaborators the proxy needs.
 type Deps struct {
 	Store    *store.Store
@@ -77,6 +83,7 @@ type Server struct {
 	edges      map[string]*edge
 	baseDomain string
 	certs      CertProvider
+	alpn       ALPNProvider
 	self       *tls.Certificate
 	transport  *http.Transport
 
@@ -111,11 +118,14 @@ func New(d Deps) (*Server, error) {
 	}
 	s.SetMaxInflight(DefaultMaxInflight)
 	s.transport = &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          256,
-		MaxIdleConnsPerHost:   64,
+		Proxy:             http.ProxyFromEnvironment,
+		DialContext:       (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2: true,
+		// Sized for a busier edge: an 8 vCPU host runs several hundred
+		// concurrent requests across a handful of backends, and the defaults
+		// close upstream connections between bursts.
+		MaxIdleConns:          1024,
+		MaxIdleConnsPerHost:   256,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 60 * time.Second,
@@ -126,6 +136,9 @@ func New(d Deps) (*Server, error) {
 
 // SetCertProvider installs the ACME certificate resolver.
 func (s *Server) SetCertProvider(p CertProvider) { s.certs = p }
+
+// SetALPNProvider installs the ACME TLS-ALPN-01 challenge store.
+func (s *Server) SetALPNProvider(p ALPNProvider) { s.alpn = p }
 
 // SetBodyLimit overrides the maximum buffered request body.
 func (s *Server) SetBodyLimit(n int64) {
@@ -384,7 +397,7 @@ func (s *Server) Run(ctx context.Context, addrs ...string) error {
 func (s *Server) tlsConfig() *tls.Config {
 	return &tls.Config{
 		MinVersion:             tls.VersionTLS12,
-		NextProtos:             []string{"h2", "http/1.1"},
+		NextProtos:             []string{"h2", "http/1.1", "acme-tls/1"},
 		GetCertificate:         s.getCertificate,
 		SessionTicketsDisabled: false,
 		CurvePreferences:       []tls.CurveID{tls.X25519, tls.CurveP256},
@@ -416,6 +429,13 @@ func (s *Server) ListenerError(addr string) string {
 
 func (s *Server) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	host := normalizeHost(hello.ServerName)
+	// An ACME TLS-ALPN-01 validation names a hostname that may not be routed
+	// yet, so the challenge store is consulted before the route allowlist.
+	if s.alpn != nil {
+		if cert, ok := s.alpn.Certificate(host, hello.SupportedProtos); ok {
+			return cert, nil
+		}
+	}
 	if !s.allowedHost(host) {
 		return nil, fmt.Errorf("unknown server name %q", host)
 	}

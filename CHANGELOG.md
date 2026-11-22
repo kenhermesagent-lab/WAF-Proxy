@@ -11,6 +11,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.20.0] — 2026-11-22
+
+### Added
+
+- **Accounts and roles (RBAC).** **Account → Administrators and roles** adds more administrator accounts and
+  assigns each one a role. Four built-in roles — Administrator, Operator, Read-only and Viewer — cannot be
+  edited or deleted; custom roles grant view or change per area (dashboard, traffic, policies, proxies,
+  streaming, certificates, sources, settings, accounts, system). A write grant implies read, the API refuses
+  routes outside a role, and the console hides pages the role cannot see. A new account's authenticator secret
+  and recovery codes are shown once. The last administrator cannot be demoted, deleted, or remove its own
+  role.
+- **Admin source allowlist.** **Settings → Network** accepts IPs/CIDRs that may open the sign-in form and call
+  the admin API. The list is enforced at login and in the authenticated middleware, and a change that would
+  exclude the caller's current address is refused instead of locking the operator out.
+- **HTTP-01 and TLS-ALPN-01 certificates.** A certificate request now chooses DNS-01 (unchanged), HTTP-01 on
+  port 80, or TLS-ALPN-01 answered by the existing HTTPS listener through the `acme-tls/1` ALPN protocol.
+  Wildcards still require DNS-01, and non-DNS challenges need no provider credentials.
+- **Bot filter.** **Policies → Bot filter** refuses known scraper user agents, or scrapers plus every declared
+  bot and empty agent, before the proof-of-work challenge. Search engines, social previews and an editable
+  allow list are exempt, and refusals are logged as a `bot-filter` stage naming the matched rule.
+- **Backend header audit for protection profiles.** **Check a site** fetches a proxy's upstream as that
+  hostname, compares its framing, HSTS, CSP, nosniff and referrer headers with the selected protection
+  profile, and warns when `frame_options=off` would delete a strong application header, when SAMEORIGIN would
+  replace a DENY the application already sends, or when neither side sets one.
+- **Daily GeoIP refresh.** An installed DB-IP Lite database now updates itself once a day; the **Update
+  database** button remains for manual refreshes, and the automatic timer can be switched off in Settings.
+
+### Changed
+
+- **Higher-traffic hosts.** The SQLite pool scales with the CPU count (2× CPUs, capped at 32, override with
+  `WAFPROXY_DB_CONNS`) instead of staying at four connections, and the upstream transport keeps a larger idle
+  pool so an 8 vCPU edge does not reopen backend connections between bursts. `docs/BENCHMARKS.md` now includes
+  a capacity-planning section with projected limits and request-budget guidance for 4 vCPU/8 GB and
+  8 vCPU/16–32 GB hosts, clearly separated from measured numbers.
+- **Dashboard.** Requests and the request budget share one card: total requests on the left, in-flight/maximum
+  and refusals on the right.
+
 ## [1.19.0] — 2026-11-22
 
 ### Added
