@@ -79,6 +79,58 @@ func TestProfileCreateAndDelete(t *testing.T) {
 	}
 }
 
+func TestProfileResponsesSetting(t *testing.T) {
+	srv, _, token, csrf := newObservabilityServer(t)
+
+	// Response inspection costs latency, so a new profile starts off.
+	rec := authed(t, srv, token, csrf, http.MethodPost, "/api/profiles", `{"name":"Response site"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create profile = %d: %s", rec.Code, rec.Body.String())
+	}
+	var created model.Profile
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.Responses != "off" {
+		t.Fatalf("new profile responses = %q, want off", created.Responses)
+	}
+
+	path := "/api/profiles/" + strconv.FormatInt(created.ID, 10)
+	set := authed(t, srv, token, csrf, http.MethodPut, path, `{"responses":"flag"}`)
+	if set.Code != http.StatusOK {
+		t.Fatalf("PUT responses = %d: %s", set.Code, set.Body.String())
+	}
+	var updated model.Profile
+	if err := json.Unmarshal(set.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if updated.Responses != "flag" {
+		t.Fatalf("responses = %q, want flag", updated.Responses)
+	}
+
+	list := authed(t, srv, token, csrf, http.MethodGet, "/api/profiles", "")
+	var profiles []model.Profile
+	if err := json.Unmarshal(list.Body.Bytes(), &profiles); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	persisted := false
+	for _, p := range profiles {
+		if p.ID == created.ID {
+			persisted = p.Responses == "flag"
+		}
+	}
+	if !persisted {
+		t.Fatalf("flag did not survive the list: %s", list.Body.String())
+	}
+
+	for _, bad := range []string{"on", "always"} {
+		rec := authed(t, srv, token, csrf, http.MethodPut, path, `{"responses":"`+bad+`"}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("responses %q = %d, want 400: %s", bad, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestProfileDeleteRefusesSelectedProfile(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
 

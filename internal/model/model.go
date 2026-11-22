@@ -202,11 +202,14 @@ type Route struct {
 
 // Profile is a WAF protection profile.
 type Profile struct {
-	ID             int64  `json:"id"`
-	Name           string `json:"name"`
-	Builtin        bool   `json:"builtin"`
-	Mode           string `json:"mode"` // detect | block
-	Paranoia       int    `json:"paranoia"`
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Builtin  bool   `json:"builtin"`
+	Mode     string `json:"mode"` // detect | block
+	Paranoia int    `json:"paranoia"`
+	// Responses is off, flag or block: whether upstream responses are run
+	// through the CRS response rules before they reach the browser.
+	Responses      string `json:"responses"`
 	Anomaly        int    `json:"anomaly"`
 	AllowedMethods string `json:"allowed_methods"`
 	MaxBody        int64  `json:"max_body"`

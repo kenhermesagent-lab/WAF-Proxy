@@ -490,6 +490,9 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 	if in.Anomaly > 0 {
 		p.Anomaly = in.Anomaly
 	}
+	if in.Responses != "" {
+		p.Responses = in.Responses
+	}
 	if in.AllowedMethods != "" {
 		p.AllowedMethods = in.AllowedMethods
 	}
@@ -535,6 +538,7 @@ func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
 	p := model.Profile{
 		Name:           name,
 		Mode:           "block",
+		Responses:      "off",
 		Paranoia:       1,
 		Anomaly:        5,
 		AllowedMethods: "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
@@ -552,6 +556,9 @@ func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Anomaly > 0 && in.Anomaly <= 100 {
 		p.Anomaly = in.Anomaly
+	}
+	if in.Responses != "" {
+		p.Responses = in.Responses
 	}
 	if strings.TrimSpace(in.AllowedMethods) != "" {
 		p.AllowedMethods = strings.TrimSpace(in.AllowedMethods)
@@ -588,6 +595,11 @@ func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
 // mistyped CIDR is refused rather than silently ignored, because ignoring it
 // would leave an admin path open to everyone.
 func validateProfileLimits(in model.Profile) string {
+	switch in.Responses {
+	case "", "off", "flag", "block":
+	default:
+		return "responses must be off, flag or block"
+	}
 	if in.MaxResponse < 0 || in.MaxResponse > 1<<32 {
 		return "the response ceiling must be between 0 (unlimited) and 4 GiB"
 	}

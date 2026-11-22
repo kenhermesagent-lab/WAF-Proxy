@@ -86,6 +86,7 @@ export default function Logs({ onError, query }: { onError: (m: string) => void;
             <select value={filters.stage} onChange={(e) => setFilters({ ...filters, stage: e.target.value })}>
               <option value="">any</option>
               <option value="waf">waf</option>
+              <option value="response-waf">response-waf</option>
               <option value="whitelist">whitelist</option>
               <option value="method">method</option>
               <option value="protocol">protocol</option>

@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   allowed_methods TEXT NOT NULL DEFAULT 'GET,HEAD,POST',
   max_body INTEGER NOT NULL DEFAULT 131072,
   exceptions TEXT NOT NULL DEFAULT '',
+  responses TEXT NOT NULL DEFAULT 'off',
   max_response INTEGER NOT NULL DEFAULT 0,
   login_paths TEXT NOT NULL DEFAULT '',
   login_rps INTEGER NOT NULL DEFAULT 0,
@@ -484,6 +485,8 @@ func (s *Store) migrateAddColumns() error {
 		// The response ceiling and the two path-scoped limits live on the WAF
 		// profile, which is what a proxy already selects.
 		{"profiles", "max_response", `ALTER TABLE profiles ADD COLUMN max_response INTEGER NOT NULL DEFAULT 0`},
+		// Response inspection is opt-in per profile: off, flag or block.
+		{"profiles", "responses", `ALTER TABLE profiles ADD COLUMN responses TEXT NOT NULL DEFAULT 'off'`},
 		{"profiles", "login_paths", `ALTER TABLE profiles ADD COLUMN login_paths TEXT NOT NULL DEFAULT ''`},
 		{"profiles", "login_rps", `ALTER TABLE profiles ADD COLUMN login_rps INTEGER NOT NULL DEFAULT 0`},
 		{"profiles", "login_burst", `ALTER TABLE profiles ADD COLUMN login_burst INTEGER NOT NULL DEFAULT 0`},

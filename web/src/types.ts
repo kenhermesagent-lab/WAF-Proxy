@@ -271,6 +271,7 @@ export interface Profile {
   name: string;
   builtin: boolean;
   mode: string;
+  responses: string;
   paranoia: number;
   anomaly: number;
   allowed_methods: string;

@@ -436,6 +436,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
     name: "",
     builtin: false,
     mode: "block",
+    responses: "off",
     paranoia: 1,
     anomaly: 5,
     allowed_methods: "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
@@ -892,6 +893,13 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                 <option value="block">Block</option>
                 <option value="detect">Detect only</option>
                 <option value="off">Off</option>
+              </select>
+            </Field>
+            <Field label="Upstream responses">
+              <select value={profile.responses || "off"} onChange={(e) => setProfile({ ...profile, responses: e.target.value })}>
+                <option value="off">Off</option>
+                <option value="flag">Flag only</option>
+                <option value="block">Block</option>
               </select>
             </Field>
             <Field label="Paranoia level (1–4)">
