@@ -109,43 +109,84 @@ func (s *Store) seedProtectionProfiles() error {
 	return err
 }
 
-// ListAccessProfiles returns the named policy bundles.
-func (s *Store) ListAccessProfiles() ([]model.AccessProfile, error) {
-	rows, err := s.db.Query(`SELECT id, name, policy_ids FROM access_profiles ORDER BY id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.AccessProfile{}
-	for rows.Next() {
-		var a model.AccessProfile
-		var ids string
-		if err := rows.Scan(&a.ID, &a.Name, &ids); err != nil {
-			return nil, err
-		}
-		a.PolicyIDs = parseIDList(ids)
-		out = append(out, a)
-	}
-	return out, rows.Err()
-}
+const accessProfileColumns = `id, name, policy_ids, rule_roles, waf_profile_id, protection_profile_id`
 
-// GetAccessProfile loads one bundle.
-func (s *Store) GetAccessProfile(id int64) (*model.AccessProfile, error) {
+// The roles column is parallel to the id list, so a profile can mark the same
+// list allow in one profile and deny in another.
+func scanAccessProfile(row interface{ Scan(...any) error }) (*model.AccessProfile, error) {
 	var a model.AccessProfile
-	var ids string
-	err := s.db.QueryRow(`SELECT id, name, policy_ids FROM access_profiles WHERE id = ?`, id).
-		Scan(&a.ID, &a.Name, &ids)
+	var ids, roles string
+	var waf, prot sql.NullInt64
+	err := row.Scan(&a.ID, &a.Name, &ids, &roles, &waf, &prot)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	a.PolicyIDs = parseIDList(ids)
+	roleList := strings.Split(roles, ",")
+	for i, id := range parseIDList(ids) {
+		role := model.AccessRoleInherit
+		if i < len(roleList) {
+			switch strings.TrimSpace(roleList[i]) {
+			case model.AccessRoleAllow, model.AccessRoleDeny:
+				role = strings.TrimSpace(roleList[i])
+			}
+		}
+		a.Rules = append(a.Rules, model.AccessRule{PolicyID: id, Role: role})
+	}
+	if waf.Valid {
+		v := waf.Int64
+		a.WAFProfileID = &v
+	}
+	if prot.Valid {
+		v := prot.Int64
+		a.ProtectionProfileID = &v
+	}
 	return &a, nil
 }
 
-// CreateAccessProfile inserts a bundle.
+func accessProfileValues(a *model.AccessProfile) (string, string) {
+	ids := make([]string, 0, len(a.Rules))
+	roles := make([]string, 0, len(a.Rules))
+	for _, r := range a.Rules {
+		if r.PolicyID <= 0 {
+			continue
+		}
+		role := r.Role
+		if role != model.AccessRoleAllow && role != model.AccessRoleDeny {
+			role = model.AccessRoleInherit
+		}
+		ids = append(ids, strconv.FormatInt(r.PolicyID, 10))
+		roles = append(roles, role)
+	}
+	return strings.Join(ids, ","), strings.Join(roles, ",")
+}
+
+// ListAccessProfiles returns the named access profiles.
+func (s *Store) ListAccessProfiles() ([]model.AccessProfile, error) {
+	rows, err := s.db.Query(`SELECT ` + accessProfileColumns + ` FROM access_profiles ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.AccessProfile{}
+	for rows.Next() {
+		a, err := scanAccessProfile(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *a)
+	}
+	return out, rows.Err()
+}
+
+// GetAccessProfile loads one profile.
+func (s *Store) GetAccessProfile(id int64) (*model.AccessProfile, error) {
+	return scanAccessProfile(s.db.QueryRow(`SELECT `+accessProfileColumns+` FROM access_profiles WHERE id = ?`, id))
+}
+
+// CreateAccessProfile inserts a profile.
 func (s *Store) CreateAccessProfile(a *model.AccessProfile) error {
 	var exists int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM access_profiles WHERE name = ?`, a.Name).Scan(&exists); err != nil {
@@ -154,8 +195,9 @@ func (s *Store) CreateAccessProfile(a *model.AccessProfile) error {
 	if exists > 0 {
 		return ErrDuplicate
 	}
-	res, err := s.db.Exec(`INSERT INTO access_profiles(name, policy_ids) VALUES(?, ?)`,
-		a.Name, joinIDList(a.PolicyIDs))
+	ids, roles := accessProfileValues(a)
+	res, err := s.db.Exec(`INSERT INTO access_profiles(name, policy_ids, rule_roles, waf_profile_id, protection_profile_id)
+		VALUES(?, ?, ?, ?, ?)`, a.Name, ids, roles, a.WAFProfileID, a.ProtectionProfileID)
 	if err != nil {
 		return err
 	}
@@ -163,9 +205,11 @@ func (s *Store) CreateAccessProfile(a *model.AccessProfile) error {
 	return err
 }
 
-// UpdateAccessProfile replaces a bundle's policy selection.
+// UpdateAccessProfile replaces a profile's lists, roles and protection choice.
 func (s *Store) UpdateAccessProfile(a *model.AccessProfile) error {
-	_, err := s.db.Exec(`UPDATE access_profiles SET policy_ids = ? WHERE id = ?`, joinIDList(a.PolicyIDs), a.ID)
+	ids, roles := accessProfileValues(a)
+	_, err := s.db.Exec(`UPDATE access_profiles SET policy_ids = ?, rule_roles = ?, waf_profile_id = ?, protection_profile_id = ?
+		WHERE id = ?`, ids, roles, a.WAFProfileID, a.ProtectionProfileID, a.ID)
 	return err
 }
 

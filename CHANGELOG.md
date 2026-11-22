@@ -11,6 +11,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.11.0] — 2026-11-22
+
+### Added
+
+- **Durable agent delivery.** An agent event is written to a queue before any network call, so a restart, a crash or
+  a dead agent cannot lose it. Failed deliveries retry with exponential backoff (30s doubling, capped at an hour,
+  eight attempts) and the link row now shows the last payload's state, attempt count and the error the agent
+  returned, plus **Retry** and a **Test** that reports the real answer.
+- **Access profiles bundle everything for a host.** A profile holds lists with a role — *allow only these* narrows
+  the site to the addresses and countries it names, *block these* drops them — and carries its WAF and protection
+  profiles. Creating a proxy host is now a single choice, and a host profile stacks on the global settings, so one
+  site can be narrower than the global allow list.
+- **Permanent bans roll up into a local threat list.** One button writes every permanent ban to
+  `<data>/feeds/permanent-bans.txt`, loads it as a local feed so the addresses stay blocked, and clears the rows out
+  of the ban table.
+
+### Changed
+
+- Temporary bans last at most 24 hours and are deleted when they expire, and the ban view caps at the newest 200, so
+  the list only ever holds recent cool-downs.
+
 ## [1.10.0] — 2026-11-22
 
 ### Added

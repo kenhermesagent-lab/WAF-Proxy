@@ -563,3 +563,40 @@ func (s *Store) DeleteProxyGateSessions(proxyID int64) error {
 	_, err := s.db.Exec(`DELETE FROM gate_sessions WHERE proxy_id = ?`, proxyID)
 	return err
 }
+
+// ListBansPage returns the newest bans for the dashboard. The engine loads the
+// full set through ListBans; only the API view is capped so the list an
+// operator reads stays short no matter how many addresses were ever banned.
+func (s *Store) ListBansPage(includeExpired bool, limit int) ([]model.Ban, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	q := `SELECT id, cidr, reason, source, permanent, hits, created_by, created_at, expires_at FROM bans`
+	args := []any{}
+	if !includeExpired {
+		q += ` WHERE permanent = 1 OR expires_at IS NULL OR expires_at > ?`
+		args = append(args, stamp(time.Now()))
+	}
+	q += ` ORDER BY id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Ban{}
+	for rows.Next() {
+		var b model.Ban
+		var permanent int
+		var created string
+		var expires sql.NullString
+		if err := rows.Scan(&b.ID, &b.CIDR, &b.Reason, &b.Source, &permanent, &b.Hits, &b.CreatedBy, &created, &expires); err != nil {
+			return nil, err
+		}
+		b.Permanent = i2b(permanent)
+		b.CreatedAt = parseStamp(created)
+		b.ExpiresAt = parseStampPtr(expires)
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}

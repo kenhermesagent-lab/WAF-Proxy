@@ -35,7 +35,58 @@ func (s *Server) listAgentLinks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
+	last, err := s.st.LastDeliveries()
+	if err == nil {
+		for i := range list {
+			if d, ok := last[list[i].ID]; ok {
+				list[i].LastDelivery = &model.DeliverySummary{
+					ID: d.ID, Kind: d.Kind, State: d.State, Attempts: d.Attempts,
+					LastStatus: d.LastStatus, LastError: d.LastError,
+					CreatedAt: d.CreatedAt, DeliveredAt: d.DeliveredAt,
+				}
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// listAgentDeliveries shows a link's recent payloads, newest first.
+func (s *Server) listAgentDeliveries(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	list, err := s.st.DeliveriesForLink(id, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// retryAgentLink re-queues the newest delivery for a link.
+func (s *Server) retryAgentLink(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if s.agentLinks == nil {
+		writeError(w, http.StatusServiceUnavailable, "the agent dispatcher is not configured")
+		return
+	}
+	ok, err := s.agentLinks.RetryLast(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, "no delivery to retry")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "queued"})
 }
 
 func (s *Server) createAgentLink(w http.ResponseWriter, r *http.Request) {

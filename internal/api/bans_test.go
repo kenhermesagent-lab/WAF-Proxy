@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -67,5 +68,79 @@ func TestCreateBanReturnsTheListShape(t *testing.T) {
 	}
 	if list.Bans[0]["id"] != created["id"] || list.Bans[0]["cidr"] != created["cidr"] {
 		t.Fatalf("POST row %v does not match GET row %v", created, list.Bans[0])
+	}
+}
+
+// Rolling permanent bans up writes one local threat list, keeps them blocked
+// through it, and clears them out of the ban table.
+func TestRollupMovesPermanentBansIntoALocalFeed(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	srv.cfg.DataDir = t.TempDir()
+
+	makeBan := func(cidr string, permanent bool) {
+		body := `{"cidr":"` + cidr + `","reason":"rollup test","permanent":` + map[bool]string{true: "true", false: "false"}[permanent] + `}`
+		req := httptest.NewRequest(http.MethodPost, "/api/bans", strings.NewReader(body))
+		req.Host = "gui.local"
+		req.RemoteAddr = "192.168.101.10:5000"
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		req.Header.Set("X-CSRF-Token", csrf)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("POST /api/bans = %d: %s", rec.Code, rec.Body.String())
+		}
+	}
+	makeBan("203.0.113.50", true)
+	makeBan("203.0.113.51", false)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/bans/rollup", nil)
+	req.Host = "gui.local"
+	req.RemoteAddr = "192.168.101.10:5000"
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	req.Header.Set("X-CSRF-Token", csrf)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/bans/rollup = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		RolledUp int    `json:"rolled_up"`
+		Path     string `json:"path"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.RolledUp != 1 {
+		t.Fatalf("rolled up %d bans, want only the permanent one", out.RolledUp)
+	}
+
+	file, err := os.ReadFile(out.Path)
+	if err != nil {
+		t.Fatalf("the threat list was not written: %v", err)
+	}
+	if !strings.Contains(string(file), "203.0.113.50/32") || strings.Contains(string(file), "203.0.113.51") {
+		t.Fatalf("unexpected threat list contents: %s", file)
+	}
+
+	feeds, err := st.ListFeeds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range feeds {
+		if f.Name == permanentFeedName && f.LocalPath == out.Path && f.Action == "block" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no local feed points at the rolled-up list: %+v", feeds)
+	}
+
+	bans, err := st.ListBans(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bans) != 1 || bans[0].CIDR != "203.0.113.51/32" {
+		t.Fatalf("the rolled-up ban is still in the table: %+v", bans)
 	}
 }

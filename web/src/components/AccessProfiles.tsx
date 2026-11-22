@@ -1,16 +1,22 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
-import type { AccessProfile, Policy } from "../types";
+import type { AccessProfile, AccessRule, Policy, Profile, ProtectionProfile } from "../types";
 
 const KIND_LABELS: Record<string, string> = {
-  ip_whitelist: "IP / CIDR allow",
-  ip_blacklist: "IP / CIDR block",
-  country_whitelist: "Allowed country",
-  country_blacklist: "Blocked country",
-  asn_block: "Blocked ASN",
+  ip_whitelist: "IP / CIDR list",
+  ip_blacklist: "IP / CIDR list",
+  country_whitelist: "Country list",
+  country_blacklist: "Country list",
+  asn_block: "ASN list",
   decoy: "Decoy path",
   rate_limit: "Rate limit",
+};
+
+const ROLE_LABELS: Record<AccessRule["role"], string> = {
+  allow: "Allow only these",
+  deny: "Block these",
+  inherit: "Use the list's own type",
 };
 
 export default function AccessProfiles({
@@ -23,10 +29,23 @@ export default function AccessProfiles({
   onOK: (m: string) => void;
 }) {
   const [list, setList] = useState<AccessProfile[]>([]);
+  const [wafProfiles, setWafProfiles] = useState<Profile[]>([]);
+  const [protections, setProtections] = useState<ProtectionProfile[]>([]);
   const [draft, setDraft] = useState<AccessProfile | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const load = () => api.get<AccessProfile[]>("/api/access-profiles").then(setList).catch((e) => onError(errText(e)));
+  const load = () =>
+    Promise.all([
+      api.get<AccessProfile[]>("/api/access-profiles"),
+      api.get<Profile[]>("/api/profiles"),
+      api.get<ProtectionProfile[]>("/api/protection-profiles"),
+    ])
+      .then(([a, w, p]) => {
+        setList(a);
+        setWafProfiles(w);
+        setProtections(p);
+      })
+      .catch((e) => onError(errText(e)));
 
   useEffect(() => {
     load();
@@ -49,7 +68,7 @@ export default function AccessProfiles({
   };
 
   const remove = async (a: AccessProfile) => {
-    if (!confirm(`Delete the ${a.name} profile? The policies themselves stay.`)) return;
+    if (!confirm(`Delete the ${a.name} profile? The lists and protection profiles themselves stay.`)) return;
     try {
       await api.del(`/api/access-profiles/${a.id}`);
       onOK("Access profile deleted");
@@ -59,41 +78,71 @@ export default function AccessProfiles({
     }
   };
 
-  const toggle = (id: number) => {
+  const ruleFor = (a: AccessProfile, id: number) => a.rules.find((r) => r.policy_id === id);
+
+  const setRole = (id: number, role: AccessRule["role"]) => {
     if (!draft) return;
-    const ids = draft.policy_ids.includes(id)
-      ? draft.policy_ids.filter((x) => x !== id)
-      : [...draft.policy_ids, id];
-    setDraft({ ...draft, policy_ids: ids });
+    const exists = draft.rules.some((r) => r.policy_id === id);
+    const rules = exists
+      ? draft.rules.map((r) => (r.policy_id === id ? { ...r, role } : r))
+      : [...draft.rules, { policy_id: id, role }];
+    setDraft({ ...draft, rules });
   };
 
-  const describe = (ids: number[]) =>
-    ids
-      .map((id) => policies.find((p) => p.id === id))
+  const clear = (id: number) => {
+    if (!draft) return;
+    setDraft({ ...draft, rules: draft.rules.filter((r) => r.policy_id !== id) });
+  };
+
+  const describe = (a: AccessProfile) =>
+    a.rules
+      .map((r) => {
+        const p = policies.find((x) => x.id === r.policy_id);
+        if (!p) return null;
+        const role = r.role === "allow" ? "allow" : r.role === "deny" ? "block" : "list";
+        return `${role}: ${KIND_LABELS[p.kind] ?? p.kind} ${p.value}`;
+      })
       .filter(Boolean)
-      .map((p) => `${KIND_LABELS[p!.kind] ?? p!.kind}: ${p!.value}`)
       .join(" · ");
+
+  const wafName = (id: number | null) => wafProfiles.find((p) => p.id === id)?.name;
+  const protectionName = (id: number | null) => protections.find((p) => p.id === id)?.name;
 
   return (
     <Card
       title="Access profiles"
-      actions={<button className="small primary" onClick={() => setDraft({ id: 0, name: "", policy_ids: [] })}>New profile</button>}
+      actions={
+        <button
+          className="small primary"
+          onClick={() => setDraft({ id: 0, name: "", rules: [], waf_profile_id: null, protection_profile_id: null })}
+        >
+          New profile
+        </button>
+      }
     >
       {list.length === 0 ? (
-        <Empty>No access profiles. Create one to apply a set of allow and block rules to several proxies.</Empty>
+        <Empty>
+          No access profiles. One profile holds the lists and protections for a site, so creating a proxy host means
+          choosing a single thing.
+        </Empty>
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table>
-            <thead><tr><th>Profile</th><th>Rules</th><th /></tr></thead>
+            <thead>
+              <tr><th>Profile</th><th>Lists</th><th>Protection</th><th /></tr>
+            </thead>
             <tbody>
               {list.map((a) => {
-                const missing = a.policy_ids.filter((id) => !policies.some((p) => p.id === id)).length;
+                const missing = a.rules.filter((r) => !policies.some((p) => p.id === r.policy_id)).length;
                 return (
                   <tr key={a.id}>
                     <td style={{ whiteSpace: "nowrap" }}>{a.name}</td>
                     <td className="muted" style={{ fontSize: 12 }}>
-                      {describe(a.policy_ids) || "no rules selected"}
-                      {missing > 0 && <> <Badge tone="warn">{missing} deleted rule(s)</Badge></>}
+                      {describe(a) || "no lists"}
+                      {missing > 0 && <> <Badge tone="warn">{missing} deleted list(s)</Badge></>}
+                    </td>
+                    <td className="muted" style={{ fontSize: 12 }}>
+                      {[wafName(a.waf_profile_id), protectionName(a.protection_profile_id)].filter(Boolean).join(" · ") || "none"}
                     </td>
                     <td className="right" style={{ whiteSpace: "nowrap" }}>
                       <button className="small" onClick={() => setDraft({ ...a })}>Edit</button>{" "}
@@ -107,9 +156,10 @@ export default function AccessProfiles({
         </div>
       )}
       <p className="muted" style={{ fontSize: 12 }}>
-        A profile bundles existing rules from <strong>Countries, IPs, ASN</strong>. Attach it to a proxy and those rules
-        apply to that site only; turning a rule off here still turns it off. Editing a rule updates every profile that
-        contains it.
+        A profile stacks on top of the global <strong>Countries, IPs, ASN</strong> settings: an <em>allow only these</em>{" "}
+        list narrows that host to the addresses and countries it names, and a <em>block these</em> list removes them even
+        when a global allow list names them. Selected protection profiles travel with the profile, so the host form only
+        asks for one choice.
       </p>
 
       {draft && (
@@ -119,29 +169,63 @@ export default function AccessProfiles({
               <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Office only" autoFocus />
             </Field>
           )}
-          <Field label={`Rules (${draft.policy_ids.length} selected)`}>
+
+          <Field label="Lists">
             {policies.length === 0 ? (
               <p className="muted" style={{ fontSize: 12 }}>
-                No rules yet. Create allow or block rules on the Countries, IPs, ASN tab first.
+                No lists yet. Create them on the Countries, IPs, ASN tab first.
               </p>
             ) : (
-              <div style={{ maxHeight: 260, overflowY: "auto", display: "grid", gap: 6 }}>
-                {policies.map((p) => (
-                  <label key={p.id} className="row" style={{ margin: 0, gap: 8, textTransform: "none", letterSpacing: 0, fontSize: 13 }}>
-                    <input
-                      type="checkbox"
-                      style={{ width: "auto" }}
-                      checked={draft.policy_ids.includes(p.id)}
-                      onChange={() => toggle(p.id)}
-                    />
-                    <span className="mono" style={{ fontSize: 12 }}>{KIND_LABELS[p.kind] ?? p.kind}</span>
-                    <span className="muted">{p.value}</span>
-                    {!p.enabled && <Badge tone="warn">disabled</Badge>}
-                  </label>
-                ))}
+              <div style={{ maxHeight: 280, overflowY: "auto", display: "grid", gap: 6 }}>
+                {policies.map((p) => {
+                  const rule = ruleFor(draft, p.id);
+                  return (
+                    <div key={p.id} className="row" style={{ gap: 8, alignItems: "center", margin: 0 }}>
+                      <span className="mono" style={{ fontSize: 12, minWidth: 120 }}>{KIND_LABELS[p.kind] ?? p.kind}</span>
+                      <span className="muted" style={{ flex: 1, fontSize: 12 }}>{p.value}</span>
+                      {!p.enabled && <Badge tone="warn">disabled</Badge>}
+                      <select
+                        value={rule?.role ?? ""}
+                        onChange={(e) => (e.target.value ? setRole(p.id, e.target.value as AccessRule["role"]) : clear(p.id))}
+                        style={{ width: 190 }}
+                      >
+                        <option value="">Not in this profile</option>
+                        <option value="allow">{ROLE_LABELS.allow}</option>
+                        <option value="deny">{ROLE_LABELS.deny}</option>
+                        <option value="inherit">{ROLE_LABELS.inherit}</option>
+                      </select>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </Field>
+
+          <div className="row grow">
+            <Field label="WAF profile">
+              <select
+                value={draft.waf_profile_id ?? ""}
+                onChange={(e) => setDraft({ ...draft, waf_profile_id: e.target.value ? Number(e.target.value) : null })}
+              >
+                <option value="">Inherit the default</option>
+                {wafProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Protection profile">
+              <select
+                value={draft.protection_profile_id ?? ""}
+                onChange={(e) => setDraft({ ...draft, protection_profile_id: e.target.value ? Number(e.target.value) : null })}
+              >
+                <option value="">None</option>
+                {protections.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
           <div className="row mt" style={{ justifyContent: "flex-end" }}>
             <button onClick={() => setDraft(null)}>Cancel</button>
             <button className="primary" disabled={saving || draft.name.trim() === ""} onClick={save}>

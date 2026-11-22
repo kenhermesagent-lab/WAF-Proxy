@@ -201,7 +201,7 @@ func (s *Server) createAccessProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "a profile name of 1–64 characters is required")
 		return
 	}
-	if msg := s.validateAccessPolicies(in.PolicyIDs); msg != "" {
+	if msg := s.validateAccessProfile(&in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -239,11 +239,13 @@ func (s *Server) updateAccessProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if msg := s.validateAccessPolicies(in.PolicyIDs); msg != "" {
+	if msg := s.validateAccessProfile(&in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	current.PolicyIDs = in.PolicyIDs
+	current.Rules = in.Rules
+	current.WAFProfileID = in.WAFProfileID
+	current.ProtectionProfileID = in.ProtectionProfileID
 	if err := s.st.UpdateAccessProfile(current); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
@@ -288,8 +290,33 @@ func (s *Server) deleteAccessProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// validateAccessPolicies rejects ids that do not exist, so a bundle cannot
-// silently reference a deleted row.
+// validateAccessProfile rejects references that do not exist, so a profile
+// cannot silently point at a deleted list or protection profile.
+func (s *Server) validateAccessProfile(a *model.AccessProfile) string {
+	for _, r := range a.Rules {
+		switch r.Role {
+		case "", model.AccessRoleAllow, model.AccessRoleDeny, model.AccessRoleInherit:
+		default:
+			return "a rule role must be allow, deny or inherit"
+		}
+	}
+	ids := a.PolicyIDs()
+	if msg := s.validateAccessPolicies(ids); msg != "" {
+		return msg
+	}
+	if a.WAFProfileID != nil {
+		if _, err := s.st.GetProfile(*a.WAFProfileID); err != nil {
+			return "the selected WAF profile does not exist"
+		}
+	}
+	if a.ProtectionProfileID != nil {
+		if _, err := s.st.GetProtectionProfile(*a.ProtectionProfileID); err != nil {
+			return "the selected protection profile does not exist"
+		}
+	}
+	return ""
+}
+
 func (s *Server) validateAccessPolicies(ids []int64) string {
 	if len(ids) == 0 {
 		return ""

@@ -29,6 +29,8 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [rolling, setRolling] = useState(false);
+  const [limited, setLimited] = useState(false);
 
   const [ban, setBan] = useState({ cidr: "", reason: "", permanent: false, ttl_seconds: 86400 });
   const [pol, setPol] = useState({
@@ -43,9 +45,12 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
 
   const load = () => {
     api
-      .get<{ bans: Ban[]; active: number; kernel: { active: boolean; reason: string } }>(`/api/bans?all=${showAll ? 1 : 0}`)
+      .get<{ bans: Ban[]; active: number; limited?: boolean; kernel: { active: boolean; reason: string } }>(
+        `/api/bans?all=${showAll ? 1 : 0}`,
+      )
       .then((r) => {
         setBans(r.bans || []);
+        setLimited(!!r.limited);
         setKernel(r.kernel);
       })
       .catch((e) => onError(errText(e)));
@@ -113,6 +118,23 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       onError(errText(e));
     } finally {
       setBulkBusy(false);
+    }
+  };
+
+  // Permanent bans can be folded into one local threat list so this table does
+  // not grow for the life of the install.
+  const permBans = bans.filter((b) => b.permanent);
+  const rollup = async () => {
+    if (!confirm(`Move ${permBans.length} permanent ban(s) into the local threat list? They leave this table and stay blocked through the list.`)) return;
+    setRolling(true);
+    try {
+      const r = await api.post<{ rolled_up: number; path: string }>("/api/bans/rollup");
+      onOK(`${r.rolled_up} ban(s) rolled into ${r.path}`);
+      load();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setRolling(false);
     }
   };
 
@@ -229,8 +251,8 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
               <Field label="Reason (required)">
                 <input value={ban.reason} onChange={(e) => setBan({ ...ban, reason: e.target.value })} placeholder="port scan" />
               </Field>
-              <Field label="Duration (seconds)">
-                <input type="number" value={ban.ttl_seconds} disabled={ban.permanent} onChange={(e) => setBan({ ...ban, ttl_seconds: Number(e.target.value) })} />
+              <Field label="Duration">
+                <input value={ban.permanent ? "Until removed" : "24 hours"} readOnly disabled />
               </Field>
               <label style={{ margin: "18px 0 0", display: "flex", gap: 6, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
                 <input type="checkbox" style={{ width: "auto" }} checked={ban.permanent} onChange={(e) => setBan({ ...ban, permanent: e.target.checked })} /> permanent
@@ -248,6 +270,10 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           >
             {bans.length === 0 ? <Empty>No bans. Decoy hits and repeated failures add themselves here.</Empty> : (
               <>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Temporary bans last 24 hours and are deleted when they expire, so this list only ever holds recent
+                  cool-downs.{limited && " Showing the newest 200."}
+                </p>
                 {selected.length > 0 && (
                   <div className="row" style={{ marginBottom: 10, alignItems: "center" }}>
                     <span className="muted">{selected.length} selected</span>
@@ -307,12 +333,19 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       )}
 
       {tab === "permanent" && (
-        <Card title="Permanent ban list">
-          {bans.filter((b) => b.permanent).length === 0 ? <Empty>No permanent bans.</Empty> : (
+        <Card
+          title="Permanent ban list"
+          actions={
+            <button className="small" disabled={rolling || permBans.length === 0} onClick={rollup}>
+              {rolling ? "Rolling up…" : "Roll up into a local threat list"}
+            </button>
+          }
+        >
+          {permBans.length === 0 ? <Empty>No permanent bans.</Empty> : (
             <table>
               <thead><tr><th>IP / CIDR</th><th>Reason</th><th>Source</th><th>Created by</th><th>Hits</th><th /></tr></thead>
               <tbody>
-                {bans.filter((b) => b.permanent).map((b) => (
+                {permBans.map((b) => (
                   <tr key={b.id}>
                     <td className="mono">{b.cidr}</td>
                     <td>{b.reason}</td>

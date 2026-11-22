@@ -172,11 +172,15 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/bans/{id}/promote", s.authed(s.promoteBan))
 	m.HandleFunc("POST /api/bans/bulk", s.authed(s.bulkBans))
 
+	m.HandleFunc("POST /api/bans/rollup", s.authed(s.rollupBans))
+
 	m.HandleFunc("GET /api/agents", s.authed(s.listAgentLinks))
 	m.HandleFunc("POST /api/agents", s.authed(s.createAgentLink))
 	m.HandleFunc("PUT /api/agents/{id}", s.authed(s.updateAgentLink))
 	m.HandleFunc("DELETE /api/agents/{id}", s.authed(s.deleteAgentLink))
 	m.HandleFunc("POST /api/agents/{id}/test", s.authed(s.testAgentLink))
+	m.HandleFunc("POST /api/agents/{id}/retry", s.authed(s.retryAgentLink))
+	m.HandleFunc("GET /api/agents/{id}/deliveries", s.authed(s.listAgentDeliveries))
 
 	m.HandleFunc("GET /api/anomaly", s.authed(s.getAnomaly))
 	m.HandleFunc("PUT /api/anomaly/settings", s.authed(s.putAnomalySettings))

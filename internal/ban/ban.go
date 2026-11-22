@@ -13,6 +13,10 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
+// MaxTempTTL is the longest a temporary ban lasts. Anything longer is a
+// permanent ban and belongs on a threat list, not in the ban table.
+const MaxTempTTL = 24 * time.Hour
+
 // Record is an active ban held in memory.
 type Record struct {
 	CIDR      string
@@ -148,6 +152,9 @@ func (e *Engine) purgeExpired() {
 		return true
 	})
 	e.mu.Unlock()
+	// Rows that lapsed while the process was down are still in SQLite; remove
+	// them so the table does not keep a permanent record of old cool-downs.
+	_ = e.st.PurgeBans()
 	for _, cidr := range expired {
 		_, _ = e.st.DeleteBanByCIDR(cidr)
 		if e.kernel != nil {

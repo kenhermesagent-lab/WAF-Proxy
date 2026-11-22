@@ -105,10 +105,17 @@ export interface ProtectionProfile {
   hide_server: boolean;
 }
 
+export interface AccessRule {
+  policy_id: number;
+  role: "allow" | "deny" | "inherit";
+}
+
 export interface AccessProfile {
   id: number;
   name: string;
-  policy_ids: number[];
+  rules: AccessRule[];
+  waf_profile_id: number | null;
+  protection_profile_id: number | null;
 }
 
 export interface AuthProvider {
@@ -121,6 +128,17 @@ export interface AuthProvider {
   has_secret: boolean;
 }
 
+export interface DeliverySummary {
+  id: number;
+  kind: string;
+  state: "pending" | "delivered" | "failed";
+  attempts: number;
+  last_status: number;
+  last_error?: string;
+  created_at: string;
+  delivered_at?: string;
+}
+
 export interface AgentLink {
   id: number;
   name: string;
@@ -128,6 +146,7 @@ export interface AgentLink {
   has_secret: boolean;
   enabled: boolean;
   created_at: string;
+  last_delivery?: DeliverySummary;
 }
 
 export interface AnomalyEvent {

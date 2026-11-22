@@ -69,6 +69,14 @@ type ruleSet struct {
 	decoys       []string
 	rateRPS      int
 	rateBurst    int
+
+	// Per-host lists from the proxy's access profile. They stack on top of the
+	// global lists: a profile deny always blocks, and a profile allow list
+	// narrows that host to the addresses and countries it names.
+	profIPAllow      []netip.Prefix
+	profIPDeny       []netip.Prefix
+	profCountryAllow map[string]bool
+	profCountryDeny  map[string]bool
 }
 
 // Engine holds cached policies and the rate limiter.
@@ -87,10 +95,10 @@ type Engine struct {
 	profiles map[int64]model.Profile
 	settings Settings
 
-	// An access profile is a named selection of policy rows. Keeping the rows
-	// themselves as the source of truth means editing a policy updates every
-	// proxy that uses a bundle containing it.
-	accessProfiles map[int64][]int64
+	// An access profile is a named selection of policy rows with a role per
+	// row. Keeping the rows themselves as the source of truth means editing a
+	// policy updates every profile, and therefore every proxy, that uses it.
+	accessProfiles map[int64]model.AccessProfile
 	policiesByID   map[int64]model.Policy
 	now            func() time.Time
 }
@@ -107,7 +115,7 @@ func New(st *store.Store, bans *ban.Engine, feeds *intel.Manager, geo *geoip.Geo
 		rl:             newLimiter(),
 		perProxy:       map[int64]ruleSet{},
 		profiles:       map[int64]model.Profile{},
-		accessProfiles: map[int64][]int64{},
+		accessProfiles: map[int64]model.AccessProfile{},
 		policiesByID:   map[int64]model.Policy{},
 		now:            time.Now,
 	}
@@ -200,9 +208,9 @@ func (e *Engine) Reload() error {
 	if len(global.decoys) == 0 {
 		global.decoys = append(global.decoys, DefaultDecoys...)
 	}
-	bundles := map[int64][]int64{}
+	bundles := map[int64]model.AccessProfile{}
 	for _, a := range accessProfiles {
-		bundles[a.ID] = a.PolicyIDs
+		bundles[a.ID] = a
 	}
 
 	e.mu.Lock()
@@ -221,9 +229,39 @@ func (e *Engine) Reload() error {
 
 func newRuleSet() ruleSet {
 	return ruleSet{
-		countryAllow: map[string]bool{},
-		countryDeny:  map[string]bool{},
-		asnDeny:      map[int]bool{},
+		countryAllow:     map[string]bool{},
+		countryDeny:      map[string]bool{},
+		asnDeny:          map[int]bool{},
+		profCountryAllow: map[string]bool{},
+		profCountryDeny:  map[string]bool{},
+	}
+}
+
+// applyPolicyRole applies one list to a rule set with the role the access
+// profile chose. "inherit" falls back to the list's own kind, which is how
+// profiles behaved before roles existed.
+func applyPolicyRole(rs *ruleSet, p model.Policy, role string) {
+	switch role {
+	case model.AccessRoleAllow:
+		switch p.Kind {
+		case model.PolicyIPWhitelist, model.PolicyIPBlacklist:
+			rs.profIPAllow = append(rs.profIPAllow, prefixes(p.Value)...)
+		case model.PolicyCountryWhitelist, model.PolicyCountryBlacklist:
+			for _, c := range splitUpper(p.Value) {
+				rs.profCountryAllow[c] = true
+			}
+		}
+	case model.AccessRoleDeny:
+		switch p.Kind {
+		case model.PolicyIPWhitelist, model.PolicyIPBlacklist:
+			rs.profIPDeny = append(rs.profIPDeny, prefixes(p.Value)...)
+		case model.PolicyCountryWhitelist, model.PolicyCountryBlacklist:
+			for _, c := range splitUpper(p.Value) {
+				rs.profCountryDeny[c] = true
+			}
+		}
+	default:
+		applyPolicy(rs, p)
 	}
 }
 
@@ -422,11 +460,7 @@ func (e *Engine) MaxBody(p *model.Proxy) int64 {
 func (e *Engine) rulesFor(p *model.Proxy) ruleSet {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	merged := ruleSet{
-		countryAllow: map[string]bool{},
-		countryDeny:  map[string]bool{},
-		asnDeny:      map[int]bool{},
-	}
+	merged := newRuleSet()
 	merged.ipAllow = append(merged.ipAllow, e.global.ipAllow...)
 	merged.ipDeny = append(merged.ipDeny, e.global.ipDeny...)
 	for c := range e.global.countryAllow {
@@ -461,12 +495,15 @@ func (e *Engine) rulesFor(p *model.Proxy) ruleSet {
 				merged.rateBurst = local.rateBurst
 			}
 		}
-		// A bundle adds its policy rows to this proxy only. Disabled rows are
-		// skipped, so turning a policy off in Policies also turns it off here.
+		// A profile adds its lists to this proxy only, each with the role the
+		// profile gives it. Disabled lists are skipped, so turning a list off in
+		// Policies also turns it off here.
 		if p.AccessProfileID != nil {
-			for _, id := range e.accessProfiles[*p.AccessProfileID] {
-				if pol, ok := e.policiesByID[id]; ok && pol.Enabled {
-					applyPolicy(&merged, pol)
+			if prof, ok := e.accessProfiles[*p.AccessProfileID]; ok {
+				for _, rule := range prof.Rules {
+					if pol, ok := e.policiesByID[rule.PolicyID]; ok && pol.Enabled {
+						applyPolicyRole(&merged, pol, rule.Role)
+					}
 				}
 			}
 		}
@@ -499,6 +536,19 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 		}
 	}
 
+	// A profile deny list drops the address for this host even when a global
+	// allow list names it: an explicit block is the operator's strongest word.
+	for _, pr := range rules.profIPDeny {
+		if pr.Contains(req.Addr) {
+			return model.Verdict{Action: "block", Stage: "profile-block", Rule: pr.String(),
+				Reason: "IP blocked by this site's access profile", Status: http.StatusForbidden}
+		}
+	}
+	if country != "" && rules.profCountryDeny[country] {
+		return model.Verdict{Action: "block", Stage: "profile-block", Rule: "country:" + country,
+			Reason: "country blocked by this site's access profile", Status: http.StatusForbidden}
+	}
+
 	// A whitelist only bypasses the country, ASN and feed stages. Bans,
 	// decoys and rate limiting still apply, so a compromised friendly host
 	// cannot use its whitelist entry to escape the IPS.
@@ -526,6 +576,29 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 		}
 		return model.Verdict{Action: "block", Stage: "country-allow", Rule: rule,
 			Reason: "country not on the allow list", Status: http.StatusForbidden}
+	}
+
+	// The profile's own allow list is exclusive for this host: once a site names
+	// the addresses or countries allowed to reach it, nothing else does. This is
+	// what makes a per-host profile more granular than the global setting.
+	if len(rules.profIPAllow) > 0 || len(rules.profCountryAllow) > 0 {
+		ok := country != "" && rules.profCountryAllow[country]
+		if !ok {
+			for _, pr := range rules.profIPAllow {
+				if pr.Contains(req.Addr) {
+					ok = true
+					break
+				}
+			}
+		}
+		if !ok {
+			rule := "country:" + country
+			if country == "" {
+				rule = "country:unknown"
+			}
+			return model.Verdict{Action: "block", Stage: "profile-allow", Rule: rule,
+				Reason: "address not on this site's access profile", Status: http.StatusForbidden}
+		}
 	}
 
 	// A decoy path is proof of scanning, and a whitelisted host is exactly the

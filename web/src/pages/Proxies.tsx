@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
-import { AccessProfile, AuthProvider, Cert, Profile, ProtectionProfile, Proxy, Route, Upstream } from "../types";
+import { AccessProfile, AuthProvider, Cert, ProtectionProfile, Proxy, Route, Upstream } from "../types";
 
 type Draft = {
   id?: number;
@@ -46,7 +46,6 @@ function emptyDraft(): Draft {
 
 export default function Proxies({ onError, onOK, base }: { onError: (m: string) => void; onOK: (m: string) => void; base: string }) {
   const [list, setList] = useState<Proxy[]>([]);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [protections, setProtections] = useState<ProtectionProfile[]>([]);
   const [accessProfiles, setAccessProfiles] = useState<AccessProfile[]>([]);
   const [providers, setProviders] = useState<AuthProvider[]>([]);
@@ -57,15 +56,13 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
   const load = () =>
     Promise.all([
       api.get<Proxy[]>("/api/proxies"),
-      api.get<Profile[]>("/api/profiles"),
       api.get<ProtectionProfile[]>("/api/protection-profiles"),
       api.get<AccessProfile[]>("/api/access-profiles"),
       api.get<AuthProvider[]>("/api/auth-providers"),
       api.get<{ certs: Cert[] }>("/api/certs"),
     ])
-      .then(([p, pr, pp, ap, prov, c]) => {
+      .then(([p, pp, ap, prov, c]) => {
         setList(p);
-        setProfiles(pr);
         setProtections(pp);
         setAccessProfiles(ap);
         setProviders(prov);
@@ -211,31 +208,20 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
             <Field label="Hostname">
               <input value={draft.hostname} onChange={(e) => patch((d) => (d.hostname = e.target.value))} placeholder={`app.${base}`} />
             </Field>
-            <Field label="WAF profile">
-              <select value={draft.profile_id ?? ""} onChange={(e) => patch((d) => (d.profile_id = e.target.value ? Number(e.target.value) : null))}>
-                <option value="">Default</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Protection profile">
-              <select
-                value={draft.protection_profile_id ?? ""}
-                onChange={(e) => patch((d) => (d.protection_profile_id = e.target.value ? Number(e.target.value) : null))}
-              >
-                <option value="">None (headers untouched)</option>
-                {protections.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </Field>
             <Field label="Access profile">
               <select
                 value={draft.access_profile_id ?? ""}
-                onChange={(e) => patch((d) => (d.access_profile_id = e.target.value ? Number(e.target.value) : null))}
+                onChange={(e) =>
+                  patch((d) => {
+                    d.access_profile_id = e.target.value ? Number(e.target.value) : null;
+                    // The profile supplies the lists and both protection profiles,
+                    // so clear any inherited choice from an earlier selection.
+                    d.profile_id = null;
+                    d.protection_profile_id = null;
+                  })
+                }
               >
-                <option value="">None</option>
+                <option value="">Default settings</option>
                 {accessProfiles.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}

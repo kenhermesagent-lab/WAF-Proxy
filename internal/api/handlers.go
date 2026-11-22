@@ -18,6 +18,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
@@ -112,6 +113,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 	if in.Maintenance != nil {
 		p.Maintenance = *in.Maintenance
 	}
+	s.inheritAccessProfile(p)
 	if msg := validateProxyOptions(in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
@@ -149,6 +151,25 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, p)
 }
 
+// inheritAccessProfile fills the WAF and protection profile from the selected
+// access profile when the caller did not name them explicitly, so an operator
+// can create a host by choosing one thing. An explicit choice still wins.
+func (s *Server) inheritAccessProfile(p *model.Proxy) {
+	if p == nil || p.AccessProfileID == nil {
+		return
+	}
+	ap, err := s.st.GetAccessProfile(*p.AccessProfileID)
+	if err != nil {
+		return
+	}
+	if p.ProfileID == nil {
+		p.ProfileID = ap.WAFProfileID
+	}
+	if p.ProtectionProfileID == nil {
+		p.ProtectionProfileID = ap.ProtectionProfileID
+	}
+}
+
 func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -183,6 +204,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	current.ProtectionProfileID = in.ProtectionProfileID
 	current.AccessProfileID = in.AccessProfileID
 	current.AuthProviderID = in.AuthProviderID
+	s.inheritAccessProfile(current)
 	if in.GateMode != "" {
 		current.GateMode = in.GateMode
 	}
@@ -673,14 +695,15 @@ func (s *Server) deletePolicy(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listBans(w http.ResponseWriter, r *http.Request) {
 	all := r.URL.Query().Get("all") == "1"
-	list, err := s.bans.List(all)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	list, err := s.st.ListBansPage(all, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
 	active, reason := s.bans.KernelStatus()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"bans": list, "active": s.bans.Count(),
+		"bans": list, "active": s.bans.Count(), "limited": limit > 0 && len(list) == limit,
 		"kernel": map[string]any{"active": active, "reason": reason},
 	})
 }
@@ -718,12 +741,10 @@ func (s *Server) createBan(w http.ResponseWriter, r *http.Request) {
 	}
 	ttl := time.Duration(0)
 	if !in.Permanent {
-		if in.TTL <= 0 {
-			in.TTL = 86400
-		}
-		if in.TTL > 31536000 {
-			writeError(w, http.StatusBadRequest, "ttl too large")
-			return
+		// A temporary ban lasts at most a day: the point is a cool-down, and an
+		// unbounded TTL turns the list into a second permanent list.
+		if in.TTL <= 0 || in.TTL > int(ban.MaxTempTTL/time.Second) {
+			in.TTL = int(ban.MaxTempTTL / time.Second)
 		}
 		ttl = time.Duration(in.TTL) * time.Second
 	}

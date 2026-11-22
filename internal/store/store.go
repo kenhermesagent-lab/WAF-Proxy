@@ -287,6 +287,21 @@ CREATE TABLE IF NOT EXISTS gate_acl (
   username TEXT NOT NULL,
   PRIMARY KEY (proxy_id, username)
 );
+CREATE TABLE IF NOT EXISTS agent_deliveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  link_id INTEGER NOT NULL,
+  event_id INTEGER NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL,
+  body TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NOT NULL,
+  last_status INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  delivered_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_deliveries_due ON agent_deliveries(state, next_attempt_at);
 CREATE TABLE IF NOT EXISTS agent_links (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
@@ -354,7 +369,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "9"
+const schemaVersion = "11"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -387,6 +402,11 @@ func (s *Store) migrateAddColumns() error {
 		{"proxies", "protection_profile_id", `ALTER TABLE proxies ADD COLUMN protection_profile_id INTEGER REFERENCES protection_profiles(id) ON DELETE SET NULL`},
 		{"proxies", "access_profile_id", `ALTER TABLE proxies ADD COLUMN access_profile_id INTEGER REFERENCES access_profiles(id) ON DELETE SET NULL`},
 		{"proxies", "auth_provider_id", `ALTER TABLE proxies ADD COLUMN auth_provider_id INTEGER REFERENCES auth_providers(id) ON DELETE SET NULL`},
+		// An access profile now carries the roles of its lists and the two
+		// protection profiles a host needs, so a proxy selects one profile.
+		{"access_profiles", "rule_roles", `ALTER TABLE access_profiles ADD COLUMN rule_roles TEXT NOT NULL DEFAULT ''`},
+		{"access_profiles", "waf_profile_id", `ALTER TABLE access_profiles ADD COLUMN waf_profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL`},
+		{"access_profiles", "protection_profile_id", `ALTER TABLE access_profiles ADD COLUMN protection_profile_id INTEGER REFERENCES protection_profiles(id) ON DELETE SET NULL`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)

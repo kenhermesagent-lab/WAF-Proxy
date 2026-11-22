@@ -164,3 +164,81 @@ func TestIPBlacklistBeatsTheAllowList(t *testing.T) {
 		t.Fatalf("the rest of the allowed prefix was refused: %+v", v)
 	}
 }
+
+func screenHost(pol *Engine, proxy *model.Proxy, addr string) model.Verdict {
+	return pol.Screen(&Request{
+		Proxy:  proxy,
+		Addr:   netip.MustParseAddr(addr),
+		Method: "GET",
+		Path:   "/",
+	})
+}
+
+// A profile allow list narrows one host to the addresses it names, while the
+// global list keeps working for every other host.
+func TestAccessProfileAllowListNarrowsOneHost(t *testing.T) {
+	pol, st, _ := newEngine(t)
+	listID, err := st.CreatePolicy(&model.Policy{
+		Scope: "global", Kind: model.PolicyIPWhitelist, Value: "203.0.113.5",
+		Action: "allow", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreatePolicy(&model.Policy{
+		Scope: "global", Kind: model.PolicyIPWhitelist, Value: "198.51.100.0/24",
+		Action: "allow", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prof := &model.AccessProfile{Name: "office only", Rules: []model.AccessRule{{PolicyID: listID, Role: model.AccessRoleAllow}}}
+	if err := st.CreateAccessProfile(prof); err != nil {
+		t.Fatal(err)
+	}
+	if err := pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	host := &model.Proxy{ID: 7, AccessProfileID: &prof.ID}
+	if v := screenHost(pol, host, "203.0.113.5"); v.Action != "allow" {
+		t.Fatalf("an address on the profile allow list was refused: %+v", v)
+	}
+	if v := screenHost(pol, host, "198.51.100.7"); v.Action != "block" || v.Stage != "profile-allow" {
+		t.Fatalf("an address outside the profile allow list reached the host: %+v", v)
+	}
+	// The other host has no profile, so the global allow list still applies.
+	if v := screenHost(pol, &model.Proxy{ID: 8}, "198.51.100.7"); v.Action != "allow" {
+		t.Fatalf("a global allow list stopped working without a profile: %+v", v)
+	}
+}
+
+// A profile deny list wins over a global allow list that names the address.
+func TestAccessProfileDenyBeatsGlobalAllow(t *testing.T) {
+	pol, st, _ := newEngine(t)
+	if _, err := st.CreatePolicy(&model.Policy{
+		Scope: "global", Kind: model.PolicyIPWhitelist, Value: "203.0.113.0/24",
+		Action: "allow", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	denyID, err := st.CreatePolicy(&model.Policy{
+		Scope: "global", Kind: model.PolicyIPWhitelist, Value: "203.0.113.9",
+		Action: "allow", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prof := &model.AccessProfile{Name: "no bad host", Rules: []model.AccessRule{{PolicyID: denyID, Role: model.AccessRoleDeny}}}
+	if err := st.CreateAccessProfile(prof); err != nil {
+		t.Fatal(err)
+	}
+	if err := pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	host := &model.Proxy{ID: 9, AccessProfileID: &prof.ID}
+	if v := screenHost(pol, host, "203.0.113.9"); v.Action != "block" || v.Stage != "profile-block" {
+		t.Fatalf("a profile block list was ignored: %+v", v)
+	}
+	if v := screenHost(pol, host, "203.0.113.10"); v.Action != "allow" {
+		t.Fatalf("the rest of the allowed prefix was refused: %+v", v)
+	}
+}

@@ -23,6 +23,22 @@ type Proxy struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
+// Delivery is one queued webhook payload for an agent link.
+type Delivery struct {
+	ID            int64      `json:"id"`
+	LinkID        int64      `json:"link_id"`
+	EventID       int64      `json:"event_id"`
+	Kind          string     `json:"kind"`
+	Body          string     `json:"-"`
+	State         string     `json:"state"` // pending | delivered | failed
+	Attempts      int        `json:"attempts"`
+	NextAttemptAt time.Time  `json:"next_attempt_at"`
+	LastStatus    int        `json:"last_status"`
+	LastError     string     `json:"last_error,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	DeliveredAt   *time.Time `json:"delivered_at,omitempty"`
+}
+
 // AgentLink is a webhook an external agent listens on: the console pushes
 // signed events there and the agent decides what to do.
 type AgentLink struct {
@@ -33,6 +49,21 @@ type AgentLink struct {
 	HasSecret bool      `json:"has_secret"`
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
+	// LastDelivery is the newest payload state, so an operator can see whether
+	// the agent is actually receiving events without opening the log.
+	LastDelivery *DeliverySummary `json:"last_delivery,omitempty"`
+}
+
+// DeliverySummary is the last-delivery status shown on an agent link.
+type DeliverySummary struct {
+	ID          int64      `json:"id"`
+	Kind        string     `json:"kind"`
+	State       string     `json:"state"`
+	Attempts    int        `json:"attempts"`
+	LastStatus  int        `json:"last_status"`
+	LastError   string     `json:"last_error,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
 }
 
 // AnomalyEvent is one detection: a traffic, egress or login-failure condition
@@ -86,12 +117,40 @@ type ProtectionProfile struct {
 	HideServer        bool   `json:"hide_server"`
 }
 
-// AccessProfile is a named bundle of existing policy rows (allow lists and
-// blocklists) that can be attached to a proxy at creation time.
+// Access rule roles. A rule references a list and says what that list means to
+// this one profile: an allow list narrows access to the addresses on it, a deny
+// list removes them. "inherit" uses the list's own kind.
+const (
+	AccessRoleAllow   = "allow"
+	AccessRoleDeny    = "deny"
+	AccessRoleInherit = "inherit"
+)
+
+// AccessRule is one list reference inside an access profile.
+type AccessRule struct {
+	PolicyID int64  `json:"policy_id"`
+	Role     string `json:"role"` // allow | deny | inherit
+}
+
+// AccessProfile is a complete per-site policy: the lists it applies (each as
+// an allow or deny list), and the protection profiles that go with them. A
+// proxy selects one, so an operator chooses a single thing when creating a
+// host instead of matching three lists by hand.
 type AccessProfile struct {
-	ID        int64   `json:"id"`
-	Name      string  `json:"name"`
-	PolicyIDs []int64 `json:"policy_ids"`
+	ID                  int64        `json:"id"`
+	Name                string       `json:"name"`
+	Rules               []AccessRule `json:"rules"`
+	WAFProfileID        *int64       `json:"waf_profile_id,omitempty"`
+	ProtectionProfileID *int64       `json:"protection_profile_id,omitempty"`
+}
+
+// PolicyIDs returns the referenced list IDs, for callers that only need them.
+func (a AccessProfile) PolicyIDs() []int64 {
+	out := make([]int64, 0, len(a.Rules))
+	for _, r := range a.Rules {
+		out = append(out, r.PolicyID)
+	}
+	return out
 }
 
 // Upstream is a backend server for a proxy.
