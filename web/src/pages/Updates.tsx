@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, errText, fmtAgo } from "../ui";
+import { confirmDialog, Badge, Card, Empty, errText, fmtAgo } from "../ui";
 import type { UpdatePackage, UpdatesSnapshot } from "../types";
 import AutoUpdateCard from "../components/AutoUpdateCard";
 
@@ -116,7 +116,7 @@ export default function UpdatesPage({
 
   const applyApp = async () => {
     if (!snap) return;
-    if (!confirm("Pull the tracked branch, rebuild the application, then restart or recreate WAF-Proxy? The console will be unavailable for a short time.")) return;
+    if (!(await confirmDialog("Pull the tracked branch, rebuild the application, then restart or recreate WAF-Proxy? The console will be unavailable for a short time."))) return;
     setApplying(true);
     setAppOutput("");
     const target = (snap.app_remote_commit || "").slice(0, 12);
@@ -153,7 +153,7 @@ export default function UpdatesPage({
   };
 
   const apply = async (p: UpdatePackage) => {
-    if (!confirm(`Update ${p.name} from ${p.current || "the installed version"} to ${p.candidate}?`)) return;
+    if (!(await confirmDialog(`Update ${p.name} from ${p.current || "the installed version"} to ${p.candidate}?`))) return;
     setUpdating(p.name);
     setOutput("");
     try {
@@ -394,7 +394,7 @@ export default function UpdatesPage({
             <Empty>No managed packages were found.</Empty>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <table>
+              <div className="table-wrap"><table>
                 <thead>
                   <tr>
                     <th>Package</th>
@@ -447,7 +447,7 @@ export default function UpdatesPage({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
           <p className="muted" style={{ fontSize: 12, marginTop: 10, lineHeight: 1.6 }}>

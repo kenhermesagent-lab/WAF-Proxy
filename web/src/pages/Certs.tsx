@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, Modal, errText, fmtTime } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, Modal, errText, fmtTime } from "../ui";
 import { Cert } from "../types";
 
 const RENEW_OPTIONS = [
@@ -150,7 +150,7 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
   };
 
   const remove = async (c: Cert) => {
-    if (!confirm(`Delete certificate for ${c.domains}?`)) return;
+    if (!(await confirmDialog(`Delete certificate for ${c.domains}?`))) return;
     try {
       await api.del(`/api/certs/${c.id}`);
       load();
@@ -168,7 +168,7 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
         {certs.length === 0 ? (
           <Empty>No certificates yet. A wildcard certificate for your base domain covers every proxy subdomain.</Empty>
         ) : (
-          <table>
+          <div className="table-wrap"><table>
             <thead><tr><th>Domains</th><th>Provider</th><th>Status</th><th>Expires</th><th>Auto-renew</th><th /></tr></thead>
             <tbody>
               {certs.map((c) => (
@@ -200,7 +200,7 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
         <p className="muted mt" style={{ fontSize: 12 }}>
           DNS-01 needs no inbound port. HTTP-01 answers <code>/.well-known/acme-challenge/</code> on port 80, and TLS-ALPN-01

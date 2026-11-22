@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { DragEvent } from "react";
 import { api } from "../api";
 import { COUNTRIES, countryFlag, countryName } from "../countries";
-import { Badge, Card, Empty, Field, Modal, errText, fmtAgo } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, Modal, PageHead, errText, fmtAgo } from "../ui";
 import { ASNRecommendations, ASNSuggestion, Ban, GlobalLists, Policy, Profile, Proxy } from "../types";
 import AccessLists from "../components/AccessLists";
 import AccessProfiles from "../components/AccessProfiles";
@@ -69,6 +69,7 @@ function BanMoveModal({
 
   const act = async (action: "permanent" | "temp" | "remove", ids: number[]) => {
     if (ids.length === 0) return;
+    if (action === "remove" && !(await confirmDialog(`Remove ${ids.length} ban(s)?`))) return;
     setBusy(true);
     try {
       const r = await api.post<{ updated: number; skipped: number }>("/api/bans/bulk", { ids, action });
@@ -128,7 +129,7 @@ function BanMoveModal({
         Drag an address into the other box, or tick several and use the buttons. A permanent ban lasts until it is
         removed; moving one back to temporary gives it 24 hours from now.
       </p>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="ban-move-grid">
         <div>
           <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
             Temporary ({temp.length}) {focus === "temp" && <Badge tone="info">current</Badge>}
@@ -235,7 +236,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   };
 
   const removeBan = async (b: Ban) => {
-    if (!confirm(`Unban ${b.cidr}?`)) return;
+    if (!(await confirmDialog(`Unban ${b.cidr}?`))) return;
     try {
       await api.del(`/api/bans/${b.id}`);
       onOK("Ban removed");
@@ -271,7 +272,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   const tempBans = bans.filter((b) => !b.permanent);
 
   const rollup = async () => {
-    if (!confirm(`Move ${permBans.length} permanent ban(s) into the local threat list? They leave this table and stay blocked through the list.`)) return;
+    if (!(await confirmDialog(`Move ${permBans.length} permanent ban(s) into the local threat list? They leave this table and stay blocked through the list.`))) return;
     setRolling(true);
     try {
       const r = await api.post<{ rolled_up: number; path: string }>("/api/bans/rollup");
@@ -350,7 +351,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   };
 
   const removePolicy = async (p: Policy) => {
-    if (!confirm("Delete this policy?")) return;
+    if (!(await confirmDialog("Delete this policy?"))) return;
     try {
       await api.del(`/api/policies/${p.id}`);
       load();
@@ -380,7 +381,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   };
 
   const removeProfile = async (p: Profile) => {
-    if (!confirm(`Delete the ${p.name} profile?`)) return;
+    if (!(await confirmDialog(`Delete the ${p.name} profile?`))) return;
     try {
       await api.del(`/api/profiles/${p.id}`);
       onOK("Profile deleted");
@@ -427,6 +428,10 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead
+        title="Policies"
+        sub="Bans, WAF profiles and the lists applied before traffic reaches a proxy."
+      />
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div className="tabs" style={{ marginBottom: 0, borderBottom: 0 }}>
           <button className={`tab ${tab === "bans" ? "active" : ""}`} onClick={() => setTab("bans")}>Bans</button>
@@ -467,7 +472,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
               <Empty>No ban matches “{banSearch.trim()}”.</Empty>
             ) : (
               <div style={{ overflowX: "auto" }}>
-              <table>
+              <div className="table-wrap"><table>
                 <thead><tr><th>IP / CIDR</th><th>List</th><th>Reason</th><th>Created</th><th /></tr></thead>
                 <tbody>
                   {matches.map((b) => (
@@ -485,7 +490,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
               </div>
             )}
           </Card>
@@ -521,7 +526,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                   {limited && " The list is capped at 1000 rows."}
                 </p>
                 <div style={{ overflowX: "auto" }}>
-                <table>
+                <div className="table-wrap"><table>
                   <thead><tr><th>IP / CIDR</th><th>Reason</th><th>Source</th><th className="num">Hits</th><th>Created</th><th>Expires</th><th /></tr></thead>
                   <tbody>
                     {tempBans.slice(0, 10).map((b) => (
@@ -539,7 +544,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
                 </div>
               </>
             )}
@@ -562,7 +567,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
               <>
                 <p className="muted" style={{ fontSize: 12 }}>Permanent bans stay until removed; the newest 10 are shown here.</p>
                 <div style={{ overflowX: "auto" }}>
-                <table>
+                <div className="table-wrap"><table>
                   <thead><tr><th>IP / CIDR</th><th>Reason</th><th>Source</th><th>Created by</th><th className="num">Hits</th><th /></tr></thead>
                   <tbody>
                     {permBans.slice(0, 10).map((b) => (
@@ -579,7 +584,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
                 </div>
               </>
             )}
@@ -594,7 +599,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
         >
           {profiles.length === 0 ? <Empty>No profiles available.</Empty> : (
             <div style={{ overflowX: "auto" }}>
-              <table>
+              <div className="table-wrap"><table>
                 <thead>
                   <tr><th>Profile</th><th>Mode</th><th className="num">Paranoia</th><th className="num">Anomaly</th><th>Methods</th><th className="num">Max body</th><th /></tr>
                 </thead>
@@ -626,7 +631,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
           <p className="muted" style={{ fontSize: 12 }}>
@@ -711,7 +716,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
 
           <Card title="Policies">
             {policies.length === 0 ? <Empty>No policies yet.</Empty> : (
-              <table>
+              <div className="table-wrap"><table>
                 <thead><tr><th>Type</th><th>Value</th><th>Effect</th><th>Scope</th><th>State</th><th /></tr></thead>
                 <tbody>
                   {policies.map((p) => {
@@ -735,7 +740,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
             )}
           </Card>
 
@@ -805,7 +810,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                   before enabling: providers move between networks, and blocking a hosting ASN also blocks any
                   legitimate site hosted there.
                 </p>
-                <table>
+                <div className="table-wrap"><table>
                   <thead><tr><th>Network</th><th>ASNs</th><th /></tr></thead>
                   <tbody>
                     {[asnRecs.hosting, ...asnRecs.vpn].map((s) => (
@@ -823,7 +828,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               </>
             )}
           </Card>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
 import type { AgentLink } from "../types";
 
 type Draft = { name: string; endpoint: string; secret: string };
@@ -91,7 +91,7 @@ export default function AgentLinks({ onError, onOK }: { onError: (m: string) => 
   };
 
   const remove = async (l: AgentLink) => {
-    if (!confirm(`Delete ${l.name}? The agent stops receiving events.`)) return;
+    if (!(await confirmDialog(`Delete ${l.name}? The agent stops receiving events.`))) return;
     try {
       await api.del(`/api/agents/${l.id}`);
       onOK("Agent link deleted");
@@ -110,7 +110,7 @@ export default function AgentLinks({ onError, onOK }: { onError: (m: string) => 
             the shared secret.
           </Empty>
         ) : (
-          <table>
+          <div className="table-wrap"><table>
             <thead>
               <tr><th>Agent</th><th>Endpoint</th><th>State</th><th>Last delivery</th><th>Added</th><th /></tr>
             </thead>
@@ -134,7 +134,7 @@ export default function AgentLinks({ onError, onOK }: { onError: (m: string) => 
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
         <p className="muted" style={{ fontSize: 12 }}>
           Each anomaly event is POSTed as JSON with <span className="mono">X-Wafproxy-Signature: sha256=HMAC(secret, body)</span>{" "}

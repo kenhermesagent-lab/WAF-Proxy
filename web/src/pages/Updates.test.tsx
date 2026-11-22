@@ -80,6 +80,7 @@ describe("Updates page", () => {
     expect(await screen.findByText("DEBIAN-CVE-2026-9999")).toBeTruthy();
     expect(screen.getByText(/1 high\/critical security advisory/)).toBeTruthy();
     screen.getByRole("button", { name: "Update" }).click();
+    (await screen.findByRole("button", { name: "Confirm" })).click();
 
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/updates/apply", { package: "nftables" }));
   });
@@ -110,6 +111,7 @@ describe("Updates page", () => {
     render(<UpdatesPage onError={vi.fn()} onOK={onOK} />);
 
     (await screen.findByRole("button", { name: "Update to v1.2.1" })).click();
+    (await screen.findByRole("button", { name: "Confirm" })).click();
 
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/updates/app"), { timeout: 3000 });
     await waitFor(() => expect(onOK).toHaveBeenCalledWith("Update applied"), { timeout: 5000 });

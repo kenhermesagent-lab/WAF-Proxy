@@ -9,7 +9,7 @@ function ConsoleConnection({ inst }: { inst: CrowdSecInstall }) {
   if (!inst.console_plan && !inst.console_capi && !inst.console_decision && !inst.console_papi) return null;
   return (
     <div style={{ marginTop: 12 }}>
-      <table>
+      <div className="table-wrap"><table>
         <tbody>
           <tr><td className="muted">Plan</td><td>{inst.console_plan || "—"}</td></tr>
           <tr><td className="muted">Central API</td><td>{inst.console_capi || "—"}</td></tr>
@@ -25,7 +25,7 @@ function ConsoleConnection({ inst }: { inst: CrowdSecInstall }) {
           </tr>
           <tr><td className="muted">PAPI subscriptions</td><td>{inst.console_papi || "—"}</td></tr>
         </tbody>
-      </table>
+      </table></div>
       <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
         {inst.console_decision_active
           ? "The console can push decisions and blocklists to this engine; what it is currently enforcing is listed, read-only, on Threat intel."

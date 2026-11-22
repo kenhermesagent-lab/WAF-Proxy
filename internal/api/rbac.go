@@ -21,7 +21,7 @@ import (
 // password and authenticator.
 func permissionFor(r *http.Request) string {
 	path := r.URL.Path
-	if path == "/api/me" || path == "/api/logout" || strings.HasPrefix(path, "/api/account/") {
+	if path == "/api/me" || path == "/api/logout" || path == "/api/search" || strings.HasPrefix(path, "/api/account/") {
 		return ""
 	}
 	// A simulation is read-only despite being a POST.

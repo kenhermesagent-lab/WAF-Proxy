@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, Modal, errText, fmtTime } from "../ui";
+import Icon from "../components/Icon";
+import { Badge, Card, ConfirmDialog, Empty, Field, Modal, PageHead, Switch, TableWrap, errText, fmtTime } from "../ui";
 import { GateUser } from "../types";
 
 export default function Access({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
@@ -10,6 +11,8 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
   const [edit, setEdit] = useState<{ user: GateUser; password: string; totp_enabled: boolean } | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   const [secret, setSecret] = useState<{ url: string; secret: string; username: string } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<GateUser | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
 
   const load = () =>
     api.get<GateUser[]>("/api/gate-users").then(setUsers).catch((e) => onError(errText(e)));
@@ -52,26 +55,35 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
     }
   };
 
-  const remove = async (u: GateUser) => {
-    if (!confirm(`Delete account ${u.username}?`)) return;
+  const remove = async () => {
+    if (!removeTarget) return;
+    setRemoveBusy(true);
     try {
-      await api.del(`/api/gate-users/${u.id}`);
+      await api.del(`/api/gate-users/${removeTarget.id}`);
+      onOK(`${removeTarget.username} deleted`);
+      setRemoveTarget(null);
       load();
     } catch (e) {
       onError(errText(e));
+    } finally {
+      setRemoveBusy(false);
     }
   };
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <Card
-        title="Access gate accounts"
-        actions={<button className="primary" onClick={() => setOpen(true)}>New account</button>}
-      >
+      <PageHead
+        title="Access gate"
+        sub="Accounts served by the proxy login page, before any request reaches a backend."
+        actions={<button className="primary" onClick={() => setOpen(true)}><Icon name="plus" size={14} /> New account</button>}
+      />
+      <Card title="Gate accounts">
         {users.length === 0 ? (
-          <Empty>No accounts. Enable the gate on a proxy and either use a shared passphrase or create accounts here.</Empty>
+          <Empty title="No gate accounts" icon="lock" action={<button className="primary" onClick={() => setOpen(true)}>Create an account</button>}>
+            Enable the gate on a proxy and either use a shared passphrase or create accounts here.
+          </Empty>
         ) : (
-          <table>
+          <TableWrap><table>
             <thead><tr><th>Username</th><th>TOTP</th><th>Created</th><th /></tr></thead>
             <tbody>
               {users.map((u) => (
@@ -81,12 +93,12 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
                   <td className="muted">{fmtTime(u.created_at)}</td>
                   <td className="right" style={{ whiteSpace: "nowrap" }}>
                     <button className="small" onClick={() => setEdit({ user: u, password: "", totp_enabled: u.totp_enabled })}>Edit</button>{" "}
-                    <button className="small danger" onClick={() => remove(u)}>Delete</button>
+                    <button className="small danger" onClick={() => setRemoveTarget(u)}>Delete</button>
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></TableWrap>
         )}
       </Card>
 
@@ -105,10 +117,7 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
           <Field label="Password (12+ characters)">
             <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           </Field>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
-            <input type="checkbox" style={{ width: "auto" }} checked={form.totp_enabled} onChange={(e) => setForm({ ...form, totp_enabled: e.target.checked })} />
-            Require TOTP
-          </label>
+          <Switch label="Require TOTP" checked={form.totp_enabled} onChange={(v) => setForm({ ...form, totp_enabled: v })} />
           <div className="row mt" style={{ justifyContent: "flex-end" }}>
             <button onClick={() => setOpen(false)}>Cancel</button>
             <button className="primary" onClick={create}>Create</button>
@@ -127,15 +136,7 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
               autoComplete="new-password"
             />
           </Field>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
-            <input
-              type="checkbox"
-              style={{ width: "auto" }}
-              checked={edit.totp_enabled}
-              onChange={(e) => setEdit({ ...edit, totp_enabled: e.target.checked })}
-            />
-            Require TOTP
-          </label>
+          <Switch label="Require TOTP" checked={edit.totp_enabled} onChange={(v) => setEdit({ ...edit, totp_enabled: v })} />
           {edit.totp_enabled && !edit.user.totp_enabled && (
             <p className="muted" style={{ fontSize: 12 }}>
               Saving creates an authenticator secret for this account and shows it once. Changing the
@@ -149,6 +150,18 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
             </button>
           </div>
         </Modal>
+      )}
+
+      {removeTarget && (
+        <ConfirmDialog
+          title={`Delete ${removeTarget.username}?`}
+          confirmLabel="Delete account"
+          busy={removeBusy}
+          onConfirm={remove}
+          onClose={() => setRemoveTarget(null)}
+        >
+          The account is removed from the access gate and any active session for it is revoked. Bans are not affected.
+        </ConfirmDialog>
       )}
 
       {secret && (

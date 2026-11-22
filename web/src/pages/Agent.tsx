@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, Modal, errText, fmtAgo, fmtTime } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, Modal, errText, fmtAgo, fmtTime } from "../ui";
 import type { MCPStatus, MCPToken } from "../types";
 import AgentLinks from "../components/AgentLinks";
 
@@ -52,7 +52,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
   };
 
   const revoke = async (t: MCPToken) => {
-    if (!confirm(`Revoke the token "${t.name}"? Any agent using it will be refused immediately.`)) return;
+    if (!(await confirmDialog(`Revoke the token "${t.name}"? Any agent using it will be refused immediately.`))) return;
     try {
       await api.del(`/api/mcp/tokens/${t.id}`);
       onOK("Agent token revoked");
@@ -122,7 +122,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
           <Empty>No agent tokens yet. Create one and give it only to the agent that needs security operations access.</Empty>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table>
+            <div className="table-wrap"><table>
               <thead><tr><th>Name</th><th>Prefix</th><th>Created</th><th>Last used</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {status.tokens.map((t) => (
@@ -138,7 +138,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
         )}
         <p className="muted" style={{ fontSize: 12 }}>
@@ -150,7 +150,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
 
       <Card title="Available tools">
         <div style={{ overflowX: "auto" }}>
-          <table>
+          <div className="table-wrap"><table>
             <thead><tr><th>Tool</th><th>What the agent can do</th></tr></thead>
             <tbody>
               {TOOLS.map(([tool, description]) => (
@@ -160,7 +160,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
         <p className="muted" style={{ fontSize: 12 }}>
           Destructive tools require a reason and are audited. An agent should read <span className="mono">query_logs</span> or

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, Modal, errText } from "../ui";
 import type { AccessList, AccessProfile, AccessRule, Policy, Profile, ProtectionProfile } from "../types";
 
 const entries = (v: string) => (v ? v.split(",").filter(Boolean).length : 0);
@@ -74,7 +74,7 @@ export default function AccessProfiles({
   };
 
   const remove = async (a: AccessProfile) => {
-    if (!confirm(`Delete the ${a.name} profile? The lists and protection profiles themselves stay.`)) return;
+    if (!(await confirmDialog(`Delete the ${a.name} profile? The lists and protection profiles themselves stay.`))) return;
     try {
       await api.del(`/api/access-profiles/${a.id}`);
       onOK("Access profile deleted");
@@ -151,7 +151,7 @@ export default function AccessProfiles({
         </Empty>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table>
+          <div className="table-wrap"><table>
             <thead>
               <tr><th>Profile</th><th>Lists</th><th>Block/allow lists</th><th>Protection</th><th /></tr>
             </thead>
@@ -179,7 +179,7 @@ export default function AccessProfiles({
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
       <p className="muted" style={{ fontSize: 12 }}>

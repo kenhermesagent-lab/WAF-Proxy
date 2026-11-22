@@ -130,6 +130,7 @@ func (s *Server) routes() {
 
 	m.HandleFunc("POST /api/logout", s.authed(s.logout))
 	m.HandleFunc("GET /api/me", s.authed(s.me))
+	m.HandleFunc("GET /api/search", s.authed(s.globalSearch))
 	m.HandleFunc("POST /api/account/password", s.authed(s.changePassword))
 	m.HandleFunc("POST /api/account/totp", s.authed(s.beginTOTP))
 	m.HandleFunc("POST /api/account/totp/confirm", s.authed(s.confirmTOTP))

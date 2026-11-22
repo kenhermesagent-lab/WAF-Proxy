@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Field, errText } from "../ui";
+import { confirmDialog, Badge, Card, Field, errText } from "../ui";
 import type { AccessList, StreamingService } from "../types";
 
 type Form = {
@@ -182,7 +182,7 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
   };
 
   const restart = async () => {
-    if (!confirm("Restart WAF-Proxy? The admin session is kept, but the UI disconnects for a few seconds.")) return;
+    if (!(await confirmDialog("Restart WAF-Proxy? The admin session is kept, but the UI disconnects for a few seconds."))) return;
     try {
       await api.post("/api/system/restart");
       setRestarting(true);

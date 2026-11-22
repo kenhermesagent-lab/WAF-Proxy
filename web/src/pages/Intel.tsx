@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
 import { CrowdSecBlocklists, Feed, IntelLookup } from "../types";
 
 export default function Intel({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
@@ -109,7 +109,7 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
   };
 
   const remove = async (f: Feed) => {
-    if (!confirm(`Delete feed ${f.name}?`)) return;
+    if (!(await confirmDialog(`Delete feed ${f.name}?`))) return;
     try {
       await api.del(`/api/feeds/${f.id}`);
       load();
@@ -244,7 +244,7 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
           <Empty>No console-pushed decisions are active on this engine.</Empty>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table>
+            <div className="table-wrap"><table>
               <thead>
                 <tr><th>Reason</th><th>Origin</th><th>Action</th><th className="num">Decisions</th></tr>
               </thead>
@@ -260,7 +260,7 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
         )}
         {consoleLists?.raw && (
@@ -279,7 +279,7 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
       <Card title="Feeds">
         {feeds.length === 0 ? <Empty>No feeds configured.</Empty> : (
           <div style={{ overflowX: "auto" }}>
-            <table>
+            <div className="table-wrap"><table>
               <thead>
                 <tr><th>Feed</th><th>Action</th><th className="num">Entries</th><th>Last refresh</th><th>State</th><th /></tr>
               </thead>
@@ -322,7 +322,7 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
         )}
         <p className="muted mt" style={{ fontSize: 12 }}>

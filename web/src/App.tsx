@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api, setCSRF } from "./api";
 import { errText } from "./ui";
 import PageBoundary from "./components/PageBoundary";
+import CommandPalette from "./components/CommandPalette";
+import Icon from "./components/Icon";
 import { Me, SetupStatus, can } from "./types";
 import { NAV, NAV_GROUPS, NAV_UTILITY, pageFromHash, type NavItem } from "./nav";
 import Dashboard from "./pages/Dashboard";
@@ -26,22 +28,42 @@ import Account from "./pages/Account";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 
-
 type Enrolment = { username: string; secret: string; url: string; codes: string[] };
+type ToastTone = "ok" | "error" | "info" | "warn";
+type Toast = { id: number; tone: ToastTone; title: string; message: string };
+
+const DOCS_URL = "https://github.com/kenhermesagent-lab/WAF-Proxy-Docker/tree/main/docs";
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [me, setMe] = useState<Me | null>(null);
   const [page, setPage] = useState(() => pageFromHash(window.location.hash));
-  const [toast, setToast] = useState("");
+  const [pageQuery, setPageQuery] = useState(() => window.location.hash.split("?")[1] ?? "");
+  const [toasts, setToasts] = useState<Toast[]>([]);
   const [enrol, setEnrol] = useState<Enrolment | null>(null);
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [home, setHome] = useState({ lat: 51.5, lon: -0.12 });
   const [navOpen, setNavOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("waf.nav.collapsed") === "1");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [userMenu, setUserMenu] = useState(false);
+  const toastSeq = useRef(0);
+  const userWrap = useRef<HTMLDivElement>(null);
 
-  const notify = (msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast(""), 3500);
+  const pushToast = (tone: ToastTone, message: string, title?: string) => {
+    const id = ++toastSeq.current;
+    const fallback = tone === "error" ? "Action failed" : tone === "warn" ? "Attention" : tone === "info" ? "Notice" : "Done";
+    setToasts((list) => [...list.slice(-3), { id, tone, title: title ?? fallback, message }]);
+    window.setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), tone === "error" ? 9000 : 5000);
+  };
+  const onError = (message: string) => pushToast("error", message);
+  const onOK = (message: string) => pushToast("ok", message);
+
+  const navigate = (id: string, query?: string) => {
+    const nextHash = `#/${id}${query ? `?${query}` : ""}`;
+    setPage(id);
+    setPageQuery(query ?? "");
+    if (window.location.hash !== nextHash) window.location.hash = nextHash;
   };
 
   const loadHome = () =>
@@ -54,26 +76,47 @@ export default function App() {
       })
       .catch(() => undefined);
 
-  // The drawer only exists below 720px; close it when the window grows so it
-  // does not reappear open the next time the viewport shrinks.
   useEffect(() => {
     const onResize = () => {
-      if (window.innerWidth > 720) setNavOpen(false);
+      if (window.innerWidth > 760) setNavOpen(false);
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // The active section lives in the URL, so a reload or a shared link opens the
-  // same page instead of dropping back to the dashboard.
   useEffect(() => {
-    const onHash = () => setPage(pageFromHash(window.location.hash));
+    localStorage.setItem("waf.nav.collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
+
+  useEffect(() => {
+    const onHash = () => {
+      setPage(pageFromHash(window.location.hash));
+      setPageQuery(window.location.hash.split("?")[1] ?? "");
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  // A hidden page must not keep rendering after a role change or a bookmarked
-  // hash: the first page the role can see becomes the landing page instead.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (phase === "app") setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase]);
+
+  useEffect(() => {
+    if (!userMenu) return;
+    const close = (e: MouseEvent) => {
+      if (!userWrap.current?.contains(e.target as Node)) setUserMenu(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [userMenu]);
+
   useEffect(() => {
     if (!me) return;
     const item = NAV.find((n) => n.id === page);
@@ -119,7 +162,14 @@ export default function App() {
   };
 
   if (phase === "loading") {
-    return <div className="auth-wrap"><span className="muted">Loading…</span></div>;
+    return (
+      <div className="auth-wrap">
+        <div className="row" style={{ gap: 10, color: "var(--muted)", fontSize: 13 }}>
+          <span className="skeleton" style={{ width: 18, height: 18, borderRadius: 5 }} />
+          Loading console…
+        </div>
+      </div>
+    );
   }
 
   if (phase === "setup") {
@@ -128,21 +178,17 @@ export default function App() {
 
   if (phase === "enrol" && enrol) {
     return (
-      <div className="auth-wrap">
-        <div className="auth-card">
-          <h1>Save your second factor</h1>
-          <p className="sub">Scan or paste this secret into an authenticator app. It is shown once.</p>
-          <div className="secret-box">{enrol.secret}</div>
-          <div className="secret-box" style={{ fontSize: 12 }}>{enrol.url}</div>
-          <label style={{ marginTop: 16 }}>Recovery codes</label>
-          <div className="code-list">
-            {(enrol.codes || []).map((c) => <div key={c}>{c}</div>)}
-          </div>
-          <button className="primary mt" style={{ width: "100%" }} onClick={() => setPhase("login")}>
-            I have saved them — sign in
-          </button>
+      <AuthFrame title="Save your second factor" sub="Scan or paste this secret into an authenticator app. It is shown once.">
+        <div className="secret-box">{enrol.secret}</div>
+        <div className="secret-box" style={{ fontSize: 11.5 }}>{enrol.url}</div>
+        <label style={{ marginTop: 16 }}>Recovery codes</label>
+        <div className="code-list">
+          {(enrol.codes || []).map((c) => <div key={c}>{c}</div>)}
         </div>
-      </div>
+        <button className="primary mt" style={{ width: "100%" }} onClick={() => setPhase("login")}>
+          I have saved them — sign in
+        </button>
+      </AuthFrame>
     );
   }
 
@@ -169,99 +215,197 @@ export default function App() {
       key={n.id}
       className={`nav-item ${page === n.id ? "active" : ""}`}
       onClick={() => {
-        setPage(n.id);
+        navigate(n.id);
         setNavOpen(false);
-        if (window.location.hash !== `#/${n.id}`) window.location.hash = `#/${n.id}`;
       }}
+      title={collapsed ? n.label : undefined}
+      aria-current={page === n.id ? "page" : undefined}
     >
-      <span className="ico">{n.icon}</span>
-      {n.label}
+      <span className="ico"><Icon name={n.icon} /></span>
+      <span className="label">{n.label}</span>
     </button>
   );
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main-content">Skip to content</a>
       {navOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
-      <aside className={`sidebar ${navOpen ? "open" : ""}`}>
-        <div className="brand"><img className="brand-mark" src="/favicon.svg" alt="" width={24} height={24} />WAF-Proxy</div>
-        {NAV_GROUPS.map((g) => (
-          <div className="nav-group" key={g.title}>
-            <div className="nav-group-title">{g.title}</div>
-            {g.items.filter(allowed).map(navButton)}
-          </div>
-        ))}
+      <aside className={`sidebar ${navOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`}>
+        <div className="brand">
+          <span className="brand-mark"><Icon name="shield" size={14} /></span>
+          <span className="brand-name">WAF-Proxy</span>
+        </div>
+        {NAV_GROUPS.map((g) => {
+          const items = g.items.filter(allowed);
+          if (items.length === 0) return null;
+          return (
+            <div className="nav-group" key={g.title}>
+              <div className="nav-group-title">{g.title}</div>
+              {items.map(navButton)}
+            </div>
+          );
+        })}
         <div className="nav-spacer" />
+        {NAV_UTILITY.filter(allowed).map(navButton)}
         <div className="nav-foot">
           {me?.username} · v{me?.version}
         </div>
-        {NAV_UTILITY.filter(allowed).map(navButton)}
-        <button className="nav-item" onClick={logout}><span className="ico">⏻</span>Sign out</button>
-        <a
-          className="nav-coffee"
-          href="https://buymeacoffee.com/kenhermesagent"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          If you like this tool, you can buy me a coffee at <span>buymeacoffee.com/kenhermesagent</span>
-        </a>
+        <button className="nav-collapse" onClick={() => setCollapsed((v) => !v)} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>
+          <Icon name={collapsed ? "expand" : "collapse"} size={15} />
+          <span className="label">Collapse</span>
+        </button>
       </aside>
-      <main className="main">
-        <div className="topbar">
+
+      <main className="main" id="main-content">
+        <header className="topbar">
           <button
-            className="nav-toggle"
+            className="nav-toggle icon-btn"
             aria-label="Open navigation"
             aria-expanded={navOpen}
             onClick={() => setNavOpen((v) => !v)}
           >
-            ≡
+            <Icon name="menu" />
           </button>
-          <h1>{current.label}</h1>
+          <div className="crumb">
+            <span className="crumb-root">Console</span>
+            <span className="crumb-sep">/</span>
+            <h1>{current.label}</h1>
+          </div>
           <div className="spacer" />
-          {me?.base_domain && <span className="badge info">{me.base_domain}</span>}
-        </div>
+          <button className="search-trigger" onClick={() => setPaletteOpen(true)} aria-label="Search console">
+            <Icon name="search" size={14} />
+            <span>Search</span>
+            <kbd>⌘K</kbd>
+          </button>
+          {me?.base_domain && (
+            <span className="env-chip" title="Self-hosted deployment">
+              <span className="env-dot" />
+              <span>Self-hosted</span>
+              <b className="env-domain">{me.base_domain}</b>
+            </span>
+          )}
+          <a className="icon-btn" href={DOCS_URL} target="_blank" rel="noreferrer" aria-label="Documentation">
+            <Icon name="help" />
+          </a>
+          <div className="user-wrap" ref={userWrap}>
+            <button className="user-btn" onClick={() => setUserMenu((v) => !v)} aria-expanded={userMenu} aria-haspopup="menu">
+              <span className="avatar">{(me?.username ?? "?").slice(0, 2).toUpperCase()}</span>
+              <span className="user-name">{me?.username}</span>
+              <Icon name="chevronDown" size={13} />
+            </button>
+            {userMenu && (
+              <div className="menu" role="menu">
+                <div className="menu-head">
+                  <strong>{me?.username}</strong>
+                  <span>{me?.role}{me?.totp_enabled ? " · 2FA enabled" : ""}</span>
+                </div>
+                {can(me?.permissions, "settings.read") && (
+                  <button className="menu-item" role="menuitem" onClick={() => { navigate("settings"); setUserMenu(false); }}>
+                    <span className="ico"><Icon name="settings" size={15} /></span> Settings
+                  </button>
+                )}
+                <button className="menu-item" role="menuitem" onClick={() => { navigate("account"); setUserMenu(false); }}>
+                  <span className="ico"><Icon name="user" size={15} /></span> Account
+                </button>
+                <a className="menu-item" role="menuitem" href={DOCS_URL} target="_blank" rel="noreferrer">
+                  <span className="ico"><Icon name="help" size={15} /></span> Documentation
+                </a>
+                <div className="menu-sep" />
+                <button className="menu-item danger" role="menuitem" onClick={logout}>
+                  <span className="ico"><Icon name="power" size={15} /></span> Sign out
+                </button>
+              </div>
+            )}
+          </div>
+        </header>
+
         <div className="content">
           {!pageAllowed ? (
             <div className="card">Your role does not include this page.</div>
           ) : (
-          <PageBoundary page={page}>
-          {page === "dashboard" && <Dashboard onError={notify} home={home} />}
-          {page === "statistics" && <Statistics onError={notify} />}
-          {page === "proxies" && <Proxies onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
-          {page === "streaming" && <Streaming onError={notify} onOK={notify} />}
-          {page === "updates" && <UpdatesPage onError={notify} onOK={notify} />}
-          {page === "agent" && <AgentPage onError={notify} onOK={notify} />}
-          {page === "tailscale" && <TailscalePage onError={notify} onOK={notify} />}
-          {page === "policies" && <Policies onError={notify} onOK={notify} />}
-          {page === "sources" && <Sources onError={notify} onOK={notify} />}
-          {page === "intel" && <Intel onError={notify} onOK={notify} />}
-          {page === "anomalies" && <Anomalies onError={notify} onOK={notify} />}
-          {page === "crowdsec" && <CrowdSecPage onError={notify} onOK={notify} />}
-          {page === "certs" && <Certs onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
-          {page === "access" && <Access onError={notify} onOK={notify} />}
-          {page === "notifications" && <Notifications onError={notify} onOK={notify} />}
-          {page === "logs" && <Logs onError={notify} />}
-          {page === "settings" && <SettingsPage onError={notify} onOK={notify} />}
-          {page === "account" && (
-            <Account
-              me={me}
-              onError={notify}
-              onOK={notify}
-              onSignedOut={() => { setCSRF(""); setMe(null); setPhase("login"); }}
-            />
-          )}
-          </PageBoundary>
+            <PageBoundary page={page}>
+              {page === "dashboard" && <Dashboard onError={onError} home={home} />}
+              {page === "statistics" && <Statistics onError={onError} />}
+              {page === "proxies" && <Proxies onError={onError} onOK={onOK} base={me?.base_domain ?? ""} />}
+              {page === "streaming" && <Streaming onError={onError} onOK={onOK} />}
+              {page === "updates" && <UpdatesPage onError={onError} onOK={onOK} />}
+              {page === "agent" && <AgentPage onError={onError} onOK={onOK} />}
+              {page === "tailscale" && <TailscalePage onError={onError} onOK={onOK} />}
+              {page === "policies" && <Policies onError={onError} onOK={onOK} />}
+              {page === "sources" && <Sources onError={onError} onOK={onOK} />}
+              {page === "intel" && <Intel onError={onError} onOK={onOK} />}
+              {page === "anomalies" && <Anomalies onError={onError} onOK={onOK} />}
+              {page === "crowdsec" && <CrowdSecPage onError={onError} onOK={onOK} />}
+              {page === "certs" && <Certs onError={onError} onOK={onOK} base={me?.base_domain ?? ""} />}
+              {page === "access" && <Access onError={onError} onOK={onOK} />}
+              {page === "notifications" && <Notifications onError={onError} onOK={onOK} />}
+              {page === "logs" && <Logs onError={onError} query={pageQuery} />}
+              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} />}
+              {page === "account" && (
+                <Account
+                  me={me}
+                  onError={onError}
+                  onOK={onOK}
+                  onSignedOut={() => { setCSRF(""); setMe(null); setPhase("login"); }}
+                />
+              )}
+            </PageBoundary>
           )}
         </div>
       </main>
-      {toast && (
-        <div
-          role="status"
-          aria-live="polite"
-          style={{ position: "fixed", bottom: 20, right: 20, background: "#11151c", border: "1px solid #1f2633", padding: "10px 14px", borderRadius: 10, zIndex: 100 }}
-        >
-          {toast}
-        </div>
-      )}
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        nav={visibleNav}
+        onNavigate={navigate}
+        onSignOut={logout}
+      />
+
+      <div className="toast-stack" role="status" aria-live="polite">
+        {toasts.map((t) => (
+          <div className={`toast ${t.tone}`} key={t.id}>
+            <span className="toast-icon">
+              <Icon name={t.tone === "error" ? "alert" : t.tone === "ok" ? "check" : t.tone === "warn" ? "alert" : "info"} />
+            </span>
+            <span className="toast-msg">
+              <strong>{t.title}</strong>
+              {t.message}
+            </span>
+            <button
+              className="icon-btn toast-close"
+              aria-label="Dismiss notification"
+              onClick={() => setToasts((list) => list.filter((x) => x.id !== t.id))}
+            >
+              <Icon name="x" size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BrandLockup({ large }: { large?: boolean }) {
+  return (
+    <div className="brand" style={large ? { fontSize: 16 } : undefined}>
+      <span className="brand-mark" style={large ? { width: 28, height: 28, flexBasis: 28 } : undefined}>
+        <Icon name="shield" size={large ? 16 : 14} />
+      </span>
+      <span className="brand-name">WAF-Proxy</span>
+    </div>
+  );
+}
+
+function AuthFrame({ title, sub, children }: { title: string; sub: string; children: React.ReactNode }) {
+  return (
+    <div className="auth-wrap">
+      <div className="auth-card">
+        <div style={{ marginBottom: 18 }}><BrandLockup /></div>
+        <h1>{title}</h1>
+        <p className="sub">{sub}</p>
+        {children}
+      </div>
     </div>
   );
 }
@@ -300,23 +444,22 @@ function Setup({ defaults, onDone }: { defaults: SetupStatus | null; onDone: (e:
 
   return (
     <div className="auth-wrap">
-      <div className="auth-card">
-        <h1>Set up WAF-Proxy</h1>
+      <div className="auth-card setup-card">
+        <BrandLockup />
+        <h1 style={{ marginTop: 18 }}>Set up WAF-Proxy</h1>
         <p className="sub">Network binding is written to the database, not a config file. Only 443 needs to be forwarded.</p>
-        <div className="row grow">
+        <div className="field-grid">
           <div className="field"><label>Admin username</label><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></div>
           <div className="field"><label>Password (12+ characters)</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
         </div>
         <div className="field"><label>Base domain</label><input value={form.base_domain} onChange={(e) => setForm({ ...form, base_domain: e.target.value })} placeholder="example.duckdns.org" /></div>
-        <div className="row grow">
+        <div className="field-grid">
           <div className="field"><label>WAN IP</label><input value={form.wan_ip} onChange={(e) => setForm({ ...form, wan_ip: e.target.value })} placeholder="192.168.1.2" /></div>
           <div className="field"><label>WAN port</label><input type="number" value={form.wan_port} onChange={(e) => setForm({ ...form, wan_port: Number(e.target.value) })} /></div>
-        </div>
-        <div className="row grow">
           <div className="field"><label>LAN egress IP</label><input value={form.lan_ip} onChange={(e) => setForm({ ...form, lan_ip: e.target.value })} placeholder="192.168.1.2" /></div>
           <div className="field"><label>GUI port</label><input type="number" value={form.gui_port} onChange={(e) => setForm({ ...form, gui_port: Number(e.target.value) })} /></div>
         </div>
-        <p className="sub" style={{ fontSize: 12, marginTop: -4 }}>
+        <p className="faint small-text" style={{ marginTop: -4 }}>
           Both addresses must exist on this host. On a single-NIC host enter the same address for WAN and LAN.
         </p>
         <div className="field"><label>DuckDNS token (optional, stored encrypted)</label><input type="password" value={form.duckdns_token} onChange={(e) => setForm({ ...form, duckdns_token: e.target.value })} /></div>
@@ -351,17 +494,41 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
   };
 
   return (
-    <div className="auth-wrap">
-      <form className="auth-card" onSubmit={submit}>
-        <h1>Sign in</h1>
-        <p className="sub">Administrator access requires a password and an authenticator code.</p>
-        <div className="field"><label>Username</label><input autoFocus value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="username" /></div>
-        <div className="field"><label>Password</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="current-password" /></div>
-        <div className="field"><label>Authenticator code</label><input value={form.totp} onChange={(e) => setForm({ ...form, totp: e.target.value })} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" /></div>
-        <div className="field"><label>Recovery code (only if the authenticator is lost)</label><input value={form.recovery} onChange={(e) => setForm({ ...form, recovery: e.target.value })} autoComplete="off" placeholder="ABCDE-12345" /></div>
-        {err && <div className="err-text">{err}</div>}
-        <button className="primary mt" style={{ width: "100%" }} disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
-      </form>
+    <div className="login-split">
+      <section className="login-brand">
+        <BrandLockup large />
+        <div className="login-pitch">
+          <h1>Your edge,<br /><span>accounted for.</span></h1>
+          <p>A self-hosted web application firewall and reverse proxy. Every request, policy decision and ban in one operational console.</p>
+          <div className="login-points">
+            <div className="login-point"><Icon name="shield" /><span>WAF, bot filtering and access gates on every hostname</span></div>
+            <div className="login-point"><Icon name="activity" /><span>Live traffic, sessions and upstream health</span></div>
+            <div className="login-point"><Icon name="lock" /><span>Password + authenticator, audited administrator actions</span></div>
+          </div>
+        </div>
+        <div className="login-meta">
+          <span>Self-hosted</span>
+          <span>Administrator console</span>
+          <span>Restricted access</span>
+        </div>
+      </section>
+      <section className="login-form-side">
+        <form className="login-form" onSubmit={submit}>
+          <div className="login-mobile-brand"><BrandLockup /></div>
+          <h2>Sign in</h2>
+          <p className="sub">Administrator access requires your password and an authenticator code.</p>
+          <div className="field"><label>Username</label><input autoFocus value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="username" /></div>
+          <div className="field"><label>Password</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="current-password" /></div>
+          <div className="field"><label>Authenticator code</label><input value={form.totp} onChange={(e) => setForm({ ...form, totp: e.target.value })} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" /></div>
+          <div className="field"><label>Recovery code <span className="faint">(only if the authenticator is lost)</span></label><input value={form.recovery} onChange={(e) => setForm({ ...form, recovery: e.target.value })} autoComplete="off" placeholder="ABCDE-12345" /></div>
+          {err && <div className="err-text">{err}</div>}
+          <button className="primary mt" style={{ width: "100%" }} disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+          <p className="login-foot">
+            This console is restricted to administrators. Sessions expire after 12 hours of inactivity.
+            {" "}<a href={DOCS_URL} target="_blank" rel="noreferrer">Documentation</a>
+          </p>
+        </form>
+      </section>
     </div>
   );
 }

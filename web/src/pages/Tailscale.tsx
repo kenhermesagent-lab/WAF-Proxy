@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, errText } from "../ui";
+import { confirmDialog, Badge, Card, errText } from "../ui";
 import type { TailscaleStatus } from "../types";
 
 export default function TailscalePage({
@@ -46,7 +46,7 @@ export default function TailscalePage({
   };
 
   const restart = async () => {
-    if (!confirm("Restart WAF-Proxy? The admin session is kept, but the UI disconnects for a few seconds.")) return;
+    if (!(await confirmDialog("Restart WAF-Proxy? The admin session is kept, but the UI disconnects for a few seconds."))) return;
     try {
       await api.post("/api/system/restart");
       setRestarting(true);

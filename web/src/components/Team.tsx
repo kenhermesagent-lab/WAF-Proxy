@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, Modal, errText, fmtTime } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, Modal, errText, fmtTime } from "../ui";
 import { AdminUser, Me, PermissionArea, Role, can } from "../types";
 
 // permissionLabel turns "policies.write" into "Policies, bans, lists and WAF
@@ -59,7 +59,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
   };
 
   const removeUser = async (user: AdminUser) => {
-    if (!confirm(`Delete ${user.username}? Their sessions end immediately.`)) return;
+    if (!(await confirmDialog(`Delete ${user.username}? Their sessions end immediately.`))) return;
     try {
       await api.del(`/api/users/${user.id}`);
       onOK(`${user.username} deleted`);
@@ -117,7 +117,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
   };
 
   const removeRole = async (role: Role) => {
-    if (!confirm(`Delete the ${role.name} role?`)) return;
+    if (!(await confirmDialog(`Delete the ${role.name} role?`))) return;
     try {
       await api.del(`/api/roles/${role.id}`);
       onOK("Role deleted");
@@ -143,7 +143,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
           <Empty>No accounts yet.</Empty>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table>
+            <div className="table-wrap"><table>
               <thead><tr><th>Account</th><th>Role</th><th>Authenticator</th><th>Created</th><th /></tr></thead>
               <tbody>
                 {users.map((u) => (
@@ -179,7 +179,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
         )}
         <p className="muted" style={{ fontSize: 12 }}>
@@ -196,7 +196,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
           <Empty>No roles.</Empty>
         ) : (
           <div style={{ overflowX: "auto" }}>
-          <table>
+          <div className="table-wrap"><table>
             <thead><tr><th>Role</th><th>Can</th><th /></tr></thead>
             <tbody>
               {roles.map((r) => (
@@ -217,7 +217,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           </div>
         )}
         <p className="muted" style={{ fontSize: 12 }}>
@@ -272,7 +272,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
           <Field label="Description">
             <input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="What this role is for" />
           </Field>
-          <table>
+          <div className="table-wrap"><table>
             <thead><tr><th>Area</th><th>View</th><th>Change</th></tr></thead>
             <tbody>
               {areas.map((a) => {
@@ -304,7 +304,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
           <div className="row mt" style={{ justifyContent: "flex-end" }}>
             <button onClick={() => setDraft(null)}>Cancel</button>
             <button className="primary" disabled={busy || !draft.name.trim() || draft.permissions.length === 0} onClick={saveRole}>

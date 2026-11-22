@@ -209,65 +209,7 @@ function drawArc(
   ctx.restore();
 }
 
-type Column = { x: number; y: number; speed: number };
-type Streak = { x: number; y: number; born: number; tokens: string[] };
 type Live = { hit: GlobeHit; born: number; life: number };
-
-const MATRIX_CHARS = "01SYNACKGETPOST403DENYWAFATKSCAN";
-const KILL_TOKENS = ["BLOCK", "DROP", "BAN", "403", "DENY", "KILL"];
-
-function seedMatrix(width: number): Column[] {
-  const cols: Column[] = [];
-  for (let x = 8; x < width; x += 13) {
-    cols.push({ x, y: Math.random() * 240, speed: 18 + Math.random() * 42 });
-  }
-  return cols;
-}
-
-// Ambient rain is cold and faint; a blocked request drops a red streak through
-// it, so the wall reads as "kill / quarantine" rather than decoration.
-function drawMatrix(
-  ctx: CanvasRenderingContext2D,
-  columns: Column[],
-  streaks: Streak[],
-  width: number,
-  height: number,
-  now: number,
-  dt: number,
-  vignette: CanvasGradient | null,
-) {
-  ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
-  ctx.textAlign = "center";
-  for (const c of columns) {
-    c.y += c.speed * dt;
-    if (c.y > height + 20) {
-      c.y = -Math.random() * 120;
-      c.speed = 18 + Math.random() * 42;
-    }
-    const idx = ((Math.floor(c.y * 0.12 + c.x) % MATRIX_CHARS.length) + MATRIX_CHARS.length) % MATRIX_CHARS.length;
-    const ch = MATRIX_CHARS[idx];
-    ctx.fillStyle = "rgba(56,89,120,0.09)";
-    ctx.fillText(ch, c.x, c.y);
-    ctx.fillStyle = "rgba(125,170,210,0.13)";
-    ctx.fillText(ch, c.x, c.y - 12);
-  }
-  for (const s of streaks) {
-    const age = (now - s.born) / 1000;
-    if (age > 1.1) continue;
-    const fade = 1 - age / 1.1;
-    ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
-    for (let i = 0; i < s.tokens.length; i++) {
-      const y = s.y + age * 120 - i * 11;
-      if (y < -12 || y > height + 12) continue;
-      ctx.fillStyle = `rgba(239,68,68,${(fade * (1 - i / s.tokens.length) * 0.85).toFixed(3)})`;
-      ctx.fillText(s.tokens[i], s.x, y);
-    }
-  }
-  if (vignette) {
-    ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, width, height);
-  }
-}
 
 function drawLand(ctx: CanvasRenderingContext2D, project: Screen, cx: number, cy: number, r: number) {
   // Clip to the disc: coastlines that cross the horizon are folded onto the
@@ -276,8 +218,8 @@ function drawLand(ctx: CanvasRenderingContext2D, project: Screen, cx: number, cy
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.clip();
-  ctx.fillStyle = "rgba(96,165,250,0.30)";
-  ctx.strokeStyle = "rgba(191,219,254,0.60)";
+  ctx.fillStyle = "rgba(96,165,250,0.16)";
+  ctx.strokeStyle = "rgba(191,219,254,0.32)";
   ctx.lineWidth = 0.9;
   for (const ring of LAND_V) {
     ctx.beginPath();
@@ -329,18 +271,29 @@ export default function Globe({
   hits,
   home,
   hours = 1,
+  focus: focusProp,
+  onFocusChange,
+  variant = "default",
 }: {
   points: GlobePoint[];
   hits: GlobeHit[];
   home: { lat: number; lon: number };
   hours?: number;
+  focus?: string | null;
+  onFocusChange?: (country: string | null) => void;
+  variant?: "default" | "compact" | "expanded";
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const size = useRef({ w: 0, h: 0 });
   const dots = useRef<{ x: number; y: number; r: number; pt: GlobePoint }[]>([]);
   const [visible, setVisible] = useState<Record<GroupID, boolean>>({ waf: true, dos: true, ban: true, feed: true });
-  const [focus, setFocus] = useState<string | null>(null);
+  const [localFocus, setLocalFocus] = useState<string | null>(null);
+  const focus = focusProp !== undefined ? focusProp : localFocus;
+  const chooseFocus = (next: string | null) => {
+    if (focusProp === undefined) setLocalFocus(next);
+    onFocusChange?.(next);
+  };
   const [tip, setTip] = useState<Tip | null>(null);
   // The animation loop never re-runs, so it reads hover state through a ref.
   const tipRef = useRef(false);
@@ -407,10 +360,7 @@ export default function Globe({
 
     let raf = 0;
     let last = performance.now();
-    let columns: Column[] = [];
-    let columnWidth = 0;
     let live: Live[] = [];
-    let streaks: Streak[] = [];
     const seen = new Set<number>();
     let primed = false;
     const follow = { target: 0, until: 0, active: false };
@@ -447,7 +397,6 @@ export default function Globe({
       if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
         canvas.width = Math.round(cssW * dpr);
         canvas.height = Math.round(cssH * dpr);
-        columns = [];
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, cssW, cssH);
@@ -471,8 +420,8 @@ export default function Globe({
         shade.addColorStop(1, "rgba(0,0,0,0.52)");
         cache.shade = shade;
         const glow = ctx.createRadialGradient(cx, cy, r * 0.96, cx, cy, r * 1.3);
-        glow.addColorStop(0, "rgba(56,132,255,0.30)");
-        glow.addColorStop(0.45, "rgba(37,99,235,0.12)");
+        glow.addColorStop(0, "rgba(56,132,255,0.14)");
+        glow.addColorStop(0.45, "rgba(37,99,235,0.06)");
         glow.addColorStop(1, "rgba(11,13,16,0)");
         cache.glow = glow;
         const v = ctx.createLinearGradient(0, 0, 0, cssH);
@@ -481,14 +430,8 @@ export default function Globe({
         cache.vignette = v;
       }
 
-      if (columns.length === 0 || Math.abs(columnWidth - cssW) > 1) {
-        columnWidth = cssW;
-        columns = seedMatrix(cssW);
-      }
-      if (!paused) {
-        streaks = streaks.filter((s) => now - s.born < 1100);
-        drawMatrix(ctx, columns, streaks, cssW, cssH, now, dt, cache.vignette);
-      } else if (cache.vignette) {
+      // A flat wash keeps the stage calm; threat data supplies the movement.
+      if (cache.vignette) {
         ctx.fillStyle = cache.vignette;
         ctx.fillRect(0, 0, cssW, cssH);
       }
@@ -511,7 +454,7 @@ export default function Globe({
       }
 
       // graticule
-      ctx.strokeStyle = "rgba(96,165,250,0.11)";
+      ctx.strokeStyle = "rgba(96,165,250,0.07)";
       ctx.lineWidth = 1;
       for (const line of GRID) {
         ctx.beginPath();
@@ -565,13 +508,6 @@ export default function Globe({
           if (seen.has(h.id)) continue;
           seen.add(h.id);
           live.push({ hit: h, born: now, life: 1200 });
-          const p = project(unitVec(h.lat, h.lon), r);
-          if (p.z > -0.05 && p.x > 4 && p.x < cssW - 4) {
-            const tokens: string[] = [];
-            for (let k = 0; k < 4; k++) tokens.push(KILL_TOKENS[Math.floor(Math.random() * KILL_TOKENS.length)]);
-            streaks.push({ x: p.x, y: Math.max(0, p.y), born: now, tokens });
-            if (streaks.length > 18) streaks.splice(0, streaks.length - 18);
-          }
           if (!reduced && !tipRef.current && now - follow.until > 4000) {
             const facing = project(unitVec(h.lat, h.lon), r);
             if (facing.z < 0.25) {
@@ -610,7 +546,7 @@ export default function Globe({
           project,
           r,
           colorFor(pt.category),
-          dim ? 0.05 : 0.22 + weight * 0.5,
+          dim ? 0.04 : 0.16 + weight * 0.4,
           isHot ? 1.45 : 0.8,
           isHot ? 7 : 0,
         );
@@ -637,7 +573,7 @@ export default function Globe({
         const a = unitVec(l.hit.lat, l.hit.lon);
         const samples = arcFor(a, homeVec);
         const color = colorFor(l.hit.category);
-        drawArc(ctx, samples, project, r, color, 0.22 + fade * 0.75, 1.8, 9);
+        drawArc(ctx, samples, project, r, color, 0.2 + fade * 0.65, 1.6, 6);
         const p = arcPoint(samples, t, project, r);
         if (p.z > 0) {
           ctx.save();
@@ -703,7 +639,7 @@ export default function Globe({
         ctx.restore();
       }
 
-      ctx.strokeStyle = "rgba(96,165,250,0.34)";
+      ctx.strokeStyle = "rgba(96,165,250,0.22)";
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -750,18 +686,18 @@ export default function Globe({
 
   const pin = () => {
     if (!tip || !tip.pt.country) return;
-    setFocus((f) => (f === tip.pt.country ? null : tip.pt.country));
+    chooseFocus(focus === tip.pt.country ? null : tip.pt.country);
   };
 
   const tipW = 210;
   const tipLeft = tip ? Math.min(tip.x + 14, Math.max(6, (size.current.w || 0) - tipW - 6)) : 0;
 
   return (
-    <div className="globe-wrap" ref={wrapRef}>
+    <div className={`globe-wrap ${variant === "compact" ? "compact" : ""} ${variant === "expanded" ? "expanded" : ""}`} ref={wrapRef}>
       <canvas
         ref={canvasRef}
         role="img"
-        aria-label="World map of recent blocked attacks"
+        aria-label={`World map of blocked attacks in the last ${hours} hour${hours === 1 ? "" : "s"}`}
         onPointerMove={onMove}
         onPointerLeave={() => setTip(null)}
         onClick={pin}
@@ -781,7 +717,7 @@ export default function Globe({
         )}
         {liveStats.last !== null && <span className="globe-hud-last">last hit {liveStats.last}s ago</span>}
         {focus && (
-          <button className="globe-focus" onClick={() => setFocus(null)} title="Clear the country filter">
+          <button className="globe-focus" onClick={() => chooseFocus(null)} title="Clear the country filter">
             {flagEmoji(focus)} {focus} ✕
           </button>
         )}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { Card, Field, errText } from "../ui";
+import { confirmDialog, Card, Field, errText } from "../ui";
 import Team from "../components/Team";
 import { Me, can } from "../types";
 
@@ -91,7 +91,7 @@ export default function Account({
   };
 
   const logoutAll = async () => {
-    if (!confirm("Sign out every browser, including this one?")) return;
+    if (!(await confirmDialog("Sign out every browser, including this one?"))) return;
     try {
       await api.post("/api/account/logout-all");
       onSignedOut();

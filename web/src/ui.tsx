@@ -1,45 +1,274 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef } from "react";
+import { createRoot } from "react-dom/client";
+import Icon, { type IconName } from "./components/Icon";
 
-export function Card({ title, actions, children }: { title?: string; actions?: ReactNode; children: ReactNode }) {
+export function PageHead({ title, sub, actions }: { title: string; sub?: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="page-head">
+      <div>
+        <h2>{title}</h2>
+        {sub ? <p>{sub}</p> : null}
+      </div>
+      {actions ? <div className="actions">{actions}</div> : null}
+    </div>
+  );
+}
+
+export function Card({ title, actions, children, sub }: { title?: string; actions?: ReactNode; children: ReactNode; sub?: ReactNode }) {
   return (
     <section className="card">
       {(title || actions) && (
-        <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
-          {title ? <h2 style={{ margin: 0 }}>{title}</h2> : <span />}
-          {actions}
+        <div className="card-head">
+          {title ? <h2>{title}</h2> : <span />}
+          {actions ? <div className="actions">{actions}</div> : null}
         </div>
       )}
+      {sub ? <div className="card-sub">{sub}</div> : null}
       {children}
     </section>
   );
 }
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
     <div className="field">
       <label>{label}</label>
       {children}
+      {hint ? <div className="hint">{hint}</div> : null}
     </div>
   );
 }
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Switch({
+  label,
+  help,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: ReactNode;
+  help?: ReactNode;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="switch" style={{ marginBottom: 10 }}>
+      <input
+        type="checkbox"
+        role="switch"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="track" aria-hidden="true" />
+      <span>
+        <span className="switch-label">{label}</span>
+        {help ? <span className="switch-help">{help}</span> : null}
+      </span>
+    </label>
+  );
+}
+
+export function Info({ label, children }: { label: string; children: ReactNode }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  return (
+    <details className="info-tip" ref={ref}>
+      <summary className="info-btn" aria-label={label} title={label} style={{ listStyle: "none", cursor: "pointer" }}>
+        <span aria-hidden="true">i</span>
+      </summary>
+      <div className="info-body">{children}</div>
+    </details>
+  );
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function useDialogFocus(active: boolean, onClose?: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!active || !ref.current) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const root = ref.current;
+    const first = root.querySelector<HTMLElement>(FOCUSABLE);
+    (first ?? root).focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && closeRef.current) {
+        e.stopPropagation();
+        closeRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+      if (items.length === 0) return;
+      const firstEl = items[0];
+      const lastEl = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) {
+        e.preventDefault();
+        lastEl.focus();
+      } else if (!e.shiftKey && document.activeElement === lastEl) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      previous?.focus?.();
+    };
+  }, [active]);
+  return ref;
+}
+
+export function Modal({
+  title,
+  onClose,
+  children,
+  footer,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  const ref = useDialogFocus(true, onClose);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref} tabIndex={-1}>
         <h2>{title}</h2>
         {children}
+        {footer ? <div className="modal-actions">{footer}</div> : null}
       </div>
     </div>
   );
 }
 
-export function Badge({ tone, children }: { tone?: "ok" | "warn" | "bad" | "info" | ""; children: ReactNode }) {
-  return <span className={`badge ${tone ?? ""}`}>{children}</span>;
+export function Drawer({
+  title,
+  sub,
+  onClose,
+  children,
+  footer,
+  wide,
+}: {
+  title: ReactNode;
+  sub?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+  wide?: boolean;
+}) {
+  const ref = useDialogFocus(true, onClose);
+  return (
+    <div className="drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <aside
+        className={`drawer ${wide ? "wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={typeof title === "string" ? title : "Details"}
+        ref={ref}
+        tabIndex={-1}
+      >
+        <div className="drawer-head">
+          <div>
+            <h2>{title}</h2>
+            {sub ? <p>{sub}</p> : null}
+          </div>
+          <button className="icon-btn" onClick={onClose} aria-label="Close panel">
+            <Icon name="x" />
+          </button>
+        </div>
+        <div className="drawer-body">{children}</div>
+        {footer ? <div className="drawer-foot">{footer}</div> : null}
+      </aside>
+    </div>
+  );
 }
 
-export function Empty({ children }: { children: ReactNode }) {
-  return <div className="empty">{children}</div>;
+export function Badge({ tone, children }: { tone?: "ok" | "warn" | "bad" | "info" | ""; children: ReactNode }) {
+  return (
+    <span className={`badge ${tone ?? ""}`}>
+      {tone ? <span className="dot" aria-hidden="true" /> : null}
+      {children}
+    </span>
+  );
+}
+
+export function Empty({
+  title,
+  children,
+  action,
+  icon = "file",
+}: {
+  title?: string;
+  children?: ReactNode;
+  action?: ReactNode;
+  icon?: IconName;
+}) {
+  return (
+    <div className="empty">
+      <span className="empty-icon" aria-hidden="true"><Icon name={icon} /></span>
+      {title ? <strong>{title}</strong> : null}
+      {children ? <p>{children}</p> : null}
+      {action ? <div className="btn-group">{action}</div> : null}
+    </div>
+  );
+}
+
+export function TableWrap({ children, toolbar }: { children: ReactNode; toolbar?: ReactNode }) {
+  return (
+    <>
+      {toolbar ? <div className="table-toolbar">{toolbar}</div> : null}
+      <div className="table-wrap">{children}</div>
+    </>
+  );
+}
+
+export function Skeleton({ kind = "line", count = 1, width }: { kind?: "line" | "block" | "kpi"; count?: number; width?: string }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className={`skeleton ${kind} ${width ?? ""}`} />
+      ))}
+    </>
+  );
+}
+
+export function ConfirmDialog({
+  title,
+  children,
+  confirmLabel = "Confirm",
+  tone = "danger",
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  children: ReactNode;
+  confirmLabel?: string;
+  tone?: "danger" | "primary";
+  busy?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      title={title}
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose} disabled={busy}>Cancel</button>
+          <button className={tone} onClick={onConfirm} disabled={busy}>
+            {busy ? "Working…" : confirmLabel}
+          </button>
+        </>
+      }
+    >
+      <div className="muted" style={{ fontSize: 13, lineHeight: 1.65 }}>{children}</div>
+    </Modal>
+  );
 }
 
 export function fmtBytes(n: number): string {
@@ -85,4 +314,37 @@ export function fmtAgo(iso?: string | null): string {
 
 export function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+
+/**
+ * Imperative confirmation for destructive actions outside a component's own
+ * state. Renders the same accessible dialog used elsewhere and resolves once
+ * the operator confirms or dismisses it.
+ */
+export function confirmDialog(
+  message: string,
+  opts: { title?: string; confirmLabel?: string; tone?: "danger" | "primary" } = {},
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const close = (value: boolean) => {
+      root.unmount();
+      host.remove();
+      resolve(value);
+    };
+    root.render(
+      <ConfirmDialog
+        title={opts.title ?? "Confirm action"}
+        confirmLabel={opts.confirmLabel ?? "Confirm"}
+        tone={opts.tone ?? "danger"}
+        onClose={() => close(false)}
+        onConfirm={() => close(true)}
+      >
+        {message}
+      </ConfirmDialog>,
+    );
+  });
 }

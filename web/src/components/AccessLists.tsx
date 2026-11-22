@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { COUNTRIES, countryFlag, countryName } from "../countries";
-import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, Modal, errText } from "../ui";
 import type { AccessList } from "../types";
 
 const KIND_COPY = {
@@ -86,7 +86,7 @@ export default function AccessLists({
   };
 
   const remove = async (l: AccessList) => {
-    if (!confirm(`Delete the ${l.name} list? Access profiles, forwarders and Global Profile using it must detach it first.`)) return;
+    if (!(await confirmDialog(`Delete the ${l.name} list? Access profiles, forwarders and Global Profile using it must detach it first.`))) return;
     try {
       await api.del(`/api/lists/${l.id}`);
       onOK("List deleted");
@@ -117,7 +117,7 @@ export default function AccessLists({
         <Empty>No {copy.title.toLowerCase()} yet. {copy.blurb}</Empty>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table>
+          <div className="table-wrap"><table>
             <thead>
               <tr><th>List</th><th>Addresses</th><th>Countries</th><th /></tr>
             </thead>
@@ -151,7 +151,7 @@ export default function AccessLists({
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
       <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>{copy.blurb}</p>

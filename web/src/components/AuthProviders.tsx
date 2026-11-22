@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, errText } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, errText } from "../ui";
 import type { AuthProvider } from "../types";
 
 const KINDS: Record<string, string> = {
@@ -77,7 +77,7 @@ export default function AuthProviders({ onError, onOK }: { onError: (m: string) 
   };
 
   const remove = async (p: AuthProvider) => {
-    if (!confirm(`Delete ${p.name}?`)) return;
+    if (!(await confirmDialog(`Delete ${p.name}?`))) return;
     try {
       await api.del(`/api/auth-providers/${p.id}`);
       onOK("Identity provider deleted");
@@ -99,7 +99,7 @@ export default function AuthProviders({ onError, onOK }: { onError: (m: string) 
             access gate of a site under <strong>Proxies</strong>.
           </Empty>
         ) : (
-          <table>
+          <div className="table-wrap"><table>
             <thead>
               <tr>
                 <th>Name</th>
@@ -139,7 +139,7 @@ export default function AuthProviders({ onError, onOK }: { onError: (m: string) 
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
 

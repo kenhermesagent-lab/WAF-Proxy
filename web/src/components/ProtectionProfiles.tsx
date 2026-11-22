@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, Modal, errText } from "../ui";
 import type { HeaderAudit, ProtectionProfile, Proxy } from "../types";
 
 const REFERRERS = [
@@ -106,7 +106,7 @@ export default function ProtectionProfiles({ onError, onOK }: { onError: (m: str
   };
 
   const remove = async (p: ProtectionProfile) => {
-    if (!confirm(`Delete the ${p.name} profile?`)) return;
+    if (!(await confirmDialog(`Delete the ${p.name} profile?`))) return;
     try {
       await api.del(`/api/protection-profiles/${p.id}`);
       onOK("Protection profile deleted");
@@ -125,7 +125,7 @@ export default function ProtectionProfiles({ onError, onOK }: { onError: (m: str
         <Empty>No protection profiles.</Empty>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table>
+          <div className="table-wrap"><table>
             <thead>
               <tr><th>Profile</th><th>Applied headers</th><th /></tr>
             </thead>
@@ -144,7 +144,7 @@ export default function ProtectionProfiles({ onError, onOK }: { onError: (m: str
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
       <p className="muted" style={{ fontSize: 12 }}>

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { countryFlag, countryName } from "../countries";
 import { Analytics, GateFailure, Uptime, UptimeTarget } from "../types";
-import { Badge, Card, Empty, errText, fmtAgo, fmtBytes, fmtTime } from "../ui";
+import Chart from "../components/Chart";
+import { Badge, Card, Empty, PageHead, errText, fmtAgo, fmtBytes, fmtTime } from "../ui";
 
 const day = (offset: number) => {
   const d = new Date();
@@ -33,16 +34,16 @@ function stateBadge(state: string) {
 function UptimeRow({ t }: { t: UptimeTarget }) {
   return (
     <tr>
-      <td>
+      <td className="proxy-cell">
         <div>{t.proxy_host}</div>
         <div className="mono faint" style={{ fontSize: 11 }}>{t.url || "no enabled upstream"}</div>
       </td>
       <td>{stateBadge(t.state)}</td>
       <td className="num">{t.checks_24 ? `${t.uptime_24.toFixed(1)}%` : "—"}</td>
-      <td className="num">{t.state === "up" ? `${t.latency_ms} ms` : "—"}</td>
-      <td className="num">{t.status_code || "—"}</td>
-      <td className="muted">{t.last_check ? fmtTime(t.last_check) : "—"}</td>
-      <td className="muted" title={t.error}>{t.error || "—"}</td>
+      <td className="num hide-tablet">{t.state === "up" ? `${t.latency_ms} ms` : "—"}</td>
+      <td className="num hide-tablet">{t.status_code || "—"}</td>
+      <td className="muted hide-tablet">{t.last_check ? fmtTime(t.last_check) : "—"}</td>
+      <td className="muted hide-tablet" title={t.error}>{t.error || "—"}</td>
     </tr>
   );
 }
@@ -114,86 +115,78 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
   const countryTotal = Math.max(1, ...(stats?.countries ?? []).map((c) => c.count));
   const down = (uptime?.targets ?? []).filter((t) => t.state === "down").length;
 
+  const labels = series.map((b) => {
+    const d = new Date(b.bucket);
+    if (Number.isNaN(d.getTime())) return "";
+    return series.length <= 48
+      ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : d.toLocaleDateString([], { month: "short", day: "numeric" });
+  });
+  const compact = (n: number) =>
+    n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n % 1e3 === 0 ? 0 : 1)}k` : `${Math.round(n)}`;
+
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <Card title="Requests and uptime">
+      <PageHead
+        title="Traffic analytics"
+        sub="Request outcomes, policy stages and backend uptime for the selected period."
+      />
+      <Card
+        title="Requests and uptime"
+        actions={
+          down > 0
+            ? <Badge tone="bad">{down} backend down</Badge>
+            : <Badge tone="ok">all probes healthy</Badge>
+        }
+      >
         <form
-          className="row grow"
+          className="filter-row"
           onSubmit={(e) => {
             e.preventDefault();
             load();
           }}
         >
-          <label className="field">
+          <label className="field" style={{ flex: "0 0 165px", marginBottom: 0 }}>
             <span>From</span>
             <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
           </label>
-          <label className="field">
+          <label className="field" style={{ flex: "0 0 165px", marginBottom: 0 }}>
             <span>To</span>
             <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
           </label>
-          <button className="primary" style={{ marginTop: 18 }} disabled={loading}>
-            {loading ? "Loading…" : "Search"}
-          </button>
-          <button
-            type="button"
-            style={{ marginTop: 18 }}
-            onClick={() => {
-              setFrom(day(0));
-              setTo(day(0));
-            }}
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            style={{ marginTop: 18 }}
-            onClick={() => {
-              setFrom(day(-6));
-              setTo(day(0));
-            }}
-          >
-            Last 7 days
-          </button>
-          <div style={{ margin: "18px 0 0 auto" }}>
-            {down > 0 ? <Badge tone="bad">{down} backend down</Badge> : <Badge tone="ok">all probes healthy</Badge>}
+          <button className="primary" disabled={loading}>{loading ? "Loading…" : "Search"}</button>
+          <div className="quick-ranges">
+            <button type="button" className="small" onClick={() => { setFrom(day(0)); setTo(day(0)); }}>Today</button>
+            <button type="button" className="small" onClick={() => { setFrom(day(-6)); setTo(day(0)); }}>Last 7 days</button>
           </div>
         </form>
-        <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+        <p className="faint small-text" style={{ marginBottom: 0 }}>
           Event totals for the selected dates. Allowed requests above the sampling threshold are sampled, so counts
           are approximate at very high traffic.
         </p>
       </Card>
 
-      <div className="grid cols-4">
-        <Card>
-          <div className="stat">
-            <div className="k">Total requests</div>
-            <div className="v">{requests.toLocaleString()}</div>
-            <div className="sub">{stats?.totals.src_ips.toLocaleString() ?? 0} unique source IPs</div>
-          </div>
-        </Card>
-        <Card>
-          <div className="stat">
-            <div className="k">Successful requests</div>
-            <div className="v" style={{ color: "var(--ok)" }}>{success.toLocaleString()}</div>
-            <div className="sub">{pct(success, requests)} of traffic</div>
-          </div>
-        </Card>
-        <Card>
-          <div className="stat">
-            <div className="k">Error / blocked requests</div>
-            <div className="v" style={{ color: "var(--bad)" }}>{errors.toLocaleString()}</div>
-            <div className="sub">{pct(errors, requests)} of traffic</div>
-          </div>
-        </Card>
-        <Card>
-          <div className="stat">
-            <div className="k">Proxy uptime</div>
-            <div className="v">{duration(uptime?.process_uptime_s ?? 0)}</div>
-            <div className="sub">{uptime?.targets.length ?? 0} backend probes</div>
-          </div>
-        </Card>
+      <div className="kpi-grid">
+        <div className="kpi">
+          <div className="kpi-label">Total requests</div>
+          <div className="kpi-value">{requests.toLocaleString()}</div>
+          <div className="kpi-sub">{stats?.totals.src_ips.toLocaleString() ?? 0} unique source IPs</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Successful</div>
+          <div className="kpi-value" style={{ color: "var(--ok)" }}>{success.toLocaleString()}</div>
+          <div className="kpi-sub">{pct(success, requests)} of traffic</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Error / blocked</div>
+          <div className="kpi-value" style={{ color: "var(--danger)" }}>{errors.toLocaleString()}</div>
+          <div className="kpi-sub">{pct(errors, requests)} of traffic</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Process uptime</div>
+          <div className="kpi-value">{duration(uptime?.process_uptime_s ?? 0)}</div>
+          <div className="kpi-sub">{uptime?.targets.length ?? 0} backend probes</div>
+        </div>
       </div>
 
       <Card
@@ -203,21 +196,20 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
         {failures.length === 0 ? (
           <Empty>No failed logins in this range.</Empty>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table>
+          <div className="table-wrap"><table>
               <thead>
-                <tr><th>Address / proxy</th><th>Username tried</th><th className="num">Attempts</th><th>Last attempt</th><th>State</th></tr>
+                <tr><th>Address / proxy</th><th className="hide-phone">Username tried</th><th className="num">Attempts</th><th className="hide-tablet">Last attempt</th><th>State</th></tr>
               </thead>
               <tbody>
                 {failures.map((f) => (
                   <tr key={`${f.ip}:${f.username}:${f.proxy_id}`}>
                     <td>
                       <div className="mono">{f.ip}</div>
-                      <div className="faint" style={{ fontSize: 11 }}>{f.proxy_host || `proxy #${f.proxy_id}`}</div>
+                      <div className="faint gate-proxy" style={{ fontSize: 11 }}>{f.proxy_host || `proxy #${f.proxy_id}`}</div>
                     </td>
-                    <td>{f.username || <span className="faint">passphrase</span>}</td>
+                    <td className="hide-phone">{f.username || <span className="faint">passphrase</span>}</td>
                     <td className="num">{f.attempts.toLocaleString()}</td>
-                    <td className="muted" title={fmtTime(f.last)}>{fmtAgo(f.last)}</td>
+                    <td className="muted hide-tablet" title={fmtTime(f.last)}>{fmtAgo(f.last)}</td>
                     <td>
                       {!f.blocked ? (
                         <Badge tone="warn">not blocked</Badge>
@@ -244,8 +236,7 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+            </table></div>
         )}
         <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
           The gate already bans by itself: three failures in ten minutes earns 15 minutes, ten in a day earns 24 hours.
@@ -253,37 +244,20 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
         </p>
       </Card>
 
-      <Card title="Traffic by hour">
+      <Card title="Requests over time" sub="Hourly buckets; blocked traffic is overlaid on total requests.">
         {series.length === 0 ? (
-          <Empty>No events in this range.</Empty>
+          <Empty title="No events in this range" icon="chart">Choose a different date range to see traffic.</Empty>
         ) : (
-          <>
-            <div className="stats-bars" aria-label="Traffic per hour">
-              {series.map((b) => (
-                <div
-                  key={b.bucket}
-                  className="stats-bar"
-                  title={`${fmtTime(b.bucket)} · ${b.requests.toLocaleString()} requests · ${fmtBytes(b.bytes_in + b.bytes_out)}`}
-                >
-                  <div
-                    className="stats-bar-fill"
-                    style={{ height: `${Math.max(3, ((b.bytes_in + b.bytes_out) / maxTraffic) * 100)}%` }}
-                  >
-                    {b.errors > 0 && (
-                      <i style={{ height: `${(b.errors / Math.max(1, b.requests)) * 100}%` }} />
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="row" style={{ justifyContent: "space-between", fontSize: 11 }}>
-              <span className="muted">{fmtTime(series[0]?.bucket)}</span>
-              <span className="muted">
-                <i className="legend-dot ok" /> allowed <i className="legend-dot bad" /> blocked
-              </span>
-              <span className="muted">{fmtTime(series[series.length - 1]?.bucket)}</span>
-            </div>
-          </>
+          <Chart
+            series={[
+              { label: "Requests", color: "#4f8cff", values: series.map((b) => b.requests), area: true },
+              { label: "Blocked", color: "#f0616d", values: series.map((b) => b.errors) },
+            ]}
+            labels={labels}
+            height={240}
+            format={compact}
+            tooltipTitle={(l) => l}
+          />
         )}
       </Card>
 
@@ -293,22 +267,22 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
             <Empty>No routed traffic in this range.</Empty>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <table>
+              <div className="table-wrap"><table>
                 <thead>
-                  <tr><th>Proxy</th><th className="num">Requests</th><th className="num">Success</th><th className="num">Errors</th><th className="num">Traffic</th></tr>
+                  <tr><th>Proxy</th><th className="num">Requests</th><th className="num hide-phone">Success</th><th className="num hide-phone">Errors</th><th className="num hide-phone">Traffic</th></tr>
                 </thead>
                 <tbody>
                   {stats?.proxies.map((p) => (
                     <tr key={p.proxy_id}>
                       <td>{p.host || `proxy #${p.proxy_id}`}</td>
                       <td className="num">{p.requests.toLocaleString()}</td>
-                      <td className="num">{p.success.toLocaleString()}</td>
-                      <td className="num">{p.errors.toLocaleString()}</td>
-                      <td className="num">{fmtBytes(p.bytes_in + p.bytes_out)}</td>
+                      <td className="num hide-phone">{p.success.toLocaleString()}</td>
+                      <td className="num hide-phone">{p.errors.toLocaleString()}</td>
+                      <td className="num hide-phone">{fmtBytes(p.bytes_in + p.bytes_out)}</td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
         </Card>
@@ -351,16 +325,14 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
           {(uptime?.proxies ?? []).length === 0 && <Empty>No proxies configured.</Empty>}
         </div>
         {(uptime?.targets ?? []).length > 0 && (
-          <div style={{ overflowX: "auto" }}>
-            <table>
-              <thead>
-                <tr><th>Proxy / backend</th><th>State</th><th className="num">24h uptime</th><th className="num">Latency</th><th className="num">HTTP</th><th>Last check</th><th>Detail</th></tr>
-              </thead>
-              <tbody>
-                {uptime?.targets.map((t) => <UptimeRow key={t.id} t={t} />)}
-              </tbody>
-            </table>
-          </div>
+          <div className="table-wrap"><table>
+            <thead>
+              <tr><th>Proxy / backend</th><th>State</th><th className="num">24h uptime</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">HTTP</th><th className="hide-tablet">Last check</th><th className="hide-tablet">Detail</th></tr>
+            </thead>
+            <tbody>
+              {uptime?.targets.map((t) => <UptimeRow key={t.id} t={t} />)}
+            </tbody>
+          </table></div>
         )}
         <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
           Every enabled upstream is checked with an HTTP HEAD request every 30 seconds. A backend returning 5xx or

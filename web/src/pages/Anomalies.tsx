@@ -109,7 +109,7 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
         {events.length === 0 ? (
           <Empty>Nothing detected yet. Events appear after a minute of traffic above a threshold.</Empty>
         ) : (
-          <table>
+          <div className="table-wrap"><table>
             <thead>
               <tr>
                 <th>When</th>
@@ -144,7 +144,7 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
     </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, errText, fmtAgo, fmtTime } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, errText, fmtAgo, fmtTime } from "../ui";
 import type { IPDetail, IPSummary } from "../types";
 
 export default function Sources({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
@@ -59,7 +59,7 @@ export default function Sources({ onError, onOK }: { onError: (m: string) => voi
       onError("Ban id is unavailable; remove it from the Policies page");
       return;
     }
-    if (!confirm(`Unban ${row.ip}?`)) return;
+    if (!(await confirmDialog(`Unban ${row.ip}?`))) return;
     try {
       await api.del(`/api/bans/${row.ban_id}`);
       onOK(`${row.ip} unbanned`);
@@ -98,7 +98,7 @@ export default function Sources({ onError, onOK }: { onError: (m: string) => voi
       <Card title={`Sources (${list.length})`}>
         {list.length === 0 ? <Empty>No requests match this window.</Empty> : (
           <div style={{ overflowX: "auto" }}>
-            <table>
+            <div className="table-wrap"><table>
               <thead>
                 <tr><th>Source</th><th>Location</th><th className="num">Requests</th><th className="num">Blocked</th><th className="num">Hosts</th><th>Last seen</th><th>State</th><th /></tr>
               </thead>
@@ -124,7 +124,7 @@ export default function Sources({ onError, onOK }: { onError: (m: string) => voi
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
         )}
       </Card>
@@ -145,7 +145,7 @@ export default function Sources({ onError, onOK }: { onError: (m: string) => voi
             </div></div>
           </div>
           {detail.events.length === 0 ? <Empty>No events stored for this address in the window.</Empty> : (
-            <table>
+            <div className="table-wrap"><table>
               <thead><tr><th>Time</th><th>Host</th><th>Request</th><th>Stage</th><th>Action</th><th className="num">Status</th></tr></thead>
               <tbody>
                 {detail.events.map((e) => (
@@ -159,7 +159,7 @@ export default function Sources({ onError, onOK }: { onError: (m: string) => voi
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
           <p className="muted" style={{ fontSize: 12 }}>
             Showing the newest {detail.events.length} of {detail.total.toLocaleString()} matching events.
