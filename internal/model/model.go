@@ -29,9 +29,22 @@ type Proxy struct {
 	HealthFailAfter int    `json:"health_fail_after"`
 	// MaxInflight and MaxInflightPerClient bound this site; zero inherits the
 	// process-wide budget.
-	MaxInflight          int       `json:"max_inflight"`
-	MaxInflightPerClient int       `json:"max_inflight_per_client"`
-	CreatedAt            time.Time `json:"created_at"`
+	MaxInflight          int `json:"max_inflight"`
+	MaxInflightPerClient int `json:"max_inflight_per_client"`
+	// UpstreamTimeout bounds a whole upstream exchange in seconds; zero keeps
+	// the transport default. Retries applies to idempotent requests only.
+	UpstreamTimeout int        `json:"upstream_timeout"`
+	Retries         int        `json:"retries"`
+	RequestHeaders  []HeaderOp `json:"request_headers"`
+	ResponseHeaders []HeaderOp `json:"response_headers"`
+	CreatedAt       time.Time  `json:"created_at"`
+}
+
+// HeaderOp is one request or response header rewrite: set, add or remove.
+type HeaderOp struct {
+	Action string `json:"action"`
+	Name   string `json:"name"`
+	Value  string `json:"value,omitempty"`
 }
 
 // Delivery is one queued webhook payload for an agent link.

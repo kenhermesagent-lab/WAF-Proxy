@@ -69,6 +69,10 @@ type configProxy struct {
 	HealthFailAfter   int              `json:"health_fail_after,omitempty"`
 	MaxInflight       int              `json:"max_inflight,omitempty"`
 	MaxInflightClient int              `json:"max_inflight_per_client,omitempty"`
+	UpstreamTimeout   int              `json:"upstream_timeout,omitempty"`
+	Retries           int              `json:"retries,omitempty"`
+	RequestHeaders    []model.HeaderOp `json:"request_headers,omitempty"`
+	ResponseHeaders   []model.HeaderOp `json:"response_headers,omitempty"`
 	Upstreams         []configUpstream `json:"upstreams"`
 	Routes            []configRoute    `json:"routes"`
 }
@@ -180,6 +184,8 @@ func (s *Server) configDocument() (configDoc, error) {
 			LBPolicy: p.LBPolicy, HealthPath: p.HealthPath, HealthExpect: p.HealthExpect,
 			HealthInterval: p.HealthInterval, HealthFailAfter: p.HealthFailAfter,
 			MaxInflight: p.MaxInflight, MaxInflightClient: p.MaxInflightPerClient,
+			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries,
+			RequestHeaders: p.RequestHeaders, ResponseHeaders: p.ResponseHeaders,
 		}
 		if p.ProfileID != nil {
 			row.WAFProfile = wafName[*p.ProfileID]
@@ -486,6 +492,8 @@ func (s *Server) applyConfigProxies(in []configProxy, problems []string) (int, [
 			LBPolicy: p.LBPolicy, HealthPath: p.HealthPath, HealthExpect: p.HealthExpect,
 			HealthInterval: p.HealthInterval, HealthFailAfter: p.HealthFailAfter,
 			MaxInflight: p.MaxInflight, MaxInflightPerClient: p.MaxInflightClient,
+			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries,
+			RequestHeaders: p.RequestHeaders, ResponseHeaders: p.ResponseHeaders,
 		}}
 		known := true
 		if p.WAFProfile != "" {

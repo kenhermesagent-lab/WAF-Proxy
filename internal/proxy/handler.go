@@ -271,6 +271,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cleanInboundHeaders(r)
+	applyHeaderOps(e.reqOps, r.Header)
 	up.inFlight.Add(1)
 	defer up.inFlight.Add(-1)
 
@@ -310,8 +311,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out = cap
 	}
 
+	ctx := r.Context()
+	if e.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, e.timeout)
+		defer cancel()
+	}
 	rv := &respVerdict{}
-	ctx := context.WithValue(r.Context(), ctxUpstream, up)
+	ctx = context.WithValue(ctx, ctxUpstream, up)
 	ctx = context.WithValue(ctx, ctxRespVerdict, rv)
 	r = r.WithContext(ctx)
 	e.rp.ServeHTTP(out, r)
@@ -534,6 +541,8 @@ func readBody(r *http.Request, limit int64) ([]byte, bool, error) {
 		return nil, true, nil
 	}
 	r.Body = io.NopCloser(bytes.NewReader(buf))
+	// A buffered body can be replayed by the retry transport.
+	r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
 	r.ContentLength = int64(len(buf))
 	return buf, false, nil
 }

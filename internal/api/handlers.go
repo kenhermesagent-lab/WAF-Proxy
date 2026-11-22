@@ -65,13 +65,17 @@ type proxyBody struct {
 	WAFMode             string `json:"waf_mode"`
 	// Balancing, health and capacity settings are per site; an omitted number
 	// keeps the stored value, so an older client cannot reset them.
-	LBPolicy             string `json:"lb_policy"`
-	HealthPath           string `json:"health_path"`
-	HealthExpect         string `json:"health_expect"`
-	HealthInterval       *int   `json:"health_interval"`
-	HealthFailAfter      *int   `json:"health_fail_after"`
-	MaxInflight          *int   `json:"max_inflight"`
-	MaxInflightPerClient *int   `json:"max_inflight_per_client"`
+	LBPolicy             string           `json:"lb_policy"`
+	HealthPath           string           `json:"health_path"`
+	HealthExpect         string           `json:"health_expect"`
+	HealthInterval       *int             `json:"health_interval"`
+	HealthFailAfter      *int             `json:"health_fail_after"`
+	MaxInflight          *int             `json:"max_inflight"`
+	MaxInflightPerClient *int             `json:"max_inflight_per_client"`
+	UpstreamTimeout      *int             `json:"upstream_timeout"`
+	Retries              *int             `json:"retries"`
+	RequestHeaders       []model.HeaderOp `json:"request_headers"`
+	ResponseHeaders      []model.HeaderOp `json:"response_headers"`
 	// Preset names an application preset to turn into a WAF profile when the
 	// proxy is created. It is ignored on update: the profile is edited directly
 	// from then on.
@@ -126,14 +130,16 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		Enabled:  in.Enabled == nil || *in.Enabled,
 		CertID:   in.CertID, ProfileID: in.ProfileID,
 		ProtectionProfileID: in.ProtectionProfileID, AccessProfileID: in.AccessProfileID,
-		AuthProviderID: in.AuthProviderID,
-		GateMode:       defaultStr(in.GateMode, "off"),
-		Fingerprint:    defaultStr(in.Fingerprint, "strict"),
-		BotLevel:       defaultStr(in.BotLevel, "light"),
-		WAFMode:        defaultStr(in.WAFMode, "inherit"),
-		LBPolicy:       defaultStr(in.LBPolicy, proxy.LBWeightedRR),
-		HealthPath:     defaultStr(in.HealthPath, "/"),
-		HealthExpect:   defaultStr(in.HealthExpect, "200-399"),
+		AuthProviderID:  in.AuthProviderID,
+		GateMode:        defaultStr(in.GateMode, "off"),
+		Fingerprint:     defaultStr(in.Fingerprint, "strict"),
+		BotLevel:        defaultStr(in.BotLevel, "light"),
+		WAFMode:         defaultStr(in.WAFMode, "inherit"),
+		LBPolicy:        defaultStr(in.LBPolicy, proxy.LBWeightedRR),
+		HealthPath:      defaultStr(in.HealthPath, "/"),
+		HealthExpect:    defaultStr(in.HealthExpect, "200-399"),
+		RequestHeaders:  in.RequestHeaders,
+		ResponseHeaders: in.ResponseHeaders,
 	}
 	applyProxyNumbers(p, in)
 	if in.Maintenance != nil {
@@ -272,6 +278,12 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	if in.HealthExpect != "" {
 		current.HealthExpect = in.HealthExpect
 	}
+	if in.RequestHeaders != nil {
+		current.RequestHeaders = in.RequestHeaders
+	}
+	if in.ResponseHeaders != nil {
+		current.ResponseHeaders = in.ResponseHeaders
+	}
 	applyProxyNumbers(current, in)
 	if msg := validateProxyOptions(in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
@@ -313,11 +325,60 @@ func applyProxyNumbers(p *model.Proxy, in proxyBody) {
 	for src, dst := range map[*int]*int{
 		in.HealthInterval: &p.HealthInterval, in.HealthFailAfter: &p.HealthFailAfter,
 		in.MaxInflight: &p.MaxInflight, in.MaxInflightPerClient: &p.MaxInflightPerClient,
+		in.UpstreamTimeout: &p.UpstreamTimeout, in.Retries: &p.Retries,
 	} {
 		if src != nil {
 			*dst = *src
 		}
 	}
+}
+
+// validateHeaderOps rejects rewrites that would break framing or the request
+// target; a rule that cannot be applied safely is refused at save time.
+func validateHeaderOps(ops []model.HeaderOp) string {
+	if len(ops) > 50 {
+		return "at most 50 rules are allowed"
+	}
+	forbidden := map[string]bool{
+		"host": true, "content-length": true, "transfer-encoding": true,
+		"connection": true, "keep-alive": true, "upgrade": true,
+	}
+	for _, op := range ops {
+		action := strings.ToLower(strings.TrimSpace(op.Action))
+		switch action {
+		case "set", "add", "remove":
+		default:
+			return "action must be set, add or remove"
+		}
+		name := strings.TrimSpace(op.Name)
+		if !httpgutsToken(name) {
+			return "invalid header name"
+		}
+		if forbidden[strings.ToLower(name)] {
+			return name + " cannot be rewritten"
+		}
+		if action != "remove" && strings.TrimSpace(op.Value) == "" {
+			return "a value is required for " + name
+		}
+	}
+	return ""
+}
+
+// httpgutsToken reports whether s is an RFC 9110 token, which is the only
+// shape a header name may take.
+func httpgutsToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func validLBPolicy(policy string) bool {
@@ -369,6 +430,18 @@ func validateProxyOptions(in proxyBody) string {
 	}
 	if in.MaxInflightPerClient != nil && (*in.MaxInflightPerClient < 0 || *in.MaxInflightPerClient > 10000) {
 		return "the per-client request budget must be between 0 and 10000"
+	}
+	if in.UpstreamTimeout != nil && (*in.UpstreamTimeout < 0 || *in.UpstreamTimeout > 3600) {
+		return "the upstream timeout must be between 0 and 3600 seconds"
+	}
+	if in.Retries != nil && (*in.Retries < 0 || *in.Retries > 5) {
+		return "the retry count must be between 0 and 5"
+	}
+	if msg := validateHeaderOps(in.RequestHeaders); msg != "" {
+		return "request header rules: " + msg
+	}
+	if msg := validateHeaderOps(in.ResponseHeaders); msg != "" {
+		return "response header rules: " + msg
 	}
 	if in.GateMode != "" && !gateModes[in.GateMode] {
 		return "invalid gate mode"

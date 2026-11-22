@@ -77,6 +77,9 @@ type edge struct {
 	health  healthSettings
 	site    *capLimiter
 	clients *clientLimiter
+	timeout time.Duration
+	reqOps  []model.HeaderOp
+	respOps []model.HeaderOp
 }
 
 type ctxKey int
@@ -268,7 +271,9 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 	child, cancel := context.WithCancel(ctx)
 	e := &edge{proxy: p, ups: ups, routes: routes, cache: newResponseCache(32 << 20), cancel: cancel,
 		waf: s.d.Policy.ProfileFor(&p), health: healthFor(p),
-		site: newCapLimiter(p.MaxInflight), clients: newClientLimiter(p.MaxInflightPerClient)}
+		site: newCapLimiter(p.MaxInflight), clients: newClientLimiter(p.MaxInflightPerClient),
+		timeout: time.Duration(p.UpstreamTimeout) * time.Second,
+		reqOps:  p.RequestHeaders, respOps: p.ResponseHeaders}
 	if p.ProtectionProfileID != nil {
 		prof, err := s.d.Store.GetProtectionProfile(*p.ProtectionProfileID)
 		if err != nil {
@@ -288,9 +293,10 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 			pr.Out.Host = pr.In.Host
 			pr.SetXForwarded()
 		},
-		Transport:     s.transport,
+		Transport:     &retryTransport{base: s.transport, retries: p.Retries},
 		FlushInterval: 100 * time.Millisecond,
 		ModifyResponse: func(res *http.Response) error {
+			applyHeaderOps(e.respOps, res.Header)
 			// A real 5xx is evidence the backend is unwell even when its probe
 			// still answers.
 			if res.StatusCode >= 500 {
@@ -311,7 +317,7 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 				return
 			}
 			s.d.Log.Warn("upstream error", "host", p.Hostname, "err", err)
-			uniformError(w, http.StatusBadGateway)
+			uniformError(w, upstreamErrorStatus(err))
 		},
 	}
 	if len(ups) > 0 {

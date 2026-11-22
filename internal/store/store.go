@@ -438,7 +438,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "16"
+const schemaVersion = "17"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -510,6 +510,12 @@ func (s *Store) migrateAddColumns() error {
 		{"proxies", "max_inflight", `ALTER TABLE proxies ADD COLUMN max_inflight INTEGER NOT NULL DEFAULT 0`},
 		{"proxies", "max_inflight_per_client", `ALTER TABLE proxies ADD COLUMN max_inflight_per_client INTEGER NOT NULL DEFAULT 0`},
 		{"upstreams", "max_conns", `ALTER TABLE upstreams ADD COLUMN max_conns INTEGER NOT NULL DEFAULT 0`},
+		// Timeout, retries and header rewrites are per site. Header rules are a
+		// JSON array so their order is preserved.
+		{"proxies", "upstream_timeout", `ALTER TABLE proxies ADD COLUMN upstream_timeout INTEGER NOT NULL DEFAULT 0`},
+		{"proxies", "retries", `ALTER TABLE proxies ADD COLUMN retries INTEGER NOT NULL DEFAULT 0`},
+		{"proxies", "request_headers", `ALTER TABLE proxies ADD COLUMN request_headers TEXT NOT NULL DEFAULT '[]'`},
+		{"proxies", "response_headers", `ALTER TABLE proxies ADD COLUMN response_headers TEXT NOT NULL DEFAULT '[]'`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)

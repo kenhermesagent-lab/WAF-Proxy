@@ -11,6 +11,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.31.0] — 2026-11-22
+
+### Added
+
+- **Per-site upstream timeout.** `upstream_timeout` bounds a whole request to the backend in
+  seconds; zero keeps the transport default. A timeout now answers `504` instead of flattening
+  every forwarding failure into `502`.
+- **Bounded retries.** `retries` replays only idempotent requests (GET, HEAD, OPTIONS, PUT, DELETE)
+  whose body can be replayed, and only before any response byte is read; upstream `502/503/504`
+  answers are retried within the same limit.
+- **Header rewriting.** Ordered `request_headers` and `response_headers` rules (`set`, `add`,
+  `remove`), applied to the request before forwarding and to the response before inspection.
+  Framing and hop-by-hop headers are refused at save time.
+
 ## [1.30.0] — 2026-11-22
 
 ### Added
