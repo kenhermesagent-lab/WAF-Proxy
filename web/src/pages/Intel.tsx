@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
-import { CrowdSecBlocklists, Feed } from "../types";
+import { CrowdSecBlocklists, Feed, IntelLookup } from "../types";
 
 export default function Intel({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [feeds, setFeeds] = useState<Feed[]>([]);
@@ -10,6 +10,9 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
   const [uploadName, setUploadName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [consoleLists, setConsoleLists] = useState<CrowdSecBlocklists | null>(null);
+  const [probe, setProbe] = useState("");
+  const [lookup, setLookup] = useState<IntelLookup | null>(null);
+  const [checking, setChecking] = useState(false);
   const file = useRef<HTMLInputElement>(null);
 
   const load = () =>
@@ -105,6 +108,18 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
     }
   };
 
+  const checkIP = async () => {
+    setChecking(true);
+    try {
+      setLookup(await api.get<IntelLookup>(`/api/intel/lookup?ip=${encodeURIComponent(probe.trim())}`));
+    } catch (e) {
+      setLookup(null);
+      onError(errText(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
   return (
     <div className="grid" style={{ gap: 14 }}>
       <div className="grid cols-3">
@@ -118,6 +133,52 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
           <div className="stat"><div className="k">Frozen</div><div className="v">{feeds.filter((f) => f.state === "frozen").length}</div><div className="sub">guardrails held a suspicious list</div></div>
         </Card>
       </div>
+
+      <Card title="Check an address">
+        <div className="row grow">
+          <Field label="IP address">
+            <input value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="203.0.113.10" />
+          </Field>
+          <button className="primary" style={{ marginTop: 18 }} disabled={checking || !probe.trim()} onClick={checkIP}>
+            {checking ? "Checking…" : "Check"}
+          </button>
+        </div>
+        {lookup && (
+          <>
+            <div className="bar-row">
+              <div>Threat feed</div>
+              <div>
+                {lookup.feed ? (
+                  <>
+                    <Badge tone={lookup.feed.action === "block" ? "bad" : "warn"}>{lookup.feed.action}</Badge>{" "}
+                    {lookup.feed.name}
+                  </>
+                ) : (
+                  <span className="muted">not listed</span>
+                )}
+              </div>
+            </div>
+            <div className="bar-row" style={{ borderBottom: 0 }}>
+              <div>Ban</div>
+              <div>
+                {lookup.ban ? (
+                  <>
+                    <Badge tone={lookup.ban.permanent ? "bad" : "warn"}>
+                      {lookup.ban.permanent ? "permanent" : "temporary"}
+                    </Badge>{" "}
+                    {lookup.ban.cidr} — {lookup.ban.reason} (source: {lookup.ban.source})
+                    {lookup.ban.expires_at && (
+                      <span className="muted"> · until {lookup.ban.expires_at.slice(0, 16).replace("T", " ")}Z</span>
+                    )}
+                  </>
+                ) : (
+                  <span className="muted">not banned</span>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </Card>
 
       <Card title="Upload local blocklist">
         <div className="row grow">

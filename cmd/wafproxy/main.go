@@ -222,6 +222,11 @@ func run() error {
 			event = "permanent_ban"
 			immediate = true
 		}
+		// CrowdSec decisions have their own routing toggle: a busy blocklist
+		// would otherwise bury the bans this console decided on itself.
+		if strings.EqualFold(rec.Source, "crowdsec") {
+			event = "crowdsec"
+		}
 		text := fmt.Sprintf("%s: %s — %s (source: %s)", kind, rec.CIDR, rec.Reason, rec.Source)
 		// A temporary ban must not suppress the permanent-ban alert for the same
 		// address through the 24 hour dedupe window.

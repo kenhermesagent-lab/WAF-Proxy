@@ -37,6 +37,7 @@ var EventKinds = []EventKind{
 	{Kind: "cert", Label: "Certificate expiry"},
 	{Kind: "uptime", Label: "Backend up/down"},
 	{Kind: "update", Label: "Application update"},
+	{Kind: "crowdsec", Label: "CrowdSec ban"},
 }
 
 // Manager owns channel configuration and delivery.

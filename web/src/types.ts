@@ -121,6 +121,12 @@ export interface AuthProvider {
   has_secret: boolean;
 }
 
+export interface IntelLookup {
+  ip: string;
+  feed: { id: number; name: string; action: string } | null;
+  ban: { cidr: string; reason: string; source: string; permanent: boolean; expires_at?: string } | null;
+}
+
 export interface Proxy {
   id: number;
   hostname: string;

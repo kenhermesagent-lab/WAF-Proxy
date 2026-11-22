@@ -168,6 +168,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/bans/{id}/promote", s.authed(s.promoteBan))
 	m.HandleFunc("POST /api/bans/bulk", s.authed(s.bulkBans))
 
+	m.HandleFunc("GET /api/intel/lookup", s.authed(s.lookupIP))
+
 	m.HandleFunc("GET /api/feeds", s.authed(s.listFeeds))
 	m.HandleFunc("POST /api/feeds", s.authed(s.createFeed))
 	m.HandleFunc("POST /api/feeds/upload", s.authed(s.uploadFeed))

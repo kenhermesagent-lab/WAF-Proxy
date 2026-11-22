@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.8.1] — 2026-11-22
+
+### Added
+
+- **CrowdSec bans have their own notification routing.** **Notifications** gains a *CrowdSec ban* toggle,
+  separate from *Temporary ban* and *Permanent ban*, so a busy blocklist feeding decisions into the bouncer
+  no longer buries the bans this console decided on itself. Turn it off and CrowdSec decisions stay in the
+  ban list and the logs; turn it on and they arrive like before. With no event list saved every class is
+  still delivered, so nothing changes until you choose.
+- **Address lookup on Threat intel.** A *Check an address* box answers whether a single IP is in a loaded
+  feed (with the feed's action), whether it is currently banned (permanent or temporary, with the reason,
+  source and expiry), or neither.
+
 ## [1.8.0] — 2026-11-22
 
 ### Added
