@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
-import { AccessProfile, AuthProvider, Cert, Preset, ProtectionProfile, Proxy, Route, Upstream } from "../types";
+import { AccessProfile, AuthProvider, Cert, Preset, Profile, ProtectionProfile, Proxy, Route, Upstream } from "../types";
 
 type Draft = {
   id?: number;
@@ -54,6 +54,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
   const [providers, setProviders] = useState<AuthProvider[]>([]);
   const [certs, setCerts] = useState<Cert[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -65,14 +66,16 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
       api.get<AuthProvider[]>("/api/auth-providers"),
       api.get<{ certs: Cert[] }>("/api/certs"),
       api.get<Preset[]>("/api/presets"),
+      api.get<Profile[]>("/api/profiles"),
     ])
-      .then(([p, pp, ap, prov, c, pre]) => {
+      .then(([p, pp, ap, prov, c, pre, prof]) => {
         setList(p);
         setProtections(pp);
         setAccessProfiles(ap);
         setProviders(prov);
         setCerts(c.certs || []);
         setPresets(pre);
+        setProfiles(prof);
       })
       .catch((e) => onError(errText(e)));
 
@@ -265,6 +268,17 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
               >
                 <option value="">Default settings</option>
                 {accessProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="WAF profile">
+              <select
+                value={draft.profile_id ?? ""}
+                onChange={(e) => patch((d) => (d.profile_id = e.target.value ? Number(e.target.value) : null))}
+              >
+                <option value="">From the access profile</option>
+                {profiles.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>

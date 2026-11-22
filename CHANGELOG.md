@@ -11,6 +11,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.17.1] — 2026-11-22
+
+### Added
+
+- **A committed request-budget burst test.** `TestRequestBudgetShedsExactSplit` sets the budget to
+  three, releases nine concurrent requests against an upstream that sleeps for 500 ms, and asserts
+  the exact outcome: three `200`s, six `503`s that each carry a `Retry-After`, the upstream saw
+  exactly three requests, and `Capacity()` reports 0 in flight, 3 allowed and 6 shed. It runs in
+  about a second under `-race`, so a regression in shedding fails CI instead of needing a manual
+  load run.
+- **A WAF profile picker on the proxy form.** A preset attaches its profile to the site, but the
+  form showed only the access profile, so the attached profile could not be seen or changed from
+  the site it applied to. The form now lists the saved profiles (with "From the access profile" as
+  the default) and shows the preset's profile when the site is edited.
+
+### Fixed
+
+- **The dashboard's request-budget card read `0 / 0`.** The event stream marshalled the collector
+  snapshot directly, so the streamed payload lacked `inflight`, `max_inflight` and `shed` that
+  `/api/metrics` filled in from the proxy. The card is fed by the stream, so it showed zeros from
+  the first tick, and the budget counters appeared to be missing from the whole console. Both paths
+  now go through one `metricsSnapshot()` helper, covered by `TestMetricsStreamCarriesTheRequestBudget`.
+
 ## [1.17.0] — 2026-11-22
 
 ### Added

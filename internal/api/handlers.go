@@ -20,6 +20,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/preset"
@@ -1403,11 +1404,19 @@ func (s *Server) deleteCert(w http.ResponseWriter, r *http.Request) {
 // ---------- observability ----------
 
 func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.metricsSnapshot())
+}
+
+// metricsSnapshot is the console's view of the counters: the process metrics
+// plus the proxy's request budget, which lives on the proxy server. Both the
+// polled and the streamed payload come from here, so the dashboard cannot show
+// one and not the other.
+func (s *Server) metricsSnapshot() metrics.Snapshot {
 	snap := s.metrics.Snapshot()
 	if s.proxy != nil {
 		snap.Inflight, snap.MaxInflight, snap.Shed = s.proxy.Capacity()
 	}
-	writeJSON(w, http.StatusOK, snap)
+	return snap
 }
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
@@ -1673,7 +1682,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-tick.C:
-			data, err := json.Marshal(s.metrics.Snapshot())
+			data, err := json.Marshal(s.metricsSnapshot())
 			if err != nil {
 				continue
 			}

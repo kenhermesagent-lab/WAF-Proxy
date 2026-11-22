@@ -79,6 +79,11 @@ func newHarness(t *testing.T) *harness {
 		}
 		hits.Add(1)
 		switch r.URL.Path {
+		case "/slow":
+			// Holds its budget slot long enough for a burst to overlap it.
+			time.Sleep(500 * time.Millisecond)
+			_, _ = fmt.Fprintf(w, "upstream:%s:", r.URL.Path)
+			return
 		case "/large":
 			// A declared length above a profile's ceiling must be refused before
 			// the body starts, not streamed and cut.
