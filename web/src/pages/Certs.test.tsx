@@ -77,6 +77,33 @@ describe("certificate controls", () => {
     expect((screen.getByRole("button", { name: "Request" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("drops the prefilled wildcard when the challenge cannot validate it", async () => {
+    get.mockResolvedValue({ certs: [], providers: [], configured: [] });
+    renderCerts();
+    await openDialog();
+
+    const challenge = screen.getByRole("combobox", { name: "Challenge" });
+    const domains = screen.getByPlaceholderText("*.example.com,example.com") as HTMLInputElement;
+    fireEvent.change(challenge, { target: { value: "http-01" } });
+
+    expect(domains.value).toBe("example.com");
+    expect((screen.getByRole("button", { name: "Request" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("refuses a wildcard typed for a challenge that cannot validate it", async () => {
+    get.mockResolvedValue({ certs: [], providers: [], configured: [] });
+    renderCerts();
+    await openDialog();
+
+    const challenge = screen.getByRole("combobox", { name: "Challenge" });
+    const domains = screen.getByPlaceholderText("*.example.com,example.com") as HTMLInputElement;
+    fireEvent.change(challenge, { target: { value: "tls-alpn-01" } });
+    fireEvent.change(domains, { target: { value: "*.example.com" } });
+
+    expect(screen.getByText(/cannot validate wildcard names/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Request" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("saves a certificate renewal policy change", async () => {
     get.mockResolvedValue({
       certs: [{

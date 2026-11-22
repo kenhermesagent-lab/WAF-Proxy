@@ -195,16 +195,17 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
         {roles.length === 0 ? (
           <Empty>No roles.</Empty>
         ) : (
+          <div style={{ overflowX: "auto" }}>
           <table>
             <thead><tr><th>Role</th><th>Can</th><th /></tr></thead>
             <tbody>
               {roles.map((r) => (
                 <tr key={r.id}>
-                  <td style={{ whiteSpace: "nowrap" }}>
-                    {r.name} {r.builtin && <Badge tone="info">built-in</Badge>}
+                  <td style={{ minWidth: 220 }}>
+                    <span style={{ whiteSpace: "nowrap" }}>{r.name} {r.builtin && <Badge tone="info">built-in</Badge>}</span>
                     {r.description && <div className="faint" style={{ fontSize: 11, maxWidth: 420 }}>{r.description}</div>}
                   </td>
-                  <td className="muted" style={{ fontSize: 12 }}>{r.permissions.map((p) => permissionLabel(p, areas)).join(" · ") || "nothing"}</td>
+                  <td className="muted" style={{ fontSize: 12, minWidth: 340 }}>{r.permissions.map((p) => permissionLabel(p, areas)).join(" · ") || "nothing"}</td>
                   <td className="right" style={{ whiteSpace: "nowrap" }}>
                     {canManage && !r.builtin && (
                       <>
@@ -217,6 +218,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
               ))}
             </tbody>
           </table>
+          </div>
         )}
         <p className="muted" style={{ fontSize: 12 }}>
           A role grants view or change on each area. Built-in roles cannot be edited or deleted, so there is always a

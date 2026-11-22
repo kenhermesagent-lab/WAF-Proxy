@@ -30,6 +30,21 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ domains: "", provider: "duckdns", creds: "", challenge: "dns-01" });
   const dns = form.challenge === "dns-01";
+  // The form starts with a wildcard for the base domain. HTTP-01 and
+  // TLS-ALPN-01 cannot validate one, so refusing here beats a certificate row
+  // that fails minutes later for a reason the operator cannot see yet.
+  const wildcardWithoutDNS = !dns && form.domains.split(",").some((d) => d.trim().startsWith("*."));
+
+  // The dialog starts with a wildcard for the base domain. Switching to a
+  // challenge that cannot validate it drops that entry instead of leaving the
+  // Request button disabled until the operator edits a field they didn't type.
+  const changeChallenge = (next: string) => {
+    let domains = form.domains;
+    if (next !== "dns-01") {
+      domains = domains.split(",").map((d) => d.trim()).filter((d) => d !== "" && !d.startsWith("*.")).join(",");
+    }
+    setForm({ ...form, challenge: next, domains });
+  };
 
   const load = () =>
     api
@@ -205,7 +220,7 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
             <input value={form.domains} onChange={(e) => setForm({ ...form, domains: e.target.value })} placeholder={`*.${base},${base}`} />
           </Field>
           <Field label="Challenge">
-            <select aria-label="Challenge" value={form.challenge} onChange={(e) => setForm({ ...form, challenge: e.target.value })}>
+            <select aria-label="Challenge" value={form.challenge} onChange={(e) => changeChallenge(e.target.value)}>
               <option value="dns-01">DNS-01 — no inbound port (supports wildcards)</option>
               <option value="http-01">HTTP-01 — port 80 must be reachable</option>
               <option value="tls-alpn-01">TLS-ALPN-01 — answered on the HTTPS port</option>
@@ -236,9 +251,15 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
               Wildcard names are only possible with DNS-01.
             </p>
           )}
+          {wildcardWithoutDNS && (
+            <div className="err-text">
+              Remove the <code>*.</code> entry: this challenge cannot validate wildcard names. Switch back to DNS-01 to
+              keep the wildcard.
+            </div>
+          )}
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button onClick={() => setOpen(false)}>Cancel</button>
-            <button className="primary" onClick={issue} disabled={!loaded || (dns && providersUnavailable)}>Request</button>
+            <button className="primary" onClick={issue} disabled={!loaded || (dns && providersUnavailable) || wildcardWithoutDNS}>Request</button>
           </div>
         </Modal>
       )}

@@ -352,7 +352,7 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
                     </div>
                   </div>
                   <div className="bar-row">
-                    <div>Refused (allow list / cap)</div>
+                    <div>Refused (lists, allow list or cap)</div>
                     <div>{svc.blocked.toLocaleString()}</div>
                   </div>
                   <div className="bar-row">

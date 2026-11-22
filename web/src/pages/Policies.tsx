@@ -246,7 +246,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           <button className={`tab ${tab === "bots" ? "active" : ""}`} onClick={() => setTab("bots")}>Bot filter</button>
         </div>
         {kernel && (
-          <span className={`badge ${kernel.active ? "ok" : "warn"}`}>
+          <span className={`badge ${kernel.active ? "ok" : "warn"}`} style={{ marginLeft: "auto" }}>
             kernel: {kernel.active ? "nftables active" : kernel.reason || "unavailable"}
           </span>
         )}

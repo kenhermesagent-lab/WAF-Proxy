@@ -259,13 +259,13 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
           </div>
         </Card>
         <Card>
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-            <div className="stat" style={{ flex: 1 }}>
+          <div className="stat-pair">
+            <div className="stat">
               <div className="k">Requests</div>
               <div className="v">{totals.requests.toLocaleString()}</div>
               <div className="sub">{totals.blocked.toLocaleString()} blocked · {fmtBytes(totals.bytesOut)} out</div>
             </div>
-            <div className="stat" style={{ textAlign: "right" }}>
+            <div className="stat">
               <div className="k">Request budget</div>
               <div className="v">
                 {metrics?.inflight ?? 0}

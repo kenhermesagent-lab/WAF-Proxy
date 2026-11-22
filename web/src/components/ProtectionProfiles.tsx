@@ -14,6 +14,21 @@ const REFERRERS = [
   "unsafe-url",
 ];
 
+// The API names each check after the setting it enforces. Those identifiers are
+// useful in logs but read poorly in a dialog, so show the header being discussed
+// instead and fall back to the wire name for a check this build does not know.
+const SETTING_LABELS: Record<string, string> = {
+  frame_options: "Framing",
+  hsts: "HSTS",
+  csp: "Content-Security-Policy",
+  nosniff: "Content-type sniffing",
+  referrer_policy: "Referrer policy",
+};
+
+function settingLabel(setting: string, header: string): string {
+  return SETTING_LABELS[setting] ?? header ?? setting;
+}
+
 function newProfile(): ProtectionProfile {
   return {
     id: 0,
@@ -163,25 +178,27 @@ export default function ProtectionProfiles({ onError, onOK }: { onError: (m: str
                     {audit.self_signed ? " over a self-signed certificate" : ""}. The check requests the backend as
                     <span className="mono"> {audit.proxy}</span>.
                   </p>
-                  <table>
-                    <thead><tr><th>Setting</th><th>Application</th><th>Profile</th><th>Advice</th></tr></thead>
-                    <tbody>
-                      {audit.checks.map((c) => (
-                        <tr key={c.setting}>
-                          <td>{c.setting}</td>
-                          <td className="mono" style={{ fontSize: 11, maxWidth: 220, wordBreak: "break-word" }}>{c.backend}</td>
-                          <td className="mono" style={{ fontSize: 11, maxWidth: 220, wordBreak: "break-word" }}>{c.profile}</td>
-                          <td style={{ fontSize: 12 }}>
-                            <Badge tone={c.verdict === "at-risk" || c.verdict === "gap" ? "warn" : "ok"}>{c.verdict}</Badge>{" "}
-                            {c.advice}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {audit.summary.length > 0 && (
-                    <p className="muted" style={{ fontSize: 12 }}>{audit.summary.join(" ")}</p>
-                  )}
+                  <div>
+                    {audit.checks.map((c) => (
+                      <div key={c.setting} style={{ borderTop: "1px solid var(--border)", padding: "10px 0" }}>
+                        <div className="row" style={{ justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                          <strong style={{ fontSize: 12.5 }}>{settingLabel(c.setting, c.header)}</strong>
+                          <Badge tone={c.verdict === "at-risk" || c.verdict === "gap" ? "warn" : "ok"}>{c.verdict}</Badge>
+                        </div>
+                        <div className="grid cols-2" style={{ gap: 12 }}>
+                          <div>
+                            <div className="faint" style={{ fontSize: 10.5, letterSpacing: ".06em", textTransform: "uppercase" }}>Application</div>
+                            <div className="mono" style={{ fontSize: 11.5, lineHeight: 1.5, overflowWrap: "anywhere" }}>{c.backend}</div>
+                          </div>
+                          <div>
+                            <div className="faint" style={{ fontSize: 10.5, letterSpacing: ".06em", textTransform: "uppercase" }}>Profile</div>
+                            <div className="mono" style={{ fontSize: 11.5, lineHeight: 1.5, overflowWrap: "anywhere" }}>{c.profile}</div>
+                          </div>
+                        </div>
+                        <p className="muted" style={{ fontSize: 12, margin: "6px 0 0", lineHeight: 1.55 }}>{c.advice}</p>
+                      </div>
+                    ))}
+                  </div>
                 </>
               )}
             </>

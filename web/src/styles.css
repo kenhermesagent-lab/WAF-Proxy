@@ -128,6 +128,17 @@ code, .mono {
   .content { padding: 16px 16px 40px; }
 }
 
+/* Two metrics share the Requests card. Side by side needs room the card does
+   not have while the three-column grid is still narrow, so below 1280px the
+   budget moves under the request count instead of squeezing into two columns. */
+.stat-pair { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.stat-pair > .stat { flex: 1 1 0; min-width: 0; }
+.stat-pair > .stat:last-child { text-align: right; }
+@media (max-width: 1280px) {
+  .stat-pair { display: block; }
+  .stat-pair > .stat:last-child { text-align: left; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+}
+
 .stat .v { font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
 .stat .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; }
 .stat .sub { color: var(--faint); font-size: 12px; margin-top: 4px; }
