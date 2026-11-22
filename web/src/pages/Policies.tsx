@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { DragEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { DragEvent, MouseEvent as ReactMouseEvent } from "react";
 import { api } from "../api";
 import { COUNTRIES, countryFlag, countryName } from "../countries";
 import { confirmDialog, Badge, Card, Empty, Field, Modal, PageHead, errText, fmtAgo } from "../ui";
@@ -66,6 +66,14 @@ function BanMoveModal({
   const [busy, setBusy] = useState(false);
   const temp = bans.filter((b) => !b.permanent);
   const perm = bans.filter((b) => b.permanent);
+  // A press-and-drag selects the rows it passes over; Ctrl keeps the rows
+  // that were already selected as the base of the range.
+  const drag = useRef<{ ids: number[]; from: number; base: number[]; set: (ids: number[]) => void } | null>(null);
+  useEffect(() => {
+    const stop = () => { drag.current = null; };
+    window.addEventListener("mouseup", stop);
+    return () => window.removeEventListener("mouseup", stop);
+  }, []);
 
   const act = async (action: "permanent" | "temp" | "remove", ids: number[]) => {
     if (ids.length === 0) return;
@@ -96,38 +104,70 @@ function BanMoveModal({
     else act("temp", permSel.includes(id) ? permSel : [id]);
   };
 
-  const rows = (list: Ban[], selected: number[], setSelected: (ids: number[]) => void) => (
-    <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 9, padding: 6 }}>
-      {list.length === 0 ? (
-        <div className="muted" style={{ fontSize: 12, padding: 6 }}>Empty.</div>
-      ) : (
-        list.map((b) => (
-          <div
-            key={b.id}
-            draggable
-            onDragStart={(e) => e.dataTransfer.setData("text/plain", String(b.id))}
-            style={{ display: "flex", gap: 8, alignItems: "center", padding: "3px 4px", borderRadius: 6, cursor: "grab" }}
-            title="Drag onto the other box, or tick and use the buttons"
-          >
-            <input
-              type="checkbox"
-              style={{ width: "auto" }}
-              checked={selected.includes(b.id)}
-              onChange={() => toggle(selected, setSelected, b.id)}
-            />
-            <span className="mono" style={{ fontSize: 12 }}>{b.cidr}</span>
-            <span className="faint" style={{ fontSize: 11, marginLeft: "auto" }}>{stamp(b.created_at)}</span>
-          </div>
-        ))
-      )}
-    </div>
-  );
+  const rows = (list: Ban[], selected: number[], setSelected: (ids: number[]) => void) => {
+    const all = list.length > 0 && selected.length === list.length;
+    const select = (ids: number[]) => setSelected([...new Set(ids)]);
+    return (
+      <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 9, padding: 6 }}>
+        {list.length === 0 ? (
+          <div className="muted" style={{ fontSize: 12, padding: 6 }}>Empty.</div>
+        ) : (
+          <>
+            <label className="muted" style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11, padding: "0 4px 6px", cursor: "pointer" }}>
+              <input type="checkbox" style={{ width: "auto" }} checked={all} onChange={() => setSelected(all ? [] : list.map((b) => b.id))} />
+              {all ? "clear all" : "select all"}
+            </label>
+            {list.map((b, i) => (
+              <div
+                key={b.id}
+                onMouseDown={(e: ReactMouseEvent) => {
+                  if (e.button !== 0 || (e.target as HTMLElement).tagName === "INPUT") return;
+                  const base = e.ctrlKey || e.metaKey ? selected : [];
+                  drag.current = { ids: list.map((x) => x.id), from: i, base, set: setSelected };
+                  select([...base, b.id]);
+                }}
+                onMouseEnter={() => {
+                  const d = drag.current;
+                  if (!d || !d.ids.includes(b.id)) return;
+                  const lo = Math.min(d.from, i);
+                  const hi = Math.max(d.from, i);
+                  d.set([...new Set([...d.base, ...d.ids.slice(lo, hi + 1)])]);
+                }}
+                style={{ display: "flex", gap: 8, alignItems: "center", padding: "3px 4px", borderRadius: 6, userSelect: "none" }}
+                title="Ctrl-click to add, or hold and drag down to select a range"
+              >
+                <input
+                  type="checkbox"
+                  style={{ width: "auto" }}
+                  checked={selected.includes(b.id)}
+                  onChange={() => toggle(selected, setSelected, b.id)}
+                />
+                <span
+                  className="mono"
+                  draggable
+                  onDragStart={(e) => {
+                    if (!selected.includes(b.id)) select([b.id]);
+                    e.dataTransfer.setData("text/plain", String(b.id));
+                  }}
+                  style={{ fontSize: 12, cursor: "grab" }}
+                  title="Drag the address into the other box"
+                >
+                  {b.cidr}
+                </span>
+                <span className="faint" style={{ fontSize: 11, marginLeft: "auto" }}>{stamp(b.created_at)}</span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <Modal title="Bans" onClose={onClose}>
       <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-        Drag an address into the other box, or tick several and use the buttons. A permanent ban lasts until it is
-        removed; moving one back to temporary gives it 24 hours from now.
+        Drag an address into the other box, tick several (Ctrl-click or hold and drag down), and use the buttons. A
+        permanent ban lasts until it is removed; moving one back to temporary gives it 24 hours from now.
       </p>
       <div className="ban-move-grid">
         <div>
