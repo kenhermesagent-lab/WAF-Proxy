@@ -38,6 +38,11 @@ function renderPage() {
   return render(<AgentPage onError={vi.fn()} onOK={vi.fn()} />);
 }
 
+// The page loads its MCP status and its agent links separately.
+function mockStatus(value: unknown) {
+  get.mockImplementation(async (path: string) => (path === "/api/agents" ? [] : value));
+}
+
 describe("Agent access page", () => {
   beforeEach(() => {
     get.mockReset();
@@ -49,7 +54,7 @@ describe("Agent access page", () => {
   });
 
   it("shows the endpoint, active token and security tools", async () => {
-    get.mockResolvedValue(status);
+    mockStatus(status);
     renderPage();
 
     expect(await screen.findByText("hermes-agent")).toBeTruthy();
@@ -60,7 +65,7 @@ describe("Agent access page", () => {
   });
 
   it("creates a token and reveals it once", async () => {
-    get.mockResolvedValue({ ...status, token_count: 0, tokens: [] });
+    mockStatus({ ...status, token_count: 0, tokens: [] });
     post.mockResolvedValue({ name: "hermes-agent", token: "one-time-secret-token" });
     renderPage();
 

@@ -560,7 +560,7 @@ func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 // ---------- policies ----------
 
 var policyKinds = map[string]bool{
-	model.PolicyIPWhitelist: true, model.PolicyCountryWhitelist: true,
+	model.PolicyIPWhitelist: true, model.PolicyIPBlacklist: true, model.PolicyCountryWhitelist: true,
 	model.PolicyCountryBlacklist: true, model.PolicyASNBlock: true,
 	model.PolicyDecoy: true, "rate_limit": true,
 }
@@ -1540,7 +1540,7 @@ func defaultStr(v, fallback string) string {
 // cannot silently compile into a rule that never matches.
 func validatePolicyValue(kind, value string) string {
 	switch kind {
-	case model.PolicyIPWhitelist:
+	case model.PolicyIPWhitelist, model.PolicyIPBlacklist:
 		for _, part := range strings.Split(value, ",") {
 			part = strings.TrimSpace(part)
 			if part == "" {

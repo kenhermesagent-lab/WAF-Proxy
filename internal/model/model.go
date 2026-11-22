@@ -23,6 +23,18 @@ type Proxy struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
+// AgentLink is a webhook an external agent listens on: the console pushes
+// signed events there and the agent decides what to do.
+type AgentLink struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Endpoint  string    `json:"endpoint"`
+	Secret    string    `json:"-"`
+	HasSecret bool      `json:"has_secret"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // AnomalyEvent is one detection: a traffic, egress or login-failure condition
 // that crossed its threshold for a proxy.
 type AnomalyEvent struct {
@@ -157,6 +169,7 @@ type Cert struct {
 // Policy kinds.
 const (
 	PolicyIPWhitelist      = "ip_whitelist"
+	PolicyIPBlacklist      = "ip_blacklist"
 	PolicyCountryWhitelist = "country_whitelist"
 	PolicyCountryBlacklist = "country_blacklist"
 	PolicyASNBlock         = "asn_block"

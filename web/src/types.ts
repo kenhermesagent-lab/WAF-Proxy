@@ -121,6 +121,15 @@ export interface AuthProvider {
   has_secret: boolean;
 }
 
+export interface AgentLink {
+  id: number;
+  name: string;
+  endpoint: string;
+  has_secret: boolean;
+  enabled: boolean;
+  created_at: string;
+}
+
 export interface AnomalyEvent {
   id: number;
   kind: string;

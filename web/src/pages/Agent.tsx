@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, Modal, errText, fmtAgo, fmtTime } from "../ui";
 import type { MCPStatus, MCPToken } from "../types";
+import AgentLinks from "../components/AgentLinks";
 
 const TOOLS = [
   ["get_security_overview", "Bans, kernel status, traffic totals, top sources and live sessions."],
   ["query_logs", "Read events by IP, host, action or stage."],
   ["get_ip_activity", "24h totals, ban state, recent events and sessions for one address."],
+  ["list_anomalies", "Anomaly detections with the measured value and its baseline."],
   ["list_proxies", "Hostnames, gate modes and WAF modes."],
   ["block_ip", "Add an IP or CIDR ban with a required reason."],
   ["unblock_ip", "Lift an exact IP or CIDR ban."],
@@ -74,6 +76,8 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <AgentLinks onError={onError} onOK={onOK} />
+
       <Card
         title="MCP gateway"
         actions={<button className="primary" onClick={() => setOpen(true)}>New agent token</button>}

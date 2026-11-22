@@ -71,6 +71,7 @@ type Manager struct {
 	notify Notifier
 	log    *slog.Logger
 	now    func() time.Time
+	sink   func(model.AnomalyEvent)
 
 	mu     sync.Mutex
 	prev   map[int64]sample
@@ -87,6 +88,9 @@ func New(st *store.Store, met *metrics.Collector, notify Notifier, log *slog.Log
 		rates:  map[int64][]float64{},
 	}
 }
+
+// SetSink attaches a delivery hook, used to push the event to agent webhooks.
+func (m *Manager) SetSink(sink func(model.AnomalyEvent)) { m.sink = sink }
 
 // Config reads the thresholds, filling in defaults for keys that were never set.
 func (m *Manager) Config() (Config, error) {
@@ -243,11 +247,16 @@ func (m *Manager) raise(cfg Config, e model.AnomalyEvent) {
 			e.ProxyHost = p.Hostname
 		}
 	}
-	if _, err := m.st.CreateAnomalyEvent(&e); err != nil {
+	id, err := m.st.CreateAnomalyEvent(&e)
+	if err != nil {
 		m.log.Warn("anomaly store failed", "err", err)
 		return
 	}
+	e.ID = id
 	m.notify.Enqueue(e.Kind, describe(e), "anomaly:"+e.Kind+":"+strconv.FormatInt(e.ProxyID, 10), true)
+	if m.sink != nil {
+		m.sink(e)
+	}
 }
 
 func describe(e model.AnomalyEvent) string {

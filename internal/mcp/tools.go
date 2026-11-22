@@ -53,6 +53,15 @@ func toolCatalog(g *Gateway) []tool {
 			Handler: g.queryLogs,
 		},
 		{
+			Name: "list_anomalies",
+			Description: "Recent anomaly detections (outbound byte spike, request-rate spike, login-failure burst) with the " +
+				"proxy, the value measured and its baseline. Start here when deciding whether an event needs a block.",
+			Schema: schema(map[string]any{
+				"limit": prop("integer", "Maximum events to return, 1-200. Default 50."),
+			}),
+			Handler: g.listAnomalies,
+		},
+		{
 			Name: "get_ip_activity",
 			Description: "Inspect one source address: 24h request/block/byte totals, whether it is banned, recent events, and live gate " +
 				"sessions. bytes_out and the recent paths help distinguish scanning from data exfiltration before revoking sessions.",
@@ -687,4 +696,16 @@ func boolArg(args map[string]any, key string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s must be a boolean", key)
 	}
 	return b, nil
+}
+
+func (g *Gateway) listAnomalies(_ callInfo, args map[string]any) (map[string]any, error) {
+	limit, err := intArg(args, "limit", 50, 1, 200)
+	if err != nil {
+		return nil, err
+	}
+	events, err := g.st.ListAnomalyEvents(limit)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"events": events, "count": len(events)}, nil
 }

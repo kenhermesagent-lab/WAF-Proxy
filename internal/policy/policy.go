@@ -62,6 +62,7 @@ type WAFInfo struct {
 
 type ruleSet struct {
 	ipAllow      []netip.Prefix
+	ipDeny       []netip.Prefix
 	countryAllow map[string]bool
 	countryDeny  map[string]bool
 	asnDeny      map[int]bool
@@ -226,19 +227,28 @@ func newRuleSet() ruleSet {
 	}
 }
 
+// prefixes parses a comma-separated IP/CIDR list, dropping anything malformed
+// (the API rejects those on save).
+func prefixes(value string) []netip.Prefix {
+	out := []netip.Prefix{}
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if pr, err := netmatchPrefix(part); err == nil {
+			out = append(out, pr)
+		}
+	}
+	return out
+}
+
 func applyPolicy(rs *ruleSet, p model.Policy) {
 	switch p.Kind {
 	case model.PolicyIPWhitelist:
-		for _, part := range strings.Split(p.Value, ",") {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
-			pr, err := netmatchPrefix(part)
-			if err == nil {
-				rs.ipAllow = append(rs.ipAllow, pr)
-			}
-		}
+		rs.ipAllow = append(rs.ipAllow, prefixes(p.Value)...)
+	case model.PolicyIPBlacklist:
+		rs.ipDeny = append(rs.ipDeny, prefixes(p.Value)...)
 	case model.PolicyCountryWhitelist:
 		for _, c := range splitUpper(p.Value) {
 			rs.countryAllow[c] = true
@@ -418,6 +428,7 @@ func (e *Engine) rulesFor(p *model.Proxy) ruleSet {
 		asnDeny:      map[int]bool{},
 	}
 	merged.ipAllow = append(merged.ipAllow, e.global.ipAllow...)
+	merged.ipDeny = append(merged.ipDeny, e.global.ipDeny...)
 	for c := range e.global.countryAllow {
 		merged.countryAllow[c] = true
 	}
@@ -432,6 +443,7 @@ func (e *Engine) rulesFor(p *model.Proxy) ruleSet {
 	if p != nil {
 		if local, ok := e.perProxy[p.ID]; ok {
 			merged.ipAllow = append(merged.ipAllow, local.ipAllow...)
+			merged.ipDeny = append(merged.ipDeny, local.ipDeny...)
 			for c := range local.countryAllow {
 				merged.countryAllow[c] = true
 			}
@@ -476,6 +488,15 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 		e.bans.NoteHit(req.Addr)
 		return model.Verdict{Action: "ban", Stage: "permanent-ban", Rule: rec.CIDR,
 			Reason: rec.Reason, Status: http.StatusForbidden, BanSource: rec.Source}
+	}
+
+	// An explicit IP block list beats the allow list: a compromised allowlisted
+	// host is still refused, which is what an operator means by "block this IP".
+	for _, pr := range rules.ipDeny {
+		if pr.Contains(req.Addr) {
+			return model.Verdict{Action: "block", Stage: "ip-blacklist", Rule: pr.String(),
+				Reason: "IP on the block list", Status: http.StatusForbidden}
+		}
 	}
 
 	// A whitelist only bypasses the country, ASN and feed stages. Bans,

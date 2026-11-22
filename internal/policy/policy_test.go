@@ -143,3 +143,24 @@ func TestDecoyBan(t *testing.T) {
 		t.Fatalf("decoy path was not banned: %+v", v)
 	}
 }
+
+func TestIPBlacklistBeatsTheAllowList(t *testing.T) {
+	pol, st, _ := newEngine(t)
+	for _, p := range []*model.Policy{
+		{Scope: "global", Kind: model.PolicyIPWhitelist, Value: "203.0.113.0/24", Action: "allow", Enabled: true},
+		{Scope: "global", Kind: model.PolicyIPBlacklist, Value: "203.0.113.9", Action: "block", Enabled: true},
+	} {
+		if _, err := st.CreatePolicy(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if v := screen(pol, "203.0.113.9", "/"); v.Action != "block" || v.Stage != "ip-blacklist" {
+		t.Fatalf("blocked address was allowed: %+v", v)
+	}
+	if v := screen(pol, "203.0.113.10", "/"); v.Action != "allow" {
+		t.Fatalf("the rest of the allowed prefix was refused: %+v", v)
+	}
+}

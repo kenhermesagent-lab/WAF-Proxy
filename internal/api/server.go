@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/agentlink"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/anomaly"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
@@ -45,29 +46,30 @@ const sessionKey ctxKey = 1
 
 // Server is the admin API.
 type Server struct {
-	st        *store.Store
-	box       *wfcrypto.Box
-	cfg       *config.Config
-	proxy     *proxy.Server
-	policy    *policy.Engine
-	bans      *ban.Engine
-	feeds     *intel.Manager
-	certs     *acme.Manager
-	cs        *crowdsec.Manager
-	metrics   *metrics.Collector
-	notify    *notify.Manager
-	geo       *geoip.Geo
-	log       *slog.Logger
-	limiter   *auth.Limiter
-	mux       *http.ServeMux
-	started   time.Time
-	streams   *streaming.Manager
-	backup    *backup.Manager
-	anomaly   *anomaly.Manager
-	updates   *updatepkg.Manager
-	uptime    *uptime.Manager
-	restartFn func()
-	tailscale TailscaleState
+	st         *store.Store
+	box        *wfcrypto.Box
+	cfg        *config.Config
+	proxy      *proxy.Server
+	policy     *policy.Engine
+	bans       *ban.Engine
+	feeds      *intel.Manager
+	certs      *acme.Manager
+	cs         *crowdsec.Manager
+	metrics    *metrics.Collector
+	notify     *notify.Manager
+	geo        *geoip.Geo
+	log        *slog.Logger
+	limiter    *auth.Limiter
+	mux        *http.ServeMux
+	started    time.Time
+	streams    *streaming.Manager
+	backup     *backup.Manager
+	anomaly    *anomaly.Manager
+	agentLinks *agentlink.Dispatcher
+	updates    *updatepkg.Manager
+	uptime     *uptime.Manager
+	restartFn  func()
+	tailscale  TailscaleState
 
 	// CrowdSec one-click install progress, polled by the CrowdSec page.
 	csMu      sync.Mutex
@@ -169,6 +171,12 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/bans/{id}", s.authed(s.deleteBan))
 	m.HandleFunc("POST /api/bans/{id}/promote", s.authed(s.promoteBan))
 	m.HandleFunc("POST /api/bans/bulk", s.authed(s.bulkBans))
+
+	m.HandleFunc("GET /api/agents", s.authed(s.listAgentLinks))
+	m.HandleFunc("POST /api/agents", s.authed(s.createAgentLink))
+	m.HandleFunc("PUT /api/agents/{id}", s.authed(s.updateAgentLink))
+	m.HandleFunc("DELETE /api/agents/{id}", s.authed(s.deleteAgentLink))
+	m.HandleFunc("POST /api/agents/{id}/test", s.authed(s.testAgentLink))
 
 	m.HandleFunc("GET /api/anomaly", s.authed(s.getAnomaly))
 	m.HandleFunc("PUT /api/anomaly/settings", s.authed(s.putAnomalySettings))

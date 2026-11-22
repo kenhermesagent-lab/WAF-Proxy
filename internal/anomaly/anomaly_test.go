@@ -58,6 +58,19 @@ func TestTickRaisesEgressAndRateOncePerCondition(t *testing.T) {
 	if events[0].ProxyHost != "app.example.com" {
 		t.Fatalf("event host = %q", events[0].ProxyHost)
 	}
+	// An agent receives the event over a webhook and needs the stored id.
+	var delivered []int64
+	m.SetSink(func(e model.AnomalyEvent) { delivered = append(delivered, e.ID) })
+	met.Count(1, 600, 0, 0, 6<<20)
+	if err := m.Tick(now.Add(2 * Window)); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivered) != 0 {
+		t.Fatalf("a refreshed event was re-delivered: %v", delivered)
+	}
+	if events[0].ID == 0 {
+		t.Fatal("a stored event has no id")
+	}
 
 	// The same condition next minute refreshes the open event instead of adding one.
 	met.Count(1, 600, 0, 0, 6<<20)

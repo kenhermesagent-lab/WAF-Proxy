@@ -5,6 +5,7 @@ import type { AccessProfile, Policy } from "../types";
 
 const KIND_LABELS: Record<string, string> = {
   ip_whitelist: "IP / CIDR allow",
+  ip_blacklist: "IP / CIDR block",
   country_whitelist: "Allowed country",
   country_blacklist: "Blocked country",
   asn_block: "Blocked ASN",

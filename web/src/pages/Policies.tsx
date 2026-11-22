@@ -9,6 +9,7 @@ import ProtectionProfiles from "../components/ProtectionProfiles";
 
 const KINDS: Record<string, string> = {
   ip_whitelist: "IP / CIDR allow list",
+  ip_blacklist: "IP / CIDR block list",
   country_whitelist: "Allowed countries",
   country_blacklist: "Blocked countries",
   asn_block: "Blocked ASNs",

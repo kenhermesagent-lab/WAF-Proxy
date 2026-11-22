@@ -11,6 +11,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.10.0] — 2026-11-22
+
+### Added
+
+- **AI Agent Access.** **Agent access** is now **AI Agent Access** and gains *Agent links*: point one at the
+  webhook your agent listens on and every new anomaly event is POSTed there as JSON, signed with
+  `X-Wafproxy-Signature: sha256=HMAC(secret, body)` plus a timestamp so the agent can reject replays. The
+  secret is sealed with the console key, links can be paused, and **Test** sends a synthetic event and
+  reports what the agent answered. No model runs in the console; the agent does the thinking.
+- **`list_anomalies` MCP tool** so an attached agent can read detections (kind, proxy, value, baseline)
+  with the token it already holds.
+- **IP / CIDR block list.** **Countries, IPs, ASN** can now create a block list next to the allow list, so an
+  access profile can be a true whitelist or blacklist. An explicit IP block wins over an allow list entry
+  for the same address — a compromised allowlisted host is still refused.
+
+### Fixed
+
+- An anomaly event reached a webhook without its stored id, so an agent could not refer to the event it
+  was answering.
+
 ## [1.9.0] — 2026-11-22
 
 ### Added

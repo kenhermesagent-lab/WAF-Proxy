@@ -33,7 +33,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "System",
     items: [
-      { id: "agent", label: "Agent access", icon: "⌘" },
+      { id: "agent", label: "AI Agent Access", icon: "⌘" },
       { id: "notifications", label: "Notifications", icon: "✉" },
       { id: "updates", label: "Updates", icon: "⇪" },
       { id: "tailscale", label: "Tailscale", icon: "⌁" },

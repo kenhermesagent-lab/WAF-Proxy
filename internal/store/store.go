@@ -287,6 +287,14 @@ CREATE TABLE IF NOT EXISTS gate_acl (
   username TEXT NOT NULL,
   PRIMARY KEY (proxy_id, username)
 );
+CREATE TABLE IF NOT EXISTS agent_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  endpoint TEXT NOT NULL,
+  secret TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS anomaly_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL,
@@ -346,7 +354,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "8"
+const schemaVersion = "9"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
