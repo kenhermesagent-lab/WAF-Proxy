@@ -220,3 +220,40 @@ func TestDeleteFeedReportsRowsAffected(t *testing.T) {
 	}
 	t.Fatal("no built-in feed seeded")
 }
+
+func TestSeedFeedsRetiresDeadBuiltins(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// A custom feed that reuses a retired name must survive the cleanup.
+	if _, err := st.CreateFeed(&model.Feed{Name: "URLhaus hosts", URL: "https://example.com/custom.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a database seeded by an older release.
+	if _, err := st.db.Exec(`INSERT INTO feeds(name, url, action, interval_s, enabled, builtin, state)
+		VALUES('Spamhaus EDROP', 'https://www.spamhaus.org/drop/edrop.txt', 'block', 3600, 0, 1, 'pending')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.seedFeeds(); err != nil {
+		t.Fatal(err)
+	}
+	feeds, err := st.ListFeeds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom := 0
+	for _, f := range feeds {
+		if f.Builtin && (f.Name == "Spamhaus EDROP" || f.Name == "URLhaus hosts") {
+			t.Errorf("retired built-in %q is still seeded", f.Name)
+		}
+		if !f.Builtin && f.Name == "URLhaus hosts" {
+			custom++
+		}
+	}
+	if custom != 1 {
+		t.Errorf("custom URLhaus feed = %d, want 1 left alone", custom)
+	}
+}

@@ -48,6 +48,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **Dashboard.** Requests and the request budget share one card: total requests on the left, in-flight/maximum
   and refusals on the right.
 
+### Fixed
+
+- **Two dead built-in threat feeds.** Spamhaus EDROP's file is now a header-only stub (merged into DROP)
+  and URLhaus' public export answers `410 Gone` without an Auth-Key, so both rows are removed from new
+  and existing databases. A custom feed that reuses either name is left alone.
+
 ## [1.19.0] — 2026-11-22
 
 ### Added

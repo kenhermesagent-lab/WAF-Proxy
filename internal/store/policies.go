@@ -317,9 +317,7 @@ func (s *Store) seedFeeds() error {
 		{"Spamhaus DROP", "https://www.spamhaus.org/drop/drop.txt", "block", 3600, true},
 		{"Tor exit nodes", "https://check.torproject.org/torbulkexitlist", "challenge", 3600, true},
 		{"FireHOL level 2", "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level2.netset", "block", 1800, false},
-		{"Spamhaus EDROP", "https://www.spamhaus.org/drop/edrop.txt", "block", 3600, false},
 		{"Feodo Tracker C2", "https://feodotracker.abuse.ch/downloads/ipblocklist.txt", "block", 1800, false},
-		{"URLhaus hosts", "https://urlhaus.abuse.ch/downloads/text/", "block", 1800, false},
 		{"ET compromised", "https://rules.emergingthreats.net/blockrules/compromised-ips.txt", "block", 3600, false},
 		{"DShield scanners", "https://feeds.dshield.org/block.txt", "block", 1800, false},
 	}
@@ -329,6 +327,12 @@ func (s *Store) seedFeeds() error {
 			ON CONFLICT(name) DO NOTHING`, b.name, b.url, b.action, b.interval, b2i(b.enabled)); err != nil {
 			return err
 		}
+	}
+	// EDROP was folded into DROP (the feed file is now a header-only stub) and
+	// URLhaus needs an Auth-Key, so its public export answers 410 Gone. Drop the
+	// rows older releases seeded; a custom feed with the same name is kept.
+	if _, err := s.db.Exec(`DELETE FROM feeds WHERE builtin = 1 AND name IN ('Spamhaus EDROP', 'URLhaus hosts')`); err != nil {
+		return err
 	}
 	return nil
 }

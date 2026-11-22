@@ -229,10 +229,6 @@ func consoleStatusFromRows(rows map[string]string) (state, detail string) {
 	return "unknown", detail
 }
 
-func parseConsoleStatus(out string) (state, detail string) {
-	return consoleStatusFromRows(parseConsoleRows(out))
-}
-
 // rowValue returns the first non-empty value among the given labels.
 func rowValue(rows map[string]string, labels ...string) string {
 	for _, label := range labels {
