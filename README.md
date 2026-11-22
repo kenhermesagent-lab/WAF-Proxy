@@ -628,7 +628,9 @@ enabled. The probe state is kept in memory and resets when the service restarts.
 
 ## Security model and limitations
 
-These are deliberate design decisions, not gaps to discover later:
+These are deliberate design decisions, not gaps to discover later. For reporting a vulnerability
+and for how quickly a fix is expected, see [SECURITY.md](SECURITY.md) — please do not open a
+public issue for a security problem.
 
 - **The console is LAN-only and plain HTTP.** Keep the GUI port firewalled from the WAN; the
   session cookie is only marked `Secure` when the console is served over TLS. Do not port
@@ -698,6 +700,8 @@ container image build.
 
 ## Documentation
 
+- [SECURITY.md](SECURITY.md) — supported versions, private vulnerability reporting, what the
+  next review covers
 - [docs/INSTALL.md](docs/INSTALL.md) — full deployment walkthrough, router/DNS, streaming,
   upgrades, uninstall
 - [docs/MCP.md](docs/MCP.md) — agent gateway, tool reference, containment playbook

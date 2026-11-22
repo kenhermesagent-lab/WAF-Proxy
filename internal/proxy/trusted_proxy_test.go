@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -69,5 +70,26 @@ func TestInflightBudgetSheds(t *testing.T) {
 	s.release()
 	if inflight, _, _ := s.Capacity(); inflight != 1 {
 		t.Fatalf("inflight = %d after release, want 1", inflight)
+	}
+}
+
+// A request past the budget is refused at the door, with a retry hint, instead
+// of being buffered behind the slow ones.
+func TestShedRequestGets503(t *testing.T) {
+	s := &Server{}
+	s.SetMaxInflight(1)
+	s.inflight <- struct{}{} // the budget is already taken
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Fatal("a refused request carries no Retry-After")
+	}
+	if _, _, shed := s.Capacity(); shed != 1 {
+		t.Fatalf("shed counter = %d, want 1", shed)
 	}
 }

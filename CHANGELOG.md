@@ -11,6 +11,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.16.1] — 2026-11-22
+
+### Added
+
+- **A security policy.** [SECURITY.md](SECURITY.md) documents the supported versions, the private
+  reporting route (GitHub security advisories), what a report should contain, the acknowledgement
+  and fix targets, the disclosure deadline, what is in and out of scope, and the scope of the next
+  review. The README links it from the documentation list and from the security section, and says
+  plainly not to open a public issue for a vulnerability.
+- **A fronting-proxy integration test.** `internal/proxy/fronting_proxy_test.go` puts a real HTTP
+  proxy in front of the request pipeline with `WAFPROXY_TRUSTED_PROXIES` set through the actual
+  configuration loader, and proves the address that proxy names is the one the access profile, the
+  ban engine, the access log and the upstream see. It also proves a hop outside the allowlist is
+  still overwritten: a ban on the header's value does not touch the sender, and a ban on the sender
+  does.
+- **A request-budget regression test.** `TestShedRequestGets503` covers the refusal path (status,
+  `Retry-After`, counter). Under load with `WAFPROXY_MAX_INFLIGHT=8` and a two-second upstream, 40
+  concurrent requests produced exactly 8 responses and 32 refusals, resident memory moved by
+  204 kB, and `/api/metrics` reported `inflight 0`, `max_inflight 8`, `shed 32`.
+
 ## [1.16.0] — 2026-11-22
 
 Findings from a security review of 1.14.0, fixed. None of them was a pre-authentication remote
