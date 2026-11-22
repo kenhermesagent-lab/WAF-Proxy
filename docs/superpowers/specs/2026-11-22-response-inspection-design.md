@@ -8,8 +8,9 @@ Design for roadmap item **2**, written for approval before implementation. Decis
 Every check today looks at the request. A compromised or buggy upstream can still send a response
 that carries an attack to the visitor's browser — a reflected XSS payload, a script tag from a
 tampered template, an SQL error page that leaks the query — and the proxy forwards it untouched.
-The CRS response rules (941xxx XSS, 951xxx SQL errors, 920xxx protocol) already exist in the
-embedded rule set; nothing runs them.
+The CRS response rules (950–958 data leakage, plus the 959 outbound anomaly evaluation) already
+exist in the embedded rule set; nothing runs them. They cover leaky error pages, not reflected XSS —
+the XSS rules are request-phase only.
 
 ## What exists (checked)
 
@@ -91,7 +92,10 @@ It opens one transaction, calls `ProcessResponseHeaders`, writes and processes t
 and returns the best rule plus the full match list, reusing the same severity/aggregator/exceptions
 logic as `InspectAll`. Exceptions already compiled as `SecRuleRemoveById` apply unchanged. The
 transaction is separate from the request one: response rules only read `RESPONSE_*` variables, so a
-second transaction is correct and keeps request latency unchanged.
+second transaction is correct and keeps request latency unchanged. A transaction that starts at the
+response phase never runs the CRS setup, so `compile` also sets the blocking/detection paranoia
+levels, the outbound threshold and the anomaly score weights in a phase-3 `SecAction`; without them
+the 959 outbound evaluation lets everything through.
 
 Anomaly mode is honoured: in `flag` the rule is reported as a log; in `block` the response is
 refused. A profile `mode: detect` still forwards but logs.

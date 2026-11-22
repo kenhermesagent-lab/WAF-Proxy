@@ -13,6 +13,7 @@ import (
 
 	coreruleset "github.com/corazawaf/coraza-coreruleset/v4"
 	"github.com/corazawaf/coraza/v3"
+	"github.com/corazawaf/coraza/v3/types"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/norm"
 )
@@ -139,6 +140,9 @@ func compile(p model.Profile) (*Engine, error) {
 		exceptions[id] = true
 		remove = append(remove, strconv.Itoa(id))
 	}
+	// A transaction that starts at the response phase never runs the CRS setup,
+	// so the phase-3 action restores the thresholds and scores the request
+	// phase would have set.
 	directives := fmt.Sprintf(`Include @coraza.conf-recommended
 Include @crs-setup.conf.example
 Include @owasp_crs/*.conf
@@ -150,7 +154,8 @@ SecRequestBodyNoFilesLimit %d
 SecAction "id:9001001,phase:1,nolog,pass,t:none,setvar:tx.blocking_paranoia_level=%d"
 SecAction "id:9001002,phase:1,nolog,pass,t:none,setvar:tx.detection_paranoia_level=%d"
 SecAction "id:9001003,phase:1,nolog,pass,t:none,setvar:tx.inbound_anomaly_score_threshold=%d"
-`, maxBody, maxBody, maxBody, paranoia, paranoia, threshold)
+SecAction "id:9001004,phase:3,nolog,pass,t:none,setvar:tx.blocking_paranoia_level=%d,setvar:tx.detection_paranoia_level=%d,setvar:tx.outbound_anomaly_score_threshold=%d,setvar:tx.critical_anomaly_score=5,setvar:tx.error_anomaly_score=4,setvar:tx.warning_anomaly_score=3,setvar:tx.notice_anomaly_score=2"
+`, maxBody, maxBody, maxBody, paranoia, paranoia, threshold, paranoia, paranoia, threshold)
 	if len(remove) > 0 {
 		directives += "SecRuleRemoveById " + strings.Join(remove, " ") + "\n"
 	}
@@ -268,7 +273,59 @@ func (e *Engine) InspectAll(r *http.Request, body []byte, clientIP netip.Addr) (
 		return res, nil
 	}
 
-	matched := tx.MatchedRules()
+	return e.summarise(res, tx.MatchedRules(), tx.IsInterrupted(), tx.Interruption())
+}
+
+// ResponseInput is one upstream response handed to the response rules.
+type ResponseInput struct {
+	Status int
+	Proto  string
+	Header http.Header
+	Body   []byte
+}
+
+// InspectResponse runs the CRS response phases. It reports the same shape as
+// InspectAll so the proxy can log a response verdict like a request one.
+func (e *Engine) InspectResponse(in ResponseInput) (res Result, matches []Match) {
+	if e == nil || e.waf == nil {
+		return res, nil
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			res = Result{Matched: true, Blocked: true, RuleID: 200007,
+				Message: "response inspection failed", Label: "protocol-violation"}
+			matches = nil
+		}
+	}()
+	if in.Status == 0 {
+		in.Status = http.StatusOK
+	}
+	if in.Proto == "" {
+		in.Proto = "HTTP/1.1"
+	}
+
+	tx := e.waf.NewTransaction()
+	defer tx.Close()
+	for k, vals := range in.Header {
+		for _, v := range vals {
+			tx.AddResponseHeader(k, v)
+		}
+	}
+	tx.ProcessResponseHeaders(in.Status, in.Proto)
+	if _, _, err := tx.WriteResponseBody(in.Body); err != nil {
+		return Result{Matched: true, Blocked: true, RuleID: 200008, ProfileID: e.id, Paranoia: e.paranoia,
+			Message: "response body rejected by the WAF body limit", Label: "protocol-violation"}, nil
+	}
+	if _, err := tx.ProcessResponseBody(); err != nil {
+		return Result{Matched: true, Blocked: true, RuleID: 200009, ProfileID: e.id, Paranoia: e.paranoia,
+			Message: "response body could not be inspected", Label: "protocol-violation"}, nil
+	}
+	return e.summarise(res, tx.MatchedRules(), tx.IsInterrupted(), tx.Interruption())
+}
+
+// summarise turns the transaction's matched rules into the verdict both the
+// request and the response path report.
+func (e *Engine) summarise(res Result, matched []types.MatchedRule, interrupted bool, interruption *types.Interruption) (Result, []Match) {
 	bestID, bestMsg, bestSeverity := 0, "", 999
 	excepted := 0
 	blockedByRule := false
@@ -302,9 +359,6 @@ func (e *Engine) InspectAll(r *http.Request, body []byte, clientIP netip.Addr) (
 			blockedByRule = true
 		}
 	}
-	interrupted := tx.IsInterrupted()
-	interruption := tx.Interruption()
-
 	// Setup actions (the paranoia and threshold SecActions) match on every
 	// request. Counting them would make every clean request look like a hit and
 	// the policy layer would log it as a WAF event.
