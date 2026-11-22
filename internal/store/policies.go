@@ -33,6 +33,27 @@ func (s *Store) ListPolicies() ([]model.Policy, error) {
 	return out, rows.Err()
 }
 
+// GetPolicy loads one policy.
+func (s *Store) GetPolicy(id int64) (*model.Policy, error) {
+	var p model.Policy
+	var proxyID sql.NullInt64
+	var enabled int
+	err := s.db.QueryRow(`SELECT id, scope, proxy_id, kind, value, action, priority, enabled, note
+		FROM policies WHERE id = ?`, id).
+		Scan(&p.ID, &p.Scope, &proxyID, &p.Kind, &p.Value, &p.Action, &p.Priority, &enabled, &p.Note)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if proxyID.Valid {
+		p.ProxyID = &proxyID.Int64
+	}
+	p.Enabled = i2b(enabled)
+	return &p, nil
+}
+
 // CreatePolicy inserts a policy.
 func (s *Store) CreatePolicy(p *model.Policy) (int64, error) {
 	if p.Priority == 0 {

@@ -404,12 +404,17 @@ func (s *Server) revokeGate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// A server built without the runtime engines (unit tests) has nothing to reload.
 func (s *Server) reload(ctx context.Context) {
-	if err := s.policy.Reload(); err != nil {
-		s.log.Error("reload policies", "err", err)
+	if s.policy != nil {
+		if err := s.policy.Reload(); err != nil {
+			s.log.Error("reload policies", "err", err)
+		}
 	}
-	if err := s.proxy.Reload(ctx); err != nil {
-		s.log.Error("reload proxy routes", "err", err)
+	if s.proxy != nil {
+		if err := s.proxy.Reload(ctx); err != nil {
+			s.log.Error("reload proxy routes", "err", err)
+		}
 	}
 }
 
@@ -640,12 +645,43 @@ func (s *Server) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	var in model.Policy
-	if err := decode(r, &in); err != nil {
+	// enabled and priority are optional on update: an omitted field keeps the
+	// stored value instead of silently switching the list off or resetting it.
+	var body struct {
+		Scope    string `json:"scope"`
+		ProxyID  *int64 `json:"proxy_id"`
+		Kind     string `json:"kind"`
+		Value    string `json:"value"`
+		Action   string `json:"action"`
+		Priority *int   `json:"priority"`
+		Enabled  *bool  `json:"enabled"`
+		Note     string `json:"note"`
+	}
+	if err := decode(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	in.ID = id
+	current, err := s.st.GetPolicy(id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	in := *current
+	in.Scope, in.ProxyID, in.Kind = body.Scope, body.ProxyID, body.Kind
+	in.Value, in.Action, in.Note = body.Value, body.Action, body.Note
+	if body.Priority != nil {
+		in.Priority = *body.Priority
+	}
+	if body.Enabled != nil {
+		in.Enabled = *body.Enabled
+	}
+	if in.Scope == "" {
+		in.Scope = "global"
+	}
 	if !policyKinds[in.Kind] {
 		writeError(w, http.StatusBadRequest, "unknown policy kind")
 		return
@@ -653,9 +689,6 @@ func (s *Server) updatePolicy(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(in.Value) == "" {
 		writeError(w, http.StatusBadRequest, "value is required")
 		return
-	}
-	if in.Scope == "" {
-		in.Scope = "global"
 	}
 	if in.Scope == "proxy" && in.ProxyID == nil {
 		writeError(w, http.StatusBadRequest, "proxy scope requires proxy_id")

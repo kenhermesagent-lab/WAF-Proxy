@@ -78,24 +78,29 @@ export default function AccessProfiles({
     }
   };
 
-  const ruleFor = (a: AccessProfile, id: number) => a.rules.find((r) => r.policy_id === id);
+  // A profile stored by an older build can carry no rules at all; treat that as
+  // an empty list instead of failing the render.
+  const rulesOf = (a: AccessProfile) => a.rules ?? [];
+
+  const ruleFor = (a: AccessProfile, id: number) => rulesOf(a).find((r) => r.policy_id === id);
 
   const setRole = (id: number, role: AccessRule["role"]) => {
     if (!draft) return;
-    const exists = draft.rules.some((r) => r.policy_id === id);
+    const current = rulesOf(draft);
+    const exists = current.some((r) => r.policy_id === id);
     const rules = exists
-      ? draft.rules.map((r) => (r.policy_id === id ? { ...r, role } : r))
-      : [...draft.rules, { policy_id: id, role }];
+      ? current.map((r) => (r.policy_id === id ? { ...r, role } : r))
+      : [...current, { policy_id: id, role }];
     setDraft({ ...draft, rules });
   };
 
   const clear = (id: number) => {
     if (!draft) return;
-    setDraft({ ...draft, rules: draft.rules.filter((r) => r.policy_id !== id) });
+    setDraft({ ...draft, rules: rulesOf(draft).filter((r) => r.policy_id !== id) });
   };
 
   const describe = (a: AccessProfile) =>
-    a.rules
+    rulesOf(a)
       .map((r) => {
         const p = policies.find((x) => x.id === r.policy_id);
         if (!p) return null;
@@ -133,7 +138,7 @@ export default function AccessProfiles({
             </thead>
             <tbody>
               {list.map((a) => {
-                const missing = a.rules.filter((r) => !policies.some((p) => p.id === r.policy_id)).length;
+                const missing = rulesOf(a).filter((r) => !policies.some((p) => p.id === r.policy_id)).length;
                 return (
                   <tr key={a.id}>
                     <td style={{ whiteSpace: "nowrap" }}>{a.name}</td>
@@ -164,11 +169,18 @@ export default function AccessProfiles({
 
       {draft && (
         <Modal title={draft.id === 0 ? "New access profile" : `Edit ${draft.name}`} onClose={() => setDraft(null)}>
-          {draft.id === 0 && (
-            <Field label="Profile name">
-              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Office only" autoFocus />
-            </Field>
-          )}
+          <Field label="Profile name">
+            <input
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              placeholder="Office only"
+              autoFocus
+              // The name is fixed once created so the proxies pointing at it keep
+              // a label an operator recognises; showing it disabled beats
+              // accepting an edit that the server would quietly drop.
+              disabled={draft.id !== 0}
+            />
+          </Field>
 
           <Field label="Lists">
             {policies.length === 0 ? (

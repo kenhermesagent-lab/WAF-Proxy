@@ -120,11 +120,18 @@ export default function ProtectionProfiles({ onError, onOK }: { onError: (m: str
 
       {draft && (
         <Modal title={draft.id === 0 ? "New protection profile" : `Edit ${draft.name}`} onClose={() => setDraft(null)}>
-          {draft.id === 0 && (
-            <Field label="Profile name">
-              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Internal apps" autoFocus />
-            </Field>
-          )}
+          <Field label="Profile name">
+            <input
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              placeholder="Internal apps"
+              autoFocus
+              // The name is fixed once created so the proxies pointing at it keep
+              // a label an operator recognises; showing it disabled beats
+              // accepting an edit that the server would quietly drop.
+              disabled={draft.id !== 0}
+            />
+          </Field>
           <div className="grid cols-2">
             <label className="row" style={{ margin: 0, gap: 6, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
               <input type="checkbox" style={{ width: "auto" }} checked={draft.force_https} onChange={(e) => setDraft({ ...draft, force_https: e.target.checked })} />

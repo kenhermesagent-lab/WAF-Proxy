@@ -125,6 +125,8 @@ func scanAccessProfile(row interface{ Scan(...any) error }) (*model.AccessProfil
 		return nil, err
 	}
 	roleList := strings.Split(roles, ",")
+	// Always a list: the console renders it and JSON null would break the page.
+	a.Rules = []model.AccessRule{}
 	for i, id := range parseIDList(ids) {
 		role := model.AccessRoleInherit
 		if i < len(roleList) {

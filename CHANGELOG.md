@@ -11,6 +11,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.14.1] — 2026-11-22
+
+### Fixed
+
+- **The Access profiles tab no longer blanks the console.** A profile saved with no lists came
+  back from the API as `rules: null`, which the page tried to map and crashed on, taking the
+  whole interface with it; lists are now always a JSON array and the page also tolerates rows
+  written by earlier builds. A page that still throws shows an error card instead of an empty
+  console, and navigating away clears it.
+- **Editing a profile no longer pretends its name is editable.** Both profile dialogs offered a
+  name field that the server ignores once the profile exists; the field is now read-only for an
+  existing profile. The lists, WAF profile and protection profile remain editable.
+- **Updating a list over the API keeps fields the request leaves out.** `PUT /api/policies/{id}`
+  reset `priority` to `0` and switched `enabled` off when the body omitted them, so a partial
+  update silently disabled the list. Both fields now keep their stored value unless the request
+  sets them.
+- **The Policies tab bar wraps.** Seven tabs overflowed a 1440-wide console and forced the whole
+  page to scroll sideways.
+
 ## [1.14.0] — 2026-11-22
 
 ### Changed

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { api, setCSRF } from "./api";
 import { errText } from "./ui";
+import PageBoundary from "./components/PageBoundary";
 import { Me, SetupStatus } from "./types";
 import { NAV, NAV_GROUPS, NAV_UTILITY, pageFromHash, type NavItem } from "./nav";
 import Dashboard from "./pages/Dashboard";
@@ -204,6 +205,7 @@ export default function App() {
           {me?.base_domain && <span className="badge info">{me.base_domain}</span>}
         </div>
         <div className="content">
+          <PageBoundary page={page}>
           {page === "dashboard" && <Dashboard onError={notify} home={home} />}
           {page === "statistics" && <Statistics onError={notify} />}
           {page === "proxies" && <Proxies onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
@@ -228,6 +230,7 @@ export default function App() {
               onSignedOut={() => { setCSRF(""); setMe(null); setPhase("login"); }}
             />
           )}
+          </PageBoundary>
         </div>
       </main>
       {toast && (

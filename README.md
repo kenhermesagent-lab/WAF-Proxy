@@ -89,6 +89,11 @@ controls and is responsive down to a phone.
 
 *Sample data: the built-in CRS profiles on a test deployment.*
 
+![Access profiles](docs/screenshots/access-profiles.png)
+
+*Sample data: two access profiles. Each row shows the lists it carries and the protection it
+applies; editing a site only asks which of these it should use.*
+
 ## How a request is handled
 
 ```
