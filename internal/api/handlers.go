@@ -957,8 +957,8 @@ func (s *Server) bulkBans(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "too many bans in one request")
 		return
 	}
-	if in.Action != "permanent" && in.Action != "remove" {
-		writeError(w, http.StatusBadRequest, "action must be permanent or remove")
+	if in.Action != "permanent" && in.Action != "temp" && in.Action != "remove" {
+		writeError(w, http.StatusBadRequest, "action must be permanent, temp or remove")
 		return
 	}
 
@@ -978,7 +978,8 @@ func (s *Server) bulkBans(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "database error")
 			return
 		}
-		if in.Action == "permanent" {
+		switch in.Action {
+		case "permanent":
 			if b.Permanent {
 				skipped++
 				continue
@@ -987,9 +988,22 @@ func (s *Server) bulkBans(w http.ResponseWriter, r *http.Request) {
 				skipped++
 				continue
 			}
-		} else if err := s.bans.Remove(b.CIDR); err != nil {
-			skipped++
-			continue
+		case "temp":
+			// A permanent ban moved back is a 24-hour cool-down, the longest a
+			// temporary ban can be; the row keeps its reason and history.
+			if !b.Permanent {
+				skipped++
+				continue
+			}
+			if err := s.bans.Demote(b.CIDR, ban.MaxTempTTL); err != nil {
+				skipped++
+				continue
+			}
+		case "remove":
+			if err := s.bans.Remove(b.CIDR); err != nil {
+				skipped++
+				continue
+			}
 		}
 		updated++
 	}

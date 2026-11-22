@@ -41,11 +41,11 @@ sample traffic, not production figures.***
 | Feature | Behaviour |
 |---|---|
 | **OWASP CRS WAF** | Coraza v3 with the embedded Core Rule Set. Five profiles (Generic Web, WordPress, API-only, Static/CDN, Admin panel), paranoia level 1–4, anomaly thresholds, per-profile method allowlists, body and response ceilings, per-path login throttling, admin-path allowlists and per-rule exceptions — all editable from **Policies → WAF profiles**, and filled in from an application preset when a site is created. Each site can inherit its profile, or override with `block`, `detect` or `off`, and admins can add and delete their own profiles. |
-| **Ban engine** | Temporary bans last at most **24 hours** and are deleted when they expire, so the list only ever holds recent cool-downs. Permanent bans are absolute — no whitelist lifts them — and **Policies → Permanent** can roll them into one local threat list (`<data>/feeds/permanent-bans.txt`), which stays enforced while the ban rows are cleared. A roll-up only deletes rows after the new list has loaded and reports every expected entry, so a failed load can never leave an address unblocked. Enforced in the kernel with nftables (IPv4 + IPv6); tick any number of rows to promote or lift them together, or use the `unban` CLI. |
+| **Ban engine** | Temporary bans last at most **24 hours** and are deleted when they expire, so the list only ever holds recent cool-downs. Permanent bans are absolute — no whitelist lifts them — and **Policies → Bans → Roll up** can fold them into one local threat list (`<data>/feeds/permanent-bans.txt`), which stays enforced while the ban rows are cleared. A roll-up only deletes rows after the new list has loaded and reports every expected entry, so a failed load can never leave an address unblocked. **Policies → Bans** shows the newest ten temporary and ten permanent bans, searches both lists at once, and opens a two-pane view for the full list where addresses can be dragged between temporary and permanent (or ticked and moved), moved back to a fresh 24-hour ban, or lifted. Enforced in the kernel with nftables (IPv4 + IPv6), or use the `unban` CLI. |
 | **Anomaly detection** | Per-proxy baselines over the last hour of one-minute windows drive three detectors: **egress byte spike** (outbound data far above the site's own median, the exfiltration signal), **request-rate spike** and **login-failure burst**. Detections are stored as events, raise their own notification classes, are visible on **Anomaly events**, reach an attached agent by webhook, and can be acknowledged. Thresholds are tunable on the same page. |
 | **Rate limiting** | Global per-IP request rate with burst, plus per-scope `rate_limit` policies (`rps/burst`) that can be global or attached to one site. |
 | **Country / ASN policy** | Allow and block lists by ISO country code and by ASN, using MaxMind GeoLite2 or DB-IP Lite databases. The country picker lists every ISO code, and a country allow list is exclusive: countries not on it are blocked unless the source matches an explicit IP allow list. **Settings → GeoIP database** can download and install the DB-IP Lite city and ASN files, validate them and reload without a restart. Once a database is installed it refreshes **daily** unless the automatic-update box is cleared; the **Update database** button still runs a refresh on demand. Without a database the stages report “unavailable” instead of silently allowing traffic. |
-| **Threat feeds** | Seven built-in lists (FireHOL 1/2, Spamhaus DROP, Tor exits, Feodo C2, ET compromised, DShield), your own HTTP(S) feeds, and uploaded `.txt`/`.csv` local lists. ETag/If-Modified-Since caching, CIDR de-duplication, a 5× growth freeze and last-good retention so a broken upstream cannot empty the table. Local uploads are always global blocks. |
+| **Threat feeds** | Fifteen built-in lists — FireHOL 1/2, Spamhaus DROP, Tor exits, Feodo C2, ET compromised, DShield, plus eight keyless lists that start disabled (Blocklist.de, GreenSnow, Binary Defense, CINS Army, BruteForceBlocker, IPSum level 3, Spamhaus DROP IPv6, ET firewall) — your own HTTP(S) feeds, and uploaded `.txt`/`.csv` local lists. Change a feed's action (block, challenge, log only) from its row. ETag/If-Modified-Since caching, CIDR de-duplication, a 5× growth freeze and last-good retention so a broken upstream cannot empty the table. Local uploads are always global blocks. |
 | **CrowdSec** | A dedicated **CrowdSec** page configures the LAPI bouncer, tests the key, shows poll status and links the Docker sidecar or native Security Engine setup. Decisions are applied as local bans and removals are honoured. |
 | **Bot challenge** | JavaScript proof-of-work challenge with four levels, a 24-hour cookie and auto-ban after repeated failures. |
 | **Bot filter** | **Policies → Bot filter** refuses automation by user agent before the challenge runs. Two modes: known scrapers (SEO, marketing and AI-training crawlers) or scrapers plus any declared bot and empty user agent. Search engines, link previews and an editable always-allow list are never caught. Refusals are logged as a `bot-filter` stage. |
@@ -63,7 +63,7 @@ sample traffic, not production figures.***
 | **Streaming forwarders** | Transparent TCP relays for **Plex** and **Jellyfin** on their own WAN ports, with a source allowlist (one or more IPs/CIDRs, comma separated, empty = any) and the same named blocklists and whitelists a proxied site attaches — block first, whitelist exclusive. Connection cap, banned-source refusal that also cuts running streams, and live counters. |
 | **Maintenance mode** | Per-site switch that answers with a maintenance response instead of the backend. |
 | **Named blocklists and whitelists** | Reusable lists under **Policies → Blocklist profiles** and **Whitelist profiles**. Each holds IPs/CIDRs (pasted one per line) and countries picked from a searchable list. Attach any number to an **Access profile**: a blocklist refuses its addresses and countries on those sites, and a whitelist makes the site reachable only from what it names. A blocklist attached to the same profile wins over a whitelist. |
-| **Access profiles** | One named profile per host holds everything the site's policy needs: named blocklists and whitelists, lists from **Countries, IPs, ASN** marked *allow only these* or *block these*, plus the WAF and protection profiles it uses. Creating or editing a proxy asks for one selection. A host profile stacks on the global lists: an allow list narrows that site to the addresses and countries it names, a block list drops them even when a global allow list names them, so one site can be stricter than the global setting and another wider. |
+| **Access profiles** | One named profile per host holds everything the site's policy needs: named blocklists and whitelists, lists from **Global Profile** marked *allow only these* or *block these*, plus the WAF and protection profiles it uses. Creating or editing a proxy asks for one selection. A host profile stacks on the global lists: an allow list narrows that site to the addresses and countries it names, a block list drops them even when a global allow list names them, so one site can be stricter than the global setting and another wider. |
 
 ### Operations
 
@@ -466,9 +466,12 @@ accepted.
 
 ### Application presets
 
-**Proxies → New proxy → Application preset** offers a starting configuration for Nextcloud,
-Jellyfin, Plex, Home Assistant, Proxmox VE and a generic application. Choosing one creates an
-ordinary WAF profile for that hostname and selects it; nothing is hidden:
+**Proxies → New proxy → Application preset** offers a starting configuration for nineteen
+applications: Nextcloud, Jellyfin, Plex, Home Assistant, Proxmox VE, Vaultwarden, Gitea/Forgejo,
+Paperless-ngx, Grafana, Uptime Kuma, Mealie, Navidrome, PhotoPrism, Syncthing, n8n, BookStack,
+Cal.com, the *arr suite, and a generic baseline. Choosing one creates an ordinary WAF profile for
+that hostname and selects it, and the dialog lists that preset's guidance notes (upload ceilings,
+streamed responses, WebSockets, admin areas, ports that are not proxied). Nothing is hidden:
 
 | Setting | What the preset fills in |
 |---|---|
@@ -478,6 +481,19 @@ ordinary WAF profile for that hostname and selects it; nothing is hidden:
 | Login paths and rate | The paths that take credentials, and the per-client rate they are limited to |
 | Admin paths and allowlist | Paths meant for the operator's network, and the CIDRs allowed to reach them |
 | CRS exceptions | Rule IDs this application is commonly a false positive for |
+
+### Global Profile
+
+**Policies → Global Profile** holds the rules applied to every proxy: IP/Subnet and country
+allow or block policies, ASN blocks, decoy paths, rate limits, and the named whitelist and
+blocklist profiles you tick to apply globally. Each policy names one type and an Allow/Block
+action; an explicit block beats an allow, and a country allow list is exclusive. A global
+whitelist profile is checked before the global blocklists, so an address on both is allowed. A
+host's own access-profile lists stay narrower than this and still decide for that host.
+
+**ASN recommendations** under the same tab adds a known hosting/cloud or VPN network as an
+ordinary, editable ASN policy. They are starting points: verify them, and remember that
+blocking a hosting ASN also blocks legitimate sites hosted there.
 
 Everything is a suggestion: edit the profile afterwards under **Policies → WAF profiles**, and check
 the CRS exceptions in `Detect only` mode before trusting them. The admin allowlist starts at the
@@ -633,7 +649,7 @@ After either update, confirm the version in the console footer or
 
 | Task | How |
 |---|---|
-| Lift a ban | **Policies → Temp bans / Permanent → Unban**, or `docker exec wafproxy unban 203.0.113.7` (takes effect within 30 s) |
+| Lift a ban | **Policies → Bans** (search the address, then Remove, or open the full list), or `docker exec wafproxy unban 203.0.113.7` (takes effect within 30 s) |
 | Change an address or port | **Settings**, then restart the container |
 | Tune the WAF | **Policies → WAF profiles** → edit paranoia, anomaly threshold, methods, body and response ceilings, login rate, admin paths or rule exceptions |
 | Back up | **Settings → Download JSON** (secrets excluded) |

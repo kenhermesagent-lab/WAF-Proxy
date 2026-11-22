@@ -11,6 +11,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.21.0] — 2026-11-22
+
+### Added
+
+- **Thirteen more application presets.** Vaultwarden, Gitea/Forgejo, Paperless-ngx, Grafana,
+  Uptime Kuma, Mealie, Navidrome, PhotoPrism, Syncthing, n8n, BookStack, Cal.com and the *arr
+  suite join the existing six. Each carries guidance notes (upload ceilings, streamed responses,
+  WebSockets, admin areas, ports that are not proxied), now rendered in the **New proxy** dialog
+  under the preset summary.
+- **Eight keyless threat feeds.** Blocklist.de, GreenSnow, Binary Defense, CINS Army,
+  BruteForceBlocker, IPSum level 3, Spamhaus DROP IPv6 and the ET firewall list are seeded
+  disabled, so an upgrade never starts blocking new ranges on its own. Every non-local feed's
+  **Action** column is now a selector (block, challenge, log only); local uploads keep their fixed
+  block badge because the server already forces it.
+- **Policies → Global Profile.** The old *Countries, IPs, ASN* tab now owns everything applied to
+  every proxy. An IP policy is one **IP / Subnet** type with an Allow/Block action, so a single
+  address or a whole CIDR can be allowed or blocked globally. Existing Whitelist and Blocklist
+  profiles can be ticked to apply to every host, including hosts added later; a global whitelist
+  is checked before the global blocklists, while a site's own access-profile lists remain narrower
+  and still decide for that host. **ASN recommendations** adds a hosting/cloud or VPN network as an
+  ordinary, editable ASN policy.
+- **One Bans page.** Temporary and permanent bans share a single tab: the newest ten of each, a
+  search across both lists, and a full-list popup with temporary and permanent side by side.
+  Addresses can be dragged between them or ticked and moved, moved back to temporary (24 hours
+  from the move), or lifted. Roll-up into the local threat list is unchanged.
+
+### Changed
+
+- **Moving a ban no longer needs the individual endpoints.** The bulk bans call accepts
+  `action: "temp"` to demote a permanent ban back to a 24-hour temporary one, audited like the
+  other movements.
+
 ## [1.20.0] — 2026-11-22
 
 ### Added

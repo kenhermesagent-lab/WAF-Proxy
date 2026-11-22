@@ -256,4 +256,37 @@ func TestSeedFeedsRetiresDeadBuiltins(t *testing.T) {
 	if custom != 1 {
 		t.Errorf("custom URLhaus feed = %d, want 1 left alone", custom)
 	}
+
+	// The added keyless lists seed exactly once and stay disabled, so an
+	// upgrade never starts blocking new ranges on its own.
+	if err := st.seedFeeds(); err != nil {
+		t.Fatal(err)
+	}
+	feeds, err = st.ListFeeds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	added := map[string]bool{
+		"Blocklist.de attackers": true, "GreenSnow blocklist": true, "Binary Defense banlist": true,
+		"CINS Army": true, "BruteForceBlocker": true, "IPSum level 3": true,
+		"Spamhaus DROP IPv6": true, "ET firewall block list": true,
+	}
+	seen := map[string]int{}
+	for _, f := range feeds {
+		if !added[f.Name] {
+			continue
+		}
+		seen[f.Name]++
+		if !f.Builtin {
+			t.Errorf("%s is not marked built-in", f.Name)
+		}
+		if f.Enabled {
+			t.Errorf("%s is enabled by default", f.Name)
+		}
+	}
+	for name := range added {
+		if seen[name] != 1 {
+			t.Errorf("built-in feed %q seeded %d times, want 1", name, seen[name])
+		}
+	}
 }

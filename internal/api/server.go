@@ -191,6 +191,9 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/policies", s.authed(s.createPolicy))
 	m.HandleFunc("PUT /api/policies/{id}", s.authed(s.updatePolicy))
 	m.HandleFunc("DELETE /api/policies/{id}", s.authed(s.deletePolicy))
+	m.HandleFunc("GET /api/global-lists", s.authed(s.getGlobalLists))
+	m.HandleFunc("PUT /api/global-lists", s.authed(s.putGlobalLists))
+	m.HandleFunc("GET /api/asn-recommendations", s.authed(s.listASNRecommendations))
 
 	m.HandleFunc("GET /api/bans", s.authed(s.listBans))
 	m.HandleFunc("POST /api/bans", s.authed(s.createBan))

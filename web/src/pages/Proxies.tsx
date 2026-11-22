@@ -237,6 +237,11 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
                   {chosenPreset.exceptions && (
                     <div className="mono" style={{ fontSize: 11 }}>suppresses CRS {chosenPreset.exceptions}</div>
                   )}
+                  {chosenPreset.notes?.length > 0 && (
+                    <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 11 }}>
+                      {chosenPreset.notes.map((n) => <li key={n}>{n}</li>)}
+                    </ul>
+                  )}
                   <div>
                     Creates the WAF profile “{chosenPreset.name}
                     {draft.hostname ? ` (${draft.hostname})` : ""}”, editable under Policies → WAF profiles.

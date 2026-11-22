@@ -25,6 +25,9 @@ func TestPresetsAreConsistent(t *testing.T) {
 		if p.LoginPaths != "" && p.LoginRPS <= 0 {
 			t.Errorf("%s lists login paths without a rate", p.ID)
 		}
+		if len(p.Notes) == 0 {
+			t.Errorf("%s has no guidance notes for the dialog", p.ID)
+		}
 		for _, part := range strings.Split(p.AdminIPs, ",") {
 			part = strings.TrimSpace(part)
 			if part == "" {
@@ -39,6 +42,14 @@ func TestPresetsAreConsistent(t *testing.T) {
 	}
 	if _, ok := Get("generic"); !ok {
 		t.Error("the generic preset is missing")
+	}
+	for _, id := range []string{
+		"vaultwarden", "gitea", "paperless", "grafana", "uptime-kuma", "mealie", "navidrome",
+		"photoprism", "syncthing", "n8n", "bookstack", "calcom", "arr",
+	} {
+		if _, ok := Get(id); !ok {
+			t.Errorf("preset %q is missing", id)
+		}
 	}
 	if _, ok := Get("nope"); ok {
 		t.Error("Get accepted an unknown id")

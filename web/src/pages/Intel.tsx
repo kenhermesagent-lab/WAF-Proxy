@@ -54,6 +54,16 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
     }
   };
 
+  const setAction = async (f: Feed, action: string) => {
+    try {
+      await api.put(`/api/feeds/${f.id}`, { ...f, action });
+      onOK(`${f.name} now ${action === "log" ? "logs only" : action + "s"}`);
+    } catch (e) {
+      onError(errText(e));
+    }
+    load();
+  };
+
   const refresh = async (f: Feed) => {
     try {
       await api.post(`/api/feeds/${f.id}/refresh`);
@@ -282,7 +292,22 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
                         {f.local ? `Local upload · ${f.filename || "file"}` : f.url}
                       </div>
                     </td>
-                    <td><Badge tone={f.action === "block" ? "bad" : "info"}>{f.action}</Badge></td>
+                    <td>
+                      {f.local ? (
+                        <Badge tone="bad">block</Badge>
+                      ) : (
+                        <select
+                          value={f.action}
+                          aria-label={`Action for ${f.name}`}
+                          style={{ width: 118 }}
+                          onChange={(e) => setAction(f, e.target.value)}
+                        >
+                          <option value="block">block</option>
+                          <option value="challenge">challenge</option>
+                          <option value="log">log only</option>
+                        </select>
+                      )}
+                    </td>
                     <td className="num">{f.last_count.toLocaleString()}</td>
                     <td className="muted">{fmtAgo(f.last_fetch)}</td>
                     <td>

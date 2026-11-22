@@ -1,23 +1,172 @@
 import { useEffect, useState } from "react";
+import type { DragEvent } from "react";
 import { api } from "../api";
 import { COUNTRIES, countryFlag, countryName } from "../countries";
 import { Badge, Card, Empty, Field, Modal, errText, fmtAgo } from "../ui";
-import { Ban, Policy, Profile, Proxy } from "../types";
+import { ASNRecommendations, ASNSuggestion, Ban, GlobalLists, Policy, Profile, Proxy } from "../types";
 import AccessLists from "../components/AccessLists";
 import AccessProfiles from "../components/AccessProfiles";
 import AuthProviders from "../components/AuthProviders";
 import BotFilter from "../components/BotFilter";
 import ProtectionProfiles from "../components/ProtectionProfiles";
 
-const KINDS: Record<string, string> = {
-  ip_whitelist: "IP / CIDR allow list",
-  ip_blacklist: "IP / CIDR block list",
-  country_whitelist: "Allowed countries",
-  country_blacklist: "Blocked countries",
-  asn_block: "Blocked ASNs",
+// The console asks for a type and an action; the API stores them as one kind,
+// so an allow IP policy and a block IP policy keep their existing rows.
+const POLICY_TYPES: Record<string, string> = {
+  ip: "IP / Subnet",
+  country: "Country",
+  asn: "ASN",
   decoy: "Decoy paths (instant ban)",
   rate_limit: "Rate limit (rps/burst)",
 };
+
+const KIND_LABELS: Record<string, string> = {
+  ip_whitelist: "IP / Subnet",
+  ip_blacklist: "IP / Subnet",
+  country_whitelist: "Country",
+  country_blacklist: "Country",
+  asn_block: "ASN",
+  decoy: "Decoy paths",
+  rate_limit: "Rate limit",
+};
+
+function policyKind(type: string, action: string): string {
+  if (type === "ip") return action === "allow" ? "ip_whitelist" : "ip_blacklist";
+  if (type === "country") return action === "allow" ? "country_whitelist" : "country_blacklist";
+  return type;
+}
+
+const stamp = (iso?: string | null) => (iso ? iso.slice(0, 16).replace("T", " ") : "—");
+
+function banSummary(l: { ips: string; countries: string }): string {
+  const ips = l.ips ? l.ips.split(",").filter(Boolean).length : 0;
+  const countries = l.countries ? l.countries.split(",").filter(Boolean).length : 0;
+  return [ips ? `${ips} IP(s)` : "", countries ? `${countries} country(s)` : ""].filter(Boolean).join(" · ") || "empty";
+}
+
+// The full ban list, with both sides side by side so an address can be moved
+// between them or lifted outright.
+function BanMoveModal({
+  bans,
+  focus,
+  onClose,
+  onReload,
+  onError,
+  onOK,
+}: {
+  bans: Ban[];
+  focus: "temp" | "perm";
+  onClose: () => void;
+  onReload: () => void;
+  onError: (m: string) => void;
+  onOK: (m: string) => void;
+}) {
+  const [tempSel, setTempSel] = useState<number[]>([]);
+  const [permSel, setPermSel] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+  const temp = bans.filter((b) => !b.permanent);
+  const perm = bans.filter((b) => b.permanent);
+
+  const act = async (action: "permanent" | "temp" | "remove", ids: number[]) => {
+    if (ids.length === 0) return;
+    setBusy(true);
+    try {
+      const r = await api.post<{ updated: number; skipped: number }>("/api/bans/bulk", { ids, action });
+      const done = action === "permanent" ? "moved to permanent" : action === "temp" ? "moved back to temp" : "removed";
+      onOK(`${r.updated} ban(s) ${done}${r.skipped ? `, ${r.skipped} skipped` : ""}`);
+      setTempSel([]);
+      setPermSel([]);
+      onReload();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = (ids: number[], setIds: (ids: number[]) => void, id: number) =>
+    setIds(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+
+  const dropInto = (target: "permanent" | "temp") => (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const id = Number(e.dataTransfer.getData("text/plain"));
+    if (!id) return;
+    if (target === "permanent") act("permanent", tempSel.includes(id) ? tempSel : [id]);
+    else act("temp", permSel.includes(id) ? permSel : [id]);
+  };
+
+  const rows = (list: Ban[], selected: number[], setSelected: (ids: number[]) => void, permanent: boolean) => (
+    <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 9, padding: 6 }}>
+      {list.length === 0 ? (
+        <div className="muted" style={{ fontSize: 12, padding: 6 }}>Empty.</div>
+      ) : (
+        list.map((b) => (
+          <div
+            key={b.id}
+            draggable
+            onDragStart={(e) => e.dataTransfer.setData("text/plain", String(b.id))}
+            style={{ display: "flex", gap: 8, alignItems: "center", padding: "3px 4px", borderRadius: 6, cursor: "grab" }}
+            title="Drag onto the other box, or tick and use the buttons"
+          >
+            <input
+              type="checkbox"
+              style={{ width: "auto" }}
+              checked={selected.includes(b.id)}
+              onChange={() => toggle(selected, setSelected, b.id)}
+            />
+            <span className="mono" style={{ fontSize: 12 }}>{b.cidr}</span>
+            <span className="faint" style={{ fontSize: 11, marginLeft: "auto" }}>
+              {permanent ? stamp(b.created_at) : stamp(b.created_at)}
+            </span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+
+  return (
+    <Modal title="Bans" onClose={onClose}>
+      <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+        Drag an address into the other box, or tick several and use the buttons. A permanent ban lasts until it is
+        removed; moving one back to temporary gives it 24 hours from now.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div>
+          <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
+            Temporary ({temp.length}) {focus === "temp" && <Badge tone="info">current</Badge>}
+          </div>
+          <div onDragOver={(e) => e.preventDefault()} onDrop={dropInto("temp")}>
+            {rows(temp, tempSel, setTempSel, false)}
+          </div>
+        </div>
+        <div>
+          <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
+            Permanent ({perm.length}) {focus === "perm" && <Badge tone="bad">current</Badge>}
+          </div>
+          <div onDragOver={(e) => e.preventDefault()} onDrop={dropInto("permanent")}>
+            {rows(perm, permSel, setPermSel, true)}
+          </div>
+        </div>
+      </div>
+      <div className="row mt" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
+        <button disabled={busy || tempSel.length === 0} onClick={() => act("permanent", tempSel)}>
+          Make permanent ({tempSel.length})
+        </button>
+        <button disabled={busy || permSel.length === 0} onClick={() => act("temp", permSel)}>
+          Move back to temp ({permSel.length})
+        </button>
+        <button
+          className="danger"
+          disabled={busy || tempSel.length + permSel.length === 0}
+          onClick={() => act("remove", [...tempSel, ...permSel])}
+        >
+          Remove selected
+        </button>
+        <button onClick={onClose}>Close</button>
+      </div>
+    </Modal>
+  );
+}
 
 export default function Policies({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [tab, setTab] = useState("bans");
@@ -28,27 +177,36 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [kernel, setKernel] = useState<{ active: boolean; reason: string } | null>(null);
-  const [showAll, setShowAll] = useState(false);
-  const [selected, setSelected] = useState<number[]>([]);
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [rolling, setRolling] = useState(false);
   const [limited, setLimited] = useState(false);
+  const [rolling, setRolling] = useState(false);
+  const [banSearch, setBanSearch] = useState("");
+  const [banView, setBanView] = useState<"temp" | "perm" | null>(null);
+  const [globals, setGlobals] = useState<GlobalLists | null>(null);
+  const [asnRecs, setAsnRecs] = useState<ASNRecommendations | null>(null);
+  const [addingASN, setAddingASN] = useState("");
 
   const [ban, setBan] = useState({ cidr: "", reason: "", permanent: false, ttl_seconds: 86400 });
   const [pol, setPol] = useState({
-    kind: "country_blacklist",
+    type: "country",
     value: "",
     action: "block",
     scope: "global",
     proxy_id: "",
     note: "",
   });
-  const isCountry = pol.kind === "country_whitelist" || pol.kind === "country_blacklist";
+  const isCountry = pol.type === "country";
+  const needsAction = pol.type === "ip" || pol.type === "country";
+
+  const loadGlobals = () =>
+    api
+      .get<GlobalLists>("/api/global-lists")
+      .then(setGlobals)
+      .catch(() => undefined);
 
   const load = () => {
     api
       .get<{ bans: Ban[]; active: number; limited?: boolean; kernel: { active: boolean; reason: string } }>(
-        `/api/bans?all=${showAll ? 1 : 0}`,
+        "/api/bans?limit=1000",
       )
       .then((r) => {
         setBans(r.bans || []);
@@ -59,17 +217,13 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
     api.get<Policy[]>("/api/policies").then(setPolicies).catch((e) => onError(errText(e)));
     api.get<Proxy[]>("/api/proxies").then(setProxies).catch(() => undefined);
     api.get<Profile[]>("/api/profiles").then(setProfiles).catch(() => undefined);
+    api.get<ASNRecommendations>("/api/asn-recommendations").then(setAsnRecs).catch(() => undefined);
+    loadGlobals();
   };
 
   useEffect(() => {
     load();
-  }, [showAll]);
-
-  // A reload can remove rows (an expiry, a CrowdSec removal), and a selected id
-  // that no longer exists would be a silent no-op in the bulk request.
-  useEffect(() => {
-    setSelected((ids) => ids.filter((id) => bans.some((b) => b.id === id && !b.permanent)));
-  }, [bans]);
+  }, []);
 
   const addBan = async () => {
     try {
@@ -103,29 +257,21 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
     }
   };
 
-  const bulk = async (action: "permanent" | "remove") => {
-    if (selected.length === 0) return;
-    const label = action === "permanent" ? "Make permanently banned" : "Unban";
-    if (!confirm(`${label} ${selected.length} ban(s)?`)) return;
-    setBulkBusy(true);
+  const demote = async (b: Ban) => {
     try {
-      const r = await api.post<{ updated: number; skipped: number }>("/api/bans/bulk", {
-        ids: selected,
-        action,
-      });
-      onOK(`${r.updated} ban(s) ${action === "permanent" ? "made permanent" : "removed"}${r.skipped ? `, ${r.skipped} skipped` : ""}`);
-      setSelected([]);
+      await api.post("/api/bans/bulk", { ids: [b.id], action: "temp" });
+      onOK("Ban moved back to temporary (24 hours)");
       load();
     } catch (e) {
       onError(errText(e));
-    } finally {
-      setBulkBusy(false);
     }
   };
 
   // Permanent bans can be folded into one local threat list so this table does
   // not grow for the life of the install.
   const permBans = bans.filter((b) => b.permanent);
+  const tempBans = bans.filter((b) => !b.permanent);
+
   const rollup = async () => {
     if (!confirm(`Move ${permBans.length} permanent ban(s) into the local threat list? They leave this table and stay blocked through the list.`)) return;
     setRolling(true);
@@ -143,7 +289,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   const addPolicy = async () => {
     try {
       await api.post("/api/policies", {
-        kind: pol.kind,
+        kind: policyKind(pol.type, pol.action),
         value: pol.value,
         scope: pol.scope,
         proxy_id: pol.scope === "proxy" && pol.proxy_id ? Number(pol.proxy_id) : null,
@@ -156,6 +302,43 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       load();
     } catch (e) {
       onError(errText(e));
+    }
+  };
+
+  const toggleGlobal = async (kind: "whitelist" | "blocklist", id: number) => {
+    if (!globals) return;
+    const key = kind === "whitelist" ? "whitelist_ids" : "blocklist_ids";
+    const current = globals[key];
+    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+    try {
+      const r = await api.put<{ whitelist_ids: number[]; blocklist_ids: number[] }>("/api/global-lists", {
+        whitelist_ids: kind === "whitelist" ? next : globals.whitelist_ids,
+        blocklist_ids: kind === "blocklist" ? next : globals.blocklist_ids,
+      });
+      setGlobals({ ...globals, ...r });
+      onOK("Global profiles saved");
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
+
+  const addASN = async (suggestion: ASNSuggestion) => {
+    setAddingASN(suggestion.id);
+    try {
+      await api.post("/api/policies", {
+        kind: "asn_block",
+        value: suggestion.asns.join(","),
+        scope: "global",
+        action: "block",
+        note: suggestion.name,
+        enabled: true,
+      });
+      onOK(`${suggestion.name} ASNs blocked`);
+      load();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setAddingASN("");
     }
   };
 
@@ -227,16 +410,29 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
     admin_ips: "",
   });
 
-  const selectable = bans.filter((b) => !b.permanent);
-  const allSelected = selectable.length > 0 && selectable.every((b) => selected.includes(b.id));
+  const needle = banSearch.trim().toLowerCase();
+  const matches = needle
+    ? bans.filter((b) => b.cidr.toLowerCase().includes(needle) || b.reason.toLowerCase().includes(needle))
+    : [];
+  const whitelists = globals?.lists.filter((l) => l.kind === "whitelist") ?? [];
+  const blocklists = globals?.lists.filter((l) => l.kind === "blocklist") ?? [];
+  const valuePlaceholder =
+    pol.type === "ip"
+      ? "203.0.113.7 or 198.51.100.0/24"
+      : pol.type === "asn"
+        ? "16509, 8075"
+        : pol.type === "decoy"
+          ? "/.env, /wp-login.php"
+          : pol.type === "rate_limit"
+            ? "40/80"
+            : "Select a country…";
 
   return (
     <div className="grid" style={{ gap: 14 }}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div className="tabs" style={{ marginBottom: 0, borderBottom: 0 }}>
-          <button className={`tab ${tab === "bans" ? "active" : ""}`} onClick={() => setTab("bans")}>Temp bans</button>
-          <button className={`tab ${tab === "permanent" ? "active" : ""}`} onClick={() => setTab("permanent")}>Permanent</button>
-          <button className={`tab ${tab === "rules" ? "active" : ""}`} onClick={() => setTab("rules")}>Countries, IPs, ASN</button>
+          <button className={`tab ${tab === "bans" ? "active" : ""}`} onClick={() => setTab("bans")}>Bans</button>
+          <button className={`tab ${tab === "global" ? "active" : ""}`} onClick={() => setTab("global")}>Global Profile</button>
           <button className={`tab ${tab === "profiles" ? "active" : ""}`} onClick={() => setTab("profiles")}>WAF profiles</button>
           <button className={`tab ${tab === "protection" ? "active" : ""}`} onClick={() => setTab("protection")}>Protection profiles</button>
           <button className={`tab ${tab === "blocklists" ? "active" : ""}`} onClick={() => setTab("blocklists")}>Blocklist profiles</button>
@@ -254,6 +450,48 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
 
       {tab === "bans" && (
         <>
+          <Card title="Search bans">
+            <div className="row grow">
+              <Field label="IP, subnet or reason">
+                <input
+                  value={banSearch}
+                  onChange={(e) => setBanSearch(e.target.value)}
+                  placeholder="203.0.113.7"
+                  autoComplete="off"
+                />
+              </Field>
+            </div>
+            {needle === "" ? (
+              <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+                Search both lists at once. A match can be removed here, or moved between temporary and permanent.
+              </p>
+            ) : matches.length === 0 ? (
+              <Empty>No ban matches “{banSearch.trim()}”.</Empty>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+              <table>
+                <thead><tr><th>IP / CIDR</th><th>List</th><th>Reason</th><th>Created</th><th /></tr></thead>
+                <tbody>
+                  {matches.map((b) => (
+                    <tr key={b.id}>
+                      <td className="mono">{b.cidr}</td>
+                      <td><Badge tone={b.permanent ? "bad" : "warn"}>{b.permanent ? "permanent" : "temporary"}</Badge></td>
+                      <td>{b.reason}</td>
+                      <td className="muted">{fmtAgo(b.created_at)}</td>
+                      <td className="right" style={{ whiteSpace: "nowrap" }}>
+                        {b.permanent
+                          ? <button className="small" onClick={() => demote(b)}>Move to temp</button>
+                          : <button className="small" onClick={() => promote(b)}>Make permanent</button>}{" "}
+                        <button className="small danger" onClick={() => removeBan(b)}>Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            )}
+          </Card>
+
           <Card title="New ban">
             <div className="row grow">
               <Field label="IP or CIDR">
@@ -271,105 +509,84 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
               <button className="primary" style={{ marginTop: 18 }} onClick={addBan}>Ban</button>
             </div>
           </Card>
+
           <Card
-            title={`Active bans (${bans.length})`}
-            actions={
-              <label style={{ margin: 0, display: "flex", gap: 6, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
-                <input type="checkbox" style={{ width: "auto" }} checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> include expired
-              </label>
-            }
+            title={`Temp bans (${tempBans.length})`}
+            actions={<button className="small" onClick={() => setBanView("temp")}>View all / move</button>}
           >
-            {bans.length === 0 ? <Empty>No bans. Decoy hits and repeated failures add themselves here.</Empty> : (
+            {tempBans.length === 0 ? (
+              <Empty>No temporary bans. Decoy hits and repeated failures add themselves here.</Empty>
+            ) : (
               <>
                 <p className="muted" style={{ fontSize: 12 }}>
-                  Temporary bans last 24 hours and are deleted when they expire, so this list only ever holds recent
-                  cool-downs.{limited && " Showing the newest 200."}
+                  Temporary bans last 24 hours and are deleted when they expire; the newest 10 are shown here.
+                  {limited && " The list is capped at 1000 rows."}
                 </p>
-                {selected.length > 0 && (
-                  <div className="row" style={{ marginBottom: 10, alignItems: "center" }}>
-                    <span className="muted">{selected.length} selected</span>
-                    <button className="small" disabled={bulkBusy} onClick={() => bulk("permanent")}>Make permanently banned</button>
-                    <button className="small danger" disabled={bulkBusy} onClick={() => bulk("remove")}>Unban</button>
-                    <button className="small" disabled={bulkBusy} onClick={() => setSelected([])}>Clear</button>
-                  </div>
-                )}
+                <div style={{ overflowX: "auto" }}>
                 <table>
-                  <thead>
-                    <tr>
-                      <th style={{ width: 28 }}>
-                        <input
-                          type="checkbox"
-                          style={{ width: "auto" }}
-                          checked={allSelected}
-                          disabled={selectable.length === 0}
-                          title="Select every temporary ban"
-                          onChange={() => setSelected(allSelected ? [] : selectable.map((b) => b.id))}
-                        />
-                      </th>
-                      <th>IP / CIDR</th><th>Reason</th><th>Source</th><th>Hits</th><th>Created</th><th>Expires</th><th />
-                    </tr>
-                  </thead>
+                  <thead><tr><th>IP / CIDR</th><th>Reason</th><th>Source</th><th className="num">Hits</th><th>Created</th><th>Expires</th><th /></tr></thead>
                   <tbody>
-                    {bans.map((b) => (
+                    {tempBans.slice(0, 10).map((b) => (
                       <tr key={b.id}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            style={{ width: "auto" }}
-                            disabled={b.permanent}
-                            checked={selected.includes(b.id)}
-                            onChange={(e) =>
-                              setSelected(e.target.checked ? [...selected, b.id] : selected.filter((id) => id !== b.id))
-                            }
-                          />
-                        </td>
                         <td className="mono">{b.cidr}</td>
                         <td>{b.reason}</td>
                         <td><Badge tone={b.source === "decoy" || b.source === "crowdsec" ? "bad" : "info"}>{b.source}</Badge></td>
                         <td className="num">{b.hits}</td>
                         <td className="muted">{fmtAgo(b.created_at)}</td>
-                        <td>{b.permanent ? <Badge tone="bad">permanent</Badge> : <span className="muted">{fmtAgo(b.expires_at)}</span>}</td>
+                        <td className="muted">{fmtAgo(b.expires_at)}</td>
                         <td className="right" style={{ whiteSpace: "nowrap" }}>
-                          {!b.permanent && <button className="small" onClick={() => promote(b)}>Make permanent</button>}{" "}
+                          <button className="small" onClick={() => promote(b)}>Make permanent</button>{" "}
                           <button className="small danger" onClick={() => removeBan(b)}>Unban</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
+              </>
+            )}
+          </Card>
+
+          <Card
+            title={`Permanent bans (${permBans.length})`}
+            actions={
+              <div className="row">
+                <button className="small" onClick={() => setBanView("perm")}>View all / move</button>
+                <button className="small" disabled={rolling || permBans.length === 0} onClick={rollup}>
+                  {rolling ? "Rolling up…" : "Roll up into a local threat list"}
+                </button>
+              </div>
+            }
+          >
+            {permBans.length === 0 ? (
+              <Empty>No permanent bans.</Empty>
+            ) : (
+              <>
+                <p className="muted" style={{ fontSize: 12 }}>Permanent bans stay until removed; the newest 10 are shown here.</p>
+                <div style={{ overflowX: "auto" }}>
+                <table>
+                  <thead><tr><th>IP / CIDR</th><th>Reason</th><th>Source</th><th>Created by</th><th className="num">Hits</th><th /></tr></thead>
+                  <tbody>
+                    {permBans.slice(0, 10).map((b) => (
+                      <tr key={b.id}>
+                        <td className="mono">{b.cidr}</td>
+                        <td>{b.reason}</td>
+                        <td className="muted">{b.source}</td>
+                        <td className="muted">{b.created_by || "system"}</td>
+                        <td className="num">{b.hits}</td>
+                        <td className="right" style={{ whiteSpace: "nowrap" }}>
+                          <button className="small" onClick={() => demote(b)}>Move to temp</button>{" "}
+                          <button className="small danger" onClick={() => removeBan(b)}>Remove</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
               </>
             )}
           </Card>
         </>
-      )}
-
-      {tab === "permanent" && (
-        <Card
-          title="Permanent ban list"
-          actions={
-            <button className="small" disabled={rolling || permBans.length === 0} onClick={rollup}>
-              {rolling ? "Rolling up…" : "Roll up into a local threat list"}
-            </button>
-          }
-        >
-          {permBans.length === 0 ? <Empty>No permanent bans.</Empty> : (
-            <table>
-              <thead><tr><th>IP / CIDR</th><th>Reason</th><th>Source</th><th>Created by</th><th>Hits</th><th /></tr></thead>
-              <tbody>
-                {permBans.map((b) => (
-                  <tr key={b.id}>
-                    <td className="mono">{b.cidr}</td>
-                    <td>{b.reason}</td>
-                    <td className="muted">{b.source}</td>
-                    <td className="muted">{b.created_by || "system"}</td>
-                    <td className="num">{b.hits}</td>
-                    <td className="right"><button className="small danger" onClick={() => removeBan(b)}>Remove</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </Card>
       )}
 
       {tab === "profiles" && (
@@ -430,27 +647,22 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       {tab === "providers" && <AuthProviders onError={onError} onOK={onOK} />}
       {tab === "bots" && <BotFilter onError={onError} onOK={onOK} />}
 
-      {tab === "rules" && (
+      {tab === "global" && (
         <>
           <Card title="Add policy">
             <div className="row grow">
               <Field label="Type">
                 <select
-                  value={pol.kind}
+                  value={pol.type}
                   onChange={(e) => {
-                    const kind = e.target.value;
-                    setPol({
-                      ...pol,
-                      kind,
-                      value: "",
-                      action: kind === "country_whitelist" ? "allow" : "block",
-                    });
+                    const type = e.target.value;
+                    setPol({ ...pol, type, value: "", action: type === "ip" || type === "country" ? "block" : pol.action });
                   }}
                 >
-                  {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  {Object.entries(POLICY_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
               </Field>
-              <Field label={isCountry ? "Country" : "Value"}>
+              <Field label={isCountry ? "Country" : pol.type === "ip" ? "IP or subnet" : pol.type === "asn" ? "ASN numbers" : pol.type === "decoy" ? "Paths" : "Requests per second / burst"}>
                 {isCountry ? (
                   <select value={pol.value} onChange={(e) => setPol({ ...pol, value: e.target.value })}>
                     <option value="">Select a country…</option>
@@ -462,23 +674,13 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                   <input
                     value={pol.value}
                     onChange={(e) => setPol({ ...pol, value: e.target.value })}
-                    placeholder={pol.kind === "rate_limit" ? "40/80" : pol.kind === "asn_block" ? "16509,8075" : "/.env,/wp-login.php"}
+                    placeholder={valuePlaceholder}
                   />
                 )}
               </Field>
-              {isCountry && (
+              {needsAction && (
                 <Field label="Action">
-                  <select
-                    value={pol.action}
-                    onChange={(e) => {
-                      const action = e.target.value;
-                      setPol({
-                        ...pol,
-                        action,
-                        kind: action === "allow" ? "country_whitelist" : "country_blacklist",
-                      });
-                    }}
-                  >
+                  <select value={pol.action} onChange={(e) => setPol({ ...pol, action: e.target.value })}>
                     <option value="allow">Allow</option>
                     <option value="block">Block</option>
                   </select>
@@ -486,7 +688,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
               )}
               <Field label="Scope">
                 <select value={pol.scope} onChange={(e) => setPol({ ...pol, scope: e.target.value })}>
-                  <option value="global">Global</option>
+                  <option value="global">Global — every proxy</option>
                   <option value="proxy">One proxy</option>
                 </select>
               </Field>
@@ -501,10 +703,11 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
               <button className="primary" style={{ marginTop: 18 }} onClick={addPolicy}>Add</button>
             </div>
             <p className="muted" style={{ fontSize: 12 }}>
-              Country codes are ISO-3166 alpha-2. A country allow list is exclusive: once it names any country,
-              traffic from every other country is blocked (an explicit IP allow list still wins). Rate limits use
-              <code>requests-per-second/burst</code>. Decoy paths trigger an instant permanent ban, so only list paths
-              no legitimate visitor requests.
+              <strong>IP / Subnet</strong> takes one address or a whole CIDR and allows or blocks it on every proxy
+              unless one proxy is chosen. Country lists are ISO-3166 alpha-2; a country allow list is exclusive, so
+              traffic from every other country is refused (an explicit IP allow still wins). ASNs block entire
+              networks. Decoy paths trigger an instant permanent ban, so only list paths no legitimate visitor
+              requests. Rate limits use <code>requests-per-second/burst</code>.
             </p>
           </Card>
 
@@ -513,25 +716,117 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
               <table>
                 <thead><tr><th>Type</th><th>Value</th><th>Effect</th><th>Scope</th><th>State</th><th /></tr></thead>
                 <tbody>
-                  {policies.map((p) => (
-                    <tr key={p.id}>
-                      <td>{KINDS[p.kind] ?? p.kind}</td>
-                      <td className="mono">
-                        {p.kind === "country_whitelist" || p.kind === "country_blacklist"
-                          ? `${countryFlag(p.value)} ${countryName(p.value)} (${p.value})`
-                          : p.value}
-                      </td>
-                      <td><Badge tone={p.kind === "country_whitelist" || p.action === "allow" ? "ok" : "bad"}>{p.kind === "country_whitelist" || p.action === "allow" ? "allow" : "block"}</Badge></td>
-                      <td className="muted">{p.scope === "proxy" ? proxies.find((x) => x.id === p.proxy_id)?.hostname ?? `#${p.proxy_id}` : "global"}</td>
-                      <td>{p.enabled ? <Badge tone="ok">on</Badge> : <Badge tone="warn">off</Badge>}</td>
-                      <td className="right" style={{ whiteSpace: "nowrap" }}>
-                        <button className="small" onClick={() => togglePolicy(p)}>{p.enabled ? "Disable" : "Enable"}</button>{" "}
-                        <button className="small danger" onClick={() => removePolicy(p)}>Delete</button>
-                      </td>
-                    </tr>
-                  ))}
+                  {policies.map((p) => {
+                    const allow = p.kind === "country_whitelist" || p.kind === "ip_whitelist" || p.action === "allow";
+                    return (
+                      <tr key={p.id}>
+                        <td>{KIND_LABELS[p.kind] ?? p.kind}</td>
+                        <td className="mono">
+                          {p.kind === "country_whitelist" || p.kind === "country_blacklist"
+                            ? `${countryFlag(p.value)} ${countryName(p.value)} (${p.value})`
+                            : p.value}
+                        </td>
+                        <td><Badge tone={allow ? "ok" : "bad"}>{allow ? "allow" : "block"}</Badge></td>
+                        <td className="muted">{p.scope === "proxy" ? proxies.find((x) => x.id === p.proxy_id)?.hostname ?? `#${p.proxy_id}` : "global"}</td>
+                        <td>{p.enabled ? <Badge tone="ok">on</Badge> : <Badge tone="warn">off</Badge>}</td>
+                        <td className="right" style={{ whiteSpace: "nowrap" }}>
+                          <button className="small" onClick={() => togglePolicy(p)}>{p.enabled ? "Disable" : "Enable"}</button>{" "}
+                          <button className="small danger" onClick={() => removePolicy(p)}>Delete</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
+            )}
+          </Card>
+
+          <Card title="Global profiles">
+            {!globals ? <Empty>Loading…</Empty> : (
+              <>
+                <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+                  Checked profiles apply to every proxy, including hosts added later. A whitelist is checked before
+                  the blocklists, so an address on both is allowed. A host's own access-profile lists still apply to
+                  that host and win over these.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                  <div>
+                    <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Whitelist profiles</div>
+                    {whitelists.length === 0 ? (
+                      <Empty>No whitelist profiles yet.</Empty>
+                    ) : (
+                      whitelists.map((l) => (
+                        <label
+                          key={l.id}
+                          style={{ display: "flex", gap: 8, alignItems: "center", margin: "6px 0", textTransform: "none", letterSpacing: 0 }}
+                        >
+                          <input
+                            type="checkbox"
+                            style={{ width: "auto" }}
+                            checked={globals.whitelist_ids.includes(l.id)}
+                            onChange={() => toggleGlobal("whitelist", l.id)}
+                          />
+                          <span>{l.name}</span>
+                          <span className="faint" style={{ fontSize: 11 }}>{banSummary(l)}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  <div>
+                    <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Blocklist profiles</div>
+                    {blocklists.length === 0 ? (
+                      <Empty>No blocklist profiles yet.</Empty>
+                    ) : (
+                      blocklists.map((l) => (
+                        <label
+                          key={l.id}
+                          style={{ display: "flex", gap: 8, alignItems: "center", margin: "6px 0", textTransform: "none", letterSpacing: 0 }}
+                        >
+                          <input
+                            type="checkbox"
+                            style={{ width: "auto" }}
+                            checked={globals.blocklist_ids.includes(l.id)}
+                            onChange={() => toggleGlobal("blocklist", l.id)}
+                          />
+                          <span>{l.name}</span>
+                          <span className="faint" style={{ fontSize: 11 }}>{banSummary(l)}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </Card>
+
+          <Card title="ASN recommendations">
+            {!asnRecs ? <Empty>Loading…</Empty> : (
+              <>
+                <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+                  Starting points for blocking whole networks, added as ordinary editable ASN policies. Verify
+                  before enabling: providers move between networks, and blocking a hosting ASN also blocks any
+                  legitimate site hosted there.
+                </p>
+                <table>
+                  <thead><tr><th>Network</th><th>ASNs</th><th /></tr></thead>
+                  <tbody>
+                    {[asnRecs.hosting, ...asnRecs.vpn].map((s) => (
+                      <tr key={s.id}>
+                        <td>
+                          {s.name}
+                          <div className="faint" style={{ fontSize: 11 }}>{s.note}</div>
+                        </td>
+                        <td className="mono" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{s.asns.join(", ")}</td>
+                        <td className="right" style={{ whiteSpace: "nowrap" }}>
+                          <button className="small" disabled={addingASN !== ""} onClick={() => addASN(s)}>
+                            {addingASN === s.id ? "Adding…" : "Block"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             )}
           </Card>
         </>
@@ -656,6 +951,17 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
             </button>
           </div>
         </Modal>
+      )}
+
+      {banView && (
+        <BanMoveModal
+          bans={bans}
+          focus={banView}
+          onClose={() => setBanView(null)}
+          onReload={load}
+          onError={onError}
+          onOK={onOK}
+        />
       )}
     </div>
   );

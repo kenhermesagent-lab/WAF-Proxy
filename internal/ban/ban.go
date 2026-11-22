@@ -250,6 +250,31 @@ func (e *Engine) Promote(cidr string) error {
 	return nil
 }
 
+// Demote turns a permanent ban back into a temporary one, so the extent of a
+// block can be reduced without lifting it entirely.
+func (e *Engine) Demote(cidr string, ttl time.Duration) error {
+	p, err := netmatch.ParsePrefix(cidr)
+	if err != nil {
+		return err
+	}
+	b, err := e.st.BanByCIDR(p.String())
+	if err != nil {
+		return err
+	}
+	if !b.Permanent {
+		return nil
+	}
+	expires := e.now().Add(ttl)
+	if err := e.st.DemoteBan(b.ID, expires); err != nil {
+		return err
+	}
+	rec := Record{CIDR: b.CIDR, Reason: b.Reason, Source: b.Source, CreatedAt: b.CreatedAt, ExpiresAt: &expires}
+	e.mu.Lock()
+	e.table.AddPrefix(p, rec)
+	e.mu.Unlock()
+	return nil
+}
+
 // Remove deletes a ban by CIDR.
 func (e *Engine) Remove(cidr string) error {
 	p, err := netmatch.ParsePrefix(cidr)

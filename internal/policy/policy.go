@@ -89,6 +89,18 @@ type ruleSet struct {
 	listCountryDeny  map[string]string
 	listCountryAllow map[string]string
 	listAllowNames   []string
+
+	// Named lists attached under Policies → Global Profile. A whitelist is
+	// checked before every block list; a blocklist applies to every host.
+	globalAllowIP     []netip.Prefix
+	globalAllowC      map[string]bool
+	globalAllowIPName map[string]string
+	globalAllowCName  map[string]string
+	globalAllowNames  []string
+	globalDenyIP      []netip.Prefix
+	globalDenyC       map[string]bool
+	globalDenyIPName  map[string]string
+	globalDenyCName   map[string]string
 }
 
 // Engine holds cached policies and the rate limiter.
@@ -223,6 +235,38 @@ func (e *Engine) Reload() error {
 	}
 
 	global := newRuleSet()
+	// A named list checked as global applies to every host. The whitelist is
+	// merged first and evaluated first, so the console's order (allow above
+	// block) is the order the engine uses.
+	for _, id := range settingIDs(kv["global_whitelist_ids"]) {
+		l, ok := compiled[id]
+		if !ok || l.block {
+			continue
+		}
+		for _, pr := range l.ips {
+			global.globalAllowIP = append(global.globalAllowIP, pr)
+			global.globalAllowIPName[pr.String()] = l.name
+		}
+		for c := range l.countries {
+			global.globalAllowC[c] = true
+			global.globalAllowCName[c] = l.name
+		}
+		global.globalAllowNames = append(global.globalAllowNames, l.name)
+	}
+	for _, id := range settingIDs(kv["global_blocklist_ids"]) {
+		l, ok := compiled[id]
+		if !ok || !l.block {
+			continue
+		}
+		for _, pr := range l.ips {
+			global.globalDenyIP = append(global.globalDenyIP, pr)
+			global.globalDenyIPName[pr.String()] = l.name
+		}
+		for c := range l.countries {
+			global.globalDenyC[c] = true
+			global.globalDenyCName[c] = l.name
+		}
+	}
 	perProxy := map[int64]ruleSet{}
 	byID := map[int64]model.Policy{}
 	for _, p := range policies {
@@ -268,15 +312,21 @@ func (e *Engine) Reload() error {
 
 func newRuleSet() ruleSet {
 	return ruleSet{
-		countryAllow:     map[string]bool{},
-		countryDeny:      map[string]bool{},
-		asnDeny:          map[int]bool{},
-		profCountryAllow: map[string]bool{},
-		profCountryDeny:  map[string]bool{},
-		listIPDeny:       map[string]string{},
-		listIPAllow:      map[string]string{},
-		listCountryDeny:  map[string]string{},
-		listCountryAllow: map[string]string{},
+		countryAllow:      map[string]bool{},
+		countryDeny:       map[string]bool{},
+		asnDeny:           map[int]bool{},
+		profCountryAllow:  map[string]bool{},
+		profCountryDeny:   map[string]bool{},
+		listIPDeny:        map[string]string{},
+		listIPAllow:       map[string]string{},
+		listCountryDeny:   map[string]string{},
+		listCountryAllow:  map[string]string{},
+		globalAllowC:      map[string]bool{},
+		globalAllowIPName: map[string]string{},
+		globalAllowCName:  map[string]string{},
+		globalDenyC:       map[string]bool{},
+		globalDenyIPName:  map[string]string{},
+		globalDenyCName:   map[string]string{},
 	}
 }
 
@@ -531,6 +581,17 @@ func (e *Engine) rulesFor(p *model.Proxy) ruleSet {
 	}
 	merged.decoys = append(merged.decoys, e.global.decoys...)
 	merged.rateRPS, merged.rateBurst = e.global.rateRPS, e.global.rateBurst
+	// Global named lists are read-only after Reload, so every host can share
+	// them instead of copying the entries on each request.
+	merged.globalAllowIP = e.global.globalAllowIP
+	merged.globalAllowC = e.global.globalAllowC
+	merged.globalAllowIPName = e.global.globalAllowIPName
+	merged.globalAllowCName = e.global.globalAllowCName
+	merged.globalAllowNames = e.global.globalAllowNames
+	merged.globalDenyIP = e.global.globalDenyIP
+	merged.globalDenyC = e.global.globalDenyC
+	merged.globalDenyIPName = e.global.globalDenyIPName
+	merged.globalDenyCName = e.global.globalDenyCName
 	if p != nil {
 		if local, ok := e.perProxy[p.ID]; ok {
 			merged.ipAllow = append(merged.ipAllow, local.ipAllow...)
@@ -622,17 +683,34 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 		}
 	}
 
+	// A global whitelist is the operator's strongest allow: it is checked before
+	// the global blocklist, the per-site lists, and the country, ASN and feed
+	// stages. Decoys, bans, rate limits and the WAF still apply, so a trusted
+	// host that scans is still caught.
+	allowlisted := false
+	allowRule, allowListName := "", ""
+	if name, rule, ok := matchGlobalList(rules.globalAllowIP, rules.globalAllowIPName, rules.globalAllowC, rules.globalAllowCName, req.Addr, country); ok {
+		allowlisted, allowRule, allowListName = true, rule, name
+	} else if name, rule, ok := matchGlobalList(rules.globalDenyIP, rules.globalDenyIPName, rules.globalDenyC, rules.globalDenyCName, req.Addr, country); ok {
+		return model.Verdict{Action: "block", Stage: "global-list", Rule: rule, List: name,
+			Reason: "address is on the global blocklist \"" + name + "\"", Status: http.StatusForbidden}
+	}
+
 	// An explicit IP block list beats the allow list: a compromised allowlisted
 	// host is still refused, which is what an operator means by "block this IP".
-	for _, pr := range rules.ipDeny {
-		if pr.Contains(req.Addr) {
-			return model.Verdict{Action: "block", Stage: "ip-blacklist", Rule: pr.String(),
-				Reason: "IP on the block list", Status: http.StatusForbidden}
+	if !allowlisted {
+		for _, pr := range rules.ipDeny {
+			if pr.Contains(req.Addr) {
+				return model.Verdict{Action: "block", Stage: "ip-blacklist", Rule: pr.String(),
+					Reason: "IP on the block list", Status: http.StatusForbidden}
+			}
 		}
 	}
 
 	// A profile deny list drops the address for this host even when a global
 	// allow list names it: an explicit block is the operator's strongest word.
+	// A per-site list is narrower than the global one, so it still decides for
+	// its own host: a global whitelist does not lift a site's blocklist.
 	for _, pr := range rules.profIPDeny {
 		if pr.Contains(req.Addr) {
 			if name, ok := rules.listIPDeny[pr.String()]; ok {
@@ -655,16 +733,16 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 	// A whitelist only bypasses the country, ASN and feed stages. Bans,
 	// decoys and rate limiting still apply, so a compromised friendly host
 	// cannot use its whitelist entry to escape the IPS.
-	allowlisted := false
-	allowRule := ""
 	// The profile allow lists are checked further down; a match from a named
 	// whitelist is reported as such, after the stages that still apply.
 	profileAllowRule, profileAllowList := "", ""
-	for _, pr := range rules.ipAllow {
-		if pr.Contains(req.Addr) {
-			allowlisted = true
-			allowRule = pr.String()
-			break
+	if !allowlisted {
+		for _, pr := range rules.ipAllow {
+			if pr.Contains(req.Addr) {
+				allowlisted = true
+				allowRule = pr.String()
+				break
+			}
 		}
 	}
 	if !allowlisted && country != "" && rules.countryAllow[country] {
@@ -829,6 +907,10 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 		return model.Verdict{Action: "allow", Stage: "list-allow", Rule: profileAllowRule, List: profileAllowList,
 			Status: http.StatusOK}
 	}
+	if allowListName != "" {
+		return model.Verdict{Action: "allow", Stage: "global-list", Rule: allowRule, List: allowListName,
+			Status: http.StatusOK}
+	}
 	if allowlisted {
 		return model.Verdict{Action: "allow", Stage: "whitelist", Rule: allowRule, Status: http.StatusOK}
 	}
@@ -921,6 +1003,32 @@ func addrInPrefixes(addr netip.Addr, list string) bool {
 		}
 	}
 	return false
+}
+
+// matchGlobalList reports the last list and rule a global whitelist or
+// blocklist matched.
+func matchGlobalList(ips []netip.Prefix, ipNames map[string]string, countries map[string]bool, countryNames map[string]string, addr netip.Addr, country string) (string, string, bool) {
+	for _, pr := range ips {
+		if pr.Contains(addr) {
+			return ipNames[pr.String()], pr.String(), true
+		}
+	}
+	if country != "" && countries[country] {
+		return countryNames[country], "country:" + country, true
+	}
+	return "", "", false
+}
+
+// settingIDs parses the comma-separated list IDs a global profile setting
+// holds. An unreadable entry is ignored rather than failing the whole reload.
+func settingIDs(raw string) []int64 {
+	out := []int64{}
+	for _, part := range strings.Split(raw, ",") {
+		if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // whitelistReason explains a refusal caused by the site's own whitelists. One

@@ -197,6 +197,13 @@ func (s *Store) PromoteBan(id int64) error {
 	return err
 }
 
+// DemoteBan turns a permanent ban back into a temporary one that expires at the
+// given time.
+func (s *Store) DemoteBan(id int64, expires time.Time) error {
+	_, err := s.db.Exec(`UPDATE bans SET permanent = 0, expires_at = ? WHERE id = ?`, stamp(expires), id)
+	return err
+}
+
 // AddBanHits adds n to the hit counter of a CIDR.
 func (s *Store) AddBanHits(cidr string, n int64) {
 	if n <= 0 {
@@ -320,6 +327,16 @@ func (s *Store) seedFeeds() error {
 		{"Feodo Tracker C2", "https://feodotracker.abuse.ch/downloads/ipblocklist.txt", "block", 1800, false},
 		{"ET compromised", "https://rules.emergingthreats.net/blockrules/compromised-ips.txt", "block", 3600, false},
 		{"DShield scanners", "https://feeds.dshield.org/block.txt", "block", 1800, false},
+		// Keyless lists that need no account; disabled until an operator turns
+		// them on, so an upgrade does not start blocking new ranges by itself.
+		{"Blocklist.de attackers", "https://lists.blocklist.de/lists/all.txt", "block", 3600, false},
+		{"GreenSnow blocklist", "https://blocklist.greensnow.co/greensnow.txt", "block", 3600, false},
+		{"Binary Defense banlist", "https://www.binarydefense.com/banlist.txt", "block", 3600, false},
+		{"CINS Army", "https://cinsscore.com/list/ci-badguys.txt", "block", 3600, false},
+		{"BruteForceBlocker", "https://danger.rulez.sk/projects/bruteforceblocker/blist.php", "block", 3600, false},
+		{"IPSum level 3", "https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt", "block", 3600, false},
+		{"Spamhaus DROP IPv6", "https://www.spamhaus.org/drop/dropv6.txt", "block", 3600, false},
+		{"ET firewall block list", "https://rules.emergingthreats.net/fwrules/emerging-Block-IPs.txt", "block", 3600, false},
 	}
 	for _, b := range builtins {
 		if _, err := s.db.Exec(`INSERT INTO feeds(name, url, action, interval_s, enabled, builtin, state)

@@ -324,6 +324,25 @@ export interface Ban {
   expires_at?: string | null;
 }
 
+// Named whitelist/blocklist profiles attached to every proxy.
+export interface GlobalLists {
+  lists: AccessList[];
+  whitelist_ids: number[];
+  blocklist_ids: number[];
+}
+
+export interface ASNSuggestion {
+  id: string;
+  name: string;
+  asns: number[];
+  note: string;
+}
+
+export interface ASNRecommendations {
+  hosting: ASNSuggestion;
+  vpn: ASNSuggestion[];
+}
+
 export interface Feed {
   id: number;
   name: string;
