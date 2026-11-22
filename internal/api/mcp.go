@@ -18,10 +18,11 @@ func (s *Server) getMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	active := 0
-	for _, t := range tokens {
-		if t.RevokedAt == nil {
+	for i := range tokens {
+		if tokens[i].RevokedAt == nil {
 			active++
 		}
+		tokens[i].Scopes = mcp.NormalizeScopes(tokens[i].Scopes)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"endpoint":    mcp.Endpoint,

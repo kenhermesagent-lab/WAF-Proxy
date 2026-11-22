@@ -39,6 +39,37 @@ var catalogNames = []string{
 // ToolNames lists the tools an agent token can be limited to.
 func ToolNames() []string { return append([]string(nil), catalogNames...) }
 
+// legacyScopes is what 1.24.0 wrote for its three groups. Those names are still
+// in the database, so they are expanded instead of silently matching nothing.
+var legacyScopes = map[string][]string{
+	"read": {"get_security_overview", "query_logs", "list_anomalies", "get_ip_activity",
+		"list_proxies", "list_blocks", "list_gate_users", "list_sessions"},
+	"ban":     {"block_ip", "unblock_ip", "block_username", "unblock_username"},
+	"session": {"revoke_session", "revoke_sessions_for_ip"},
+}
+
+// NormalizeScopes expands the legacy group names and de-duplicates the result.
+func NormalizeScopes(scopes []string) []string {
+	out := make([]string, 0, len(scopes))
+	seen := map[string]bool{}
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	for _, scope := range scopes {
+		if names, ok := legacyScopes[scope]; ok {
+			for _, name := range names {
+				add(name)
+			}
+			continue
+		}
+		add(scope)
+	}
+	return out
+}
+
 // allows reports whether a token may use a tool. An empty scope list means every
 // tool, so tokens created before scopes existed keep their access.
 func allows(scopes []string, tool string) bool {

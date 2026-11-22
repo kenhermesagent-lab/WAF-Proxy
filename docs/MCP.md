@@ -30,8 +30,9 @@ WAFPROXY_MCP_ACTOR=hermes-agent
 
 Console-issued tokens choose their tools individually: the create dialog lists the catalog and a
 token can be limited to, for example, `query_logs` and `get_ip_activity`. `tools/list` hides the
-rest and `tools/call` refuses them. A token created before tool scopes existed keeps every tool,
-and so does the environment token.
+rest and `tools/call` refuses them. A token created under 1.24's `read`, `ban` or `session` group
+is translated to the tools that group covered; a token with no scopes keeps every tool, and so
+does the environment token.
 
 `WAFPROXY_MCP_ACTOR` is the audit name for that static token. An environment token cannot be
 revoked from the console; remove the variable and restart to disable it. Generate the value

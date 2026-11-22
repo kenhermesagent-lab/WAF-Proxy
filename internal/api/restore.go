@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/urlguard"
 )
@@ -84,6 +85,14 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid backup file")
 		return
 	}
+	if backup.IsEncrypted(body) {
+		plain, err := backup.Decrypt(r.Header.Get("X-Backup-Passphrase"), body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		body = plain
+	}
 	s.applyBackup(w, r, body, "backup.restore")
 }
 
@@ -105,118 +114,9 @@ func (s *Server) applyBackup(w http.ResponseWriter, r *http.Request, body []byte
 	result := map[string]int{"settings": 0, "proxies": 0, "policies": 0, "feeds": 0, "bans": 0}
 	var problems []string
 
-	if len(in.Settings) > 0 {
-		allowed := map[string]bool{}
-		for _, k := range publicSettingKeys {
-			allowed[k] = true
-		}
-		next := map[string]string{}
-		for k, v := range in.Settings {
-			if !allowed[k] {
-				continue
-			}
-			v = strings.TrimSpace(v)
-			switch k {
-			case "wan_ip", "lan_ip":
-				if net.ParseIP(v) == nil {
-					problems = append(problems, "settings: invalid "+k+" skipped")
-					continue
-				}
-			case "wan_port", "gui_port":
-				n, err := strconv.Atoi(v)
-				if err != nil || n < 1 || n > 65535 {
-					problems = append(problems, "settings: invalid "+k+" skipped")
-					continue
-				}
-			case "decoy_hosts":
-				clean, msg := s.cleanDecoyHosts(v)
-				if msg != "" {
-					problems = append(problems, "settings: "+msg+" skipped")
-					continue
-				}
-				v = clean
-			}
-			next[k] = v
-			result["settings"]++
-		}
-		if err := s.st.SetSettings(next); err != nil {
-			problems = append(problems, "settings: "+err.Error())
-		}
-	}
-
-	for _, bp := range in.Proxies {
-		host := strings.ToLower(strings.TrimSpace(bp.Hostname))
-		if !validHostname(host) {
-			problems = append(problems, "proxy "+host+": invalid hostname")
-			continue
-		}
-		if _, err := s.st.ProxyByHost(host); err == nil {
-			problems = append(problems, "proxy "+host+": already exists, skipped")
-			continue
-		}
-		p := bp.Proxy
-		p.ID = 0
-		p.Hostname = host
-		// Gate secrets are never exported, so enabling a gate during restore
-		// would lock the proxy with no working credential.
-		p.GateMode = "off"
-		p.GateSecret = ""
-		p.AuthProviderID = nil
-		p.GateTOTPHint = ""
-		if p.Fingerprint == "" {
-			p.Fingerprint = "strict"
-		}
-		if p.WAFMode == "" {
-			p.WAFMode = "inherit"
-		}
-		id, err := s.st.CreateProxy(&p)
-		if err != nil {
-			problems = append(problems, "proxy "+host+": "+err.Error())
-			continue
-		}
-		var ups []model.Upstream
-		for _, u := range bp.Upstreams {
-			if err := urlguard.Check(u.URL, urlguard.Upstream); err != nil {
-				problems = append(problems, "proxy "+host+": bad upstream "+u.URL+": "+err.Error())
-				continue
-			}
-			ups = append(ups, model.Upstream{URL: strings.TrimSpace(u.URL), Weight: u.Weight, Enabled: u.Enabled})
-		}
-		if err := s.st.ReplaceUpstreams(id, ups); err != nil {
-			problems = append(problems, "proxy "+host+" upstreams: "+err.Error())
-		}
-		if err := s.st.ReplaceRoutes(id, bp.Routes); err != nil {
-			problems = append(problems, "proxy "+host+" routes: "+err.Error())
-		}
-		result["proxies"]++
-	}
-
-	validPolicyKind := map[string]bool{
-		model.PolicyIPWhitelist: true, model.PolicyCountryWhitelist: true, model.PolicyCountryBlacklist: true,
-		model.PolicyASNBlock: true, model.PolicyDecoy: true, "rate_limit": true,
-	}
-	for i := range in.Policies {
-		p := in.Policies[i]
-		if !validPolicyKind[p.Kind] {
-			problems = append(problems, "policy: unknown kind "+p.Kind)
-			continue
-		}
-		switch p.Action {
-		case "allow", "block", "challenge", "log":
-		default:
-			p.Action = "block"
-		}
-		if strings.TrimSpace(p.Value) == "" {
-			problems = append(problems, "policy: empty value skipped")
-			continue
-		}
-		p.ID = 0
-		if _, err := s.st.CreatePolicy(&p); err != nil {
-			problems = append(problems, "policy "+p.Value+": "+err.Error())
-			continue
-		}
-		result["policies"]++
-	}
+	result["settings"], problems = s.applySettings(in.Settings, problems)
+	result["proxies"], problems = s.applyProxies(in.Proxies, problems)
+	result["policies"], problems = s.applyPolicies(in.Policies, problems)
 
 	for i := range in.Feeds {
 		f := in.Feeds[i]
@@ -285,4 +185,130 @@ func (s *Server) applyBackup(w http.ResponseWriter, r *http.Request, body []byte
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, action, fmt.Sprint(result), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"imported": result, "problems": problems})
+}
+
+// applySettings imports the settings every configuration document carries.
+func (s *Server) applySettings(in map[string]string, problems []string) (int, []string) {
+	allowed := map[string]bool{}
+	for _, k := range publicSettingKeys {
+		allowed[k] = true
+	}
+	next := map[string]string{}
+	for k, v := range in {
+		if !allowed[k] {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		switch k {
+		case "wan_ip", "lan_ip":
+			if net.ParseIP(v) == nil {
+				problems = append(problems, "settings: invalid "+k+" skipped")
+				continue
+			}
+		case "wan_port", "gui_port":
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > 65535 {
+				problems = append(problems, "settings: invalid "+k+" skipped")
+				continue
+			}
+		case "decoy_hosts":
+			clean, msg := s.cleanDecoyHosts(v)
+			if msg != "" {
+				problems = append(problems, "settings: "+msg+" skipped")
+				continue
+			}
+			v = clean
+		}
+		next[k] = v
+	}
+	if len(next) > 0 {
+		if err := s.st.SetSettings(next); err != nil {
+			problems = append(problems, "settings: "+err.Error())
+		}
+	}
+	return len(next), problems
+}
+
+// applyProxies adds the hosts that do not exist yet.
+func (s *Server) applyProxies(in []backupProxy, problems []string) (int, []string) {
+	added := 0
+	for _, bp := range in {
+		host := strings.ToLower(strings.TrimSpace(bp.Hostname))
+		if !validHostname(host) {
+			problems = append(problems, "proxy "+host+": invalid hostname")
+			continue
+		}
+		if _, err := s.st.ProxyByHost(host); err == nil {
+			problems = append(problems, "proxy "+host+": already exists, skipped")
+			continue
+		}
+		p := bp.Proxy
+		p.ID = 0
+		p.Hostname = host
+		// Gate secrets are never exported, so enabling a gate during restore
+		// would lock the proxy with no working credential.
+		p.GateMode = "off"
+		p.GateSecret = ""
+		p.AuthProviderID = nil
+		p.GateTOTPHint = ""
+		if p.Fingerprint == "" {
+			p.Fingerprint = "strict"
+		}
+		if p.WAFMode == "" {
+			p.WAFMode = "inherit"
+		}
+		id, err := s.st.CreateProxy(&p)
+		if err != nil {
+			problems = append(problems, "proxy "+host+": "+err.Error())
+			continue
+		}
+		var ups []model.Upstream
+		for _, u := range bp.Upstreams {
+			if err := urlguard.Check(u.URL, urlguard.Upstream); err != nil {
+				problems = append(problems, "proxy "+host+": bad upstream "+u.URL+": "+err.Error())
+				continue
+			}
+			ups = append(ups, model.Upstream{URL: strings.TrimSpace(u.URL), Weight: u.Weight, Enabled: u.Enabled})
+		}
+		if err := s.st.ReplaceUpstreams(id, ups); err != nil {
+			problems = append(problems, "proxy "+host+" upstreams: "+err.Error())
+		}
+		if err := s.st.ReplaceRoutes(id, bp.Routes); err != nil {
+			problems = append(problems, "proxy "+host+" routes: "+err.Error())
+		}
+		added++
+	}
+	return added, problems
+}
+
+// applyPolicies adds every valid policy; policies have no name to match on.
+func (s *Server) applyPolicies(in []model.Policy, problems []string) (int, []string) {
+	validPolicyKind := map[string]bool{
+		model.PolicyIPWhitelist: true, model.PolicyCountryWhitelist: true, model.PolicyCountryBlacklist: true,
+		model.PolicyASNBlock: true, model.PolicyDecoy: true, "rate_limit": true,
+	}
+	added := 0
+	for i := range in {
+		p := in[i]
+		if !validPolicyKind[p.Kind] {
+			problems = append(problems, "policy: unknown kind "+p.Kind)
+			continue
+		}
+		switch p.Action {
+		case "allow", "block", "challenge", "log":
+		default:
+			p.Action = "block"
+		}
+		if strings.TrimSpace(p.Value) == "" {
+			problems = append(problems, "policy: empty value skipped")
+			continue
+		}
+		p.ID = 0
+		if _, err := s.st.CreatePolicy(&p); err != nil {
+			problems = append(problems, "policy "+p.Value+": "+err.Error())
+			continue
+		}
+		added++
+	}
+	return added, problems
 }

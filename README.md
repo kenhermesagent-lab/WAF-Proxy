@@ -387,8 +387,9 @@ service — both *pull* the state and *receive* events. Two independent mechanis
   actions without a browser session. Create a named token on that page and give it only to the
   agent.
 The token is shown once, stored as a SHA-256 hash, and can be revoked immediately. Each token
-chooses the tools it may call from the gateway catalog, and an agent only sees and calls those;
-a token created before tool scopes existed keeps every tool. A headless
+chooses the tools it may call from the gateway catalog, and an agent only sees and calls those.
+A token created under 1.24's `read`/`ban`/`session` groups is translated to the matching tools,
+and a token with no scopes keeps every tool. A headless
 install can instead set `WAFPROXY_MCP_TOKEN` to a 32+ character secret in
 `/etc/wafproxy/wafproxy.env`; it always has every scope, and `WAFPROXY_MCP_ACTOR` names that
 token in the audit log.
@@ -665,8 +666,9 @@ After either update, confirm the version in the console footer or
 | Tune the WAF | **Policies → WAF profiles** → edit paranoia, anomaly threshold, methods, body and response ceilings, upstream response inspection, login rate, admin paths or rule exceptions |
 | Scrape metrics | `curl -s -H "Authorization: Bearer $WAFPROXY_METRICS_TOKEN" http://<lan-ip>:8443/metrics` returns per-proxy request, block and byte counters in the Prometheus text format. Without that variable the endpoint answers 403; the console listener also only admits private networks unless `WAFPROXY_GUI_PRIVATE_ONLY` is off. |
 | Export the audit log | `GET /api/audit` returns the 200 newest entries as JSON; add `?format=csv` for a CSV download of the whole audit table, oldest first |
-| Export the configuration | `GET /api/config/export.yaml` downloads the JSON backup document as readable YAML; secrets are excluded the same way |
-| Import a configuration | `POST /api/config/import.yaml` applies an exported file additively — existing hostnames are skipped — and returns the imported counts with every problem it found |
+| Export the configuration | `GET /api/config/export.yaml` downloads the declarative configuration as readable YAML: settings, WAF, protection and access profiles, access lists, proxies and policies. Bans, feeds and secrets are not part of it |
+| Import a configuration | `POST /api/config/import.yaml` applies an exported file additively — existing names and hostnames are skipped — and returns the imported counts with every problem it found |
+| Encrypt backups | **Settings → Backup schedule** → *encrypt backups* with a 16+ character passphrase seals each scheduled file with AES-256-GCM; restore asks for the same passphrase |
 | Find out why a request was blocked | **Logs** → **Why?** on the event row. It replays the request through the ban, screening and WAF stages without reaching the upstream, lists every rule that matched, and offers to except a blocking rule after naming every other site the profile change would affect. |
 | Back up | **Settings → Download JSON** (secrets excluded) |
 | Upgrade | See [Updating from the repository](#updating-from-the-repository) for Docker and native systemd |

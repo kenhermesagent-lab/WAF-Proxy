@@ -11,6 +11,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.26.0] — 2026-11-22
+
+### Added
+
+- **Encrypted backups.** A backup schedule can be sealed with AES-256-GCM under a 16+ character
+  passphrase; files gain `.enc`, and restoring one asks for the same passphrase. The passphrase is
+  stored sealed like the transport password.
+- **Profiles and lists in the YAML configuration.** `GET /api/config/export.yaml` now carries WAF
+  profiles, protection profiles, access lists and access profiles (which name their lists and
+  profiles), and no longer carries bans or feeds. `POST /api/config/import.yaml` adds the missing
+  ones by name and resolves access-profile references, reporting an unknown list, profile or
+  policy instead of guessing.
+
+### Fixed
+
+- **Agent tokens created in 1.24.0 keep their tools.** The old `read`, `ban` and `session` group
+  names are expanded to the tools those groups covered, so an upgrade no longer leaves an agent
+  with an empty catalog.
+
 ## [1.25.0] — 2026-11-22
 
 ### Added

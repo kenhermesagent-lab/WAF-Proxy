@@ -24,9 +24,10 @@ func (s *Server) getBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	// The decrypted password stays server-side; the console only learns whether
-	// one is stored.
+	// The decrypted password and passphrase stay server-side; the console only
+	// learns whether one is stored.
 	cfg.Password = ""
+	cfg.Passphrase = ""
 	writeJSON(w, http.StatusOK, map[string]any{"config": cfg, "status": s.backup.Status()})
 }
 
@@ -52,6 +53,7 @@ func (s *Server) putBackup(w http.ResponseWriter, r *http.Request) {
 	s.st.AddAudit(sess.Username, "backup.configure", in.Transport, clientIP(r))
 	cfg, _ := s.backup.Config()
 	cfg.Password = ""
+	cfg.Passphrase = ""
 	writeJSON(w, http.StatusOK, map[string]any{"config": cfg, "status": s.backup.Status()})
 }
 

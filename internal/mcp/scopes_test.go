@@ -44,6 +44,27 @@ func TestTokenScopesLimitTools(t *testing.T) {
 	}
 }
 
+func TestLegacyGroupScopesExpand(t *testing.T) {
+	h := newHarness(t)
+	legacy := "legacy-read-group-token-that-is-long-enough"
+	if _, err := h.st.CreateMCPToken("legacy", HashToken(legacy), Prefix(legacy), "admin", []string{"read"}); err != nil {
+		t.Fatal(err)
+	}
+
+	list := h.rpc(t, legacy, "tools/list", map[string]any{})
+	tools := list["result"].(map[string]any)["tools"].([]any)
+	names := map[string]bool{}
+	for _, raw := range tools {
+		names[raw.(map[string]any)["name"].(string)] = true
+	}
+	if len(names) != 8 || !names["query_logs"] || !names["list_sessions"] {
+		t.Fatalf("a legacy read token sees %v", names)
+	}
+	if names["block_ip"] {
+		t.Fatal("a legacy read token sees block_ip")
+	}
+}
+
 func TestToolNamesMatchCatalog(t *testing.T) {
 	catalog := map[string]bool{}
 	for _, tool := range toolCatalog(&Gateway{}) {

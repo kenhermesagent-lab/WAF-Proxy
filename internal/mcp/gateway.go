@@ -157,7 +157,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var scopes []string
 	if token != nil {
 		_ = g.st.TouchMCPToken(token.ID)
-		scopes = token.Scopes
+		scopes = NormalizeScopes(token.Scopes)
 	}
 	if ct := r.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(strings.ToLower(ct), "application/json") {
 		writeHTTPError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")

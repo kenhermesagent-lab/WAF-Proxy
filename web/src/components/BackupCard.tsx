@@ -20,6 +20,9 @@ type Config = {
   host_key: string;
   password?: string;
   has_password: boolean;
+  encrypt: boolean;
+  passphrase?: string;
+  has_passphrase: boolean;
 };
 
 type Status = { last_run?: string; last_error?: string; last_file?: string; last_target?: string; next_run?: string };
@@ -30,6 +33,7 @@ export default function BackupCard({ onError, onOK }: { onError: (m: string) => 
   const [cfg, setCfg] = useState<Config | null>(null);
   const [status, setStatus] = useState<Status>({});
   const [password, setPassword] = useState("");
+  const [passphrase, setPassphrase] = useState("");
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
 
@@ -52,11 +56,12 @@ export default function BackupCard({ onError, onOK }: { onError: (m: string) => 
     if (!cfg) return;
     setSaving(true);
     try {
-      const body = { ...cfg, password: password || undefined };
+      const body = { ...cfg, password: password || undefined, passphrase: passphrase || undefined };
       const r = await api.put<{ config: Config; status: Status }>("/api/backup/schedule", body);
       setCfg({ ...r.config, password: "" });
       setStatus(r.status);
       setPassword("");
+      setPassphrase("");
       onOK("Backup schedule saved");
     } catch (e) {
       onError(errText(e));
@@ -186,6 +191,23 @@ export default function BackupCard({ onError, onOK }: { onError: (m: string) => 
                 </Field>
               )}
             </>
+          )}
+
+          <div className="row grow" style={{ marginTop: 12 }}>
+            <label style={{ margin: "18px 0 0", display: "flex", gap: 6, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
+              <input type="checkbox" style={{ width: "auto" }} checked={cfg.encrypt} onChange={(e) => set({ encrypt: e.target.checked })} /> encrypt backups
+            </label>
+            {cfg.encrypt && (
+              <Field label={cfg.has_passphrase ? "Passphrase (leave blank to keep)" : "Passphrase (16+ characters)"}>
+                <input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
+              </Field>
+            )}
+          </div>
+          {cfg.encrypt && (
+            <p className="faint small-text">
+              Each file is sealed with AES-256-GCM under this passphrase. Restoring one asks for the same passphrase; lose it
+              and the file cannot be opened.
+            </p>
           )}
 
           <div className="bar-row" style={{ borderBottom: 0 }}>

@@ -35,6 +35,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
   const [installingGeo, setInstallingGeo] = useState(false);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [chain, setChain] = useState("");
+  const [restorePass, setRestorePass] = useState("");
   const [activeSection, setActiveSection] = useState("network");
   const [iface, setIface] = useState<{ wan: string; lan: string; wanAuto: boolean; lanAuto: boolean; available: string[] }>({
     wan: "", lan: "", wanAuto: false, lanAuto: false, available: [],
@@ -119,8 +120,14 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
 
   const restore = async (f: File) => {
     try {
-      const parsed = JSON.parse(await f.text());
-      const r = await api.post<{ imported: Record<string, number>; problems: string[] }>("/api/backup/restore", parsed);
+      const text = await f.text();
+      type Result = { imported: Record<string, number>; problems: string[] };
+      const r = text.trimStart().startsWith("WAFPROXY-ENC1")
+        ? await api.postRaw<Result>("/api/backup/restore", text, {
+            "Content-Type": "application/octet-stream",
+            "X-Backup-Passphrase": restorePass,
+          })
+        : await api.post<Result>("/api/backup/restore", JSON.parse(text));
       const parts = Object.entries(r.imported || {}).map(([k, v]) => `${v} ${k}`);
       onOK(`Restored ${parts.join(", ")}${r.problems?.length ? ` (${r.problems.length} skipped)` : ""}`);
       load();
@@ -282,8 +289,17 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
           <div className="bar-row">
             <div>Restore backup <span className="faint small-text">(additive, gates reset to off)</span></div>
             <div>
-              <input ref={file} type="file" accept="application/json" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} />
-              <button className="small" onClick={() => file.current?.click()}>Import JSON</button>
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  type="password"
+                  value={restorePass}
+                  onChange={(e) => setRestorePass(e.target.value)}
+                  placeholder="Passphrase if encrypted"
+                  style={{ width: 200 }}
+                />
+                <input ref={file} type="file" accept=".json,.enc,application/json" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} />
+                <button className="small" onClick={() => file.current?.click()}>Import backup</button>
+              </div>
             </div>
           </div>
           <p className="faint small-text">

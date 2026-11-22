@@ -49,6 +49,12 @@ type Config struct {
 	HostKey     string `json:"host_key"` // SHA256 fingerprint, required for SFTP
 	Password    string `json:"password,omitempty"`
 	HasPassword bool   `json:"has_password"`
+
+	// Encrypt wraps each written file in AES-256-GCM under Passphrase, which is
+	// stored sealed and never returned by the API.
+	Encrypt       bool   `json:"encrypt"`
+	Passphrase    string `json:"passphrase,omitempty"`
+	HasPassphrase bool   `json:"has_passphrase"`
 }
 
 // Status is the last run, reported to the console.
@@ -108,6 +114,12 @@ func (c Config) Validate() string {
 	}
 	if c.Keep < 1 || c.Keep > 365 {
 		return "keep 1-365 backups"
+	}
+	if c.Encrypt && c.Passphrase == "" && !c.HasPassphrase {
+		return "an encryption passphrase is required"
+	}
+	if c.Passphrase != "" && len(c.Passphrase) < 16 {
+		return "the encryption passphrase must be at least 16 characters"
 	}
 	return ""
 }
@@ -178,6 +190,13 @@ func (m *Manager) Config() (Config, error) {
 			c.HasPassword = true
 		}
 	}
+	c.Encrypt = get("backup_encrypt") == "1"
+	if sealed := get("backup_passphrase"); sealed != "" {
+		if plain, err := m.box.Open(sealed); err == nil {
+			c.Passphrase = plain
+			c.HasPassphrase = true
+		}
+	}
 	return c, nil
 }
 
@@ -202,6 +221,14 @@ func (m *Manager) Save(c Config) error {
 		"backup_remote_user":    strings.TrimSpace(c.User),
 		"backup_remote_dir":     strings.TrimSpace(c.Dir),
 		"backup_remote_hostkey": strings.TrimSpace(c.HostKey),
+		"backup_encrypt":        map[bool]string{true: "1", false: "0"}[c.Encrypt],
+	}
+	if c.Passphrase != "" {
+		sealed, err := m.box.Seal(c.Passphrase)
+		if err != nil {
+			return err
+		}
+		values["backup_passphrase"] = sealed
 	}
 	if c.Password != "" {
 		sealed, err := m.box.Seal(c.Password)
@@ -255,6 +282,12 @@ func (m *Manager) RunNow() (Status, error) {
 		return m.finish("", err)
 	}
 	name := "wafproxy-backup-" + m.now().UTC().Format("20060102-150405") + ".json"
+	if cfg.Encrypt && cfg.Passphrase != "" {
+		if data, err = Encrypt(cfg.Passphrase, data); err != nil {
+			return m.finish("", err)
+		}
+		name += ".enc"
+	}
 	if err := m.deliver(cfg, name, data); err != nil {
 		return m.finish("", err)
 	}
