@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
 
 // serve runs one request through the real pipeline. The caller owns the
@@ -154,5 +156,12 @@ func TestWebSocketUpgradeReachesTheClient(t *testing.T) {
 	}
 	if string(echo) != "ws-yo" {
 		t.Fatalf("tunnel carried %q, want %q", echo, "ws-yo")
+	}
+	// The request is logged once the tunnelled connection ends, and the event
+	// must record the 101 the client actually received.
+	_ = conn.Close()
+	e := h.waitEvent(t, func(e model.Event) bool { return e.Path == "/ws" })
+	if e.Status != http.StatusSwitchingProtocols {
+		t.Fatalf("event status = %d, want 101", e.Status)
 	}
 }

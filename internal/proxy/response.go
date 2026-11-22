@@ -34,7 +34,6 @@ type responseWriter struct {
 	wroteHeader bool
 	strict      bool
 	requestID   string
-	upgraded    bool
 	// protection is the per-proxy hardening profile, and secure reports
 	// whether this request arrived over TLS (HSTS is meaningless otherwise).
 	protection *model.ProtectionProfile
@@ -229,7 +228,11 @@ func (w *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !ok {
 		return nil, nil, fmt.Errorf("hijacking not supported")
 	}
-	w.upgraded = true
+	// A hijacked connection never writes a status line, so the log would call
+	// a protocol switch a 200 without this.
+	if !w.wroteHeader {
+		w.status = http.StatusSwitchingProtocols
+	}
 	return hj.Hijack()
 }
 
