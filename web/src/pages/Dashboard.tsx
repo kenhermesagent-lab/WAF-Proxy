@@ -6,7 +6,7 @@ import Chart from "../components/Chart";
 import Icon from "../components/Icon";
 import { countryFlag, countryName } from "../countries";
 import { Badge, Card, Empty, Info, Skeleton, TableWrap, fmtAgo, fmtBps, fmtBytes, fmtTime } from "../ui";
-import { Event, GlobeHit, GlobePoint, Metrics, Proxy, Uptime } from "../types";
+import { AnomalyEvent, Cert, Event, Feed, GlobeHit, GlobePoint, Metrics, Proxy, UpdatesSnapshot, Uptime } from "../types";
 
 type Rate = { requests: number; bytesIn: number; bytesOut: number };
 
@@ -24,13 +24,25 @@ function historyLabel(ts: number, index: number, total: number): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-export default function Dashboard({ onError, home }: { onError: (m: string) => void; home: { lat: number; lon: number } }) {
+export default function Dashboard({
+  onError,
+  home,
+  onOpenSource,
+}: {
+  onError: (m: string) => void;
+  home: { lat: number; lon: number };
+  onOpenSource: (ip: string) => void;
+}) {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [points, setPoints] = useState<GlobePoint[]>([]);
   const [hits, setHits] = useState<GlobeHit[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [uptime, setUptime] = useState<Uptime | null>(null);
+  const [certs, setCerts] = useState<Cert[]>([]);
+  const [feeds, setFeeds] = useState<Feed[]>([]);
+  const [anomalies, setAnomalies] = useState<AnomalyEvent[]>([]);
+  const [updates, setUpdates] = useState<UpdatesSnapshot | null>(null);
   const [rates, setRates] = useState<Record<string, Rate>>({});
   const [hours, setHours] = useState(1);
   const [connected, setConnected] = useState(false);
@@ -174,6 +186,32 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
     };
   }, []);
 
+  // Everything the attention queue reads. Each source is optional: a role
+  // without the permission, or a node with no detector, simply has none.
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      Promise.all([
+        api.get<{ certs: Cert[] }>("/api/certs").catch(() => ({ certs: [] })),
+        api.get<{ feeds: Feed[] }>("/api/feeds").catch(() => ({ feeds: [] })),
+        api.get<{ events: AnomalyEvent[] }>("/api/anomaly").catch(() => ({ events: [] })),
+        api.get<UpdatesSnapshot>("/api/updates").catch(() => null),
+      ]).then(([c, f, a, u]) => {
+        if (!alive) return;
+        setCerts(c?.certs ?? []);
+        setFeeds(f?.feeds ?? []);
+        setAnomalies(a?.events ?? []);
+        setUpdates(u);
+      });
+    };
+    load();
+    const t = setInterval(load, 60000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
   const totals = useMemo(() => {
     const t = { requests: 0, blocked: 0, bytesIn: 0, bytesOut: 0 };
     if (metrics) {
@@ -213,8 +251,94 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [points]);
 
-  const downTargets = (uptime?.targets ?? []).filter((t) => t.state === "down");
   const blockedShare = totals.requests ? (totals.blocked / totals.requests) * 100 : 0;
+
+  // The attention queue has no dismiss state: an item stays until its cause
+  // clears, so the list can never disagree with the resources it summarises.
+  const attention = useMemo(() => {
+    const items: { id: string; tone: "bad" | "warn"; title: string; detail: string; href: string; action: string }[] = [];
+    const now = Date.now();
+    const downTargets = (uptime?.targets ?? []).filter((t) => t.state === "down");
+    if (downTargets.length > 0) {
+      items.push({
+        id: "backends",
+        tone: "bad",
+        title: `${downTargets.length} backend${downTargets.length === 1 ? "" : "s"} down`,
+        detail: downTargets.slice(0, 3).map((t) => t.proxy_host).join(", ") + (downTargets.length > 3 ? ` +${downTargets.length - 3} more` : ""),
+        href: "#/statistics",
+        action: "View uptime",
+      });
+    }
+    const failedCerts = certs.filter((c) => !!c.last_error);
+    if (failedCerts.length > 0) {
+      items.push({
+        id: "certs-failed",
+        tone: "bad",
+        title: `${failedCerts.length} certificate renewal${failedCerts.length === 1 ? " has" : "s have"} failed`,
+        detail: failedCerts.slice(0, 2).map((c) => `${c.domains}: ${c.last_error}`).join(" · "),
+        href: "#/certs",
+        action: "Open certificates",
+      });
+    }
+    const expiring = certs.filter((c) => {
+      const at = Date.parse(c.expires_at || "");
+      return Number.isFinite(at) && at - now < 21 * 86400000 && !c.last_error;
+    });
+    if (expiring.length > 0) {
+      items.push({
+        id: "certs-expiring",
+        tone: "warn",
+        title: `${expiring.length} certificate${expiring.length === 1 ? " expires" : "s expire"} within 21 days`,
+        detail: expiring.slice(0, 3).map((c) => c.domains).join(", "),
+        href: "#/certs",
+        action: "Review renewals",
+      });
+    }
+    const badFeeds = feeds.filter((f) => f.enabled && (f.state === "error" || f.state === "frozen"));
+    if (badFeeds.length > 0) {
+      items.push({
+        id: "feeds",
+        tone: "warn",
+        title: `${badFeeds.length} threat feed${badFeeds.length === 1 ? "" : "s"} need attention`,
+        detail: badFeeds.slice(0, 3).map((f) => `${f.name} (${f.state})`).join(", "),
+        href: "#/intel",
+        action: "Open threat intel",
+      });
+    }
+    const openAnomalies = anomalies.filter((a) => a.state === "open" && Date.parse(a.created_at) > now - 86400000);
+    if (openAnomalies.length > 0) {
+      items.push({
+        id: "anomalies",
+        tone: "warn",
+        title: `${openAnomalies.length} unexplained anomal${openAnomalies.length === 1 ? "y" : "ies"} in the last 24h`,
+        detail: openAnomalies.slice(0, 3).map((a) => `${a.proxy_host}: ${a.kind}`).join(", "),
+        href: "#/anomalies",
+        action: "Review anomalies",
+      });
+    }
+    const securityUpdates = updates?.packages?.filter((p) => p.security && p.can_update) ?? [];
+    if (securityUpdates.length > 0) {
+      items.push({
+        id: "security-updates",
+        tone: "warn",
+        title: `${securityUpdates.length} security package update${securityUpdates.length === 1 ? "" : "s"} pending`,
+        detail: securityUpdates.slice(0, 3).map((p) => p.name).join(", "),
+        href: "#/updates",
+        action: "Open updates",
+      });
+    }
+    if (updates?.app_update_available) {
+      items.push({
+        id: "app-update",
+        tone: "warn",
+        title: `Console update available${updates.app_remote_version ? `: v${updates.app_remote_version}` : ""}`,
+        detail: "Apply it from Updates when the node has a quiet moment.",
+        href: "#/updates",
+        action: "Open updates",
+      });
+    }
+    return items;
+  }, [anomalies, certs, feeds, updates, uptime]);
 
   return (
     <div className="grid" style={{ gap: 14 }}>
@@ -234,20 +358,37 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
         </div>
       </div>
 
-      {downTargets.length > 0 && (
-        <div className="banner warn" role="status">
-          <Icon name="alert" size={16} />
-          <span>
-            <b>{downTargets.length} backend{downTargets.length === 1 ? "" : "s"} down</b>
-            {" · "}
-            {downTargets.slice(0, 2).map((t) => t.proxy_host).join(", ")}
-            {downTargets.length > 2 ? ` +${downTargets.length - 2} more` : ""}
-          </span>
-          <span className="banner-actions">
-            <a className="small" href="#/statistics">View uptime</a>
-          </span>
-        </div>
-      )}
+      <Card
+        title="Needs attention"
+        actions={
+          attention.length ? (
+            <Badge tone={attention.some((a) => a.tone === "bad") ? "bad" : "warn"}>{attention.length} open</Badge>
+          ) : (
+            <span className="faint small-text">checked every minute</span>
+          )
+        }
+      >
+        {attention.length === 0 ? (
+          <Empty title="Nothing needs you" icon="check">
+            Backends, certificates, threat feeds and updates are all healthy.
+          </Empty>
+        ) : (
+          <div className="grid" style={{ gap: 8 }}>
+            {attention.map((a) => (
+              <div className={`banner ${a.tone}`} role="status" key={a.id}>
+                <Icon name="alert" size={16} />
+                <span>
+                  <b>{a.title}</b>
+                  {a.detail ? ` · ${a.detail}` : ""}
+                </span>
+                <span className="banner-actions">
+                  <a className="small" href={a.href}>{a.action}</a>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <div className="kpi-grid">
         {!metrics ? (
@@ -465,7 +606,7 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
               <div className="bar-row" key={ip}>
                 <div style={{ minWidth: 0 }}>
                   <div className="row between">
-                    <span className="mono" style={{ fontSize: 11.5 }}>{ip}</span>
+                    <button className="link-cell mono" style={{ fontSize: 11.5 }} onClick={() => onOpenSource(ip)} title={`Investigate ${ip}`}>{ip}</button>
                     <span className="faint small-text">{countryFlag(info.country)} {countryName(info.country) || "—"}</span>
                   </div>
                   <div className="bar-track">
@@ -504,7 +645,7 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
                   <tr key={e.id}>
                     <td className="muted" title={fmtTime(e.ts)} style={{ whiteSpace: "nowrap" }}>{fmtAgo(e.ts)}</td>
                     <td>
-                      <div className="mono" style={{ fontSize: 11.5 }}>{e.src_ip}</div>
+                      <button className="link-cell mono" style={{ fontSize: 11.5 }} onClick={() => onOpenSource(e.src_ip)} title={`Investigate ${e.src_ip}`}>{e.src_ip}</button>
                       <div className="faint small-text">{countryName(e.country) || e.country || "—"} · AS{e.asn || "?"}</div>
                     </td>
                     <td className="muted">{e.host}</td>
@@ -529,6 +670,7 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
           onHours={setHours}
           onClose={() => setMapOpen(false)}
           onError={onError}
+          onOpenSource={onOpenSource}
         />
       )}
     </div>

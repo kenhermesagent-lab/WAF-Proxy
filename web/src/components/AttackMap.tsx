@@ -13,6 +13,7 @@ export default function AttackMap({
   onHours,
   onClose,
   onError,
+  onOpenSource,
 }: {
   points: GlobePoint[];
   hits: GlobeHit[];
@@ -21,6 +22,7 @@ export default function AttackMap({
   onHours: (h: number) => void;
   onClose: () => void;
   onError: (m: string) => void;
+  onOpenSource: (ip: string) => void;
 }) {
   const [focus, setFocus] = useState<string | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
@@ -151,7 +153,19 @@ export default function AttackMap({
                     {events.map((e) => (
                       <div key={e.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border-soft)" }}>
                         <div className="row between" style={{ gap: 8 }}>
-                          <span className="mono" style={{ fontSize: 12 }}>{e.src_ip}</span>
+                          <button
+                            className="link-cell mono"
+                            style={{ fontSize: 12 }}
+                            title={`Investigate ${e.src_ip}`}
+                            onClick={() => {
+                              // One drawer at a time: the map closes so the source
+                              // drawer owns the only focus trap on screen.
+                              onClose();
+                              onOpenSource(e.src_ip);
+                            }}
+                          >
+                            {e.src_ip}
+                          </button>
                           <span className="faint small-text" title={fmtTime(e.ts)}>{fmtAgo(e.ts)}</span>
                         </div>
                         <div className="faint small-text" style={{ marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

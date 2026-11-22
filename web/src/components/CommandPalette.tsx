@@ -20,12 +20,14 @@ export default function CommandPalette({
   nav,
   onNavigate,
   onSignOut,
+  onOpenSource,
 }: {
   open: boolean;
   onClose: () => void;
   nav: NavItem[];
   onNavigate: (id: string, query?: string) => void;
   onSignOut: () => void;
+  onOpenSource: (ip: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -88,6 +90,10 @@ export default function CommandPalette({
       kind: r.kind === "ip" ? "Source IP" : r.kind === "ban" ? "Ban" : r.kind === "event" ? "Event" : "Proxy",
       icon: r.kind === "ip" ? "globe" : r.kind === "ban" ? "shield" : r.kind === "event" ? "logs" : "server",
       run: () => {
+        if (r.kind === "ip") {
+          onOpenSource(r.title);
+          return;
+        }
         const [page, qs] = r.href.replace(/^#\//, "").split("?");
         onNavigate(page, qs);
       },
@@ -99,7 +105,7 @@ export default function CommandPalette({
           { key: "action-signout", title: "Sign out", subtitle: "End this browser session", kind: "Action", icon: "power", run: onSignOut },
         ];
     return [...searchRows, ...pageRows, ...actions];
-  }, [nav, onNavigate, onSignOut, query, results]);
+  }, [nav, onNavigate, onOpenSource, onSignOut, query, results]);
 
   useEffect(() => {
     if (active >= rows.length) setActive(0);

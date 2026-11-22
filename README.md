@@ -158,13 +158,13 @@ in the wizard and in **Settings → Network**, and do not forward the console po
 
 | Page | What it covers |
 |---|---|
-| Dashboard | Live requests and byte rates, attack globe with country drill-down, top sources, upstream health |
+| Dashboard | Needs-attention queue, live requests and byte rates, attack globe with country drill-down, top sources, upstream health |
 | Statistics | Request/block totals, per-site series, countries, stages, uptime |
 | Proxies | Hostnames, upstreams, routes, health checks, maintenance, presets |
 | Streaming | Byte-relay forwarders for Plex, Jellyfin and similar, with optional lists |
 | Policies | Global profile, WAF and protection profiles, blocklists/whitelists, access profiles, bot filter |
-| Sources | Threat feeds, local lists, CrowdSec status, bans |
-| Logs | Event search, filters, the **Why?** request simulator |
+| Sources | Threat feeds, local lists, CrowdSec status, bans, per-address investigation |
+| Logs | Event search, filters, live tail, the **Why?** request simulator |
 | Anomaly events | Requests that tripped a rule but were not blocked |
 | Access gate | Site accounts, TOTP, gate settings |
 | Threat intel | Feed health and rollup |
@@ -175,6 +175,11 @@ in the wizard and in **Settings → Network**, and do not forward the console po
 | Tailscale | Listener on the tailnet address |
 | Settings | Network, protection, retention, backup, GeoIP, audit, YAML/JSON transport |
 | Account | Password, authenticator rotation, recovery codes, administrators and roles |
+
+**Investigating a source.** Any address in the log, dashboard, attack map, source explorer or ⌘K
+search opens one drawer: totals for 1h/24h/7d/30d, block share, hosts, first and last seen, threat-intel
+matches, recent requests and the ban state. Administrators with `policies.write` can ban for 24 hours
+with a reason or release the ban; the drawer is read-only for other roles.
 
 ## Configuration and transport
 

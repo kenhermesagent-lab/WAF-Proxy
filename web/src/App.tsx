@@ -4,6 +4,7 @@ import { api, setCSRF } from "./api";
 import { errText } from "./ui";
 import PageBoundary from "./components/PageBoundary";
 import CommandPalette from "./components/CommandPalette";
+import SourceDrawer from "./components/SourceDrawer";
 import Icon from "./components/Icon";
 import { Me, SetupStatus, can } from "./types";
 import { NAV, NAV_GROUPS, NAV_UTILITY, pageFromHash, type NavItem } from "./nav";
@@ -46,6 +47,7 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("waf.nav.collapsed") === "1");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sourceIp, setSourceIp] = useState<string | null>(null);
   const [userMenu, setUserMenu] = useState(false);
   const toastSeq = useRef(0);
   const userWrap = useRef<HTMLDivElement>(null);
@@ -324,7 +326,7 @@ export default function App() {
             <div className="card">Your role does not include this page.</div>
           ) : (
             <PageBoundary page={page}>
-              {page === "dashboard" && <Dashboard onError={onError} home={home} />}
+              {page === "dashboard" && <Dashboard onError={onError} home={home} onOpenSource={setSourceIp} />}
               {page === "statistics" && <Statistics onError={onError} />}
               {page === "proxies" && <Proxies onError={onError} onOK={onOK} base={me?.base_domain ?? ""} />}
               {page === "streaming" && <Streaming onError={onError} onOK={onOK} />}
@@ -332,14 +334,14 @@ export default function App() {
               {page === "agent" && <AgentPage onError={onError} onOK={onOK} />}
               {page === "tailscale" && <TailscalePage onError={onError} onOK={onOK} />}
               {page === "policies" && <Policies onError={onError} onOK={onOK} />}
-              {page === "sources" && <Sources onError={onError} onOK={onOK} />}
+              {page === "sources" && <Sources onError={onError} onOpenSource={setSourceIp} />}
               {page === "intel" && <Intel onError={onError} onOK={onOK} />}
               {page === "anomalies" && <Anomalies onError={onError} onOK={onOK} />}
               {page === "crowdsec" && <CrowdSecPage onError={onError} onOK={onOK} />}
               {page === "certs" && <Certs onError={onError} onOK={onOK} base={me?.base_domain ?? ""} />}
               {page === "access" && <Access onError={onError} onOK={onOK} />}
               {page === "notifications" && <Notifications onError={onError} onOK={onOK} />}
-              {page === "logs" && <Logs onError={onError} query={pageQuery} />}
+              {page === "logs" && <Logs onError={onError} query={pageQuery} onOpenSource={setSourceIp} />}
               {page === "settings" && <SettingsPage onError={onError} onOK={onOK} />}
               {page === "account" && (
                 <Account
@@ -360,7 +362,18 @@ export default function App() {
         nav={visibleNav}
         onNavigate={navigate}
         onSignOut={logout}
+        onOpenSource={setSourceIp}
       />
+
+      {sourceIp && (
+        <SourceDrawer
+          ip={sourceIp}
+          canWrite={can(me?.permissions, "policies.write")}
+          onClose={() => setSourceIp(null)}
+          onError={onError}
+          onOK={onOK}
+        />
+      )}
 
       <div className="toast-stack" role="status" aria-live="polite">
         {toasts.map((t) => (

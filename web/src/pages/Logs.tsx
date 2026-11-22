@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import Simulator from "../components/Simulator";
 import { Badge, Card, Empty, errText, fmtTime } from "../ui";
 import { Event } from "../types";
 
 const PAGE = 50;
+const LIVE_MS = 2000;
 
 function clockTime(iso: string): string {
   const d = new Date(iso);
@@ -23,16 +24,34 @@ function filtersFromQuery(query?: string) {
   };
 }
 
-export default function Logs({ onError, query }: { onError: (m: string) => void; query?: string }) {
+export default function Logs({
+  onError,
+  query,
+  onOpenSource,
+}: {
+  onError: (m: string) => void;
+  query?: string;
+  onOpenSource: (ip: string) => void;
+}) {
   const [events, setEvents] = useState<Event[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [filters, setFilters] = useState(() => filtersFromQuery(query));
   const [loading, setLoading] = useState(false);
+  const [live, setLive] = useState(false);
   const [picked, setPicked] = useState<Event | null>(null);
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  // Only the newest request may paint the table, and a background poll never
+  // races a search the operator is waiting on.
+  const seq = useRef(0);
+  const busy = useRef(false);
 
-  const load = async (nextOffset = offset, active = filters) => {
-    setLoading(true);
+  const load = async (nextOffset = offset, active = filters, quiet = false) => {
+    if (quiet && busy.current) return;
+    const mine = ++seq.current;
+    if (!quiet) busy.current = true;
+    if (!quiet) setLoading(true);
     const q = new URLSearchParams();
     q.set("limit", String(PAGE));
     q.set("offset", String(nextOffset));
@@ -43,13 +62,18 @@ export default function Logs({ onError, query }: { onError: (m: string) => void;
     if (active.blocked) q.set("blocked", "1");
     try {
       const r = await api.get<{ events: Event[]; total: number }>(`/api/events?${q.toString()}`);
+      if (mine !== seq.current) return;
       setEvents(r.events || []);
       setTotal(r.total || 0);
       setOffset(nextOffset);
     } catch (e) {
-      onError(errText(e));
+      // A poll that fails is retried in two seconds; do not stack toasts for it.
+      if (mine === seq.current && !quiet) onError(errText(e));
     } finally {
-      setLoading(false);
+      if (!quiet) {
+        busy.current = false;
+        if (mine === seq.current) setLoading(false);
+      }
     }
   };
 
@@ -64,6 +88,28 @@ export default function Logs({ onError, query }: { onError: (m: string) => void;
     setFilters(f);
     load(0, f);
   }, [query]);
+
+  // Live tail: refresh the newest page while the tab is visible, and catch up
+  // immediately when the operator comes back to it.
+  useEffect(() => {
+    if (!live) return;
+    const poll = () => {
+      if (document.hidden) return;
+      load(0, filtersRef.current, true);
+    };
+    const t = window.setInterval(poll, LIVE_MS);
+    document.addEventListener("visibilitychange", poll);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener("visibilitychange", poll);
+    };
+  }, [live]);
+
+  const toggleLive = () => {
+    const next = !live;
+    setLive(next);
+    if (next) load(0, filtersRef.current, true);
+  };
 
   const exportHref = () => {
     const q = new URLSearchParams();
@@ -128,9 +174,17 @@ export default function Logs({ onError, query }: { onError: (m: string) => void;
         title={`Events (${total.toLocaleString()})`}
         actions={
           <div className="row">
+            <button
+              className={`small ${live ? "primary" : "ghost"}`}
+              onClick={toggleLive}
+              aria-pressed={live}
+              title={live ? "Pause the live tail" : "Follow new events every 2 seconds"}
+            >
+              {live ? "● Live" : "Live tail"}
+            </button>
             <a href={exportHref()}><button className="small">Export CSV</button></a>
-            <button className="small" disabled={offset === 0} onClick={() => load(Math.max(0, offset - PAGE))}>Newer</button>
-            <button className="small" disabled={offset + PAGE >= total} onClick={() => load(offset + PAGE)}>Older</button>
+            <button className="small" disabled={live || offset === 0} onClick={() => load(Math.max(0, offset - PAGE))}>Newer</button>
+            <button className="small" disabled={live || offset + PAGE >= total} onClick={() => load(offset + PAGE)}>Older</button>
           </div>
         }
       >
@@ -147,7 +201,9 @@ export default function Logs({ onError, query }: { onError: (m: string) => void;
                       <span className="log-time-clock">{clockTime(e.ts)}</span>
                     </td>
                     <td>
-                      <div className="mono">{e.src_ip}</div>
+                      <button className="link-cell mono" onClick={() => onOpenSource(e.src_ip)} title={`Investigate ${e.src_ip}`}>
+                        {e.src_ip}
+                      </button>
                       <div className="faint log-source-meta" style={{ fontSize: 11 }}>{e.country || "—"} · AS{e.asn || "?"}</div>
                     </td>
                     <td className="muted hide-tablet">{e.host}</td>

@@ -400,6 +400,13 @@ button.primary:disabled:hover { background: var(--accent); }
 }
 .table-wrap table { border-collapse: separate; border-spacing: 0; min-width: 100%; }
 .log-request { display: block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A table cell that opens the source drawer: a real button, styled as text. */
+.link-cell {
+  min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent;
+  color: inherit; font-weight: inherit; text-align: left; justify-content: flex-start; white-space: normal;
+}
+.link-cell:hover { background: transparent; border-color: transparent; color: var(--accent); text-decoration: underline; }
+.link-cell.mono { font-family: var(--font-mono); }
 .log-time { white-space: nowrap; }
 .log-time-clock { display: none; }
 .ban-move-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

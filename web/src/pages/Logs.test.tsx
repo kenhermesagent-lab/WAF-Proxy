@@ -60,7 +60,7 @@ describe("Logs request simulator", () => {
   });
 
   it("opens the simulator for a blocked row and renders the returned stages and verdict", async () => {
-    render(<Logs onError={vi.fn()} />);
+    render(<Logs onError={vi.fn()} onOpenSource={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Why?" }));
     expect(await screen.findByText(/Why was this request handled this way\? · app.lab.local/)).toBeTruthy();
@@ -76,6 +76,28 @@ describe("Logs request simulator", () => {
     expect(post).toHaveBeenCalledWith(
       "/api/simulate",
       expect.objectContaining({ proxy_id: 7, method: "GET", path: "/.env", client_ip: "203.0.113.7" }),
+    );
+  });
+
+  it("opens the source drawer from a source cell", async () => {
+    const onOpenSource = vi.fn();
+    render(<Logs onError={vi.fn()} onOpenSource={onOpenSource} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "203.0.113.7" }));
+    expect(onOpenSource).toHaveBeenCalledWith("203.0.113.7");
+  });
+
+  it("polls the newest page while the live tail is on", async () => {
+    render(<Logs onError={vi.fn()} onOpenSource={vi.fn()} />);
+    await screen.findByText("GET /.env");
+    const before = get.mock.calls.filter(([path]) => path.startsWith("/api/events")).length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Live tail" }));
+    expect(screen.getByRole("button", { name: "● Live" })).toBeTruthy();
+
+    await waitFor(
+      () => expect(get.mock.calls.filter(([path]) => path.startsWith("/api/events")).length).toBeGreaterThan(before + 1),
+      { timeout: 4000 },
     );
   });
 });

@@ -11,6 +11,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.29.0] — 2026-11-22
+
+### Added
+
+- **Investigate source drawer.** A source address now opens the same drawer from the log, the
+  dashboard's top blocked sources and recent blocked requests, the attack map's event list, the
+  source explorer and a source result in ⌘K search: request and block totals for 1h/24h/7d/30d,
+  distinct hosts, first and last seen, threat-intel matches, the recent requests from that address
+  and its ban state. An administrator holding `policies.write` can ban it for 24 hours with a typed
+  reason, or release an existing ban, after confirmation; every other role gets the read-only view.
+- **Live tail on the log.** The event log follows new requests every two seconds, stops polling
+  while the tab is hidden, catches up on return, and does not fight a search the operator is
+  waiting on.
+- **Needs attention queue on the dashboard.** One list of what is actually broken or pending:
+  backends down, failed and soon-expiring certificates, threat feeds in error or frozen,
+  unexplained anomalies from the last day, pending security package updates and an available
+  console update. Each item links to the page that fixes it and leaves the list when its cause
+  clears; there is nothing to dismiss.
+
+### Changed
+
+- The source explorer's inline detail panel and its `prompt()` ban are gone. Its rows open the
+  shared drawer, and every ban now has a typed reason and a confirmation step.
+- The dashboard's backends-down banner is part of the attention queue instead of a separate
+  message, so one outage is reported once.
+
 ## [1.28.1] — 2026-11-22
 
 ### Fixed
