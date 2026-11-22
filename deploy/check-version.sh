@@ -16,6 +16,14 @@ if [[ $top != "$version" ]]; then
   exit 1
 fi
 
+# The default only matters for a build that skipped the ldflags, but a stale
+# one is what a `go run` or a stray `go build` reports as its version.
+default=$(sed -nE 's/^[[:space:]]*Version *= *"([^"]+)".*/\1/p' "$root/internal/version/version.go" | head -1)
+if [[ $default != "$version" ]]; then
+  echo "internal/version/version.go default is '${default:-none}', VERSION is ${version}" >&2
+  exit 1
+fi
+
 # Only set by GitHub Actions; a local run checks the two files above.
 if [[ ${GITHUB_REF_TYPE:-} == tag ]]; then
   tag=${GITHUB_REF_NAME#v}
