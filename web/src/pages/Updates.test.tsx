@@ -84,6 +84,38 @@ describe("Updates page", () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/updates/apply", { package: "nftables" }));
   });
 
+  it("applies an application update and waits for the new commit", async () => {
+    let applied = false;
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/updates") {
+        return applied
+          ? { ...base, app_version: "1.2.1", app_commit: "def4567", app_update_available: false }
+          : {
+              ...base,
+              app_update_available: true,
+              app_remote_version: "1.2.1",
+              app_remote_commit: "def4567890abcdef",
+              app_update_supported: true,
+            };
+      }
+      if (path === "/api/updates/app") return { updating: false };
+      if (path === "/api/version") return { commit: "def4567" };
+      return { enabled: false, time: "04:00" };
+    });
+    post.mockImplementation(async () => {
+      applied = true;
+      return {};
+    });
+    const onOK = vi.fn();
+    render(<UpdatesPage onError={vi.fn()} onOK={onOK} />);
+
+    (await screen.findByRole("button", { name: "Update to v1.2.1" })).click();
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/api/updates/app"), { timeout: 3000 });
+    await waitFor(() => expect(onOK).toHaveBeenCalledWith("Update applied"), { timeout: 5000 });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Update to/ })).toBeNull());
+  });
+
   it("checks application updates but keeps host packages read-only in a container", async () => {
     get.mockResolvedValue({
       ...base,
