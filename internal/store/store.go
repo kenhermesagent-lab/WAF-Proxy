@@ -127,6 +127,25 @@ CREATE TABLE IF NOT EXISTS proxies (
   waf_mode TEXT NOT NULL DEFAULT 'inherit',
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS protection_profiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  builtin INTEGER NOT NULL DEFAULT 0,
+  force_https INTEGER NOT NULL DEFAULT 1,
+  hsts INTEGER NOT NULL DEFAULT 1,
+  hsts_subdomains INTEGER NOT NULL DEFAULT 1,
+  frame_options TEXT NOT NULL DEFAULT 'sameorigin',
+  nosniff INTEGER NOT NULL DEFAULT 1,
+  referrer_policy TEXT NOT NULL DEFAULT 'strict-origin-when-cross-origin',
+  csp TEXT NOT NULL DEFAULT '',
+  permissions_policy TEXT NOT NULL DEFAULT '',
+  hide_server INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS access_profiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  policy_ids TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS upstreams (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   proxy_id INTEGER NOT NULL REFERENCES proxies(id) ON DELETE CASCADE,
@@ -312,6 +331,9 @@ func (s *Store) migrate() error {
 	if err := s.seedProfiles(); err != nil {
 		return err
 	}
+	if err := s.seedProtectionProfiles(); err != nil {
+		return err
+	}
 	return s.seedFeeds()
 }
 
@@ -327,6 +349,8 @@ func (s *Store) migrateAddColumns() error {
 		{"feeds", "local", `ALTER TABLE feeds ADD COLUMN local INTEGER NOT NULL DEFAULT 0`},
 		{"feeds", "filename", `ALTER TABLE feeds ADD COLUMN filename TEXT NOT NULL DEFAULT ''`},
 		{"feeds", "local_path", `ALTER TABLE feeds ADD COLUMN local_path TEXT NOT NULL DEFAULT ''`},
+		{"proxies", "protection_profile_id", `ALTER TABLE proxies ADD COLUMN protection_profile_id INTEGER REFERENCES protection_profiles(id) ON DELETE SET NULL`},
+		{"proxies", "access_profile_id", `ALTER TABLE proxies ADD COLUMN access_profile_id INTEGER REFERENCES access_profiles(id) ON DELETE SET NULL`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)

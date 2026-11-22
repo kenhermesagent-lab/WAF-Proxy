@@ -5,19 +5,47 @@ import "time"
 
 // Proxy is a hostname routed through the gateway.
 type Proxy struct {
-	ID           int64     `json:"id"`
-	Hostname     string    `json:"hostname"`
-	Enabled      bool      `json:"enabled"`
-	CertID       *int64    `json:"cert_id,omitempty"`
-	ProfileID    *int64    `json:"profile_id,omitempty"`
-	GateMode     string    `json:"gate_mode"` // off | passphrase | accounts | accounts_totp
-	GateSecret   string    `json:"-"`         // argon2 hash, write-only in the API
-	GateTOTPHint string    `json:"gate_totp_hint,omitempty"`
-	Fingerprint  string    `json:"fingerprint"` // strict | minimal
-	BotLevel     string    `json:"bot_level"`   // off | light | standard | aggressive
-	Maintenance  bool      `json:"maintenance"`
-	WAFMode      string    `json:"waf_mode"` // inherit | off | detect | block
-	CreatedAt    time.Time `json:"created_at"`
+	ID                  int64     `json:"id"`
+	Hostname            string    `json:"hostname"`
+	Enabled             bool      `json:"enabled"`
+	CertID              *int64    `json:"cert_id,omitempty"`
+	ProfileID           *int64    `json:"profile_id,omitempty"`
+	ProtectionProfileID *int64    `json:"protection_profile_id,omitempty"`
+	AccessProfileID     *int64    `json:"access_profile_id,omitempty"`
+	GateMode            string    `json:"gate_mode"` // off | passphrase | accounts | accounts_totp
+	GateSecret          string    `json:"-"`         // argon2 hash, write-only in the API
+	GateTOTPHint        string    `json:"gate_totp_hint,omitempty"`
+	Fingerprint         string    `json:"fingerprint"` // strict | minimal
+	BotLevel            string    `json:"bot_level"`   // off | light | standard | aggressive
+	Maintenance         bool      `json:"maintenance"`
+	WAFMode             string    `json:"waf_mode"` // inherit | off | detect | block
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+// ProtectionProfile is a named set of response-hardening options a proxy can
+// apply, so a site gets HSTS, clickjacking and MIME-sniffing protection without
+// every application having to set its own headers.
+type ProtectionProfile struct {
+	ID                int64  `json:"id"`
+	Name              string `json:"name"`
+	Builtin           bool   `json:"builtin"`
+	ForceHTTPS        bool   `json:"force_https"`
+	HSTS              bool   `json:"hsts"`
+	HSTSSubdomains    bool   `json:"hsts_subdomains"`
+	FrameOptions      string `json:"frame_options"` // off | deny | sameorigin
+	NoSniff           bool   `json:"nosniff"`
+	ReferrerPolicy    string `json:"referrer_policy"`
+	CSP               string `json:"csp"`
+	PermissionsPolicy string `json:"permissions_policy"`
+	HideServer        bool   `json:"hide_server"`
+}
+
+// AccessProfile is a named bundle of existing policy rows (allow lists and
+// blocklists) that can be attached to a proxy at creation time.
+type AccessProfile struct {
+	ID        int64   `json:"id"`
+	Name      string  `json:"name"`
+	PolicyIDs []int64 `json:"policy_ids"`
 }
 
 // Upstream is a backend server for a proxy.

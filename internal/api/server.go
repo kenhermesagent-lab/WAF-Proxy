@@ -18,6 +18,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crowdsec"
@@ -60,6 +61,7 @@ type Server struct {
 	mux       *http.ServeMux
 	started   time.Time
 	streams   *streaming.Manager
+	backup    *backup.Manager
 	updates   *updatepkg.Manager
 	uptime    *uptime.Manager
 	restartFn func()
@@ -99,6 +101,7 @@ func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Serve
 		limiter: auth.NewLimiter(), mux: http.NewServeMux(), started: time.Now(),
 		totpPending: map[string]pendingTOTP{},
 	}
+	s.backup = backup.New(st, box, log, s.backupDocument)
 	s.routes()
 	return s
 }
@@ -118,6 +121,13 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/account/totp/confirm", s.authed(s.confirmTOTP))
 	m.HandleFunc("POST /api/account/logout-all", s.authed(s.logoutAll))
 
+	m.HandleFunc("GET /api/updates/auto", s.authed(s.getAutoUpdate))
+	m.HandleFunc("PUT /api/updates/auto", s.authed(s.putAutoUpdate))
+
+	m.HandleFunc("GET /api/backup/schedule", s.authed(s.getBackup))
+	m.HandleFunc("PUT /api/backup/schedule", s.authed(s.putBackup))
+	m.HandleFunc("POST /api/backup/schedule/run", s.authed(s.runBackup))
+
 	m.HandleFunc("GET /api/settings", s.authed(s.getSettings))
 	m.HandleFunc("PUT /api/settings", s.authed(s.putSettings))
 	m.HandleFunc("GET /api/geoip", s.authed(s.getGeoIP))
@@ -132,6 +142,15 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/profiles", s.authed(s.createProfile))
 	m.HandleFunc("PUT /api/profiles/{id}", s.authed(s.updateProfile))
 	m.HandleFunc("DELETE /api/profiles/{id}", s.authed(s.deleteProfile))
+
+	m.HandleFunc("GET /api/protection-profiles", s.authed(s.listProtectionProfiles))
+	m.HandleFunc("POST /api/protection-profiles", s.authed(s.createProtectionProfile))
+	m.HandleFunc("PUT /api/protection-profiles/{id}", s.authed(s.updateProtectionProfile))
+	m.HandleFunc("DELETE /api/protection-profiles/{id}", s.authed(s.deleteProtectionProfile))
+	m.HandleFunc("GET /api/access-profiles", s.authed(s.listAccessProfiles))
+	m.HandleFunc("POST /api/access-profiles", s.authed(s.createAccessProfile))
+	m.HandleFunc("PUT /api/access-profiles/{id}", s.authed(s.updateAccessProfile))
+	m.HandleFunc("DELETE /api/access-profiles/{id}", s.authed(s.deleteAccessProfile))
 
 	m.HandleFunc("GET /api/policies", s.authed(s.listPolicies))
 	m.HandleFunc("POST /api/policies", s.authed(s.createPolicy))

@@ -3,6 +3,8 @@ import { api } from "../api";
 import { COUNTRIES, countryFlag, countryName } from "../countries";
 import { Badge, Card, Empty, Field, Modal, errText, fmtAgo } from "../ui";
 import { Ban, Policy, Profile, Proxy } from "../types";
+import AccessProfiles from "../components/AccessProfiles";
+import ProtectionProfiles from "../components/ProtectionProfiles";
 
 const KINDS: Record<string, string> = {
   ip_whitelist: "IP / CIDR allow list",
@@ -204,6 +206,8 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           <button className={`tab ${tab === "permanent" ? "active" : ""}`} onClick={() => setTab("permanent")}>Permanent</button>
           <button className={`tab ${tab === "rules" ? "active" : ""}`} onClick={() => setTab("rules")}>Countries, IPs, ASN</button>
           <button className={`tab ${tab === "profiles" ? "active" : ""}`} onClick={() => setTab("profiles")}>WAF profiles</button>
+          <button className={`tab ${tab === "protection" ? "active" : ""}`} onClick={() => setTab("protection")}>Protection profiles</button>
+          <button className={`tab ${tab === "access" ? "active" : ""}`} onClick={() => setTab("access")}>Access profiles</button>
         </div>
         {kernel && (
           <span className={`badge ${kernel.active ? "ok" : "warn"}`}>
@@ -358,6 +362,10 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           </p>
         </Card>
       )}
+
+      {tab === "protection" && <ProtectionProfiles onError={onError} onOK={onOK} />}
+
+      {tab === "access" && <AccessProfiles policies={policies} onError={onError} onOK={onOK} />}
 
       {tab === "rules" && (
         <>

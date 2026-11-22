@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Field, errText, fmtAgo, fmtTime } from "../ui";
 import type { AuditEntry, CrowdSecStatus, GeoIPStatus } from "../types";
+import BackupCard from "../components/BackupCard";
 
 type Settings = Record<string, string>;
 
@@ -207,6 +208,8 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
             Use the Let's Encrypt staging directory
           </label>
         </Card>
+
+        <BackupCard onError={onError} onOK={onOK} />
 
         <Card title="Runtime status">
           <div className="bar-row">

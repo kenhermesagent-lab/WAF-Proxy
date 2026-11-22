@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
 
 var hopHeaders = []string{
@@ -31,6 +33,10 @@ type responseWriter struct {
 	strict      bool
 	requestID   string
 	upgraded    bool
+	// protection is the per-proxy hardening profile, and secure reports
+	// whether this request arrived over TLS (HSTS is meaningless otherwise).
+	protection *model.ProtectionProfile
+	secure     bool
 }
 
 func (w *responseWriter) WriteHeader(code int) {
@@ -51,10 +57,54 @@ func (w *responseWriter) WriteHeader(code int) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+	if w.protection != nil {
+		applyProtection(h, w.protection, w.secure)
+	}
 	if w.requestID != "" {
 		h.Set("X-Request-Id", w.requestID)
 	}
 	w.ResponseWriter.WriteHeader(code)
+}
+
+// applyProtection writes the profile's response hardening. It runs after the
+// baseline headers, so an explicit "off" in the profile removes a default the
+// proxy would otherwise set.
+func applyProtection(h http.Header, p *model.ProtectionProfile, secure bool) {
+	if p.HideServer {
+		for _, k := range leakedHeaders {
+			h.Del(k)
+		}
+	}
+	setOrClear := func(name, value string) {
+		if strings.TrimSpace(value) == "" {
+			h.Del(name)
+			return
+		}
+		h.Set(name, value)
+	}
+	if !p.NoSniff {
+		h.Del("X-Content-Type-Options")
+	}
+	setOrClear("Referrer-Policy", p.ReferrerPolicy)
+	switch p.FrameOptions {
+	case "deny":
+		h.Set("X-Frame-Options", "DENY")
+	case "sameorigin":
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+	default:
+		h.Del("X-Frame-Options")
+	}
+	setOrClear("Content-Security-Policy", p.CSP)
+	setOrClear("Permissions-Policy", p.PermissionsPolicy)
+	if secure && p.HSTS {
+		value := "max-age=31536000"
+		if p.HSTSSubdomains {
+			value += "; includeSubDomains"
+		}
+		h.Set("Strict-Transport-Security", value)
+	} else {
+		h.Del("Strict-Transport-Security")
+	}
 }
 
 func (w *responseWriter) Write(b []byte) (int, error) {

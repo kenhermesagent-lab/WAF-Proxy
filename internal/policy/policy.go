@@ -85,22 +85,30 @@ type Engine struct {
 	perProxy map[int64]ruleSet
 	profiles map[int64]model.Profile
 	settings Settings
-	now      func() time.Time
+
+	// An access profile is a named selection of policy rows. Keeping the rows
+	// themselves as the source of truth means editing a policy updates every
+	// proxy that uses a bundle containing it.
+	accessProfiles map[int64][]int64
+	policiesByID   map[int64]model.Policy
+	now            func() time.Time
 }
 
 // New builds an engine and loads the current configuration.
 func New(st *store.Store, bans *ban.Engine, feeds *intel.Manager, geo *geoip.Geo, wafs *waf.Set, log *slog.Logger) (*Engine, error) {
 	e := &Engine{
-		st:       st,
-		bans:     bans,
-		feeds:    feeds,
-		geo:      geo,
-		wafs:     wafs,
-		log:      log,
-		rl:       newLimiter(),
-		perProxy: map[int64]ruleSet{},
-		profiles: map[int64]model.Profile{},
-		now:      time.Now,
+		st:             st,
+		bans:           bans,
+		feeds:          feeds,
+		geo:            geo,
+		wafs:           wafs,
+		log:            log,
+		rl:             newLimiter(),
+		perProxy:       map[int64]ruleSet{},
+		profiles:       map[int64]model.Profile{},
+		accessProfiles: map[int64][]int64{},
+		policiesByID:   map[int64]model.Policy{},
+		now:            time.Now,
 	}
 	if err := e.Reload(); err != nil {
 		return nil, err
@@ -162,9 +170,16 @@ func (e *Engine) Reload() error {
 		return err
 	}
 
+	accessProfiles, err := e.st.ListAccessProfiles()
+	if err != nil {
+		return err
+	}
+
 	global := newRuleSet()
 	perProxy := map[int64]ruleSet{}
+	byID := map[int64]model.Policy{}
 	for _, p := range policies {
+		byID[p.ID] = p
 		if !p.Enabled {
 			continue
 		}
@@ -184,6 +199,10 @@ func (e *Engine) Reload() error {
 	if len(global.decoys) == 0 {
 		global.decoys = append(global.decoys, DefaultDecoys...)
 	}
+	bundles := map[int64][]int64{}
+	for _, a := range accessProfiles {
+		bundles[a.ID] = a.PolicyIDs
+	}
 
 	e.mu.Lock()
 	e.global = global
@@ -192,6 +211,8 @@ func (e *Engine) Reload() error {
 	for _, p := range profiles {
 		e.profiles[p.ID] = p
 	}
+	e.accessProfiles = bundles
+	e.policiesByID = byID
 	e.settings = parseSettings(kv)
 	e.mu.Unlock()
 	return nil
@@ -426,6 +447,15 @@ func (e *Engine) rulesFor(p *model.Proxy) ruleSet {
 			}
 			if local.rateBurst > 0 {
 				merged.rateBurst = local.rateBurst
+			}
+		}
+		// A bundle adds its policy rows to this proxy only. Disabled rows are
+		// skipped, so turning a policy off in Policies also turns it off here.
+		if p.AccessProfileID != nil {
+			for _, id := range e.accessProfiles[*p.AccessProfileID] {
+				if pol, ok := e.policiesByID[id]; ok && pol.Enabled {
+					applyPolicy(&merged, pol)
+				}
 			}
 		}
 	}

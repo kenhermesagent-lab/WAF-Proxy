@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, errText, fmtAgo } from "../ui";
 import type { UpdatePackage, UpdatesSnapshot } from "../types";
+import AutoUpdateCard from "../components/AutoUpdateCard";
 
 function severityTone(severity?: string): "bad" | "warn" | "info" | "" {
   if (severity === "critical" || severity === "high") return "bad";
@@ -364,6 +365,8 @@ export default function UpdatesPage({
           </>
         )}
       </Card>
+
+      <AutoUpdateCard onError={onError} onOK={onOK} />
 
       {snap.available && (
         <Card title="Managed host packages">

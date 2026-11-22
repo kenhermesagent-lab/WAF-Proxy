@@ -11,6 +11,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.7.0] — 2026-11-22
+
+### Added
+
+- **Protection profiles.** A named set of response headers (HSTS, CSP, frame options, referrer
+  policy, permissions policy, cross-origin isolation) that the proxy applies to upstream responses.
+  **Policies → Protection profiles** creates, edits and deletes them; each proxy picks one under
+  **Protection profile**, and a new proxy preselects the built-in *Recommended hardening* profile.
+  Choosing **None** leaves that site's headers untouched.
+- **Access profiles.** A named bundle of existing WAF policies, so one site can be locked down
+  without re-selecting rules per proxy. **Policies → Access profiles** edits the bundle; the proxy
+  form's **Access profile** field applies it on top of the proxy's own policy. Disabled policies
+  stay off even when a profile lists them.
+- **HTTPS enforcement.** A proxy can now redirect plain HTTP to HTTPS before the WAF runs, so a
+  policy that inspects the request body never sees the pre-redirect hit.
+- **Scheduled backups.** **Settings → Backup schedule** writes the same JSON export the download
+  button produces, on a daily or weekly schedule, to a local directory, a git working tree
+  (optionally committed and pushed), SFTP, or FTP. Remote passwords are sealed with the console
+  key; SFTP requires the destination's SHA256 host key fingerprint instead of trusting any key.
+  FTP is offered but carries an **unencrypted** warning, because it sends the archive and its
+  password in clear text. Local and git destinations keep the newest *N* files, and **Back up now**
+  runs one immediately, reporting the target and any error on the card.
+- **Automatic updates.** **Updates → Automatic updates** applies a newer build once a day at a set
+  time, but only when the tracked branch actually has a newer build and the host reports update
+  support; the outcome goes to the notification channels that route *Application update*.
+
 ## [1.6.3] — 2026-11-21
 
 ### Added

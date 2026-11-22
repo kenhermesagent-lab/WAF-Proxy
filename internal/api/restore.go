@@ -34,7 +34,9 @@ type backupFile struct {
 	Bans       []model.Ban       `json:"bans"`
 }
 
-func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
+// backupDocument renders the same configuration export the download serves and
+// the scheduler writes, so a scheduled file restores exactly like a manual one.
+func (s *Server) backupDocument() ([]byte, error) {
 	kv, _ := s.st.Settings()
 	safe := map[string]string{}
 	for _, k := range publicSettingKeys {
@@ -58,8 +60,18 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 		Note: "Secrets, gate passwords, private keys and administrator hashes are excluded. " +
 			"Gate modes are reset to off on restore; re-issue certificates and reset passwords afterwards.",
 	}
+	return json.Marshal(backup)
+}
+
+func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
+	data, err := s.backupDocument()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot build the backup")
+		return
+	}
 	w.Header().Set("Content-Disposition", "attachment; filename=wafproxy-backup.json")
-	writeJSON(w, http.StatusOK, backup)
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
 }
 
 // restoreBackup imports settings, proxies, policies, feeds and bans. It is

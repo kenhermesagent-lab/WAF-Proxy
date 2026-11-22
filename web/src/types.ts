@@ -90,12 +90,35 @@ export interface Me {
   totp_enabled: boolean;
 }
 
+export interface ProtectionProfile {
+  id: number;
+  name: string;
+  builtin: boolean;
+  force_https: boolean;
+  hsts: boolean;
+  hsts_subdomains: boolean;
+  frame_options: string;
+  nosniff: boolean;
+  referrer_policy: string;
+  csp: string;
+  permissions_policy: string;
+  hide_server: boolean;
+}
+
+export interface AccessProfile {
+  id: number;
+  name: string;
+  policy_ids: number[];
+}
+
 export interface Proxy {
   id: number;
   hostname: string;
   enabled: boolean;
   cert_id?: number | null;
   profile_id?: number | null;
+  protection_profile_id?: number | null;
+  access_profile_id?: number | null;
   gate_mode: string;
   gate_totp_hint?: string;
   fingerprint: string;

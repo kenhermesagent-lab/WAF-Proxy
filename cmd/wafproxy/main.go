@@ -372,6 +372,8 @@ func run() error {
 		}
 	}()
 	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
+	apiServer.StartBackup(ctx)
+	apiServer.StartAutoUpdate(ctx)
 	apiServer.SetStreaming(streams)
 	apiServer.SetUpdates(updateManager)
 	apiServer.SetUptime(uptimeMon)

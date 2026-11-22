@@ -20,7 +20,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := normalizeHost(r.Host)
 	e := s.lookup(host)
 
-	rw := &responseWriter{ResponseWriter: w, strict: true, requestID: newRequestID()}
+	rw := &responseWriter{ResponseWriter: w, strict: true, requestID: newRequestID(), secure: r.TLS != nil}
 	if e == nil {
 		// A configured decoy hostname is a deliberate scan target: ban the source
 		// before falling back to the silent unknown-host blackhole.
@@ -47,6 +47,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if e.proxy.Fingerprint == "minimal" {
 		rw.strict = false
+	}
+	rw.protection = e.protection
+	// HTTPS enforcement happens before the WAF: a plain-HTTP request is
+	// redirected rather than inspected, so it reaches the same policy once it
+	// has been upgraded instead of skipping the TLS-only path.
+	if e.protection != nil && e.protection.ForceHTTPS && r.TLS == nil {
+		http.Redirect(rw, r, "https://"+host+r.URL.RequestURI(), http.StatusMovedPermanently)
+		return
 	}
 
 	ip := clientAddr(r)

@@ -39,20 +39,22 @@ type upstreamBody struct {
 
 type proxyBody struct {
 	// ID is accepted but the path parameter is authoritative.
-	ID          int64          `json:"id"`
-	Hostname    string         `json:"hostname"`
-	Enabled     *bool          `json:"enabled"`
-	ProfileID   *int64         `json:"profile_id"`
-	CertID      *int64         `json:"cert_id"`
-	GateMode    string         `json:"gate_mode"`
-	GateSecret  string         `json:"gate_secret"`
-	Fingerprint string         `json:"fingerprint"`
-	BotLevel    string         `json:"bot_level"`
-	Maintenance *bool          `json:"maintenance"`
-	WAFMode     string         `json:"waf_mode"`
-	Upstreams   []upstreamBody `json:"upstreams"`
-	Routes      []model.Route  `json:"routes"`
-	GateUsers   []string       `json:"gate_users"`
+	ID                  int64          `json:"id"`
+	Hostname            string         `json:"hostname"`
+	Enabled             *bool          `json:"enabled"`
+	ProfileID           *int64         `json:"profile_id"`
+	CertID              *int64         `json:"cert_id"`
+	ProtectionProfileID *int64         `json:"protection_profile_id"`
+	AccessProfileID     *int64         `json:"access_profile_id"`
+	GateMode            string         `json:"gate_mode"`
+	GateSecret          string         `json:"gate_secret"`
+	Fingerprint         string         `json:"fingerprint"`
+	BotLevel            string         `json:"bot_level"`
+	Maintenance         *bool          `json:"maintenance"`
+	WAFMode             string         `json:"waf_mode"`
+	Upstreams           []upstreamBody `json:"upstreams"`
+	Routes              []model.Route  `json:"routes"`
+	GateUsers           []string       `json:"gate_users"`
 }
 
 type proxyView struct {
@@ -99,6 +101,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		Hostname: strings.ToLower(strings.TrimSpace(in.Hostname)),
 		Enabled:  in.Enabled == nil || *in.Enabled,
 		CertID:   in.CertID, ProfileID: in.ProfileID,
+		ProtectionProfileID: in.ProtectionProfileID, AccessProfileID: in.AccessProfileID,
 		GateMode:    defaultStr(in.GateMode, "off"),
 		Fingerprint: defaultStr(in.Fingerprint, "strict"),
 		BotLevel:    defaultStr(in.BotLevel, "light"),
@@ -171,6 +174,8 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	current.CertID = in.CertID
 	current.ProfileID = in.ProfileID
+	current.ProtectionProfileID = in.ProtectionProfileID
+	current.AccessProfileID = in.AccessProfileID
 	if in.GateMode != "" {
 		current.GateMode = in.GateMode
 	}
@@ -525,7 +530,6 @@ func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 	s.st.AddAudit(sess.Username, "profile.delete", p.Name, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
-
 
 // ---------- policies ----------
 

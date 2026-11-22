@@ -36,6 +36,7 @@ var EventKinds = []EventKind{
 	{Kind: "gate", Label: "Access gate lockout"},
 	{Kind: "cert", Label: "Certificate expiry"},
 	{Kind: "uptime", Label: "Backend up/down"},
+	{Kind: "update", Label: "Application update"},
 }
 
 // Manager owns channel configuration and delivery.

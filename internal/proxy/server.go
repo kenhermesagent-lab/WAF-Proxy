@@ -50,13 +50,14 @@ type Deps struct {
 }
 
 type edge struct {
-	proxy  model.Proxy
-	ups    []*upstream
-	routes []model.Route
-	rr     uint64
-	rp     *httputil.ReverseProxy
-	cache  *responseCache
-	cancel context.CancelFunc
+	proxy      model.Proxy
+	protection *model.ProtectionProfile
+	ups        []*upstream
+	routes     []model.Route
+	rr         uint64
+	rp         *httputil.ReverseProxy
+	cache      *responseCache
+	cancel     context.CancelFunc
 }
 
 type ctxKey int
@@ -188,6 +189,14 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 	}
 	child, cancel := context.WithCancel(ctx)
 	e := &edge{proxy: p, ups: ups, routes: routes, cache: newResponseCache(32 << 20), cancel: cancel}
+	if p.ProtectionProfileID != nil {
+		prof, err := s.d.Store.GetProtectionProfile(*p.ProtectionProfileID)
+		if err != nil {
+			s.d.Log.Warn("load protection profile", "proxy", p.Hostname, "err", err)
+		} else {
+			e.protection = prof
+		}
+	}
 
 	e.rp = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {

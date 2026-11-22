@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
-import { Cert, Profile, Proxy, Route, Upstream } from "../types";
+import { AccessProfile, Cert, Profile, ProtectionProfile, Proxy, Route, Upstream } from "../types";
 
 type Draft = {
   id?: number;
   hostname: string;
   enabled: boolean;
   profile_id: number | null;
+  protection_profile_id: number | null;
+  access_profile_id: number | null;
   cert_id: number | null;
   gate_mode: string;
   gate_secret: string;
@@ -25,6 +27,8 @@ function emptyDraft(): Draft {
     hostname: "",
     enabled: true,
     profile_id: null,
+    protection_profile_id: null,
+    access_profile_id: null,
     cert_id: null,
     gate_mode: "off",
     gate_secret: "",
@@ -41,15 +45,25 @@ function emptyDraft(): Draft {
 export default function Proxies({ onError, onOK, base }: { onError: (m: string) => void; onOK: (m: string) => void; base: string }) {
   const [list, setList] = useState<Proxy[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [protections, setProtections] = useState<ProtectionProfile[]>([]);
+  const [accessProfiles, setAccessProfiles] = useState<AccessProfile[]>([]);
   const [certs, setCerts] = useState<Cert[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = () =>
-    Promise.all([api.get<Proxy[]>("/api/proxies"), api.get<Profile[]>("/api/profiles"), api.get<{ certs: Cert[] }>("/api/certs")])
-      .then(([p, pr, c]) => {
+    Promise.all([
+      api.get<Proxy[]>("/api/proxies"),
+      api.get<Profile[]>("/api/profiles"),
+      api.get<ProtectionProfile[]>("/api/protection-profiles"),
+      api.get<AccessProfile[]>("/api/access-profiles"),
+      api.get<{ certs: Cert[] }>("/api/certs"),
+    ])
+      .then(([p, pr, pp, ap, c]) => {
         setList(p);
         setProfiles(pr);
+        setProtections(pp);
+        setAccessProfiles(ap);
         setCerts(c.certs || []);
       })
       .catch((e) => onError(errText(e)));
@@ -58,13 +72,22 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
     load();
   }, []);
 
-  const openNew = () => setDraft({ ...emptyDraft(), hostname: `app.${base}` });
+  // New sites get the built-in hardening profile preselected, so HTTPS and HSTS
+  // are on unless the admin unticks them by choosing None.
+  const openNew = () =>
+    setDraft({
+      ...emptyDraft(),
+      hostname: `app.${base}`,
+      protection_profile_id: protections.find((p) => p.builtin)?.id ?? null,
+    });
   const openEdit = (p: Proxy) =>
     setDraft({
       id: p.id,
       hostname: p.hostname,
       enabled: p.enabled,
       profile_id: p.profile_id ?? null,
+      protection_profile_id: p.protection_profile_id ?? null,
+      access_profile_id: p.access_profile_id ?? null,
       cert_id: p.cert_id ?? null,
       gate_mode: p.gate_mode || "off",
       gate_secret: "",
@@ -182,10 +205,32 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
             <Field label="Hostname">
               <input value={draft.hostname} onChange={(e) => patch((d) => (d.hostname = e.target.value))} placeholder={`app.${base}`} />
             </Field>
-            <Field label="Protection profile">
+            <Field label="WAF profile">
               <select value={draft.profile_id ?? ""} onChange={(e) => patch((d) => (d.profile_id = e.target.value ? Number(e.target.value) : null))}>
                 <option value="">Default</option>
                 {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Protection profile">
+              <select
+                value={draft.protection_profile_id ?? ""}
+                onChange={(e) => patch((d) => (d.protection_profile_id = e.target.value ? Number(e.target.value) : null))}
+              >
+                <option value="">None (headers untouched)</option>
+                {protections.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Access profile">
+              <select
+                value={draft.access_profile_id ?? ""}
+                onChange={(e) => patch((d) => (d.access_profile_id = e.target.value ? Number(e.target.value) : null))}
+              >
+                <option value="">None</option>
+                {accessProfiles.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
