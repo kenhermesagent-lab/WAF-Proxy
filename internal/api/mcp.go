@@ -33,7 +33,8 @@ func (s *Server) getMCP(w http.ResponseWriter, r *http.Request) {
 }
 
 type mcpTokenBody struct {
-	Name string `json:"name"`
+	Name   string   `json:"name"`
+	Scopes []string `json:"scopes"`
 }
 
 // createMCPToken returns the plaintext token exactly once. Only its SHA-256
@@ -55,21 +56,36 @@ func (s *Server) createMCPToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	valid := map[string]bool{}
+	for _, scope := range mcp.Scopes() {
+		valid[scope] = true
+	}
+	scopes := []string{}
+	for _, scope := range in.Scopes {
+		if !valid[scope] {
+			writeError(w, http.StatusBadRequest, "unknown scope: "+scope)
+			return
+		}
+		scopes = append(scopes, scope)
+	}
+	if len(scopes) == 0 {
+		scopes = mcp.Scopes()
+	}
 	token, err := wfcrypto.RandomToken(32)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot generate token")
 		return
 	}
 	sess := sessionFrom(r)
-	id, err := s.st.CreateMCPToken(in.Name, mcp.HashToken(token), mcp.Prefix(token), sess.Username)
+	id, err := s.st.CreateMCPToken(in.Name, mcp.HashToken(token), mcp.Prefix(token), sess.Username, scopes)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot store token")
 		return
 	}
-	s.st.AddAudit(sess.Username, "mcp.token_create", in.Name, clientIP(r))
+	s.st.AddAudit(sess.Username, "mcp.token_create", in.Name+" "+strings.Join(scopes, ","), clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": id, "name": in.Name, "prefix": mcp.Prefix(token),
-		"token": token, "endpoint": mcp.Endpoint,
+		"token": token, "endpoint": mcp.Endpoint, "scopes": scopes,
 	})
 }
 

@@ -21,10 +21,17 @@ const TOOLS = [
   ["revoke_sessions_for_ip", "Kill every session from one address."],
 ];
 
+const SCOPES: [string, string][] = [
+  ["read", "Review logs, IPs, sessions, bans and anomalies."],
+  ["ban", "Block and unblock IPs, CIDRs and gate usernames."],
+  ["session", "Revoke gate sessions by ref or by IP."],
+];
+
 export default function AgentPage({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [status, setStatus] = useState<MCPStatus | null>(null);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("hermes-agent");
+  const [scopes, setScopes] = useState<string[]>(SCOPES.map(([s]) => s));
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ name: string; token: string } | null>(null);
 
@@ -35,13 +42,17 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
     load();
   }, []);
 
+  const toggleScope = (s: string) =>
+    setScopes((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
+
   const create = async () => {
     setBusy(true);
     try {
-      const r = await api.post<{ name: string; token: string }>("/api/mcp/tokens", { name });
+      const r = await api.post<{ name: string; token: string }>("/api/mcp/tokens", { name, scopes });
       setCreated({ name: r.name, token: r.token });
       setOpen(false);
       setName("hermes-agent");
+      setScopes(SCOPES.map(([s]) => s));
       onOK("Agent token created");
       load();
     } catch (e) {
@@ -123,12 +134,13 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
         ) : (
           <div style={{ overflowX: "auto" }}>
             <div className="table-wrap"><table>
-              <thead><tr><th>Name</th><th>Prefix</th><th>Created</th><th>Last used</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Created</th><th>Last used</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {status.tokens.map((t) => (
                   <tr key={t.id}>
                     <td>{t.name}</td>
                     <td className="mono">{t.prefix}…</td>
+                    <td className="muted">{t.scopes?.length ? t.scopes.join(", ") : "all"}</td>
                     <td className="muted">{fmtTime(t.created_at)}</td>
                     <td className="muted">{t.last_used_at ? fmtAgo(t.last_used_at) : "never"}</td>
                     <td>{t.revoked_at ? <Badge tone="bad">revoked</Badge> : <Badge tone="ok">active</Badge>}</td>
@@ -174,12 +186,20 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="hermes-agent" autoFocus />
           </Field>
           <p className="muted" style={{ fontSize: 12 }}>
-            Use a name that identifies the agent or host. The token grants the same security operations as this page, so keep it
-            out of logs and shell history.
+            Use a name that identifies the agent or host. Keep the token out of logs and shell history.
           </p>
+          <div className="grid" style={{ gap: 6, marginTop: 10 }}>
+            {SCOPES.map(([scope, hint]) => (
+              <label key={scope} className="row" style={{ gap: 8, alignItems: "flex-start" }}>
+                <input type="checkbox" checked={scopes.includes(scope)} onChange={() => toggleScope(scope)} />
+                <span className="mono">{scope}</span>
+                <span className="muted" style={{ fontSize: 12 }}>{hint}</span>
+              </label>
+            ))}
+          </div>
           <div className="row mt" style={{ justifyContent: "flex-end" }}>
             <button onClick={() => setOpen(false)}>Cancel</button>
-            <button className="primary" onClick={create} disabled={busy || !name.trim()}>{busy ? "Creating…" : "Create token"}</button>
+            <button className="primary" onClick={create} disabled={busy || !name.trim() || scopes.length === 0}>{busy ? "Creating…" : "Create token"}</button>
           </div>
         </Modal>
       )}

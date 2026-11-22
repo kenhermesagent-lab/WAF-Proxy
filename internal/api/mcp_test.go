@@ -25,7 +25,7 @@ func TestMCPTokenCreateListAndRevoke(t *testing.T) {
 		t.Fatalf("token create without CSRF = %d, want 403", missingRec.Code)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/mcp/tokens", strings.NewReader(`{"name":"hermes"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/tokens", strings.NewReader(`{"name":"hermes","scopes":["read"]}`))
 	req.Host = "gui.local"
 	req.RemoteAddr = "192.168.101.10:5000"
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
@@ -50,6 +50,21 @@ func TestMCPTokenCreateListAndRevoke(t *testing.T) {
 	if err != nil || stored.Name != "hermes" {
 		t.Fatalf("created token is not usable: %+v (%v)", stored, err)
 	}
+	if len(stored.Scopes) != 1 || stored.Scopes[0] != "read" {
+		t.Fatalf("created token scopes = %v, want [read]", stored.Scopes)
+	}
+
+	// An unknown scope must not quietly widen or narrow the token.
+	bad := httptest.NewRequest(http.MethodPost, "/api/mcp/tokens", strings.NewReader(`{"name":"bad","scopes":["root"]}`))
+	bad.Host = "gui.local"
+	bad.RemoteAddr = "192.168.101.10:5000"
+	bad.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	bad.Header.Set("X-CSRF-Token", csrf)
+	badRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(badRec, bad)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("token create with an unknown scope = %d, want 400", badRec.Code)
+	}
 
 	// The list must not return the plaintext token or its hash.
 	get := httptest.NewRequest(http.MethodGet, "/api/mcp", nil)
@@ -63,6 +78,9 @@ func TestMCPTokenCreateListAndRevoke(t *testing.T) {
 	}
 	if strings.Contains(getRec.Body.String(), created.Token) || strings.Contains(getRec.Body.String(), mcpgw.HashToken(created.Token)) {
 		t.Fatal("GET /api/mcp exposed secret token material")
+	}
+	if !strings.Contains(getRec.Body.String(), `"scopes":["read"]`) {
+		t.Fatalf("GET /api/mcp did not report the token scopes: %s", getRec.Body.String())
 	}
 	var status struct {
 		TokenCount int `json:"token_count"`

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
@@ -1493,29 +1494,66 @@ func (s *Server) getGlobe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("format") == "csv" {
+		// The export covers the whole table, not the console's 200-row view.
+		list, err := s.st.ListAuditAll()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "database error")
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="audit.csv"`)
+		cw := csv.NewWriter(w)
+		_ = cw.Write([]string{"id", "time", "user", "action", "detail", "ip"})
+		for _, e := range list {
+			_ = cw.Write([]string{strconv.FormatInt(e.ID, 10), e.TS.Format(time.RFC3339), e.User, e.Action, e.Detail, e.IP})
+		}
+		cw.Flush()
+		return
+	}
 	list, err := s.st.ListAudit(200)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	if r.URL.Query().Get("format") != "csv" {
-		writeJSON(w, http.StatusOK, list)
-		return
-	}
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="audit.csv"`)
-	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"id", "time", "user", "action", "detail", "ip"})
-	for _, e := range list {
-		_ = cw.Write([]string{strconv.FormatInt(e.ID, 10), e.TS.Format(time.RFC3339), e.User, e.Action, e.Detail, e.IP})
-	}
-	cw.Flush()
+	writeJSON(w, http.StatusOK, list)
 }
 
-// prometheusMetrics serves the per-proxy counters in the text exposition format
-// so a scraper reads them without the console. It is public like /api/health;
-// the console listener only admits private networks unless that is turned off.
-func (s *Server) prometheusMetrics(w http.ResponseWriter, _ *http.Request) {
+// verifyAudit reports the first row whose hash no longer matches the chain.
+func (s *Server) verifyAudit(w http.ResponseWriter, _ *http.Request) {
+	checked, broken, err := s.st.VerifyAuditChain()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	resp := map[string]any{"ok": broken == 0, "checked": checked}
+	if broken != 0 {
+		resp["broken_id"] = broken
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func bearerAuth(r *http.Request) string {
+	parts := strings.SplitN(strings.TrimSpace(r.Header.Get("Authorization")), " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
+// prometheusMetrics serves the per-proxy counters in the text exposition format.
+// It sits outside the console session, so the scraper sends the bearer token from
+// WAFPROXY_METRICS_TOKEN; without one the endpoint stays closed.
+func (s *Server) prometheusMetrics(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.MetricsToken == "" {
+		writeError(w, http.StatusForbidden, "metrics are closed; set WAFPROXY_METRICS_TOKEN")
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(bearerAuth(r)), []byte(s.cfg.MetricsToken)) != 1 {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="wafproxy-metrics"`)
+		writeError(w, http.StatusUnauthorized, "a metrics bearer token is required")
+		return
+	}
 	snap := s.metrics.Snapshot()
 	ids := make([]string, 0, len(snap.Proxies))
 	for id := range snap.Proxies {

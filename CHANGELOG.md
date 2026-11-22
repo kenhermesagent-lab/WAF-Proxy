@@ -11,6 +11,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.24.0] — 2026-11-22
+
+### Added
+
+- **Metrics scrape token.** `GET /metrics` now answers 401 unless the request carries
+  `Authorization: Bearer $WAFPROXY_METRICS_TOKEN`, and 403 when that variable is unset, so an
+  install with the console listener opened to the LAN does not publish its counters. The token
+  must be at least 32 characters.
+- **Audit hash chain.** Each new audit entry stores a SHA-256 over the previous entry's hash and
+  its own fields. **Settings → Recent administrator activity → Verify chain**
+  (`GET /api/audit/verify`) reports the first row that no longer matches; rows written before
+  the chain is introduced are skipped. The chain catches edits to the database file, not an
+  attacker who can rewrite every row.
+- **Agent token scopes.** Tokens can be limited to `read`, `ban` or `session` tools. `tools/list`
+  hides the rest and `tools/call` refuses them; the console shows each token's scopes. Tokens
+  created before this release, and the environment token, keep access to every tool.
+
+### Changed
+
+- **Audit export covers the full table.** `GET /api/audit?format=csv` downloads every entry,
+  oldest first, instead of the newest 200. The JSON view keeps its 200-row cap.
+
 ## [1.23.0] — 2026-11-22
 
 ### Added

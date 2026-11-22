@@ -668,6 +668,7 @@ export interface MCPToken {
   created_at: string;
   last_used_at?: string | null;
   revoked_at?: string | null;
+  scopes: string[];
 }
 
 export interface MCPStatus {

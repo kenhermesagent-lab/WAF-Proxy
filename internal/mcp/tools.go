@@ -22,14 +22,39 @@ type callInfo struct {
 type tool struct {
 	Name        string
 	Description string
+	Scope       string
 	Schema      map[string]any
 	Handler     func(callInfo, map[string]any) (map[string]any, error)
+}
+
+// Tool scopes a token can be limited to. An empty scope list means every tool,
+// so tokens created before scopes existed keep their access.
+const (
+	ScopeRead    = "read"
+	ScopeBan     = "ban"
+	ScopeSession = "session"
+)
+
+// Scopes lists the valid scope names.
+func Scopes() []string { return []string{ScopeRead, ScopeBan, ScopeSession} }
+
+func allows(scopes []string, scope string) bool {
+	if len(scopes) == 0 {
+		return true
+	}
+	for _, s := range scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
 }
 
 func toolCatalog(g *Gateway) []tool {
 	return []tool{
 		{
-			Name: "get_security_overview",
+			Name:  "get_security_overview",
+			Scope: ScopeRead,
 			Description: "Summarise the current security state: active IP bans, kernel enforcement, 1h/24h traffic and block totals, " +
 				"top source addresses and attack stages, active gate sessions and blocked usernames. Start here when an agent needs orientation.",
 			Schema: schema(nil),
@@ -38,7 +63,8 @@ func toolCatalog(g *Gateway) []tool {
 			},
 		},
 		{
-			Name: "query_logs",
+			Name:  "query_logs",
+			Scope: ScopeRead,
 			Description: "Read recent proxy events newest first. Filter by source IP, host, action (allow/block/ban/challenge/log), " +
 				"stage, or blocked_only. Use this to review a suspected address or a host before deciding on a block or session revocation.",
 			Schema: schema(map[string]any{
@@ -53,7 +79,8 @@ func toolCatalog(g *Gateway) []tool {
 			Handler: g.queryLogs,
 		},
 		{
-			Name: "list_anomalies",
+			Name:  "list_anomalies",
+			Scope: ScopeRead,
 			Description: "Recent anomaly detections (outbound byte spike, request-rate spike, login-failure burst) with the " +
 				"proxy, the value measured and its baseline. Start here when deciding whether an event needs a block.",
 			Schema: schema(map[string]any{
@@ -62,7 +89,8 @@ func toolCatalog(g *Gateway) []tool {
 			Handler: g.listAnomalies,
 		},
 		{
-			Name: "get_ip_activity",
+			Name:  "get_ip_activity",
+			Scope: ScopeRead,
 			Description: "Inspect one source address: 24h request/block/byte totals, whether it is banned, recent events, and live gate " +
 				"sessions. bytes_out and the recent paths help distinguish scanning from data exfiltration before revoking sessions.",
 			Schema: schema(map[string]any{
@@ -72,6 +100,7 @@ func toolCatalog(g *Gateway) []tool {
 		},
 		{
 			Name:        "list_proxies",
+			Scope:       ScopeRead,
 			Description: "List configured proxy hostnames and their gate/WAF modes. Use the id or hostname to narrow query_logs.",
 			Schema:      schema(nil),
 			Handler: func(_ callInfo, _ map[string]any) (map[string]any, error) {
@@ -79,7 +108,8 @@ func toolCatalog(g *Gateway) []tool {
 			},
 		},
 		{
-			Name: "block_ip",
+			Name:  "block_ip",
+			Scope: ScopeBan,
 			Description: "Add an IP or CIDR to the kernel/proxy blacklist. reason is required for the audit trail. Defaults to a 24 hour " +
 				"temporary ban; set permanent=true only for confirmed hostile infrastructure. Refuses loopback, unspecified, multicast, " +
 				"link-local and dangerously broad prefixes.",
@@ -92,7 +122,8 @@ func toolCatalog(g *Gateway) []tool {
 			Handler: g.blockIP,
 		},
 		{
-			Name: "unblock_ip",
+			Name:  "unblock_ip",
+			Scope: ScopeBan,
 			Description: "Lift an exact IP or CIDR ban. This removes only the matching ban row; a broader covering prefix is reported but " +
 				"left in place. reason is optional but recommended.",
 			Schema: schema(map[string]any{
@@ -103,6 +134,7 @@ func toolCatalog(g *Gateway) []tool {
 		},
 		{
 			Name:        "list_blocks",
+			Scope:       ScopeRead,
 			Description: "List active IP/CIDR bans and blocked gate usernames with reasons and expiry. Use before adding a duplicate block.",
 			Schema:      schema(nil),
 			Handler: func(_ callInfo, _ map[string]any) (map[string]any, error) {
@@ -111,6 +143,7 @@ func toolCatalog(g *Gateway) []tool {
 		},
 		{
 			Name:        "list_gate_users",
+			Scope:       ScopeRead,
 			Description: "List access-gate usernames and whether each is currently blocked. Password hashes and TOTP secrets are never returned.",
 			Schema:      schema(nil),
 			Handler: func(_ callInfo, _ map[string]any) (map[string]any, error) {
@@ -118,7 +151,8 @@ func toolCatalog(g *Gateway) []tool {
 			},
 		},
 		{
-			Name: "block_username",
+			Name:  "block_username",
+			Scope: ScopeBan,
 			Description: "Block an access-gate username and revoke its live visitor sessions. reason is required. Use this for a compromised " +
 				"or abusive account; the account itself is not deleted. Set ttl_seconds for a temporary block, or leave 0 for permanent.",
 			Schema: schema(map[string]any{
@@ -131,6 +165,7 @@ func toolCatalog(g *Gateway) []tool {
 		},
 		{
 			Name:        "unblock_username",
+			Scope:       ScopeBan,
 			Description: "Lift an access-gate username block. Existing sessions stay revoked; the account must sign in again.",
 			Schema: schema(map[string]any{
 				"username": prop("string", "Exact gate username to unblock."),
@@ -139,7 +174,8 @@ func toolCatalog(g *Gateway) []tool {
 			Handler: g.unblockUsername,
 		},
 		{
-			Name: "list_sessions",
+			Name:  "list_sessions",
+			Scope: ScopeRead,
 			Description: "List live access-gate visitor sessions with a non-secret ref, username, source IP, proxy hostname, user agent and " +
 				"expiry. Session cookie values are never exposed.",
 			Schema: schema(map[string]any{
@@ -148,7 +184,8 @@ func toolCatalog(g *Gateway) []tool {
 			Handler: g.listSessions,
 		},
 		{
-			Name: "revoke_session",
+			Name:  "revoke_session",
+			Scope: ScopeSession,
 			Description: "Kill one live gate session by its ref from list_sessions. Use this when a specific session is exfiltrating data or " +
 				"has been taken over. reason is required for the audit trail.",
 			Schema: schema(map[string]any{
@@ -158,7 +195,8 @@ func toolCatalog(g *Gateway) []tool {
 			Handler: g.revokeSession,
 		},
 		{
-			Name: "revoke_sessions_for_ip",
+			Name:  "revoke_sessions_for_ip",
+			Scope: ScopeSession,
 			Description: "Kill every live gate session opened from one IP address. Prefer revoke_session when a single ref is known; use this " +
 				"only when all sessions from the address are considered hostile. reason is required.",
 			Schema: schema(map[string]any{

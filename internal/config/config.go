@@ -42,6 +42,9 @@ type Config struct {
 	// empty when tokens are managed in the console instead.
 	MCPToken string
 	MCPActor string
+	// MetricsToken is the bearer token a Prometheus scraper sends to
+	// /metrics. Empty leaves the endpoint closed.
+	MetricsToken string
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -60,9 +63,13 @@ func Load() (*Config, error) {
 		CrowdSecKey:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_KEY")),
 		MCPToken:       strings.TrimSpace(os.Getenv("WAFPROXY_MCP_TOKEN")),
 		MCPActor:       envOr("WAFPROXY_MCP_ACTOR", "hermes-agent"),
+		MetricsToken:   strings.TrimSpace(os.Getenv("WAFPROXY_METRICS_TOKEN")),
 	}
 	if c.MCPToken != "" && len(c.MCPToken) < 32 {
 		return nil, errors.New("WAFPROXY_MCP_TOKEN must be at least 32 characters")
+	}
+	if c.MetricsToken != "" && len(c.MetricsToken) < 32 {
+		return nil, errors.New("WAFPROXY_METRICS_TOKEN must be at least 32 characters")
 	}
 	if err := os.MkdirAll(c.DataDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)

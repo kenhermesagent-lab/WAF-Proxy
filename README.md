@@ -386,9 +386,12 @@ service — both *pull* the state and *receive* events. Two independent mechanis
 - **The MCP gateway** at `/mcp` gives an agent tools to review traffic and take containment
   actions without a browser session. Create a named token on that page and give it only to the
   agent.
-The token is shown once, stored as a SHA-256 hash, and can be revoked immediately. A headless
+The token is shown once, stored as a SHA-256 hash, and can be revoked immediately. Each token
+carries scopes — `read`, `ban` and `session` — and an agent only sees and calls the tools those
+scopes cover. A headless
 install can instead set `WAFPROXY_MCP_TOKEN` to a 32+ character secret in
-`/etc/wafproxy/wafproxy.env`; `WAFPROXY_MCP_ACTOR` names that token in the audit log.
+`/etc/wafproxy/wafproxy.env`; it always has every scope, and `WAFPROXY_MCP_ACTOR` names that
+token in the audit log.
 
 The gateway is stateless Streamable HTTP with bearer authentication. It has a fixed catalog,
 not a shell:
@@ -660,8 +663,8 @@ After either update, confirm the version in the console footer or
 | Lift a ban | **Policies → Bans** (search the address, then Remove, or open the full list), or `docker exec wafproxy unban 203.0.113.7` (takes effect within 30 s) |
 | Change an address or port | **Settings**, then restart the container |
 | Tune the WAF | **Policies → WAF profiles** → edit paranoia, anomaly threshold, methods, body and response ceilings, upstream response inspection, login rate, admin paths or rule exceptions |
-| Scrape metrics | `curl -s http://<lan-ip>:8443/metrics` returns per-proxy request, block and byte counters in the Prometheus text format. No session is needed, the same as `/api/health`; the console listener only admits private networks unless `WAFPROXY_GUI_PRIVATE_ONLY` is off. |
-| Export the audit log | `GET /api/audit` returns the 200 newest entries as JSON; add `?format=csv` for a CSV download |
+| Scrape metrics | `curl -s -H "Authorization: Bearer $WAFPROXY_METRICS_TOKEN" http://<lan-ip>:8443/metrics` returns per-proxy request, block and byte counters in the Prometheus text format. Without that variable the endpoint answers 403; the console listener also only admits private networks unless `WAFPROXY_GUI_PRIVATE_ONLY` is off. |
+| Export the audit log | `GET /api/audit` returns the 200 newest entries as JSON; add `?format=csv` for a CSV download of the whole audit table, oldest first |
 | Find out why a request was blocked | **Logs** → **Why?** on the event row. It replays the request through the ban, screening and WAF stages without reaching the upstream, lists every rule that matched, and offers to except a blocking rule after naming every other site the profile change would affect. |
 | Back up | **Settings → Download JSON** (secrets excluded) |
 | Upgrade | See [Updating from the repository](#updating-from-the-repository) for Docker and native systemd |
@@ -722,6 +725,10 @@ public issue for a security problem.
   webhooks all go through the same guard, which refuses link-local and cloud metadata targets
   (agent webhooks may point at the LAN or loopback, never at `169.254.169.254`); the agent client
   does not follow redirects.
+- **Audit entries are hash-chained.** Every new row's SHA-256 covers the row before it, so an
+  edited entry stops matching; **Settings → Recent administrator activity → Verify chain** names
+  the first row that no longer does. Rows written before the chain existed are skipped. This
+  catches edits to the database, not an attacker who can rewrite every row.
 - **The MCP agent token is an operator credential.** It grants security operations — reviewing
   logs, blocking IPs/usernames and revoking gate sessions — to any client that holds it. The
   gateway exposes no shell, filesystem, package or settings API, and every mutation is

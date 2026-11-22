@@ -154,8 +154,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusTooManyRequests, "too many MCP requests")
 		return
 	}
+	var scopes []string
 	if token != nil {
 		_ = g.st.TouchMCPToken(token.ID)
+		scopes = token.Scopes
 	}
 	if ct := r.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(strings.ToLower(ct), "application/json") {
 		writeHTTPError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
@@ -190,7 +192,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, rerr := g.dispatch(req, actor, clientIP(r))
+	result, rerr := g.dispatch(req, actor, clientIP(r), scopes)
 	resp := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 	if rerr != nil {
 		resp.Error = rerr
@@ -263,7 +265,7 @@ type rpcError struct {
 	Data    any    `json:"data,omitempty"`
 }
 
-func (g *Gateway) dispatch(req rpcRequest, actor, ip string) (any, *rpcError) {
+func (g *Gateway) dispatch(req rpcRequest, actor, ip string, scopes []string) (any, *rpcError) {
 	switch req.Method {
 	case "initialize":
 		return g.initialize(req.Params), nil
@@ -272,9 +274,9 @@ func (g *Gateway) dispatch(req rpcRequest, actor, ip string) (any, *rpcError) {
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":
-		return map[string]any{"tools": g.toolDefinitions()}, nil
+		return map[string]any{"tools": g.toolDefinitions(scopes)}, nil
 	case "tools/call":
-		return g.callTool(req.Params, actor, ip)
+		return g.callTool(req.Params, actor, ip, scopes)
 	case "resources/list":
 		return map[string]any{"resources": []any{}}, nil
 	case "prompts/list":
@@ -325,9 +327,12 @@ func (g *Gateway) discover() map[string]any {
 	}
 }
 
-func (g *Gateway) toolDefinitions() []map[string]any {
+func (g *Gateway) toolDefinitions(scopes []string) []map[string]any {
 	out := make([]map[string]any, 0, len(g.tools))
 	for _, t := range g.tools {
+		if !allows(scopes, t.Scope) {
+			continue
+		}
 		out = append(out, map[string]any{
 			"name": t.Name, "description": t.Description, "inputSchema": t.Schema,
 		})
@@ -335,7 +340,7 @@ func (g *Gateway) toolDefinitions() []map[string]any {
 	return out
 }
 
-func (g *Gateway) callTool(raw json.RawMessage, actor, ip string) (any, *rpcError) {
+func (g *Gateway) callTool(raw json.RawMessage, actor, ip string, scopes []string) (any, *rpcError) {
 	var in struct {
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
@@ -348,6 +353,9 @@ func (g *Gateway) callTool(raw json.RawMessage, actor, ip string) (any, *rpcErro
 	t, ok := g.byName[in.Name]
 	if !ok {
 		return nil, &rpcError{Code: -32602, Message: "unknown tool: " + in.Name}
+	}
+	if !allows(scopes, t.Scope) {
+		return nil, &rpcError{Code: -32602, Message: "agent token is not scoped for tool: " + in.Name}
 	}
 	if in.Arguments == nil {
 		in.Arguments = map[string]any{}

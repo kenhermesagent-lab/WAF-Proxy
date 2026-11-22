@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
@@ -26,6 +27,8 @@ type Store struct {
 	// sessionKey hides session cookies in the database, so a copy of the file
 	// does not hand out live admin sessions.
 	sessionKey []byte
+	// auditMu serialises audit appends so each row links to the one before it.
+	auditMu sync.Mutex
 }
 
 // ErrNotFound is returned when a row does not exist.
@@ -336,7 +339,8 @@ CREATE TABLE IF NOT EXISTS audit (
   user TEXT NOT NULL DEFAULT '',
   action TEXT NOT NULL,
   detail TEXT NOT NULL DEFAULT '',
-  ip TEXT NOT NULL DEFAULT ''
+  ip TEXT NOT NULL DEFAULT '',
+  hash TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 CREATE TABLE IF NOT EXISTS gate_users (
@@ -492,6 +496,10 @@ func (s *Store) migrateAddColumns() error {
 		{"profiles", "login_burst", `ALTER TABLE profiles ADD COLUMN login_burst INTEGER NOT NULL DEFAULT 0`},
 		{"profiles", "admin_paths", `ALTER TABLE profiles ADD COLUMN admin_paths TEXT NOT NULL DEFAULT ''`},
 		{"profiles", "admin_ips", `ALTER TABLE profiles ADD COLUMN admin_ips TEXT NOT NULL DEFAULT ''`},
+		// Audit rows chain by hash so an edited row is detectable.
+		{"audit", "hash", `ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`},
+		// Agent tokens can be limited to read, ban or session tools.
+		{"mcp_tokens", "scopes", `ALTER TABLE mcp_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)
@@ -835,10 +843,57 @@ func (s *Store) PurgeSessions() error {
 
 // ---------- audit ----------
 
-// AddAudit appends an audit entry.
+// AddAudit appends an audit entry linked by hash to the one before it, so an
+// edited row breaks the chain VerifyAuditChain walks.
 func (s *Store) AddAudit(user, action, detail, ip string) {
-	_, _ = s.db.Exec(`INSERT INTO audit(ts, user, action, detail, ip) VALUES(?, ?, ?, ?, ?)`,
-		stamp(time.Now()), user, action, detail, ip)
+	s.auditMu.Lock()
+	defer s.auditMu.Unlock()
+	var prev string
+	_ = s.db.QueryRow(`SELECT hash FROM audit ORDER BY id DESC LIMIT 1`).Scan(&prev)
+	ts := stamp(time.Now())
+	_, _ = s.db.Exec(`INSERT INTO audit(ts, user, action, detail, ip, hash) VALUES(?, ?, ?, ?, ?, ?)`,
+		ts, user, action, detail, ip, auditHash(prev, ts, user, action, detail, ip))
+}
+
+func auditHash(prev, ts, user, action, detail, ip string) string {
+	h := sha256.New()
+	for _, part := range []string{prev, ts, user, action, detail, ip} {
+		h.Write([]byte(part))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// VerifyAuditChain recomputes every hash and reports the first id that does not
+// match (0 when the chain is intact). Rows written before the chain existed have
+// no hash and are skipped; a later empty hash counts as tampering. An unkeyed
+// chain catches edits to the database, not an attacker who can rewrite every row.
+func (s *Store) VerifyAuditChain() (int, int64, error) {
+	rows, err := s.db.Query(`SELECT id, ts, user, action, detail, ip, hash FROM audit ORDER BY id`)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	prev, checked := "", 0
+	for rows.Next() {
+		var id int64
+		var ts, user, action, detail, ip, hash string
+		if err := rows.Scan(&id, &ts, &user, &action, &detail, &ip, &hash); err != nil {
+			return checked, 0, err
+		}
+		if hash == "" {
+			if checked == 0 && prev == "" {
+				continue // pre-chain row from an older database
+			}
+			return checked, id, nil
+		}
+		if auditHash(prev, ts, user, action, detail, ip) != hash {
+			return checked, id, nil
+		}
+		prev = hash
+		checked++
+	}
+	return checked, 0, rows.Err()
 }
 
 // ListAudit returns recent audit entries.
@@ -847,6 +902,29 @@ func (s *Store) ListAudit(limit int) ([]model.AuditEntry, error) {
 		limit = 200
 	}
 	rows, err := s.db.Query(`SELECT id, ts, user, action, detail, ip FROM audit ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.AuditEntry{}
+	for rows.Next() {
+		var e model.AuditEntry
+		var ts string
+		if err := rows.Scan(&e.ID, &ts, &e.User, &e.Action, &e.Detail, &e.IP); err != nil {
+			return nil, err
+		}
+		e.TS = parseStamp(ts)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ListAuditAll returns every audit entry, oldest first, for a full export.
+//
+// shortcut: the whole table is loaded at once; stream it if an install ever
+// grows past a few hundred thousand entries.
+func (s *Store) ListAuditAll() ([]model.AuditEntry, error) {
+	rows, err := s.db.Query(`SELECT id, ts, user, action, detail, ip FROM audit ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

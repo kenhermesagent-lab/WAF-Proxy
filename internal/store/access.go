@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
@@ -146,10 +147,10 @@ func (s *Store) CountGateSessions() (int, error) {
 	return n, err
 }
 
-// CreateMCPToken stores a hashed agent credential.
-func (s *Store) CreateMCPToken(name, hash, prefix, createdBy string) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO mcp_tokens(name, token_hash, prefix, created_by, created_at)
-		VALUES(?, ?, ?, ?, ?)`, name, hash, prefix, createdBy, stamp(time.Now()))
+// CreateMCPToken stores a hashed agent credential and its tool scopes.
+func (s *Store) CreateMCPToken(name, hash, prefix, createdBy string, scopes []string) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO mcp_tokens(name, token_hash, prefix, created_by, created_at, scopes)
+		VALUES(?, ?, ?, ?, ?, ?)`, name, hash, prefix, createdBy, stamp(time.Now()), strings.Join(scopes, ","))
 	if err != nil {
 		return 0, err
 	}
@@ -158,7 +159,7 @@ func (s *Store) CreateMCPToken(name, hash, prefix, createdBy string) (int64, err
 
 // ListMCPTokens returns every agent credential, active first.
 func (s *Store) ListMCPTokens() ([]model.MCPToken, error) {
-	rows, err := s.db.Query(`SELECT id, name, prefix, created_by, created_at, last_used_at, revoked_at
+	rows, err := s.db.Query(`SELECT id, name, prefix, created_by, created_at, last_used_at, revoked_at, scopes
 		FROM mcp_tokens ORDER BY revoked_at IS NOT NULL, id DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
@@ -167,14 +168,15 @@ func (s *Store) ListMCPTokens() ([]model.MCPToken, error) {
 	out := []model.MCPToken{}
 	for rows.Next() {
 		var t model.MCPToken
-		var created string
+		var created, scopes string
 		var lastUsed, revoked sql.NullString
-		if err := rows.Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &created, &lastUsed, &revoked); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &created, &lastUsed, &revoked, &scopes); err != nil {
 			return nil, err
 		}
 		t.CreatedAt = parseStamp(created)
 		t.LastUsedAt = parseStampPtr(lastUsed)
 		t.RevokedAt = parseStampPtr(revoked)
+		t.Scopes = splitScopes(scopes)
 		out = append(out, t)
 	}
 	return out, rows.Err()
@@ -183,11 +185,11 @@ func (s *Store) ListMCPTokens() ([]model.MCPToken, error) {
 // MCPTokenByHash loads an active agent credential.
 func (s *Store) MCPTokenByHash(hash string) (*model.MCPToken, error) {
 	var t model.MCPToken
-	var created string
+	var created, scopes string
 	var lastUsed, revoked sql.NullString
-	err := s.db.QueryRow(`SELECT id, name, prefix, created_by, created_at, last_used_at, revoked_at
+	err := s.db.QueryRow(`SELECT id, name, prefix, created_by, created_at, last_used_at, revoked_at, scopes
 		FROM mcp_tokens WHERE token_hash = ? AND revoked_at IS NULL`, hash).
-		Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &created, &lastUsed, &revoked)
+		Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &created, &lastUsed, &revoked, &scopes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -197,7 +199,15 @@ func (s *Store) MCPTokenByHash(hash string) (*model.MCPToken, error) {
 	t.CreatedAt = parseStamp(created)
 	t.LastUsedAt = parseStampPtr(lastUsed)
 	t.RevokedAt = parseStampPtr(revoked)
+	t.Scopes = splitScopes(scopes)
 	return &t, nil
+}
+
+func splitScopes(raw string) []string {
+	if raw == "" {
+		return []string{}
+	}
+	return strings.Split(raw, ",")
 }
 
 // TouchMCPToken records a successful authenticated call without failing the

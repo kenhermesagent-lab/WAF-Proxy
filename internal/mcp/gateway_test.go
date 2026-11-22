@@ -38,7 +38,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	g := New(st, bans, log, Options{})
 	token := "test-agent-token-that-is-long-enough"
-	if _, err := st.CreateMCPToken("hermes", HashToken(token), Prefix(token), "admin"); err != nil {
+	if _, err := st.CreateMCPToken("hermes", HashToken(token), Prefix(token), "admin", nil); err != nil {
 		t.Fatal(err)
 	}
 	h := &harness{g: g, srv: httptest.NewServer(g), st: st, bans: bans, token: token}

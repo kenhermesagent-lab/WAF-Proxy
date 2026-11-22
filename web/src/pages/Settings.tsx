@@ -34,6 +34,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
   const [geo, setGeo] = useState<GeoIPStatus | null>(null);
   const [installingGeo, setInstallingGeo] = useState(false);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [chain, setChain] = useState("");
   const [activeSection, setActiveSection] = useState("network");
   const [iface, setIface] = useState<{ wan: string; lan: string; wanAuto: boolean; lanAuto: boolean; available: string[] }>({
     wan: "", lan: "", wanAuto: false, lanAuto: false, available: [],
@@ -59,6 +60,14 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
   const loadGeo = () => api.get<GeoIPStatus>("/api/geoip").then(setGeo).catch(() => undefined);
   const loadAudit = () =>
     api.get<AuditEntry[]>("/api/audit").then((r) => setAudit((r || []).slice(0, 20))).catch(() => undefined);
+
+  const verifyChain = () =>
+    api
+      .get<{ ok: boolean; checked: number; broken_id?: number }>("/api/audit/verify")
+      .then((r) =>
+        setChain(r.ok ? `Hash chain intact across ${r.checked} entries.` : `Entry ${r.broken_id} was changed after it was written.`),
+      )
+      .catch((e) => onError(errText(e)));
 
   useEffect(() => {
     load();
@@ -327,6 +336,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
           <div className="card-head">
             <h2>Recent administrator activity</h2>
             <div className="actions">
+              <button className="small" onClick={verifyChain}>Verify chain</button>
               <button className="small" onClick={loadAudit}>Refresh</button>
             </div>
           </div>
@@ -352,6 +362,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
               </table>
             </TableWrap>
           )}
+          {chain && <p className="faint small-text">{chain}</p>}
           <p className="faint small-text">
             Newest 20 entries: sign-ins, sign-outs, settings changes, proxy and certificate changes, bans and restores.
           </p>

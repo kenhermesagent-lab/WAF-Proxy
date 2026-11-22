@@ -28,6 +28,13 @@ WAFPROXY_MCP_TOKEN=<at-least-32-random-characters>
 WAFPROXY_MCP_ACTOR=hermes-agent
 ```
 
+Console-issued tokens carry tool scopes. `read` covers the review tools (`query_logs`,
+`get_ip_activity`, `get_security_overview`, `list_anomalies`, `list_proxies`, `list_blocks`,
+`list_gate_users`, `list_sessions`), `ban` covers `block_ip`, `unblock_ip`, `block_username`
+and `unblock_username`, and `session` covers `revoke_session` and `revoke_sessions_for_ip`.
+`tools/list` hides tools outside the token's scopes, and `tools/call` refuses them. An
+environment token always has all three.
+
 `WAFPROXY_MCP_ACTOR` is the audit name for that static token. An environment token cannot be
 revoked from the console; remove the variable and restart to disable it. Generate the value
 with `openssl rand -base64 32`.
