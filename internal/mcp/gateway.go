@@ -330,7 +330,7 @@ func (g *Gateway) discover() map[string]any {
 func (g *Gateway) toolDefinitions(scopes []string) []map[string]any {
 	out := make([]map[string]any, 0, len(g.tools))
 	for _, t := range g.tools {
-		if !allows(scopes, t.Scope) {
+		if !allows(scopes, t.Name) {
 			continue
 		}
 		out = append(out, map[string]any{
@@ -354,7 +354,7 @@ func (g *Gateway) callTool(raw json.RawMessage, actor, ip string, scopes []strin
 	if !ok {
 		return nil, &rpcError{Code: -32602, Message: "unknown tool: " + in.Name}
 	}
-	if !allows(scopes, t.Scope) {
+	if !allows(scopes, t.Name) {
 		return nil, &rpcError{Code: -32602, Message: "agent token is not scoped for tool: " + in.Name}
 	}
 	if in.Arguments == nil {

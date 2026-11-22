@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -77,9 +79,19 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 // restoreBackup imports settings, proxies, policies, feeds and bans. It is
 // additive: existing hostnames are skipped rather than overwritten.
 func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid backup file")
+		return
+	}
+	s.applyBackup(w, r, body, "backup.restore")
+}
+
+// applyBackup runs the import after the document has been decoded as JSON. The
+// YAML import converts to JSON and lands here so both formats share every rule.
+func (s *Server) applyBackup(w http.ResponseWriter, r *http.Request, body []byte, action string) {
 	var in backupFile
-	defer r.Body.Close()
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 8<<20))
+	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid backup file")
@@ -271,6 +283,6 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		s.metrics.SetInterfaces(iface, in.Settings["lan_iface"])
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "backup.restore", fmt.Sprint(result), clientIP(r))
+	s.st.AddAudit(sess.Username, action, fmt.Sprint(result), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"imported": result, "problems": problems})
 }

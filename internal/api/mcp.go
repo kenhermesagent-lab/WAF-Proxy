@@ -57,19 +57,19 @@ func (s *Server) createMCPToken(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	valid := map[string]bool{}
-	for _, scope := range mcp.Scopes() {
-		valid[scope] = true
+	for _, tool := range mcp.ToolNames() {
+		valid[tool] = true
 	}
 	scopes := []string{}
 	for _, scope := range in.Scopes {
 		if !valid[scope] {
-			writeError(w, http.StatusBadRequest, "unknown scope: "+scope)
+			writeError(w, http.StatusBadRequest, "unknown tool scope: "+scope)
 			return
 		}
 		scopes = append(scopes, scope)
 	}
 	if len(scopes) == 0 {
-		scopes = mcp.Scopes()
+		scopes = mcp.ToolNames()
 	}
 	token, err := wfcrypto.RandomToken(32)
 	if err != nil {

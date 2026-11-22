@@ -11,6 +11,7 @@ require (
 	github.com/oschwald/maxminddb-golang/v2 v2.9.1
 	github.com/pkg/sftp v1.13.12
 	golang.org/x/crypto v0.59.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.62.0
 )
 

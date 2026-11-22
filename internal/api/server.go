@@ -152,6 +152,8 @@ func (s *Server) routes() {
 	m.HandleFunc("PUT /api/backup/schedule", s.authed(s.putBackup))
 	m.HandleFunc("POST /api/backup/schedule/run", s.authed(s.runBackup))
 
+	m.HandleFunc("GET /api/config/export.yaml", s.authed(s.exportConfigYAML))
+	m.HandleFunc("POST /api/config/import.yaml", s.authed(s.importConfigYAML))
 	m.HandleFunc("GET /api/settings", s.authed(s.getSettings))
 	m.HandleFunc("PUT /api/settings", s.authed(s.putSettings))
 	m.HandleFunc("GET /api/geoip", s.authed(s.getGeoIP))

@@ -1519,16 +1519,16 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
-// verifyAudit reports the first row whose hash no longer matches the chain.
+// verifyAudit reports the first row or tail that no longer matches the chain.
 func (s *Server) verifyAudit(w http.ResponseWriter, _ *http.Request) {
-	checked, broken, err := s.st.VerifyAuditChain()
+	checked, problem, err := s.st.VerifyAuditChain()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	resp := map[string]any{"ok": broken == 0, "checked": checked}
-	if broken != 0 {
-		resp["broken_id"] = broken
+	resp := map[string]any{"ok": problem == "", "checked": checked}
+	if problem != "" {
+		resp["problem"] = problem
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

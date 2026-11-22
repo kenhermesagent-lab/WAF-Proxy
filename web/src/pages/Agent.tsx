@@ -21,17 +21,11 @@ const TOOLS = [
   ["revoke_sessions_for_ip", "Kill every session from one address."],
 ];
 
-const SCOPES: [string, string][] = [
-  ["read", "Review logs, IPs, sessions, bans and anomalies."],
-  ["ban", "Block and unblock IPs, CIDRs and gate usernames."],
-  ["session", "Revoke gate sessions by ref or by IP."],
-];
-
 export default function AgentPage({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [status, setStatus] = useState<MCPStatus | null>(null);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("hermes-agent");
-  const [scopes, setScopes] = useState<string[]>(SCOPES.map(([s]) => s));
+  const [scopes, setScopes] = useState<string[]>(TOOLS.map(([tool]) => tool));
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ name: string; token: string } | null>(null);
 
@@ -42,8 +36,8 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
     load();
   }, []);
 
-  const toggleScope = (s: string) =>
-    setScopes((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
+  const toggleScope = (tool: string) =>
+    setScopes((cur) => (cur.includes(tool) ? cur.filter((x) => x !== tool) : [...cur, tool]));
 
   const create = async () => {
     setBusy(true);
@@ -52,7 +46,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
       setCreated({ name: r.name, token: r.token });
       setOpen(false);
       setName("hermes-agent");
-      setScopes(SCOPES.map(([s]) => s));
+      setScopes(TOOLS.map(([tool]) => tool));
       onOK("Agent token created");
       load();
     } catch (e) {
@@ -188,12 +182,19 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
           <p className="muted" style={{ fontSize: 12 }}>
             Use a name that identifies the agent or host. Keep the token out of logs and shell history.
           </p>
-          <div className="grid" style={{ gap: 6, marginTop: 10 }}>
-            {SCOPES.map(([scope, hint]) => (
-              <label key={scope} className="row" style={{ gap: 8, alignItems: "flex-start" }}>
-                <input type="checkbox" checked={scopes.includes(scope)} onChange={() => toggleScope(scope)} />
-                <span className="mono">{scope}</span>
-                <span className="muted" style={{ fontSize: 12 }}>{hint}</span>
+                    <div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
+            <span className="muted" style={{ fontSize: 12 }}>Tools this token may call</span>
+            <span className="actions">
+              <button className="small" onClick={() => setScopes(TOOLS.map(([tool]) => tool))}>All</button>
+              <button className="small" onClick={() => setScopes([])}>None</button>
+            </span>
+          </div>
+          <div className="grid" style={{ gap: 6 }}>
+            {TOOLS.map(([tool, description]) => (
+              <label key={tool} className="row" style={{ gap: 8, alignItems: "flex-start" }}>
+                <input type="checkbox" checked={scopes.includes(tool)} onChange={() => toggleScope(tool)} />
+                <span className="mono">{tool}</span>
+                <span className="muted" style={{ fontSize: 12 }}>{description}</span>
               </label>
             ))}
           </div>

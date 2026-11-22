@@ -11,6 +11,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.25.0] — 2026-11-22
+
+### Added
+
+- **YAML configuration export and import.** `GET /api/config/export.yaml` renders the JSON backup
+  document as readable YAML, and `POST /api/config/import.yaml` applies one through the same
+  additive restore path — existing hostnames are skipped, secrets stay excluded, and the response
+  reports the imported counts and every problem. Profiles, access lists and settings outside the
+  backup document are not covered yet.
+
+### Changed
+
+- **Agent token scopes are per tool.** The three groups from 1.24.0 are replaced by the gateway
+  catalog itself: the console shows a checkbox per tool, the API rejects a name that is not a
+  tool, and `tools/list`/`tools/call` enforce the token's exact set. Tokens created before this
+  release, and the environment token, keep every tool.
+- **The audit chain is anchored.** The newest hash is stored in settings, so removing rows from
+  the end of the audit table is reported instead of verifying clean.
+
 ## [1.24.0] — 2026-11-22
 
 ### Added

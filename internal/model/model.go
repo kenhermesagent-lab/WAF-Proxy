@@ -429,8 +429,8 @@ type MCPToken struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
-	// Scopes limits the tools this token may call: read, ban or session. An
-	// empty list means every tool, which keeps pre-scope tokens working.
+	// Scopes lists the tool names this token may call. An empty list means
+	// every tool, which keeps tokens created before scopes working.
 	Scopes []string `json:"scopes"`
 }
 

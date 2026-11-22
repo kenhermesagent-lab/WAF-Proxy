@@ -118,14 +118,14 @@ func TestAuditChainVerifyEndpoint(t *testing.T) {
 	st.AddAudit("admin", "b", "two", "198.51.100.1")
 
 	var out struct {
-		OK      bool  `json:"ok"`
-		Checked int   `json:"checked"`
-		Broken  int64 `json:"broken_id"`
+		OK      bool   `json:"ok"`
+		Checked int    `json:"checked"`
+		Problem string `json:"problem"`
 	}
 	if err := json.Unmarshal(authed(t, srv, token, csrf, http.MethodGet, "/api/audit/verify", "").Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if !out.OK || out.Checked != 2 || out.Broken != 0 {
+	if !out.OK || out.Checked != 2 || out.Problem != "" {
 		t.Fatalf("verify = %+v, want an intact two-row chain", out)
 	}
 }

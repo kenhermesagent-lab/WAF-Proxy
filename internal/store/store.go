@@ -843,16 +843,22 @@ func (s *Store) PurgeSessions() error {
 
 // ---------- audit ----------
 
+// auditHeadKey stores the newest hash, so deleting trailing rows is detectable.
+const auditHeadKey = "audit_head"
+
 // AddAudit appends an audit entry linked by hash to the one before it, so an
-// edited row breaks the chain VerifyAuditChain walks.
+// edited or deleted row breaks the chain VerifyAuditChain walks.
 func (s *Store) AddAudit(user, action, detail, ip string) {
 	s.auditMu.Lock()
 	defer s.auditMu.Unlock()
 	var prev string
 	_ = s.db.QueryRow(`SELECT hash FROM audit ORDER BY id DESC LIMIT 1`).Scan(&prev)
 	ts := stamp(time.Now())
+	hash := auditHash(prev, ts, user, action, detail, ip)
 	_, _ = s.db.Exec(`INSERT INTO audit(ts, user, action, detail, ip, hash) VALUES(?, ?, ?, ?, ?, ?)`,
-		ts, user, action, detail, ip, auditHash(prev, ts, user, action, detail, ip))
+		ts, user, action, detail, ip, hash)
+	_, _ = s.db.Exec(`INSERT INTO settings(key, value) VALUES(?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, auditHeadKey, hash)
 }
 
 func auditHash(prev, ts, user, action, detail, ip string) string {
@@ -864,14 +870,17 @@ func auditHash(prev, ts, user, action, detail, ip string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// VerifyAuditChain recomputes every hash and reports the first id that does not
-// match (0 when the chain is intact). Rows written before the chain existed have
-// no hash and are skipped; a later empty hash counts as tampering. An unkeyed
-// chain catches edits to the database, not an attacker who can rewrite every row.
-func (s *Store) VerifyAuditChain() (int, int64, error) {
+// VerifyAuditChain recomputes every hash and returns the first problem it finds
+// ("" when the chain is intact). Rows written before the chain existed have no
+// hash and are skipped; a later empty hash counts as tampering. The stored head
+// catches rows removed from the end. An unkeyed chain catches edits to the
+// database, not an attacker who can rewrite every row and the head.
+func (s *Store) VerifyAuditChain() (int, string, error) {
+	s.auditMu.Lock()
+	defer s.auditMu.Unlock()
 	rows, err := s.db.Query(`SELECT id, ts, user, action, detail, ip, hash FROM audit ORDER BY id`)
 	if err != nil {
-		return 0, 0, err
+		return 0, "", err
 	}
 	defer rows.Close()
 	prev, checked := "", 0
@@ -879,21 +888,31 @@ func (s *Store) VerifyAuditChain() (int, int64, error) {
 		var id int64
 		var ts, user, action, detail, ip, hash string
 		if err := rows.Scan(&id, &ts, &user, &action, &detail, &ip, &hash); err != nil {
-			return checked, 0, err
+			return checked, "", err
 		}
 		if hash == "" {
 			if checked == 0 && prev == "" {
 				continue // pre-chain row from an older database
 			}
-			return checked, id, nil
+			return checked, fmt.Sprintf("entry %d has no hash", id), nil
 		}
 		if auditHash(prev, ts, user, action, detail, ip) != hash {
-			return checked, id, nil
+			return checked, fmt.Sprintf("entry %d no longer matches", id), nil
 		}
 		prev = hash
 		checked++
 	}
-	return checked, 0, rows.Err()
+	if err := rows.Err(); err != nil {
+		return checked, "", err
+	}
+	head, err := s.GetSetting(auditHeadKey)
+	if err != nil {
+		return checked, "", err
+	}
+	if head != "" && head != prev {
+		return checked, "the newest entries were removed", nil
+	}
+	return checked, "", nil
 }
 
 // ListAudit returns recent audit entries.

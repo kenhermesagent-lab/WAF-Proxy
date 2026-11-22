@@ -63,9 +63,9 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
 
   const verifyChain = () =>
     api
-      .get<{ ok: boolean; checked: number; broken_id?: number }>("/api/audit/verify")
+      .get<{ ok: boolean; checked: number; problem?: string }>("/api/audit/verify")
       .then((r) =>
-        setChain(r.ok ? `Hash chain intact across ${r.checked} entries.` : `Entry ${r.broken_id} was changed after it was written.`),
+        setChain(r.ok ? `Hash chain intact across ${r.checked} entries.` : `${r.problem ?? "The chain does not match"}.`),
       )
       .catch((e) => onError(errText(e)));
 
