@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api, setCSRF } from "./api";
 import { errText } from "./ui";
@@ -387,29 +387,34 @@ export default function App() {
 }
 
 function BrandMark() {
+  const uid = useId().replace(/:/g, "");
+  const rim = `m5-rim-${uid}`;
+  const face = `m5-face-${uid}`;
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id={rim} x1="7" y1="4" x2="25" y2="28" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#7DD3FC" />
+          <stop offset="1" stopColor="#2563EB" />
+        </linearGradient>
+        <linearGradient id={face} x1="16" y1="5" x2="16" y2="27" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#0A172E" />
+          <stop offset="1" stopColor="#030712" />
+        </linearGradient>
+      </defs>
+      <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" fill="#050A17" stroke="#1E293B" />
       <path
-        d="M12 2.35c-2.55 1.39-5.25 2.09-8 2.29v6.5c0 5.06 3.19 8.35 8 10.51 4.81-2.16 8-5.45 8-10.51v-6.5c-2.75-.2-5.45-.9-8-2.29Z"
-        fill="#0c3f2a"
-        stroke="#57d38e"
-        strokeWidth="1.15"
-      />
-      <path
-        d="M12 4.55c-2.08 1.11-4.28 1.72-6.45 1.9v5.02c0 4.06 2.53 6.84 6.45 8.64 3.92-1.8 6.45-4.58 6.45-8.64V6.45c-2.17-.18-4.37-.79-6.45-1.9Z"
-        fill="#1b9159"
-        stroke="#e5484d"
-        strokeOpacity=".85"
-        strokeWidth=".8"
-      />
-      <path
-        d="M8.55 17.1 12 8.65l3.45 8.45"
-        fill="none"
-        stroke="#ff5b60"
-        strokeWidth="2.05"
-        strokeLinecap="round"
+        d="M16 4.8L25 8.1V15.8C25 21.2 21.1 25.2 16 27.3C10.9 25.2 7 21.2 7 15.8V8.1L16 4.8Z"
+        fill={`url(#${face})`}
+        stroke={`url(#${rim})`}
+        strokeWidth="1.8"
         strokeLinejoin="round"
       />
+      <path d="M16 5.6L24.1 8.6V15.8C24.1 20.6 20.6 24.3 16 26.3V5.6Z" fill="#2563EB" fillOpacity="0.14" />
+      <path d="M16 7.5V24.5" stroke="#38BDF8" strokeOpacity="0.2" strokeWidth="1" strokeDasharray="1 2" />
+      <path d="M11.8 12.2H20.2" stroke="#E0F2FE" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M12.6 15.6H19.4" stroke="#38BDF8" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M13.8 19H18.2" stroke="#3B82F6" strokeWidth="1.7" strokeLinecap="round" />
     </svg>
   );
 }

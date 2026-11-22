@@ -22,7 +22,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 ### Changed
 
 - **Console rail and mark.** The navigation rail is narrower and left-aligned, and the old shield
-  glyph is replaced by a green-and-red Spartan shield that also appears on the sign-in screen.
+  glyph is replaced by the WAF-Proxy shield mark, which is also the browser favicon, on the sidebar
+  and sign-in screen.
 
 ## [1.27.1] — 2026-11-22
 
