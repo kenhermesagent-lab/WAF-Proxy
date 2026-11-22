@@ -10,18 +10,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 )
 
 // streamingPayload is the wire format of one service section. The allow list is
 // a comma separated string because that is what the form shows.
 type streamingPayload struct {
-	Enabled  bool   `json:"enabled"`
-	ListenIP string `json:"listen_ip"`
-	Port     int    `json:"port"`
-	Upstream string `json:"upstream"`
-	Allow    string `json:"allow"`
-	MaxConns int    `json:"max_conns"`
+	Enabled  bool    `json:"enabled"`
+	ListenIP string  `json:"listen_ip"`
+	Port     int     `json:"port"`
+	Upstream string  `json:"upstream"`
+	Allow    string  `json:"allow"`
+	MaxConns int     `json:"max_conns"`
+	ListIDs  []int64 `json:"list_ids"`
 }
 
 // streamingView is a status plus the defaults used to prefill an unsaved form.
@@ -80,7 +82,7 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := streaming.Config{
 		Enabled: in.Enabled, ListenIP: in.ListenIP, Port: in.Port,
-		Upstream: in.Upstream, MaxConns: in.MaxConns,
+		Upstream: in.Upstream, MaxConns: in.MaxConns, ListIDs: in.ListIDs,
 	}
 	if strings.TrimSpace(in.Allow) != "" {
 		cfg.Allow = strings.Split(in.Allow, ",")
@@ -89,6 +91,21 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	lists, err := s.streamingLists()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	known := make(map[int64]bool, len(lists))
+	for _, l := range lists {
+		known[l.ID] = true
+	}
+	for _, id := range normalized.ListIDs {
+		if !known[id] {
+			writeError(w, http.StatusBadRequest, "unknown list id "+strconv.FormatInt(id, 10))
+			return
+		}
 	}
 	kv, _ := s.st.Settings()
 	if normalized.Enabled {
@@ -111,6 +128,7 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 		"stream_" + def.ID + "_upstream":  normalized.Upstream,
 		"stream_" + def.ID + "_allow":     strings.Join(normalized.Allow, ","),
 		"stream_" + def.ID + "_max_conns": strconv.Itoa(normalized.MaxConns),
+		"stream_" + def.ID + "_lists":     joinIDs(normalized.ListIDs),
 	}
 	if err := s.st.SetSettings(next); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
@@ -119,6 +137,7 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 
 	applied, applyErr := true, ""
 	if s.streams != nil {
+		s.streams.SetLists(lists)
 		if err := s.streams.Apply(def.ID, normalized); err != nil {
 			applied, applyErr = false, err.Error()
 		}
@@ -135,6 +154,79 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 		"error":   applyErr,
 		"env":     map[string]string{"path": envPath, "error": envErr},
 	})
+}
+
+// streamingLists resolves the named block/allow lists for a forwarder. The
+// streaming package works with plain entries so it never imports the store.
+func (s *Server) streamingLists() ([]streaming.List, error) {
+	lists, err := s.st.ListAccessLists()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]streaming.List, 0, len(lists))
+	for _, l := range lists {
+		out = append(out, streaming.List{
+			ID:        l.ID,
+			Name:      l.Name,
+			Block:     l.Kind == model.ListKindBlock,
+			Prefixes:  splitEntries(l.IPs),
+			Countries: splitEntries(l.Countries),
+		})
+	}
+	return out, nil
+}
+
+// refreshStreamLists pushes an edited list to the forwarders. The listeners are
+// not rebound: only the source policy is recompiled, so a media stream that is
+// already running keeps playing.
+func (s *Server) refreshStreamLists() {
+	if s.streams == nil {
+		return
+	}
+	lists, err := s.streamingLists()
+	if err != nil {
+		s.log.Error("reload streaming lists", "err", err)
+		return
+	}
+	s.streams.SetLists(lists)
+	s.streams.RefreshSources()
+}
+
+// streamListUsers names the forwarders that attach a list, so deleting it is
+// refused while a media port still enforces it.
+func (s *Server) streamListUsers(id int64) []string {
+	kv, err := s.st.Settings()
+	if err != nil {
+		return nil
+	}
+	out := []string{}
+	for _, def := range streaming.Catalog {
+		for _, ref := range streaming.ConfigFromSettings(def, kv).ListIDs {
+			if ref == id {
+				out = append(out, "the "+def.Label+" forwarder")
+				break
+			}
+		}
+	}
+	return out
+}
+
+func splitEntries(csv string) []string {
+	out := []string{}
+	for _, part := range strings.Split(csv, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func joinIDs(ids []int64) string {
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		parts = append(parts, strconv.FormatInt(id, 10))
+	}
+	return strings.Join(parts, ",")
 }
 
 // streamingPortConflict refuses a port already used by the admin GUI, the HTTP

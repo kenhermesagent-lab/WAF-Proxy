@@ -119,6 +119,7 @@ func (s *Server) createAccessList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.reload(r.Context())
+	s.refreshStreamLists()
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "access_list.create", in.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, in)
@@ -157,6 +158,7 @@ func (s *Server) updateAccessList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.reload(r.Context())
+	s.refreshStreamLists()
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "access_list.update", current.Name, clientIP(r))
 	writeJSON(w, http.StatusOK, current)
@@ -182,12 +184,17 @@ func (s *Server) deleteAccessList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	if inUse > 0 {
-		noun := "access profiles"
-		if inUse == 1 {
-			noun = "access profile"
+	forwarders := s.streamListUsers(id)
+	if inUse > 0 || len(forwarders) > 0 {
+		parts := forwarders
+		if inUse > 0 {
+			noun := "access profiles"
+			if inUse == 1 {
+				noun = "access profile"
+			}
+			parts = append([]string{strconv.Itoa(inUse) + " " + noun}, parts...)
 		}
-		writeError(w, http.StatusConflict, current.Name+" is attached to "+strconv.Itoa(inUse)+" "+noun+"; detach it first")
+		writeError(w, http.StatusConflict, current.Name+" is attached to "+strings.Join(parts, " and ")+"; detach it first")
 		return
 	}
 	if err := s.st.DeleteAccessList(id); err != nil {
@@ -195,6 +202,7 @@ func (s *Server) deleteAccessList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.reload(r.Context())
+	s.refreshStreamLists()
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "access_list.delete", current.Name, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

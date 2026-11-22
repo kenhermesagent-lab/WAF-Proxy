@@ -190,7 +190,11 @@ render with the generic firewall steps.
    the LAN address and port of that application (`192.168.2.10:32400`,
    `192.168.2.11:8096`).
 3. **Allowed sources** is optional: empty accepts any client the firewall lets through; a
-   CIDR restricts further. **Max connections** caps concurrent streams.
+   CIDR restricts further. **Max connections** caps concurrent streams. **Blocklists and
+   whitelists** attach any list from **Policies** to this port: a blocklist refuses its addresses
+   and countries first, a whitelist makes the port reachable only from what it holds plus the
+   allow list, and a blocklist wins when both name the same address. Country entries need the
+   GeoIP database; without it they match nothing.
 4. **Save and apply** binds the port immediately. There is no Docker restart to do while the
    stack uses `network_mode: host`. A port already used by the GUI, the HTTP proxy or another
    streaming section is refused with a clear message.
@@ -699,9 +703,10 @@ the optional host updater once from the checkout, after the image has been built
 sudo ./deploy/install-docker-updater.sh
 ```
 
-It copies `wafproxy-updated` out of the running container, installs `wafproxy-self-update.sh`
-and `wafproxy-self-update-check.sh` as `/var/lib/waf-proxy/lib/self-update` and
-`self-update-check`, installs `wafproxy-docker-updates.service`, records the checkout path,
+It copies `wafproxy-updated` out of the running container, installs `wafproxy-self-update.sh`,
+`wafproxy-self-update-check.sh` and the `wafproxy-update-lib.sh` they source as
+`/var/lib/waf-proxy/lib/self-update`, `self-update-check` and `wafproxy-update-lib.sh`,
+installs `wafproxy-docker-updates.service`, records the checkout path,
 its owner and `deploy/.env`, and starts the root helper. The console reports the button
 available only when that helper confirms both scripts and the checkout exist on the host;
 the container itself cannot see those paths. Compose mounts `/run/wafproxy-updates` into the console, so the

@@ -425,9 +425,12 @@ type AuditEntry struct {
 
 // Verdict is the outcome of the policy pipeline.
 type Verdict struct {
-	Action    string `json:"action"`
-	Stage     string `json:"stage"`
-	Rule      string `json:"rule"`
+	Action string `json:"action"`
+	Stage  string `json:"stage"`
+	Rule   string `json:"rule"`
+	// List names the blocklist or whitelist that decided the request, so a log
+	// row can say which list to edit instead of only "this site's profile".
+	List      string `json:"list,omitempty"`
 	Reason    string `json:"reason"`
 	Status    int    `json:"status"`
 	BanSource string `json:"ban_source,omitempty"`

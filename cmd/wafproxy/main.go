@@ -326,15 +326,34 @@ func run() error {
 	// Logs and on the attack globe next to the HTTP traffic. The payload carries
 	// the service and port, so the sink needs no manager lookup.
 	streams.SetEventSink(func(ev streaming.Event) {
+		kind := ev.Kind
+		if kind == "" {
+			kind = "stream-ban"
+		}
 		row := model.Event{
 			TS: time.Now(), Host: ev.Service, SrcIP: ev.Addr.String(),
 			Method: "TCP", Path: fmt.Sprintf(":%d", ev.Port),
 			Status: http.StatusForbidden, Stage: "stream", Action: "block",
-			RuleID: "stream-ban", RuleMsg: ev.Detail,
+			RuleID: kind, RuleMsg: ev.Detail,
 		}
 		if err := st.InsertEvents([]model.Event{row}); err != nil {
 			log.Warn("streaming event insert failed", "err", err)
 		}
+	})
+	// A forwarder enforces the same named lists as a proxied site; country
+	// entries need the GeoIP database the HTTP pipeline already loads.
+	if accessLists, err := st.ListAccessLists(); err != nil {
+		log.Warn("streaming lists not loaded", "err", err)
+	} else {
+		lists := make([]streaming.List, 0, len(accessLists))
+		for _, l := range accessLists {
+			lists = append(lists, streaming.List{ID: l.ID, Name: l.Name, Block: l.Kind == model.ListKindBlock,
+				Prefixes: splitCSV(l.IPs), Countries: splitCSV(l.Countries)})
+		}
+		streams.SetLists(lists)
+	}
+	streams.SetCountryLookup(func(addr netip.Addr) string {
+		return strings.ToUpper(geo.Lookup(addr).Country)
 	})
 	cfgs := make(map[string]streaming.Config, len(streaming.Catalog))
 	for _, def := range streaming.Catalog {
@@ -527,6 +546,17 @@ func run() error {
 		_ = gl.srv.Shutdown(shutdownCtx)
 	}
 	return nil
+}
+
+// splitCSV turns a stored comma-separated field into its non-empty entries.
+func splitCSV(csv string) []string {
+	out := []string{}
+	for _, part := range strings.Split(csv, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func wildcardBind(addr string) bool {

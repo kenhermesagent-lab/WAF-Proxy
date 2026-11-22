@@ -506,6 +506,7 @@ export interface StreamingService {
   upstream: string;
   allow: string[];
   max_conns: number;
+  list_ids?: number[];
   bound: boolean;
   listen_addr: string;
   active: number;

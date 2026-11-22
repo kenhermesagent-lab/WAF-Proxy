@@ -47,6 +47,9 @@ rm -rf /usr/local/lib/wafproxy
 ln -sfn "$app_dir/lib" /usr/local/lib/wafproxy
 install -m 0755 deploy/wafproxy-self-update.sh "$app_dir/lib/self-update"
 install -m 0755 deploy/wafproxy-self-update-check.sh "$app_dir/lib/self-update-check"
+# self-update sources this before it touches git; without it every Docker
+# update fails with "lib missing".
+install -m 0755 deploy/wafproxy-update-lib.sh "$app_dir/lib/wafproxy-update-lib.sh"
 install -m 0644 deploy/wafproxy-docker-updates.service /etc/systemd/system/wafproxy-docker-updates.service
 
 remote="$(git config --get remote.origin.url 2>/dev/null || true)"

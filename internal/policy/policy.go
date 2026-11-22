@@ -77,6 +77,14 @@ type ruleSet struct {
 	profIPDeny       []netip.Prefix
 	profCountryAllow map[string]bool
 	profCountryDeny  map[string]bool
+
+	// The named lists behind those entries, so a verdict can name the list that
+	// matched. Values are list names keyed by canonical prefix or country code.
+	listIPDeny       map[string]string
+	listIPAllow      map[string]string
+	listCountryDeny  map[string]string
+	listCountryAllow map[string]string
+	listAllowNames   []string
 }
 
 // Engine holds cached policies and the rate limiter.
@@ -110,6 +118,7 @@ type Engine struct {
 // compiledList is one named blocklist or whitelist: a blocklist denies every
 // entry it holds, a whitelist makes the site reachable only from them.
 type compiledList struct {
+	name      string
 	block     bool
 	ips       []netip.Prefix
 	countries map[string]bool
@@ -202,7 +211,7 @@ func (e *Engine) Reload() error {
 	}
 	compiled := map[int64]compiledList{}
 	for _, l := range lists {
-		cl := compiledList{block: l.Kind == model.ListKindBlock, ips: prefixes(l.IPs), countries: map[string]bool{}}
+		cl := compiledList{name: l.Name, block: l.Kind == model.ListKindBlock, ips: prefixes(l.IPs), countries: map[string]bool{}}
 		for _, c := range splitUpper(l.Countries) {
 			cl.countries[c] = true
 		}
@@ -260,6 +269,10 @@ func newRuleSet() ruleSet {
 		asnDeny:          map[int]bool{},
 		profCountryAllow: map[string]bool{},
 		profCountryDeny:  map[string]bool{},
+		listIPDeny:       map[string]string{},
+		listIPAllow:      map[string]string{},
+		listCountryDeny:  map[string]string{},
+		listCountryAllow: map[string]string{},
 	}
 }
 
@@ -540,15 +553,24 @@ func (e *Engine) rulesFor(p *model.Proxy) ruleSet {
 						continue
 					}
 					if l.block {
-						merged.profIPDeny = append(merged.profIPDeny, l.ips...)
+						for _, pr := range l.ips {
+							merged.profIPDeny = append(merged.profIPDeny, pr)
+							merged.listIPDeny[pr.String()] = l.name
+						}
 						for c := range l.countries {
 							merged.profCountryDeny[c] = true
+							merged.listCountryDeny[c] = l.name
 						}
 						continue
 					}
-					merged.profIPAllow = append(merged.profIPAllow, l.ips...)
+					merged.listAllowNames = append(merged.listAllowNames, l.name)
+					for _, pr := range l.ips {
+						merged.profIPAllow = append(merged.profIPAllow, pr)
+						merged.listIPAllow[pr.String()] = l.name
+					}
 					for c := range l.countries {
 						merged.profCountryAllow[c] = true
+						merged.listCountryAllow[c] = l.name
 					}
 				}
 			}
@@ -595,11 +617,19 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 	// allow list names it: an explicit block is the operator's strongest word.
 	for _, pr := range rules.profIPDeny {
 		if pr.Contains(req.Addr) {
+			if name, ok := rules.listIPDeny[pr.String()]; ok {
+				return model.Verdict{Action: "block", Stage: "list-block", Rule: pr.String(), List: name,
+					Reason: "address is on the \"" + name + "\" blocklist", Status: http.StatusForbidden}
+			}
 			return model.Verdict{Action: "block", Stage: "profile-block", Rule: pr.String(),
 				Reason: "IP blocked by this site's access profile", Status: http.StatusForbidden}
 		}
 	}
 	if country != "" && rules.profCountryDeny[country] {
+		if name, ok := rules.listCountryDeny[country]; ok {
+			return model.Verdict{Action: "block", Stage: "list-block", Rule: "country:" + country, List: name,
+				Reason: "country " + country + " is on the \"" + name + "\" blocklist", Status: http.StatusForbidden}
+		}
 		return model.Verdict{Action: "block", Stage: "profile-block", Rule: "country:" + country,
 			Reason: "country blocked by this site's access profile", Status: http.StatusForbidden}
 	}
@@ -609,6 +639,9 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 	// cannot use its whitelist entry to escape the IPS.
 	allowlisted := false
 	allowRule := ""
+	// The profile allow lists are checked further down; a match from a named
+	// whitelist is reported as such, after the stages that still apply.
+	profileAllowRule, profileAllowList := "", ""
 	for _, pr := range rules.ipAllow {
 		if pr.Contains(req.Addr) {
 			allowlisted = true
@@ -637,13 +670,20 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 	// the addresses or countries allowed to reach it, nothing else does. This is
 	// what makes a per-host profile more granular than the global setting.
 	if len(rules.profIPAllow) > 0 || len(rules.profCountryAllow) > 0 {
-		ok := country != "" && rules.profCountryAllow[country]
-		if !ok {
-			for _, pr := range rules.profIPAllow {
-				if pr.Contains(req.Addr) {
-					ok = true
-					break
-				}
+		ok := false
+		matchedRule, matchedList := "", ""
+		if country != "" {
+			if name, hit := rules.listCountryAllow[country]; hit {
+				ok, matchedList, matchedRule = true, name, "country:"+country
+			}
+		}
+		for _, pr := range rules.profIPAllow {
+			if ok {
+				break
+			}
+			if pr.Contains(req.Addr) {
+				ok, matchedRule = true, pr.String()
+				matchedList = rules.listIPAllow[pr.String()]
 			}
 		}
 		if !ok {
@@ -651,9 +691,15 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 			if country == "" {
 				rule = "country:unknown"
 			}
+			if len(rules.listAllowNames) > 0 {
+				return model.Verdict{Action: "block", Stage: "list-allow", Rule: rule,
+					List: strings.Join(rules.listAllowNames, ", "), Reason: whitelistReason(rules.listAllowNames),
+					Status: http.StatusForbidden}
+			}
 			return model.Verdict{Action: "block", Stage: "profile-allow", Rule: rule,
 				Reason: "address not on this site's access profile", Status: http.StatusForbidden}
 		}
+		profileAllowRule, profileAllowList = matchedRule, matchedList
 	}
 
 	// A decoy path is proof of scanning, and a whitelisted host is exactly the
@@ -761,6 +807,10 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 		return model.Verdict{Action: "block", Stage: "method", Rule: req.Method,
 			Reason: "method not allowed by profile", Status: http.StatusMethodNotAllowed}
 	}
+	if profileAllowList != "" {
+		return model.Verdict{Action: "allow", Stage: "list-allow", Rule: profileAllowRule, List: profileAllowList,
+			Status: http.StatusOK}
+	}
 	if allowlisted {
 		return model.Verdict{Action: "allow", Stage: "whitelist", Rule: allowRule, Status: http.StatusOK}
 	}
@@ -853,6 +903,16 @@ func addrInPrefixes(addr netip.Addr, list string) bool {
 		}
 	}
 	return false
+}
+
+// whitelistReason explains a refusal caused by the site's own whitelists. One
+// list is named directly; with several, all of them are listed because the
+// address has to be added to one of them.
+func whitelistReason(names []string) string {
+	if len(names) == 1 {
+		return "address is not on the \"" + names[0] + "\" whitelist"
+	}
+	return "address is on none of the site's whitelists (" + strings.Join(names, ", ") + ")"
 }
 
 // canonicalPath resolves dot segments, duplicate slashes and case the way most

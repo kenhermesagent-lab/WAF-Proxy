@@ -15,6 +15,8 @@ const COLORS: Record<string, string> = {
   method: "#ef4444",
   scanner: "#a855f7",
   "country-block": "#8b5cf6",
+  "list-block": "#8b5cf6",
+  "list-allow": "#8b5cf6",
   "asn-block": "#6366f1",
   asn: "#6366f1",
   dos: "#f59e0b",
@@ -44,6 +46,8 @@ function groupFor(category: string): GroupID {
     case "decoy":
     case "bot-challenge":
     case "country-block":
+    case "list-block":
+    case "list-allow":
     case "asn-block":
     case "asn":
       return "ban";

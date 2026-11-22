@@ -11,6 +11,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.19.0] — 2026-11-22
+
+### Added
+
+- **Streaming forwarders enforce the named blocklists and whitelists.** A Plex or Jellyfin
+  section on the **Streaming** page now attaches any number of lists from **Policies → Blocklist
+  profiles** / **Whitelist profiles**, with the same meaning they have for a proxied site: a
+  blocklist refuses its addresses and countries first, a whitelist makes the port reachable only
+  from what it holds plus the port's own allow list, and a blocklist wins when both name the same
+  address. Country entries use the GeoIP database the HTTP pipeline already loads. Editing a list
+  recompiles the live listeners in place, so a change never drops a running stream, and a list a
+  forwarder still attaches cannot be deleted until it is detached. The selection is stored as
+  `stream_<id>_lists`.
+
+### Changed
+
+- **Blocked and allowed events name the list that decided them.** A named blocklist refusal is
+  filed under `list-block` and a whitelist refusal (or the allow it grants) under `list-allow`,
+  and the verdict now carries the list name, so the Logs row and the event's reason say which
+  list to edit instead of a generic profile stage.
+
+### Fixed
+
+- **Docker application updates failed with "lib missing".** `deploy/install-docker-updater.sh`
+  installed `self-update` and `self-update-check` but not `wafproxy-update-lib.sh`, which the
+  updater sources before it touches git, so every one-click update on a Docker host stopped at
+  the guard. The library is now installed by every installer, and a test parses the updater's
+  `source` lines and fails if any installer skips one of them.
+
 ## [1.18.0] — 2026-11-22
 
 ### Added

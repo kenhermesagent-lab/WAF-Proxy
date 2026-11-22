@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Field, errText } from "../ui";
-import type { StreamingService } from "../types";
+import type { AccessList, StreamingService } from "../types";
 
 type Form = {
   enabled: boolean;
@@ -10,6 +10,7 @@ type Form = {
   upstream: string;
   allow: string;
   max_conns: number;
+  list_ids: number[];
 };
 
 type Loaded = { services: StreamingService[]; env: { path: string; error: string } };
@@ -21,6 +22,7 @@ const formFrom = (s: StreamingService): Form => ({
   upstream: s.upstream || s.default.upstream || "",
   allow: (s.allow || []).join(","),
   max_conns: s.max_conns || s.default.max_conns,
+  list_ids: s.list_ids || [],
 });
 
 // Steps are per application because the "trust this address" setting lives in a
@@ -98,6 +100,7 @@ function guideSteps(id: string, label: string, f: Form): ReactNode[] {
 
 export default function Streaming({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [services, setServices] = useState<StreamingService[]>([]);
+  const [lists, setLists] = useState<AccessList[]>([]);
   const [forms, setForms] = useState<Record<string, Form>>({});
   const [env, setEnv] = useState<{ path: string; error: string }>({ path: "", error: "" });
   const [saving, setSaving] = useState("");
@@ -129,12 +132,32 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
 
   useEffect(() => {
     load(true);
+    api
+      .get<AccessList[]>("/api/lists")
+      .then(setLists)
+      .catch((e) => onError(errText(e)));
     const t = setInterval(refresh, 5000);
     return () => clearInterval(t);
   }, []);
 
   const setField = <K extends keyof Form>(id: string, key: K, value: Form[K]) =>
     setForms((prev) => ({ ...prev, [id]: { ...prev[id], [key]: value } }));
+
+  // A list is attached or detached as a whole, exactly as an access profile
+  // does it, so the same named list means the same thing everywhere.
+  const toggleList = (id: string, listID: number, on: boolean) =>
+    setForms((prev) => {
+      const current = prev[id].list_ids.filter((x) => x !== listID);
+      return { ...prev, [id]: { ...prev[id], list_ids: on ? [...current, listID] : current } };
+    });
+
+  const listSummary = (l: AccessList) => {
+    const ips = l.ips ? l.ips.split(",").filter(Boolean).length : 0;
+    const countries = l.countries ? l.countries.split(",").filter(Boolean).length : 0;
+    return [ips ? `${ips} address${ips === 1 ? "" : "es"}` : "", countries ? `${countries} countr${countries === 1 ? "y" : "ies"}` : ""]
+      .filter(Boolean)
+      .join(" · ");
+  };
 
   const save = async (svc: StreamingService) => {
     setSaving(svc.id);
@@ -175,8 +198,9 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
           Each enabled application gets its own listener on a port on this host, relaying TCP byte for byte. TLS
           stays end to end, so the application's own certificates and clients keep working, and every client appears
           to come from this host's address — the one entry its allow list needs. The WAF and access gate cannot
-          inspect this traffic, but the source allow list, the connection cap and the ban engine do: a banned address
-          is refused, and a stream that is already running is cut when the ban lands.
+          inspect this traffic, but the source allow list, the named blocklists and whitelists, the connection cap and
+          the ban engine do: a banned or blocked address is refused, and a stream that is already running is cut when
+          the ban lands.
         </p>
       </Card>
 
@@ -255,6 +279,41 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
                   mix of both. An empty list means any source; the connection cap and active bans still apply.
                 </p>
 
+                <div className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>
+                  Blocklists and whitelists
+                </div>
+                {lists.length === 0 ? (
+                  <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>
+                    No lists yet. Create them on the Policies page, then attach them here.
+                  </p>
+                ) : (
+                  <>
+                    <div style={{ display: "grid", gap: 6, marginBottom: 8 }}>
+                      {lists.map((l) => (
+                        <label
+                          key={l.id}
+                          style={{ display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}
+                        >
+                          <input
+                            type="checkbox"
+                            style={{ width: "auto" }}
+                            checked={f.list_ids.includes(l.id)}
+                            onChange={(e) => toggleList(svc.id, l.id, e.target.checked)}
+                          />
+                          <Badge tone={l.kind === "blocklist" ? "bad" : "ok"}>{l.kind === "blocklist" ? "block" : "allow"}</Badge>
+                          {l.name}
+                          <span className="muted" style={{ fontSize: 12 }}>{listSummary(l)}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>
+                      A whitelist makes this port reachable only from what it holds, plus the allow list above; a
+                      blocklist refuses its entries first and wins when both name the same address. Countries use the
+                      same GeoIP database as the HTTP proxy, so without it country entries match nothing.
+                    </p>
+                  </>
+                )}
+
                 <button className="primary mt" onClick={() => save(svc)} disabled={saving === svc.id}>
                   {saving === svc.id ? "Saving…" : "Save and apply"}
                 </button>
@@ -283,6 +342,14 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
                   <div className="bar-row">
                     <div>Accepted since start</div>
                     <div>{svc.total.toLocaleString()}</div>
+                  </div>
+                  <div className="bar-row">
+                    <div>Lists</div>
+                    <div className="muted">
+                      {(svc.list_ids || [])
+                        .map((id) => lists.find((l) => l.id === id)?.name || `#${id}`)
+                        .join(", ") || "none"}
+                    </div>
                   </div>
                   <div className="bar-row">
                     <div>Refused (allow list / cap)</div>

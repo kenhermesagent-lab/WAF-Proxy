@@ -69,6 +69,19 @@ type Config struct {
 	Upstream string   `json:"upstream"`
 	Allow    []string `json:"allow"`
 	MaxConns int      `json:"max_conns"`
+	// ListIDs are the named block/allow lists this port enforces. They are
+	// resolved to their entries at apply time, so editing a list here and on
+	// the Policies page is the same edit.
+	ListIDs []int64 `json:"list_ids"`
+}
+
+// List is the part of a named blocklist or whitelist a forwarder enforces.
+type List struct {
+	ID        int64    `json:"id"`
+	Name      string   `json:"name"`
+	Block     bool     `json:"block"`
+	Prefixes  []string `json:"prefixes"`
+	Countries []string `json:"countries"`
 }
 
 // Event is a refusal or a cut stream, handed to the sink that logs it.
@@ -77,7 +90,11 @@ type Event struct {
 	Label   string
 	Port    int
 	Addr    netip.Addr
-	Detail  string
+	// Kind is the rule the refusal is filed under: stream-ban for the ban
+	// engine, stream-list when a named block/whitelist refused the source, and
+	// stream-allow for the port's own allow list.
+	Kind   string
+	Detail string
 }
 
 // Status is the configuration plus live state for one service.
@@ -123,6 +140,12 @@ func ConfigFromSettings(def Service, kv map[string]string) Config {
 			allow = append(allow, part)
 		}
 	}
+	lists := []int64{}
+	for _, part := range strings.Split(get("lists"), ",") {
+		if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil && id > 0 {
+			lists = append(lists, id)
+		}
+	}
 	return Config{
 		Enabled:  get("enabled") == "1",
 		ListenIP: get("listen_ip"),
@@ -130,6 +153,7 @@ func ConfigFromSettings(def Service, kv map[string]string) Config {
 		Upstream: get("upstream"),
 		Allow:    allow,
 		MaxConns: maxConns,
+		ListIDs:  lists,
 	}
 }
 
@@ -171,6 +195,16 @@ func (c Config) Normalize(def Service) (Config, error) {
 		allow = append(allow, prefix)
 	}
 	c.Allow = allow
+
+	ids := make([]int64, 0, len(c.ListIDs))
+	seen := make(map[int64]bool, len(c.ListIDs))
+	for _, id := range c.ListIDs {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	c.ListIDs = ids
 	return c, nil
 }
 
@@ -249,6 +283,111 @@ func prefixesFor(allow []string) []netip.Prefix {
 	return out
 }
 
+// namedPrefix keeps the list an address matched, so the refusal can name it.
+type namedPrefix struct {
+	prefix netip.Prefix
+	name   string
+}
+
+// sourcePolicy is the compiled set of sources a forwarder accepts. It mirrors
+// the HTTP pipeline's rules: a blocklist is checked first and always wins, a
+// whitelist makes the port exclusive, and the port's own allow list is added
+// to the whitelist rather than overriding it.
+type sourcePolicy struct {
+	allow        []netip.Prefix
+	allowList    []namedPrefix
+	allowCountry map[string]string // country code -> whitelist name
+	denyList     []namedPrefix
+	denyCountry  map[string]string
+	allowNames   []string
+}
+
+// compileSources resolves the selected list ids against the lists the console
+// saved. An id that no longer resolves is skipped, exactly as the policy engine
+// skips a dangling reference.
+func compileSources(cfg Config, lists []List) sourcePolicy {
+	p := sourcePolicy{
+		allow:        prefixesFor(cfg.Allow),
+		allowCountry: map[string]string{},
+		denyCountry:  map[string]string{},
+	}
+	byID := make(map[int64]List, len(lists))
+	for _, l := range lists {
+		byID[l.ID] = l
+	}
+	for _, id := range cfg.ListIDs {
+		l, ok := byID[id]
+		if !ok {
+			continue
+		}
+		if l.Block {
+			for _, raw := range l.Prefixes {
+				if pr, err := netip.ParsePrefix(raw); err == nil {
+					p.denyList = append(p.denyList, namedPrefix{prefix: pr, name: l.Name})
+				}
+			}
+			for _, c := range l.Countries {
+				p.denyCountry[c] = l.Name
+			}
+			continue
+		}
+		p.allowNames = append(p.allowNames, l.Name)
+		for _, raw := range l.Prefixes {
+			if pr, err := netip.ParsePrefix(raw); err == nil {
+				p.allowList = append(p.allowList, namedPrefix{prefix: pr, name: l.Name})
+			}
+		}
+		for _, c := range l.Countries {
+			p.allowCountry[c] = l.Name
+		}
+	}
+	return p
+}
+
+// verdict reports whether a source may connect. A non-empty kind means the
+// connection is refused; list names the blocklist or whitelist responsible, so
+// the event row says which list to edit.
+func (p sourcePolicy) verdict(addr netip.Addr, country string) (kind, list, detail string) {
+	for _, np := range p.denyList {
+		if np.prefix.Contains(addr) {
+			return "stream-list", np.name, "address is on the \"" + np.name + "\" blocklist"
+		}
+	}
+	if country != "" {
+		if name, ok := p.denyCountry[country]; ok {
+			return "stream-list", name, "country " + country + " is on the \"" + name + "\" blocklist"
+		}
+	}
+
+	open := len(p.allow) == 0 && len(p.allowList) == 0 && len(p.allowCountry) == 0
+	if open {
+		return "", "", ""
+	}
+	for _, pr := range p.allow {
+		if pr.Contains(addr) {
+			return "", "", ""
+		}
+	}
+	for _, np := range p.allowList {
+		if np.prefix.Contains(addr) {
+			return "", "", ""
+		}
+	}
+	if country != "" {
+		if _, ok := p.allowCountry[country]; ok {
+			return "", "", ""
+		}
+	}
+	if len(p.allowNames) > 0 {
+		joined := strings.Join(p.allowNames, ", ")
+		if len(p.allowNames) == 1 {
+			return "stream-list", joined, "address is not on the \"" + joined + "\" whitelist"
+		}
+		return "stream-list", joined, "address is on none of this port's whitelists (" + joined + ")"
+	}
+	return "stream-allow", "", "address is not on the forwarder's allow list"
+}
+
 // Manager owns one listener per enabled service. Apply rebinds a single service
 // without touching the others.
 type Manager struct {
@@ -257,8 +396,10 @@ type Manager struct {
 	mu       sync.Mutex
 	services map[string]*runtime
 
-	bans   atomic.Value // func(netip.Addr) bool
-	events atomic.Value // func(Event)
+	bans    atomic.Value // func(netip.Addr) bool
+	events  atomic.Value // func(Event)
+	lists   atomic.Value // map[int64]List
+	country atomic.Value // func(netip.Addr) string
 
 	refusals *throttle
 	now      func() time.Time
@@ -266,12 +407,14 @@ type Manager struct {
 
 // runtime is the live state of one listener.
 type runtime struct {
-	def   Service
-	cfg   Config
-	allow []netip.Prefix
-	ln    net.Listener
-	done  chan struct{}
-	wg    sync.WaitGroup
+	def Service
+	cfg Config
+	// src is swapped when a list is edited, so accept() reads it without a lock
+	// and an edit never races a connection.
+	src  atomic.Pointer[sourcePolicy]
+	ln   net.Listener
+	done chan struct{}
+	wg   sync.WaitGroup
 
 	connMu sync.Mutex
 	conns  map[*relay]struct{}
@@ -317,6 +460,53 @@ func (m *Manager) SetEventSink(fn func(Event)) {
 	}
 }
 
+// SetLists replaces the named lists forwarders resolve their ids against. Call
+// Apply or RefreshSources afterwards to make the change take effect.
+func (m *Manager) SetLists(lists []List) {
+	byID := make(map[int64]List, len(lists))
+	for _, l := range lists {
+		byID[l.ID] = l
+	}
+	m.lists.Store(byID)
+}
+
+// SetCountryLookup attaches the GeoIP lookup a country entry needs. Without
+// it, country rules simply never match, and the console says so.
+func (m *Manager) SetCountryLookup(fn func(netip.Addr) string) {
+	if fn != nil {
+		m.country.Store(fn)
+	}
+}
+
+func (m *Manager) configuredLists(ids []int64) []List {
+	byID, _ := m.lists.Load().(map[int64]List)
+	out := make([]List, 0, len(ids))
+	for _, id := range ids {
+		if l, ok := byID[id]; ok {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func (m *Manager) countryOf(addr netip.Addr) string {
+	if fn, ok := m.country.Load().(func(netip.Addr) string); ok && fn != nil {
+		return fn(addr)
+	}
+	return ""
+}
+
+// RefreshSources recompiles every listener's source policy after a list was
+// edited. Sockets are left alone, so changing a blocklist never interrupts a
+// client that is streaming.
+func (m *Manager) RefreshSources() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, rt := range m.services {
+		rt.setSource(compileSources(rt.cfg, m.configuredLists(rt.cfg.ListIDs)))
+	}
+}
+
 func (m *Manager) isBanned(addr netip.Addr) bool {
 	if fn, ok := m.bans.Load().(func(netip.Addr) bool); ok && fn != nil {
 		return fn(addr)
@@ -356,6 +546,7 @@ func (m *Manager) Apply(id string, cfg Config) error {
 	// the saved settings the page shows.
 	rt := &runtime{def: def, cfg: cfg, conns: make(map[*relay]struct{})}
 	rt.lastErr.Store("")
+	rt.setSource(compileSources(cfg, m.configuredLists(cfg.ListIDs)))
 	m.services[id] = rt
 	var listenErr error
 	if cfg.Enabled {
@@ -372,8 +563,10 @@ func (m *Manager) Apply(id string, cfg Config) error {
 			rt.lastErr.Store(err.Error())
 			listenErr = fmt.Errorf("listen on %s: %w", addr, err)
 		} else {
-			rt.ln, rt.done, rt.allow = ln, make(chan struct{}), prefixesFor(norm.Allow)
-			m.log.Info("streaming forwarder listening", "service", id, "addr", ln.Addr().String(), "upstream", norm.Upstream)
+			rt.ln, rt.done = ln, make(chan struct{})
+			rt.setSource(compileSources(norm, m.configuredLists(norm.ListIDs)))
+			m.log.Info("streaming forwarder listening", "service", id, "addr", ln.Addr().String(), "upstream", norm.Upstream,
+				"allow_list_entries", len(norm.Allow), "named_lists", len(norm.ListIDs))
 		}
 	}
 	m.mu.Unlock()
@@ -474,7 +667,7 @@ func (m *Manager) DropBanned(match func(netip.Addr) bool, detail string) int {
 		_ = v.r.client.Close()
 		_ = v.r.upstream.Close()
 		v.rt.dropped.Add(1)
-		m.emit(Event{Service: v.rt.def.ID, Label: v.rt.def.Label, Port: v.rt.cfg.Port, Addr: v.r.addr, Detail: detail})
+		m.emit(Event{Service: v.rt.def.ID, Label: v.rt.def.Label, Port: v.rt.cfg.Port, Addr: v.r.addr, Kind: "stream-ban", Detail: detail})
 	}
 	return len(doomed)
 }
@@ -508,16 +701,23 @@ func (m *Manager) accept(rt *runtime) {
 			continue
 		}
 		addr, ok := remoteAddr(conn.RemoteAddr())
-		if !ok || !allowed(rt.allow, addr) {
+		if !ok {
 			rt.blocked.Add(1)
 			_ = conn.Close()
+			continue
+		}
+		src := rt.source()
+		if kind, list, detail := src.verdict(addr, m.countryOf(addr)); kind != "" {
+			rt.blocked.Add(1)
+			_ = conn.Close()
+			m.refuse(rt, addr, kind, detail, list)
 			continue
 		}
 		if m.isBanned(addr) {
 			_ = conn.Close()
 			// Emit before counting so the status counter never runs ahead of
 			// the event that describes the refusal.
-			m.refuse(rt, addr)
+			m.refuse(rt, addr, "stream-ban", fmt.Sprintf("banned source refused on the %s port", rt.def.Label), "")
 			rt.banned.Add(1)
 			continue
 		}
@@ -532,18 +732,21 @@ func (m *Manager) accept(rt *runtime) {
 	}
 }
 
-// refuse reports a refused banned attempt at most once per window per source,
-// so a retry loop cannot fill the event log.
-func (m *Manager) refuse(rt *runtime, addr netip.Addr) {
+// refuse reports a refused attempt at most once per window per source, so a
+// retry loop cannot fill the event log. list is the named list that decided the
+// refusal, if any, and is kept on the event for the log row.
+func (m *Manager) refuse(rt *runtime, addr netip.Addr, kind, detail, list string) {
 	emit, suppressed := m.refusals.allow(rt.def.ID, addr, m.now())
 	if !emit {
 		return
 	}
-	detail := fmt.Sprintf("banned source refused on the %s port", rt.def.Label)
 	if suppressed > 0 {
 		detail += fmt.Sprintf(" (%d more attempts suppressed)", suppressed)
 	}
-	m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Port: rt.cfg.Port, Addr: addr, Detail: detail})
+	if list != "" {
+		detail += " [" + list + "]"
+	}
+	m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Port: rt.cfg.Port, Addr: addr, Kind: kind, Detail: detail})
 }
 
 func (m *Manager) handle(rt *runtime, client net.Conn, addr netip.Addr) {
@@ -566,7 +769,7 @@ func (m *Manager) handle(rt *runtime, client net.Conn, addr netip.Addr) {
 
 	if m.isBanned(addr) {
 		rt.dropped.Add(1)
-		m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Port: rt.cfg.Port, Addr: addr,
+		m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Port: rt.cfg.Port, Addr: addr, Kind: "stream-ban",
 			Detail: fmt.Sprintf("stream closed by active ban on the %s port", rt.def.Label)})
 		return
 	}
@@ -576,6 +779,15 @@ func (m *Manager) handle(rt *runtime, client net.Conn, addr netip.Addr) {
 		_ = tcp.SetKeepAlivePeriod(30 * time.Second)
 	}
 	relayCopy(idleConn{Conn: client}, idleConn{Conn: upstream})
+}
+
+func (rt *runtime) setSource(p sourcePolicy) { rt.src.Store(&p) }
+
+func (rt *runtime) source() sourcePolicy {
+	if p := rt.src.Load(); p != nil {
+		return *p
+	}
+	return sourcePolicy{}
 }
 
 func (rt *runtime) track(r *relay) {
@@ -622,18 +834,6 @@ func (c idleConn) Read(b []byte) (int, error) {
 func (c idleConn) Write(b []byte) (int, error) {
 	_ = c.Conn.SetWriteDeadline(time.Now().Add(idleTimeout))
 	return c.Conn.Write(b)
-}
-
-func allowed(allow []netip.Prefix, addr netip.Addr) bool {
-	if len(allow) == 0 {
-		return true
-	}
-	for _, p := range allow {
-		if p.Contains(addr) {
-			return true
-		}
-	}
-	return false
 }
 
 func remoteAddr(remote net.Addr) (netip.Addr, bool) {

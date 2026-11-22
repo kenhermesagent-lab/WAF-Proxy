@@ -58,7 +58,7 @@ sample traffic, not production figures.***
 | **Reverse proxy** | HTTPS with SNI + Host routing, WebSocket passthrough, weighted round-robin upstreams, active health checks, path redirects and aliases, gzip, a conservative GET cache, and streamed responses. |
 | **Tailscale ingress** | Optional native `tailscale0` listeners for the admin console and for app traffic. The app path keeps the existing TLS/SNI certificate and WAF pipeline, and a tailnet-only DNS responder supplies split-DNS answers for configured sites. |
 | **TLS** | DNS-01 wildcard certificates through lego — DuckDNS, Cloudflare, Route53, DigitalOcean, Hetzner, OVH, GoDaddy and RFC2136. Per-site assignment, per-certificate renewal policy (monthly, every 2 or 3 months, or 1 month before expiry), serialised ACME orders, staging toggle. |
-| **Streaming forwarders** | Transparent TCP relays for **Plex** and **Jellyfin** on their own WAN ports, with a source allowlist (one or more IPs/CIDRs, comma separated, empty = any), connection cap, banned-source refusal that also cuts running streams, and live counters. |
+| **Streaming forwarders** | Transparent TCP relays for **Plex** and **Jellyfin** on their own WAN ports, with a source allowlist (one or more IPs/CIDRs, comma separated, empty = any) and the same named blocklists and whitelists a proxied site attaches — block first, whitelist exclusive. Connection cap, banned-source refusal that also cuts running streams, and live counters. |
 | **Maintenance mode** | Per-site switch that answers with a maintenance response instead of the backend. |
 | **Named blocklists and whitelists** | Reusable lists under **Policies → Blocklist profiles** and **Whitelist profiles**. Each holds IPs/CIDRs (pasted one per line) and countries picked from a searchable list. Attach any number to an **Access profile**: a blocklist refuses its addresses and countries on those sites, and a whitelist makes the site reachable only from what it names. A blocklist attached to the same profile wins over a whitelist. |
 | **Access profiles** | One named profile per host holds everything the site's policy needs: named blocklists and whitelists, lists from **Countries, IPs, ASN** marked *allow only these* or *block these*, plus the WAF and protection profiles it uses. Creating or editing a proxy asks for one selection. A host profile stacks on the global lists: an allow list narrows that site to the addresses and countries it names, a block list drops them even when a global allow list names them, so one site can be stricter than the global setting and another wider. |
@@ -274,7 +274,7 @@ One root holds everything the native install owns, so there is no second copy to
 | Path | Contents |
 |---|---|
 | `/var/lib/waf-proxy/bin` | `wafproxy` and `wafproxy-updated` |
-| `/var/lib/waf-proxy/lib` | fixed helper scripts (`self-update`, `self-update-check`, `crowdsec-install`) |
+| `/var/lib/waf-proxy/lib` | fixed helper scripts (`self-update`, `self-update-check`, `wafproxy-update-lib.sh`, `crowdsec-install`) |
 | `/var/lib/waf-proxy/src` | the git checkout the Update button pulls and builds |
 | `/var/lib/waf-proxy/data` | SQLite database, master key, GeoIP files, threat lists, backups (owner `wafproxy`) |
 | `/etc/wafproxy` | `wafproxy.env` and `self-update.conf` |
@@ -492,6 +492,9 @@ entry its allow list needs.
    the port clients will use (defaults `32400` / `8096`), and the application’s LAN address
    and port.
 2. Optional allowed sources — a single IP, a CIDR, or several separated by commas — and a maximum concurrent connection count. Leave it empty to allow any source.
+   Below it, attach any of the named blocklists and whitelists from **Policies**: a blocklist refuses
+   its entries first, a whitelist makes the port reachable only from what it holds plus the allow
+   list above, and a blocklist wins when both name the same address.
 3. **Save and apply** binds the port immediately — no restart with `network_mode: host`.
 4. Forward the same port on the router, **DNAT only, no SNAT**.
 5. In the application:
@@ -500,8 +503,9 @@ entry its allow list needs.
    - **Jellyfin:** Settings → Networking → *Known proxies* → the proxy’s LAN address.
 
 The relay is not inspected: the WAF and access gate cannot see that traffic. The source
-allowlist, connection cap and ban engine do apply, and refusals appear in Logs as `stream`
-events (one per source per minute, so a retry loop cannot flood the table).
+allowlist, the attached block/allow lists, the connection cap and the ban engine do apply, and
+refusals appear in Logs as `stream` events (one per source per minute, so a retry loop cannot
+flood the table) naming the list that refused the source.
 
 ![Streaming forwarders](docs/screenshots/streaming.png)
 

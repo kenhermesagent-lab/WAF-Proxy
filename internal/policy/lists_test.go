@@ -2,6 +2,7 @@ package policy
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
@@ -36,11 +37,13 @@ func TestAccessListBlocklistBlocksOneHost(t *testing.T) {
 	guarded := &model.Proxy{ID: 1, Hostname: "app.example.com", AccessProfileID: &prof.ID}
 	open := &model.Proxy{ID: 2, Hostname: "other.example.com"}
 
-	if v := screenHost(pol, guarded, "198.51.100.9"); v.Action != "block" || v.Stage != "profile-block" {
-		t.Fatalf("address on the blocklist was allowed: %+v", v)
+	if v := screenHost(pol, guarded, "198.51.100.9"); v.Action != "block" || v.Stage != "list-block" || v.List != "scanners" {
+		t.Fatalf("address on the blocklist was allowed or unnamed: %+v", v)
+	} else if !strings.Contains(v.Reason, "scanners") {
+		t.Fatalf("reason does not name the list: %+v", v)
 	}
-	if v := screenGeo(pol, guarded, "203.0.113.9", "RU"); v.Action != "block" || v.Stage != "profile-block" {
-		t.Fatalf("country on the blocklist was allowed: %+v", v)
+	if v := screenGeo(pol, guarded, "203.0.113.9", "RU"); v.Action != "block" || v.Stage != "list-block" || v.List != "scanners" {
+		t.Fatalf("country on the blocklist was allowed or unnamed: %+v", v)
 	}
 	if v := screenHost(pol, open, "198.51.100.9"); v.Action != "allow" {
 		t.Fatalf("the blocklist leaked onto a host without the profile: %+v", v)
@@ -68,17 +71,19 @@ func TestAccessListWhitelistIsExclusive(t *testing.T) {
 	}
 	proxy := &model.Proxy{ID: 3, Hostname: "intranet.example.com", AccessProfileID: &prof.ID}
 
-	if v := screenHost(pol, proxy, "203.0.113.7"); v.Action != "allow" {
-		t.Fatalf("listed address was refused: %+v", v)
+	if v := screenHost(pol, proxy, "203.0.113.7"); v.Action != "allow" || v.List != "office" {
+		t.Fatalf("listed address was refused or unnamed: %+v", v)
 	}
-	if v := screenGeo(pol, proxy, "198.51.100.20", "DE"); v.Action != "allow" {
-		t.Fatalf("listed country was refused: %+v", v)
+	if v := screenGeo(pol, proxy, "198.51.100.20", "DE"); v.Action != "allow" || v.List != "office" {
+		t.Fatalf("listed country was refused or unnamed: %+v", v)
 	}
-	if v := screenGeo(pol, proxy, "198.51.100.20", "FR"); v.Action != "block" || v.Stage != "profile-allow" {
-		t.Fatalf("unlisted country was allowed: %+v", v)
+	if v := screenGeo(pol, proxy, "198.51.100.20", "FR"); v.Action != "block" || v.Stage != "list-allow" || v.List != "office" {
+		t.Fatalf("unlisted country was allowed or unnamed: %+v", v)
+	} else if !strings.Contains(v.Reason, "office") {
+		t.Fatalf("reason does not name the whitelist: %+v", v)
 	}
-	if v := screenHost(pol, proxy, "203.0.113.8"); v.Action != "block" || v.Stage != "profile-allow" {
-		t.Fatalf("unlisted address was allowed: %+v", v)
+	if v := screenHost(pol, proxy, "203.0.113.8"); v.Action != "block" || v.Stage != "list-allow" || v.List != "office" {
+		t.Fatalf("unlisted address was allowed or unnamed: %+v", v)
 	}
 
 	// Attaching the same address to a blocklist for this profile must win: an
@@ -90,7 +95,7 @@ func TestAccessListWhitelistIsExclusive(t *testing.T) {
 	if err := pol.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	if v := screenHost(pol, proxy, "203.0.113.7"); v.Action != "block" || v.Stage != "profile-block" {
+	if v := screenHost(pol, proxy, "203.0.113.7"); v.Action != "block" || v.Stage != "list-block" || v.List != "bad office host" {
 		t.Fatalf("the blocklist did not override the whitelist: %+v", v)
 	}
 }
