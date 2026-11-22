@@ -11,6 +11,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.30.0] — 2026-11-22
+
+### Added
+
+- **Per-site balancing policies.** `weighted_rr` (default), `least_conn`, `least_latency`,
+  `ip_hash` and `sticky_cookie`; the in-flight and latency counters the old picker recorded are
+  now used. An upstream's `max_conns` removes it from selection while it is saturated.
+- **Configurable health probes per site.** Path, accepted status codes (default `200-399`),
+  interval and failure threshold; upstreams inherit the site's settings. A real 5xx now feeds the
+  same failure counter, so a backend that keeps returning errors is ejected instead of staying
+  "healthy" forever.
+- **Per-site and per-client request budgets** alongside the process-wide ceiling, with `503` for a
+  saturated site and `429` for a client that spends its own share.
+
+### Fixed
+
+- **Certificate selection ranked by `domains[0]`.** A multi-name certificate could win for a host
+  it did not cover best; selection now compares the matched pattern, and a site's `cert_id` is
+  authoritative over SNI matching.
+- **`HTTP_PROXY` hijacked upstream traffic.** The forwarding transport and the header audit no
+  longer use `http.ProxyFromEnvironment`, so an environment proxy cannot silently carry customer
+  traffic.
+
+### Changed
+
+- `docs/ROADMAP.md` maps every item from the external review to a release or an explicit deferral.
+
 ## [1.29.0] — 2026-11-22
 
 ### Added

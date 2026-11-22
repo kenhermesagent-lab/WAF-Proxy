@@ -64,6 +64,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if e.proxy.Fingerprint == "minimal" {
 		rw.strict = false
 	}
+	// A site and a single client are bounded separately from the process-wide
+	// budget, so one busy host cannot starve the others.
+	ip := clientAddr(r)
+	if !e.site.acquire() {
+		rw.Header().Set("Retry-After", "1")
+		uniformError(rw, http.StatusServiceUnavailable)
+		return
+	}
+	defer e.site.release()
+	if !e.clients.acquire(ip.String()) {
+		rw.Header().Set("Retry-After", "1")
+		uniformError(rw, http.StatusTooManyRequests)
+		return
+	}
+	defer e.clients.release(ip.String())
 	rw.protection = e.protection
 	// HTTPS enforcement happens before the WAF: a plain-HTTP request is
 	// redirected rather than inspected, so it reaches the same policy once it
@@ -73,7 +88,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := clientAddr(r)
 	loc := s.d.Geo.Lookup(ip)
 	event := model.Event{
 		TS: start, ProxyID: &e.proxy.ID, Host: host, SrcIP: ip.String(),
@@ -243,7 +257,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	up := pick(e.ups, &e.rr)
+	up := selectUpstream(e, r, rw)
 	if up == nil {
 		blocked = true
 		event.Stage, event.RuleMsg = "upstream", "no healthy upstream"

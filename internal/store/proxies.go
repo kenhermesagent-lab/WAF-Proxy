@@ -13,7 +13,9 @@ import (
 func (s *Store) ListProxies() ([]model.Proxy, error) {
 	rows, err := s.db.Query(`SELECT id, hostname, enabled, cert_id, profile_id, gate_mode, gate_secret,
 		gate_totp_hint, fingerprint, bot_level, maintenance, waf_mode, created_at,
-		protection_profile_id, access_profile_id, auth_provider_id FROM proxies ORDER BY hostname`)
+		protection_profile_id, access_profile_id, auth_provider_id,
+		lb_policy, health_path, health_expect, health_interval, health_fail_after,
+		max_inflight, max_inflight_per_client FROM proxies ORDER BY hostname`)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +37,9 @@ func scanProxy(row interface{ Scan(...any) error }) (*model.Proxy, error) {
 	var enabled, maint int
 	var created string
 	err := row.Scan(&p.ID, &p.Hostname, &enabled, &certID, &profileID, &p.GateMode, &p.GateSecret,
-		&p.GateTOTPHint, &p.Fingerprint, &p.BotLevel, &maint, &p.WAFMode, &created, &protectionID, &accessID, &providerID)
+		&p.GateTOTPHint, &p.Fingerprint, &p.BotLevel, &maint, &p.WAFMode, &created, &protectionID, &accessID, &providerID,
+		&p.LBPolicy, &p.HealthPath, &p.HealthExpect, &p.HealthInterval, &p.HealthFailAfter,
+		&p.MaxInflight, &p.MaxInflightPerClient)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -67,25 +71,33 @@ func scanProxy(row interface{ Scan(...any) error }) (*model.Proxy, error) {
 func (s *Store) GetProxy(id int64) (*model.Proxy, error) {
 	return scanProxy(s.db.QueryRow(`SELECT id, hostname, enabled, cert_id, profile_id, gate_mode, gate_secret,
 		gate_totp_hint, fingerprint, bot_level, maintenance, waf_mode, created_at,
-		protection_profile_id, access_profile_id, auth_provider_id FROM proxies WHERE id = ?`, id))
+		protection_profile_id, access_profile_id, auth_provider_id,
+		lb_policy, health_path, health_expect, health_interval, health_fail_after,
+		max_inflight, max_inflight_per_client FROM proxies WHERE id = ?`, id))
 }
 
 // ProxyByHost loads a proxy by hostname.
 func (s *Store) ProxyByHost(host string) (*model.Proxy, error) {
 	return scanProxy(s.db.QueryRow(`SELECT id, hostname, enabled, cert_id, profile_id, gate_mode, gate_secret,
 		gate_totp_hint, fingerprint, bot_level, maintenance, waf_mode, created_at,
-		protection_profile_id, access_profile_id, auth_provider_id FROM proxies WHERE hostname = ?`, host))
+		protection_profile_id, access_profile_id, auth_provider_id,
+		lb_policy, health_path, health_expect, health_interval, health_fail_after,
+		max_inflight, max_inflight_per_client FROM proxies WHERE hostname = ?`, host))
 }
 
 // CreateProxy inserts a proxy and returns its ID.
 func (s *Store) CreateProxy(p *model.Proxy) (int64, error) {
 	res, err := s.db.Exec(`INSERT INTO proxies(hostname, enabled, cert_id, profile_id, gate_mode, gate_secret,
 		gate_totp_hint, fingerprint, bot_level, maintenance, waf_mode, created_at,
-		protection_profile_id, access_profile_id, auth_provider_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		protection_profile_id, access_profile_id, auth_provider_id,
+		lb_policy, health_path, health_expect, health_interval, health_fail_after,
+		max_inflight, max_inflight_per_client)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Hostname, b2i(p.Enabled), p.CertID, p.ProfileID, p.GateMode, p.GateSecret,
 		p.GateTOTPHint, p.Fingerprint, defaultStr(p.BotLevel, "light"), b2i(p.Maintenance), p.WAFMode,
-		stamp(time.Now()), p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID)
+		stamp(time.Now()), p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID,
+		defaultStr(p.LBPolicy, "weighted_rr"), defaultStr(p.HealthPath, "/"), defaultStr(p.HealthExpect, "200-399"),
+		p.HealthInterval, p.HealthFailAfter, p.MaxInflight, p.MaxInflightPerClient)
 	if err != nil {
 		return 0, err
 	}
@@ -96,11 +108,15 @@ func (s *Store) CreateProxy(p *model.Proxy) (int64, error) {
 func (s *Store) UpdateProxy(p *model.Proxy) error {
 	_, err := s.db.Exec(`UPDATE proxies SET hostname = ?, enabled = ?, cert_id = ?, profile_id = ?,
 		gate_mode = ?, gate_secret = ?, gate_totp_hint = ?, fingerprint = ?, bot_level = ?, maintenance = ?, waf_mode = ?,
-		protection_profile_id = ?, access_profile_id = ?, auth_provider_id = ?
+		protection_profile_id = ?, access_profile_id = ?, auth_provider_id = ?,
+		lb_policy = ?, health_path = ?, health_expect = ?, health_interval = ?, health_fail_after = ?,
+		max_inflight = ?, max_inflight_per_client = ?
 		WHERE id = ?`,
 		p.Hostname, b2i(p.Enabled), p.CertID, p.ProfileID, p.GateMode, p.GateSecret,
 		p.GateTOTPHint, p.Fingerprint, defaultStr(p.BotLevel, "light"), b2i(p.Maintenance), p.WAFMode,
-		p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID, p.ID)
+		p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID,
+		defaultStr(p.LBPolicy, "weighted_rr"), defaultStr(p.HealthPath, "/"), defaultStr(p.HealthExpect, "200-399"),
+		p.HealthInterval, p.HealthFailAfter, p.MaxInflight, p.MaxInflightPerClient, p.ID)
 	return err
 }
 
@@ -112,7 +128,7 @@ func (s *Store) DeleteProxy(id int64) error {
 
 // ListUpstreams returns the upstream pool of a proxy.
 func (s *Store) ListUpstreams(proxyID int64) ([]model.Upstream, error) {
-	rows, err := s.db.Query(`SELECT id, proxy_id, url, weight, enabled FROM upstreams WHERE proxy_id = ? ORDER BY id`, proxyID)
+	rows, err := s.db.Query(`SELECT id, proxy_id, url, weight, enabled, max_conns FROM upstreams WHERE proxy_id = ? ORDER BY id`, proxyID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +137,7 @@ func (s *Store) ListUpstreams(proxyID int64) ([]model.Upstream, error) {
 	for rows.Next() {
 		var u model.Upstream
 		var enabled int
-		if err := rows.Scan(&u.ID, &u.ProxyID, &u.URL, &u.Weight, &enabled); err != nil {
+		if err := rows.Scan(&u.ID, &u.ProxyID, &u.URL, &u.Weight, &enabled, &u.MaxConns); err != nil {
 			return nil, err
 		}
 		u.Enabled = i2b(enabled)
@@ -145,8 +161,8 @@ func (s *Store) ReplaceUpstreams(proxyID int64, ups []model.Upstream) error {
 		if w <= 0 {
 			w = 1
 		}
-		if _, err := tx.Exec(`INSERT INTO upstreams(proxy_id, url, weight, enabled) VALUES(?, ?, ?, ?)`,
-			proxyID, strings.TrimRight(u.URL, "/"), w, b2i(u.Enabled)); err != nil {
+		if _, err := tx.Exec(`INSERT INTO upstreams(proxy_id, url, weight, enabled, max_conns) VALUES(?, ?, ?, ?, ?)`,
+			proxyID, strings.TrimRight(u.URL, "/"), w, b2i(u.Enabled), u.MaxConns); err != nil {
 			return err
 		}
 	}

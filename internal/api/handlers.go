@@ -27,6 +27,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/preset"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/urlguard"
 )
@@ -42,7 +43,8 @@ type upstreamBody struct {
 	Weight  int    `json:"weight"`
 	// Enabled is a pointer so an omitted field means "on": a caller that only
 	// names the target must not end up with a site that has no live upstream.
-	Enabled *bool `json:"enabled"`
+	Enabled  *bool `json:"enabled"`
+	MaxConns int   `json:"max_conns"`
 }
 
 type proxyBody struct {
@@ -61,6 +63,15 @@ type proxyBody struct {
 	BotLevel            string `json:"bot_level"`
 	Maintenance         *bool  `json:"maintenance"`
 	WAFMode             string `json:"waf_mode"`
+	// Balancing, health and capacity settings are per site; an omitted number
+	// keeps the stored value, so an older client cannot reset them.
+	LBPolicy             string `json:"lb_policy"`
+	HealthPath           string `json:"health_path"`
+	HealthExpect         string `json:"health_expect"`
+	HealthInterval       *int   `json:"health_interval"`
+	HealthFailAfter      *int   `json:"health_fail_after"`
+	MaxInflight          *int   `json:"max_inflight"`
+	MaxInflightPerClient *int   `json:"max_inflight_per_client"`
 	// Preset names an application preset to turn into a WAF profile when the
 	// proxy is created. It is ignored on update: the profile is edited directly
 	// from then on.
@@ -120,7 +131,11 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		Fingerprint:    defaultStr(in.Fingerprint, "strict"),
 		BotLevel:       defaultStr(in.BotLevel, "light"),
 		WAFMode:        defaultStr(in.WAFMode, "inherit"),
+		LBPolicy:       defaultStr(in.LBPolicy, proxy.LBWeightedRR),
+		HealthPath:     defaultStr(in.HealthPath, "/"),
+		HealthExpect:   defaultStr(in.HealthExpect, "200-399"),
 	}
+	applyProxyNumbers(p, in)
 	if in.Maintenance != nil {
 		p.Maintenance = *in.Maintenance
 	}
@@ -248,6 +263,16 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	if in.WAFMode != "" {
 		current.WAFMode = in.WAFMode
 	}
+	if in.LBPolicy != "" {
+		current.LBPolicy = in.LBPolicy
+	}
+	if in.HealthPath != "" {
+		current.HealthPath = in.HealthPath
+	}
+	if in.HealthExpect != "" {
+		current.HealthExpect = in.HealthExpect
+	}
+	applyProxyNumbers(current, in)
 	if msg := validateProxyOptions(in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
@@ -283,7 +308,68 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, current)
 }
 
+// applyProxyNumbers copies the optional numeric settings onto a proxy.
+func applyProxyNumbers(p *model.Proxy, in proxyBody) {
+	for src, dst := range map[*int]*int{
+		in.HealthInterval: &p.HealthInterval, in.HealthFailAfter: &p.HealthFailAfter,
+		in.MaxInflight: &p.MaxInflight, in.MaxInflightPerClient: &p.MaxInflightPerClient,
+	} {
+		if src != nil {
+			*dst = *src
+		}
+	}
+}
+
+func validLBPolicy(policy string) bool {
+	switch policy {
+	case proxy.LBWeightedRR, proxy.LBLeastConn, proxy.LBLeastLatency, proxy.LBIPHash, proxy.LBStickyCookie:
+		return true
+	}
+	return false
+}
+
+// validHealthExpect accepts "200", "200-399" and comma-separated lists of those.
+func validHealthExpect(s string) bool {
+	if strings.TrimSpace(s) == "" {
+		return true
+	}
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		lo, hi := part, part
+		if i := strings.IndexByte(part, '-'); i >= 0 {
+			lo, hi = part[:i], part[i+1:]
+		}
+		a, err1 := strconv.Atoi(strings.TrimSpace(lo))
+		b, err2 := strconv.Atoi(strings.TrimSpace(hi))
+		if err1 != nil || err2 != nil || a < 100 || b > 599 || a > b {
+			return false
+		}
+	}
+	return true
+}
+
 func validateProxyOptions(in proxyBody) string {
+	if in.LBPolicy != "" && !validLBPolicy(in.LBPolicy) {
+		return "invalid balancing policy"
+	}
+	if in.HealthPath != "" && !strings.HasPrefix(in.HealthPath, "/") {
+		return "the health path must start with /"
+	}
+	if !validHealthExpect(in.HealthExpect) {
+		return "invalid health status expectation"
+	}
+	if in.HealthInterval != nil && (*in.HealthInterval < 0 || *in.HealthInterval > 3600) {
+		return "the health interval must be between 0 and 3600 seconds"
+	}
+	if in.HealthFailAfter != nil && (*in.HealthFailAfter < 0 || *in.HealthFailAfter > 20) {
+		return "the health failure threshold must be between 0 and 20"
+	}
+	if in.MaxInflight != nil && (*in.MaxInflight < 0 || *in.MaxInflight > 100000) {
+		return "the site request budget must be between 0 and 100000"
+	}
+	if in.MaxInflightPerClient != nil && (*in.MaxInflightPerClient < 0 || *in.MaxInflightPerClient > 10000) {
+		return "the per-client request budget must be between 0 and 10000"
+	}
 	if in.GateMode != "" && !gateModes[in.GateMode] {
 		return "invalid gate mode"
 	}
@@ -364,7 +450,10 @@ func (s *Server) saveChildren(proxyID int64, in proxyBody) {
 		if u.Enabled != nil {
 			enabled = *u.Enabled
 		}
-		ups = append(ups, model.Upstream{ProxyID: proxyID, URL: u.URL, Weight: w, Enabled: enabled})
+		if u.MaxConns < 0 {
+			u.MaxConns = 0
+		}
+		ups = append(ups, model.Upstream{ProxyID: proxyID, URL: u.URL, Weight: w, Enabled: enabled, MaxConns: u.MaxConns})
 	}
 	_ = s.st.ReplaceUpstreams(proxyID, ups)
 	_ = s.st.ReplaceRoutes(proxyID, in.Routes)

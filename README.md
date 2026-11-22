@@ -44,8 +44,9 @@ systemd service. Version 1.28.0.
 
 - TLS with SNI, certificates via DNS-01, HTTP-01 or TLS-ALPN-01, DuckDNS updates, and automatic
   renewal; HTTP/2 and WebSocket pass-through.
-- Proxies with weighted upstreams, path and host routes, redirects, health checks and maintenance
-  mode; application presets for Nextcloud, Jellyfin, Plex, Home Assistant, Proxmox VE,
+- Proxies with per-site load balancing (`weighted_rr`, `least_conn`, `least_latency`, `ip_hash`,
+  `sticky_cookie`), per-upstream connection caps, configurable health probes with passive ejection,
+  per-site and per-client request budgets, path and host routes, redirects and maintenance mode; application presets for Nextcloud, Jellyfin, Plex, Home Assistant, Proxmox VE,
   Vaultwarden, Gitea/Forgejo, Grafana, n8n, BookStack, the *arr suite and more.
 - Streaming forwarders (Plex, Jellyfin and similar) that relay bytes without HTTP inspection,
   optionally enforcing the same lists as a proxied site.
@@ -76,7 +77,7 @@ Internet ──► router DNAT 443 ──► WAN listener (TLS, SNI)
                                      │
         permanent ban → whitelist → country → ASN → decoy → threat feed
              → temporary ban → rate limit → method → bot challenge
-             → access gate → WAF → upstream (weighted round-robin)
+             → access gate → WAF → upstream (balanced per site)
 ```
 
 With response inspection on, the answer is checked on the way back: up to the profile's body

@@ -5,22 +5,33 @@ import "time"
 
 // Proxy is a hostname routed through the gateway.
 type Proxy struct {
-	ID                  int64     `json:"id"`
-	Hostname            string    `json:"hostname"`
-	Enabled             bool      `json:"enabled"`
-	CertID              *int64    `json:"cert_id,omitempty"`
-	ProfileID           *int64    `json:"profile_id,omitempty"`
-	ProtectionProfileID *int64    `json:"protection_profile_id,omitempty"`
-	AccessProfileID     *int64    `json:"access_profile_id,omitempty"`
-	GateMode            string    `json:"gate_mode"` // off | passphrase | accounts | accounts_totp | forward_auth
-	GateSecret          string    `json:"-"`         // argon2 hash, write-only in the API
-	AuthProviderID      *int64    `json:"auth_provider_id,omitempty"`
-	GateTOTPHint        string    `json:"gate_totp_hint,omitempty"`
-	Fingerprint         string    `json:"fingerprint"` // strict | minimal
-	BotLevel            string    `json:"bot_level"`   // off | light | standard | aggressive
-	Maintenance         bool      `json:"maintenance"`
-	WAFMode             string    `json:"waf_mode"` // inherit | off | detect | block
-	CreatedAt           time.Time `json:"created_at"`
+	ID                  int64  `json:"id"`
+	Hostname            string `json:"hostname"`
+	Enabled             bool   `json:"enabled"`
+	CertID              *int64 `json:"cert_id,omitempty"`
+	ProfileID           *int64 `json:"profile_id,omitempty"`
+	ProtectionProfileID *int64 `json:"protection_profile_id,omitempty"`
+	AccessProfileID     *int64 `json:"access_profile_id,omitempty"`
+	GateMode            string `json:"gate_mode"` // off | passphrase | accounts | accounts_totp | forward_auth
+	GateSecret          string `json:"-"`         // argon2 hash, write-only in the API
+	AuthProviderID      *int64 `json:"auth_provider_id,omitempty"`
+	GateTOTPHint        string `json:"gate_totp_hint,omitempty"`
+	Fingerprint         string `json:"fingerprint"` // strict | minimal
+	BotLevel            string `json:"bot_level"`   // off | light | standard | aggressive
+	Maintenance         bool   `json:"maintenance"`
+	WAFMode             string `json:"waf_mode"` // inherit | off | detect | block
+	// Balancing and health settings apply to every upstream of the site unless
+	// an upstream overrides them. Empty values mean the defaults.
+	LBPolicy        string `json:"lb_policy"`
+	HealthPath      string `json:"health_path"`
+	HealthExpect    string `json:"health_expect"`
+	HealthInterval  int    `json:"health_interval"`
+	HealthFailAfter int    `json:"health_fail_after"`
+	// MaxInflight and MaxInflightPerClient bound this site; zero inherits the
+	// process-wide budget.
+	MaxInflight          int       `json:"max_inflight"`
+	MaxInflightPerClient int       `json:"max_inflight_per_client"`
+	CreatedAt            time.Time `json:"created_at"`
 }
 
 // Delivery is one queued webhook payload for an agent link.
@@ -181,6 +192,8 @@ type Upstream struct {
 	URL     string `json:"url"`
 	Weight  int    `json:"weight"`
 	Enabled bool   `json:"enabled"`
+	// MaxConns caps concurrent requests to this upstream; zero means no cap.
+	MaxConns int `json:"max_conns"`
 }
 
 // RouteKind enumerates non-proxy route behaviours.

@@ -38,6 +38,11 @@ type CertProvider interface {
 	GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
 }
 
+// CertByIDProvider resolves the certificate a site named explicitly.
+type CertByIDProvider interface {
+	CertificateByID(id int64) (*tls.Certificate, error)
+}
+
 // ALPNProvider serves pending ACME TLS-ALPN-01 validation certificates from the
 // existing listener, so the challenge never needs a second bind on port 443.
 type ALPNProvider interface {
@@ -62,13 +67,16 @@ type edge struct {
 	protection *model.ProtectionProfile
 	// waf is the selected WAF profile, kept for the limits it carries: the
 	// response ceiling. The policy engine reads the same row for the rest.
-	waf    *model.Profile
-	ups    []*upstream
-	routes []model.Route
-	rr     uint64
-	rp     *httputil.ReverseProxy
-	cache  *responseCache
-	cancel context.CancelFunc
+	waf     *model.Profile
+	ups     []*upstream
+	routes  []model.Route
+	rr      uint64
+	rp      *httputil.ReverseProxy
+	cache   *responseCache
+	cancel  context.CancelFunc
+	health  healthSettings
+	site    *capLimiter
+	clients *clientLimiter
 }
 
 type ctxKey int
@@ -117,8 +125,9 @@ func New(d Deps) (*Server, error) {
 		hardBody: 8 << 20,
 	}
 	s.SetMaxInflight(DefaultMaxInflight)
+	// No Proxy field: an HTTP_PROXY in the service environment must never
+	// carry customer traffic through a third party.
 	s.transport = &http.Transport{
-		Proxy:             http.ProxyFromEnvironment,
 		DialContext:       (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 		ForceAttemptHTTP2: true,
 		// Sized for a busier edge: an 8 vCPU host runs several hundred
@@ -245,7 +254,7 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 		if !u.Enabled {
 			continue
 		}
-		up, err := newUpstream(u.URL, u.Weight)
+		up, err := newUpstream(u.URL, u.Weight, u.MaxConns)
 		if err != nil {
 			s.d.Log.Warn("invalid upstream", "proxy", p.Hostname, "url", u.URL, "err", err)
 			continue
@@ -258,7 +267,8 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 	}
 	child, cancel := context.WithCancel(ctx)
 	e := &edge{proxy: p, ups: ups, routes: routes, cache: newResponseCache(32 << 20), cancel: cancel,
-		waf: s.d.Policy.ProfileFor(&p)}
+		waf: s.d.Policy.ProfileFor(&p), health: healthFor(p),
+		site: newCapLimiter(p.MaxInflight), clients: newClientLimiter(p.MaxInflightPerClient)}
 	if p.ProtectionProfileID != nil {
 		prof, err := s.d.Store.GetProtectionProfile(*p.ProtectionProfileID)
 		if err != nil {
@@ -281,9 +291,19 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 		Transport:     s.transport,
 		FlushInterval: 100 * time.Millisecond,
 		ModifyResponse: func(res *http.Response) error {
+			// A real 5xx is evidence the backend is unwell even when its probe
+			// still answers.
+			if res.StatusCode >= 500 {
+				if up, ok := res.Request.Context().Value(ctxUpstream).(*upstream); ok {
+					up.noteFailure(e.health)
+				}
+			}
 			return s.modifyResponse(e, res)
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if up, ok := r.Context().Value(ctxUpstream).(*upstream); ok {
+				up.noteFailure(e.health)
+			}
 			// Once the response has started there is no status left to change:
 			// writing an error page would append it to the truncated body.
 			if hs, ok := w.(interface{ headersSent() bool }); ok && hs.headersSent() {
@@ -295,7 +315,7 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 		},
 	}
 	if len(ups) > 0 {
-		go healthLoop(child, ups, 10*time.Second)
+		go healthLoop(child, ups, e.health)
 	}
 	return e, nil
 }
@@ -441,6 +461,15 @@ func (s *Server) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, e
 	}
 	if !s.allowedHost(host) {
 		return nil, fmt.Errorf("unknown server name %q", host)
+	}
+	// A site that names a certificate gets exactly that certificate; SNI
+	// matching is only the fallback.
+	if e := s.lookup(host); e != nil && e.proxy.CertID != nil {
+		if p, ok := s.certs.(CertByIDProvider); ok {
+			if cert, err := p.CertificateByID(*e.proxy.CertID); err == nil && cert != nil {
+				return cert, nil
+			}
+		}
 	}
 	if s.certs != nil {
 		if cert, err := s.certs.GetCertificate(hello); err == nil && cert != nil {

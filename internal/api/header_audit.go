@@ -133,8 +133,9 @@ func probeTarget(raw string) (*url.URL, error) {
 // see the headers cannot warn about them.
 func fetchHeaders(target *url.URL, hostname string) (http.Header, int, bool, error) {
 	get := func(insecure bool) (*http.Response, error) {
+		// No environment proxy: the audit must reach the operator's backend,
+		// not an HTTP_PROXY set for the service.
 		tr := &http.Transport{
-			Proxy:             http.ProxyFromEnvironment,
 			TLSClientConfig:   &tls.Config{InsecureSkipVerify: insecure},
 			DisableKeepAlives: true,
 		}

@@ -129,26 +129,48 @@ func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	if cert := selectForHost(host, m.certs, m.now()); cert != nil {
+		return cert, nil
+	}
+	return nil, fmt.Errorf("no certificate for %s", host)
+}
+
+// CertificateByID returns the certificate a site named explicitly.
+func (m *Manager) CertificateByID(id int64) (*tls.Certificate, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	now := m.now()
+	for _, c := range m.certs {
+		if c.id == id && now.Before(c.expires) {
+			return c.cert, nil
+		}
+	}
+	return nil, fmt.Errorf("certificate %d is not loaded", id)
+}
+
+// selectForHost prefers an exact name, then the longest matching wildcard
+// pattern. Ranking by the matched pattern (not by domains[0]) is what makes
+// multi-name certificates resolve correctly.
+func selectForHost(host string, certs []cached, now time.Time) *tls.Certificate {
 	best := -1
-	for i, c := range m.certs {
-		if !m.now().Before(c.expires) {
+	bestLen := -1
+	for i, c := range certs {
+		if !now.Before(c.expires) {
 			continue
 		}
 		for _, d := range c.domains {
 			if d == host {
-				return c.cert, nil
+				return c.cert
 			}
-			if strings.HasPrefix(d, "*.") && wildcardMatch(d, host) {
-				if best == -1 || len(d) > len(m.certs[best].domains[0]) {
-					best = i
-				}
+			if strings.HasPrefix(d, "*.") && wildcardMatch(d, host) && len(d) > bestLen {
+				best, bestLen = i, len(d)
 			}
 		}
 	}
 	if best >= 0 {
-		return m.certs[best].cert, nil
+		return certs[best].cert
 	}
-	return nil, fmt.Errorf("no certificate for %s", host)
+	return nil
 }
 
 func wildcardMatch(pattern, host string) bool {
