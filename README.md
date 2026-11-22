@@ -223,11 +223,12 @@ The console is now `http://192.168.1.10:8443` and every sign-in needs password +
 recovery code). The proxy is on `192.168.1.20:443`.
 
 If a stored address is not present on the host at boot (DHCP change, NIC renamed), the
-listener falls back to the first-boot address and logs why instead of exiting, so the console
-stays reachable. For the binary that fallback console port is `:8080` on every interface (the
-Docker compose file overrides it to `<WAFPROXY_LISTEN_GUI>`); the boot log warns about it, so
-fix the address in **Settings** promptly. `WAFPROXY_GUI_PRIVATE_ONLY=true` still refuses
-non-private sources in that state.
+listener falls back to `WAFPROXY_LISTEN_GUI` and logs why instead of exiting, so the console
+stays reachable. That fallback is loopback `127.0.0.1:8080` unless you set it, so a fallback
+console is reachable from this host or through an SSH tunnel. If you configured a wildcard
+fallback, the boot log says the admin login is on every interface; fix the address in
+**Settings** promptly. `WAFPROXY_GUI_PRIVATE_ONLY=true` still refuses non-private sources in
+that state.
 
 ### Single NIC
 

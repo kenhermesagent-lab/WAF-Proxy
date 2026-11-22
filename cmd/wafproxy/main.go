@@ -163,8 +163,8 @@ func run() error {
 		log.Error("stored GUI address is not configured on this host; using the first-boot address",
 			"configured", cfg.ListenGUI, "fallback", fallbackGUI)
 		cfg.ListenGUI = fallbackGUI
-		// The first-boot fallback is normally ":8080" (every interface), which
-		// exposes the admin login on the WAN until the stored address is fixed.
+		// The first-boot fallback is loopback by default; a wildcard fallback
+		// would expose the admin login on the WAN until the address is fixed.
 		if host, _, err := net.SplitHostPort(cfg.ListenGUI); err == nil {
 			if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
 				log.Warn("admin GUI is bound to all interfaces until the stored address is fixed in Settings",

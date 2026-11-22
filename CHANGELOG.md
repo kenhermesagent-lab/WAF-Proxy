@@ -63,6 +63,10 @@ compromise; each is a case where a safe default or an existing guarantee did not
   `400` and says so, instead of quietly applying a different ban than the one requested.
 - README claimed features were "not included in 1.3.0" at version 1.15, and linked two headings
   that no longer existed.
+- The README and `docs/INSTALL.md` still promised that the first-boot console fallback is a
+  wildcard `:8080`, which stopped being true when the default moved to `127.0.0.1` in this
+  release. Both now describe the loopback fallback and the wildcard warning that still exists for
+  operators who configure one.
 
 ### Changed
 

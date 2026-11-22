@@ -86,14 +86,14 @@ counters show that one NIC twice, and the stealth ping drop applies to the whole
 leave it off unless dropping LAN ICMP is acceptable.
 
 If a stored address is missing at boot (a DHCP change, or the wizard was filled in before the
-interface came up), the listener falls back to the first-boot `:8443` / `:8080` addresses and
-logs `stored WAN/GUI address is not configured on this host` instead of exiting. Fix the
-address in **Settings** and restart.
+interface came up), the listener falls back to the first-boot `WAFPROXY_LISTEN_WAN` /
+`WAFPROXY_LISTEN_GUI` values and logs `stored WAN/GUI address is not configured on this host`
+instead of exiting. Fix the address in **Settings** and restart.
 
-The fallback GUI address is the first-boot `:8080`, so after the fallback the admin login
-listens on **all interfaces**, not just the LAN. The log says so explicitly
-(`admin GUI is bound to all interfaces until the stored address is fixed in Settings`);
-fix the address promptly and keep `8080` blocked at the WAN firewall in the meantime.
+The shipped fallback GUI value is loopback `127.0.0.1:8080`, so after a fallback the console is
+reachable only from the host itself (an SSH tunnel works). If you set the fallback to a wildcard
+address, the log says `admin GUI is bound to all interfaces until the stored address is fixed in
+Settings`; keep `8080` blocked at the WAN firewall until it is fixed.
 
 The wizard returns the TOTP secret and ten recovery codes **once**. Save both. Then restart:
 
@@ -511,10 +511,10 @@ Click **Save Tailscale settings**, then **Restart service**. Both listeners use 
 tailnet address; the page rejects that combination.
 
 The LAN/WAN bindings must use concrete interface addresses, not a wildcard such as `:8080` or
-`:8443`. A wildcard listener already owns the port, so the tailnet listener cannot be added. This
-mainly affects Docker Compose, whose defaults are wildcard binds: set `WAFPROXY_LISTEN_GUI` and
-`WAFPROXY_LISTEN_WAN` to the host's actual LAN/WAN addresses (or use the native installer, which
-already does this) before enabling these switches. The Tailscale page reports the bind problem.
+`:8443`. A wildcard listener already owns the port, so the tailnet listener cannot be added. Set
+`WAFPROXY_LISTEN_GUI` and `WAFPROXY_LISTEN_WAN` to the host's actual LAN/WAN addresses — the
+native installer and the shipped compose defaults do this — before enabling these switches. The
+Tailscale page reports the bind problem.
 
 ### 12.3 Tailscale ACL
 
