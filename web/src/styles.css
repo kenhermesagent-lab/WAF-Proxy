@@ -45,6 +45,7 @@
   /* type */
   --font-ui: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sidebar-w: 164px;
   color-scheme: dark;
 }
 
@@ -94,13 +95,13 @@ code, .mono, kbd {
 .shell { display: flex; min-height: 100%; }
 
 .sidebar {
-  width: 196px; flex: 0 0 196px;
+  width: var(--sidebar-w); flex: 0 0 var(--sidebar-w);
   background: var(--bg-soft);
   border-right: 1px solid var(--border-soft);
   display: flex; flex-direction: column;
   position: sticky; top: 0; height: 100vh;
   overflow: hidden auto;
-  padding: 14px 10px 12px;
+  padding: 14px 8px 12px;
   z-index: 40;
   transition: width .16s ease, flex-basis .16s ease;
 }
@@ -116,31 +117,28 @@ code, .mono, kbd {
 .sidebar.collapsed .nav-collapse { justify-content: center; }
 
 .brand {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 9px;
   padding: 4px 8px 16px;
   font-weight: 600; letter-spacing: -.01em; font-size: 14px;
   white-space: nowrap;
 }
 .brand .brand-mark {
-  width: 22px; height: 22px; flex: 0 0 22px;
-  border-radius: 6px;
-  background: linear-gradient(180deg, #24344d, #141c28);
-  border: 1px solid #2e405a;
+  width: 24px; height: 24px; flex: 0 0 24px;
   display: grid; place-items: center;
-  color: #cfe0ff;
+  filter: drop-shadow(0 2px 6px rgba(31, 157, 92, .18));
 }
-.brand .brand-mark svg { width: 14px; height: 14px; }
+.brand .brand-mark svg { display: block; width: 100%; height: 100%; }
 .brand-name { overflow: hidden; text-overflow: ellipsis; }
 
 .nav-group { display: flex; flex-direction: column; gap: 1px; }
 .nav-group + .nav-group { margin-top: 12px; }
 .nav-group-title {
-  padding: 2px 9px 6px; font-size: 10.5px; font-weight: 600;
+  padding: 2px 8px 6px; font-size: 10.5px; font-weight: 600;
   text-transform: uppercase; letter-spacing: .07em; color: var(--faint);
 }
 .nav-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 9px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 9px;
+  padding: 7px 8px; border-radius: 7px;
   color: var(--muted); cursor: pointer; border: 0;
   background: transparent; font: inherit; font-size: 13px;
   text-align: left; width: 100%;
@@ -152,6 +150,7 @@ code, .mono, kbd {
   box-shadow: inset 0 0 0 1px #23324a;
 }
 .nav-item .ico { display: inline-flex; width: 16px; height: 16px; flex: 0 0 16px; opacity: .78; }
+.nav-item .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .nav-item.active .ico { opacity: 1; color: #9dc0ff; }
 .nav-item .badge-count {
   margin-left: auto; font-size: 11px; color: var(--faint);
@@ -159,12 +158,12 @@ code, .mono, kbd {
 }
 .nav-spacer { flex: 1; min-height: 12px; }
 .nav-foot {
-  padding: 8px 9px; font-size: 11px; color: var(--faint);
+  padding: 8px; font-size: 11px; color: var(--faint);
   border-top: 1px solid var(--border-soft); margin-top: 8px;
 }
 .nav-collapse {
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 9px; border-radius: 7px; border: 0;
+  display: flex; align-items: center; justify-content: flex-start; gap: 9px;
+  padding: 7px 8px; border-radius: 7px; border: 0;
   background: transparent; color: var(--faint);
   font: inherit; font-size: 12px; cursor: pointer; width: 100%;
 }
@@ -649,7 +648,7 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   box-shadow: -30px 0 80px rgba(0, 0, 0, .5);
   animation: drawer-in .18s ease;
 }
-.drawer.wide { width: min(1400px, calc(100vw - 196px)); }
+.drawer.wide { width: min(1400px, calc(100vw - var(--sidebar-w))); }
 @media (max-width: 900px) { .drawer.wide { width: 100%; } }
 @keyframes drawer-in { from { transform: translateX(18px); opacity: .6; } to { transform: none; opacity: 1; } }
 .drawer-head {
@@ -871,15 +870,18 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   .map-side { min-height: 300px; }
 }
 @media (max-width: 760px) {
-  .sidebar { position: fixed; inset: 0 auto 0 0; width: 250px; flex-basis: 250px; transform: translateX(-100%); transition: transform .18s ease; }
+  .sidebar { position: fixed; inset: 0 auto 0 0; width: 232px; flex-basis: 232px; transform: translateX(-100%); transition: transform .18s ease; }
   .sidebar.open { transform: none; box-shadow: 24px 0 64px rgba(0, 0, 0, .6); }
-  .sidebar.collapsed { width: 250px; flex-basis: 250px; padding-inline: 10px; }
+  .sidebar.collapsed { width: 232px; flex-basis: 232px; padding-inline: 8px; }
   .sidebar.collapsed .brand-name,
   .sidebar.collapsed .nav-group-title,
   .sidebar.collapsed .nav-item .label,
   .sidebar.collapsed .nav-foot,
-  .sidebar.collapsed .nav-coffee { display: initial; }
-  .sidebar.collapsed .nav-item { justify-content: flex-start; padding: 7px 9px; }
+  .sidebar.collapsed .nav-coffee,
+  .sidebar.collapsed .nav-collapse .label { display: initial; }
+  .sidebar.collapsed .nav-item { justify-content: flex-start; padding: 7px 8px; }
+  .sidebar.collapsed .brand { justify-content: flex-start; padding-inline: 8px; }
+  .sidebar.collapsed .nav-collapse { justify-content: flex-start; }
   .nav-toggle { display: inline-flex; }
   .nav-scrim { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(4, 6, 9, .66); border: 0; border-radius: 0; }
   .topbar { padding: 0 12px; gap: 8px; height: 52px; }

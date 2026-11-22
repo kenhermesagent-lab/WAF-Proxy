@@ -232,7 +232,7 @@ export default function App() {
       {navOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <aside className={`sidebar ${navOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`}>
         <div className="brand">
-          <span className="brand-mark"><Icon name="shield" size={14} /></span>
+          <span className="brand-mark"><BrandMark /></span>
           <span className="brand-name">WAF-Proxy</span>
         </div>
         {NAV_GROUPS.map((g) => {
@@ -252,7 +252,7 @@ export default function App() {
         </div>
         <button className="nav-collapse" onClick={() => setCollapsed((v) => !v)} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>
           <Icon name={collapsed ? "expand" : "collapse"} size={15} />
-          <span className="label">Collapse</span>
+          <span className="label">{collapsed ? "Expand" : "Collapse"}</span>
         </button>
       </aside>
 
@@ -386,11 +386,39 @@ export default function App() {
   );
 }
 
+function BrandMark() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M12 2.35c-2.55 1.39-5.25 2.09-8 2.29v6.5c0 5.06 3.19 8.35 8 10.51 4.81-2.16 8-5.45 8-10.51v-6.5c-2.75-.2-5.45-.9-8-2.29Z"
+        fill="#0c3f2a"
+        stroke="#57d38e"
+        strokeWidth="1.15"
+      />
+      <path
+        d="M12 4.55c-2.08 1.11-4.28 1.72-6.45 1.9v5.02c0 4.06 2.53 6.84 6.45 8.64 3.92-1.8 6.45-4.58 6.45-8.64V6.45c-2.17-.18-4.37-.79-6.45-1.9Z"
+        fill="#1b9159"
+        stroke="#e5484d"
+        strokeOpacity=".85"
+        strokeWidth=".8"
+      />
+      <path
+        d="M8.55 17.1 12 8.65l3.45 8.45"
+        fill="none"
+        stroke="#ff5b60"
+        strokeWidth="2.05"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function BrandLockup({ large }: { large?: boolean }) {
   return (
     <div className="brand" style={large ? { fontSize: 16 } : undefined}>
       <span className="brand-mark" style={large ? { width: 28, height: 28, flexBasis: 28 } : undefined}>
-        <Icon name="shield" size={large ? 16 : 14} />
+        <BrandMark />
       </span>
       <span className="brand-name">WAF-Proxy</span>
     </div>

@@ -42,6 +42,8 @@ export default function AttackMap({
   const max = Math.max(1, ...regions.map((r) => r.count));
   const selected = focus ? regions.find((r) => r.country === focus) : undefined;
   const selectedHosts = selected?.hosts.size ?? 0;
+  const regionLine = (region: (typeof regions)[number] | undefined) =>
+    region ? `${countryName(region.country)} · ${region.count.toLocaleString()}` : "—";
 
   useEffect(() => {
     if (!focus) {
@@ -168,10 +170,8 @@ export default function AttackMap({
           </div>
           <div className="map-side-foot">
             <div className="row between small-text faint">
-              <span>Top region</span>
-              <span style={{ color: "var(--muted)" }}>
-                {regions[0] ? `${countryName(regions[0].country)} · ${regions[0].count.toLocaleString()}` : "—"}
-              </span>
+              <span>{focus ? "Selected region" : "Top region"}</span>
+              <span style={{ color: "var(--muted)" }}>{regionLine(focus ? selected : regions[0])}</span>
             </div>
             <div className="row between small-text faint" style={{ marginTop: 4 }}>
               <span>Live rate</span>

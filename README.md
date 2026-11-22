@@ -70,7 +70,7 @@ sample traffic, not production figures.***
 
 | Feature | Behaviour |
 |---|---|
-| **Live dashboard** | WAN/LAN throughput and packet rates, conntrack sessions, per-site request counts, live inbound/outbound bps and req/s per proxy, a rotating world-map attack globe with 1 h / 6 h / 24 h history and clickable category filters, and the newest blocked requests — pushed over SSE, no polling. |
+| **Live dashboard** | WAN/LAN throughput and packet rates, conntrack sessions, per-site request counts, live inbound/outbound bps and req/s per proxy, a rotating world-map attack globe with 1 h / 6 h / 24 h history, clickable category filters and country drill-down that filters the event list, and the newest blocked requests — pushed over SSE, no polling. |
 | **Statistical analysis** | **Statistics** page with a date range, total/success/error requests, hourly traffic, per-proxy request and byte shares, visitor countries, request stages, and 24-hour uptime for every proxy and backend. |
 | **Uptime monitor** | Every enabled upstream is checked with HTTP HEAD every 30 seconds. The proxy and each backend show up/down, latency, status code and 24-hour uptime; a down or recovery transition can be sent to Telegram, email or a webhook. |
 | **Logs** | Filterable request log (source, host, stage, action, blocked-only), pagination and CSV export with spreadsheet-formula neutralisation. |
@@ -87,8 +87,8 @@ sample traffic, not production figures.***
 A dark single-page console: **Dashboard**, **Statistics**, **Proxies**, **Streaming**, **Policies** (bans,
 permanent bans, countries/IPs/ASN lists, WAF profiles, protection profiles, access profiles, identity
 providers, bot filter), **Sources**, **Threat intel**, **CrowdSec**, **Anomaly events**, **Certificates**, **Access gate**,
-**AI Agent Access**, **Notifications**, **Updates**, **Logs**, **Settings** and **Account**. It uses native
-controls and is responsive down to a phone.
+**AI Agent Access**, **Notifications**, **Updates**, **Logs**, **Settings** and **Account**. It uses a
+compact, left-aligned navigation rail, native controls and is responsive down to a phone.
 
 ![WAF profiles](docs/screenshots/waf-profiles.png)
 

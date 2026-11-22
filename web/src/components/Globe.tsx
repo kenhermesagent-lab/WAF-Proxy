@@ -318,6 +318,7 @@ function drawCountryLabels(
     if (!at) continue;
     const p = project(unitVec(at[1], at[0]), r);
     if (p.z <= 0.08) continue;
+    ctx.globalAlpha = focus && focus !== code ? 0.4 : 1;
     const text = `${flagEmoji(code)} ${countryName(code)}  ${count.toLocaleString()}`;
     const width = Math.ceil(ctx.measureText(text).width) + 14;
     const height = 20;

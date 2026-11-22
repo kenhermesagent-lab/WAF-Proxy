@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.27.2] — 2026-11-22
+
+### Added
+
+- **Attack map country drill-down.** The dashboard globe opens into a full map with a five-group
+  legend, country labels and drag-to-rotate. Clicking a country isolates it, filters the event list
+  to that source, and labels the selected region; country hit-testing also works at 2× device scale.
+
+### Changed
+
+- **Console rail and mark.** The navigation rail is narrower and left-aligned, and the old shield
+  glyph is replaced by a green-and-red Spartan shield that also appears on the sign-in screen.
+
 ## [1.27.1] — 2026-11-22
 
 ### Added
