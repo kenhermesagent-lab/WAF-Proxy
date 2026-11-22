@@ -129,6 +129,7 @@ export interface Route {
 export interface Profile {
   id: number;
   name: string;
+  builtin: boolean;
   mode: string;
   paranoia: number;
   anomaly: number;

@@ -11,6 +11,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.6.3] — 2026-11-21
+
+### Added
+
+- **Bulk ban actions.** Temp bans has a checkbox per row and a select-all header. Ticking any rows
+  reveals **Make permanently banned** and **Unban**, which apply to every selected row in one
+  audited call (`POST /api/bans/bulk`). Already-permanent rows cannot be selected, so a select-all
+  only ever acts on the temporary bans the admin is looking at.
+- **Admins can create and delete their own CRS profiles.** **Policies → WAF profiles** has a
+  **New profile** button; a new profile starts from safe values (block, paranoia 1, anomaly 5, the
+  normal method list) and is tuned in the same editor. Custom profiles get a **Delete** action.
+  Built-in profiles stay as reference points and cannot be deleted, and a profile a proxy still
+  selects is refused with the reason (the column is `ON DELETE SET NULL`, so deleting it would
+  silently drop that site to the default protection).
+
+### Fixed
+
+- Rule reporting now names the attack rule. The CRS setup action (900990) matches on every request
+  with no severity, so it used to win the "most severe match" choice and every blocked request was
+  logged as rule 900990 with an empty message.
+
 ## [1.6.2] — 2026-11-21
 
 ### Security

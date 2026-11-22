@@ -224,6 +224,40 @@ func (s *Store) UpdateProfile(p *model.Profile) error {
 	return err
 }
 
+// CreateProfile inserts an operator-defined CRS profile.
+func (s *Store) CreateProfile(p *model.Profile) error {
+	var exists int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM profiles WHERE name = ?`, p.Name).Scan(&exists); err != nil {
+		return err
+	}
+	if exists > 0 {
+		return ErrDuplicate
+	}
+	res, err := s.db.Exec(`INSERT INTO profiles(name, builtin, mode, paranoia, anomaly, allowed_methods, max_body, exceptions)
+		VALUES(?, 0, ?, ?, ?, ?, ?, ?)`,
+		p.Name, p.Mode, p.Paranoia, p.Anomaly, p.AllowedMethods, p.MaxBody, p.Exceptions)
+	if err != nil {
+		return err
+	}
+	p.ID, err = res.LastInsertId()
+	return err
+}
+
+// ProfileInUse counts the proxies still selecting a profile. The column is
+// declared ON DELETE SET NULL, so deleting without this check would silently
+// move those sites to the default profile.
+func (s *Store) ProfileInUse(id int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM proxies WHERE profile_id = ?`, id).Scan(&n)
+	return n, err
+}
+
+// DeleteProfile removes an operator-defined profile.
+func (s *Store) DeleteProfile(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM profiles WHERE id = ? AND builtin = 0`, id)
+	return err
+}
+
 func defaultStr(v, fallback string) string {
 	if strings.TrimSpace(v) == "" {
 		return fallback

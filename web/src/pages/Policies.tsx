@@ -23,6 +23,8 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   const [savingProfile, setSavingProfile] = useState(false);
   const [kernel, setKernel] = useState<{ active: boolean; reason: string } | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const [ban, setBan] = useState({ cidr: "", reason: "", permanent: false, ttl_seconds: 86400 });
   const [pol, setPol] = useState({
@@ -51,6 +53,12 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   useEffect(() => {
     load();
   }, [showAll]);
+
+  // A reload can remove rows (an expiry, a CrowdSec removal), and a selected id
+  // that no longer exists would be a silent no-op in the bulk request.
+  useEffect(() => {
+    setSelected((ids) => ids.filter((id) => bans.some((b) => b.id === id && !b.permanent)));
+  }, [bans]);
 
   const addBan = async () => {
     try {
@@ -81,6 +89,26 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       load();
     } catch (e) {
       onError(errText(e));
+    }
+  };
+
+  const bulk = async (action: "permanent" | "remove") => {
+    if (selected.length === 0) return;
+    const label = action === "permanent" ? "Make permanently banned" : "Unban";
+    if (!confirm(`${label} ${selected.length} ban(s)?`)) return;
+    setBulkBusy(true);
+    try {
+      const r = await api.post<{ updated: number; skipped: number }>("/api/bans/bulk", {
+        ids: selected,
+        action,
+      });
+      onOK(`${r.updated} ban(s) ${action === "permanent" ? "made permanent" : "removed"}${r.skipped ? `, ${r.skipped} skipped` : ""}`);
+      setSelected([]);
+      load();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -126,8 +154,13 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
     if (!profile) return;
     setSavingProfile(true);
     try {
-      await api.put(`/api/profiles/${profile.id}`, profile);
-      onOK(`${profile.name} profile saved`);
+      if (profile.id === 0) {
+        await api.post("/api/profiles", profile);
+        onOK(`${profile.name} profile created`);
+      } else {
+        await api.put(`/api/profiles/${profile.id}`, profile);
+        onOK(`${profile.name} profile saved`);
+      }
       setProfile(null);
       load();
     } catch (e) {
@@ -136,6 +169,32 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       setSavingProfile(false);
     }
   };
+
+  const removeProfile = async (p: Profile) => {
+    if (!confirm(`Delete the ${p.name} profile?`)) return;
+    try {
+      await api.del(`/api/profiles/${p.id}`);
+      onOK("Profile deleted");
+      load();
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
+
+  const newProfile = (): Profile => ({
+    id: 0,
+    name: "",
+    builtin: false,
+    mode: "block",
+    paranoia: 1,
+    anomaly: 5,
+    allowed_methods: "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+    max_body: 131072,
+    exceptions: "",
+  });
+
+  const selectable = bans.filter((b) => !b.permanent);
+  const allSelected = selectable.length > 0 && selectable.every((b) => selected.includes(b.id));
 
   return (
     <div className="grid" style={{ gap: 14 }}>
@@ -181,27 +240,60 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
             }
           >
             {bans.length === 0 ? <Empty>No bans. Decoy hits and repeated failures add themselves here.</Empty> : (
-              <table>
-                <thead>
-                  <tr><th>IP / CIDR</th><th>Reason</th><th>Source</th><th>Hits</th><th>Created</th><th>Expires</th><th /></tr>
-                </thead>
-                <tbody>
-                  {bans.map((b) => (
-                    <tr key={b.id}>
-                      <td className="mono">{b.cidr}</td>
-                      <td>{b.reason}</td>
-                      <td><Badge tone={b.source === "decoy" || b.source === "crowdsec" ? "bad" : "info"}>{b.source}</Badge></td>
-                      <td className="num">{b.hits}</td>
-                      <td className="muted">{fmtAgo(b.created_at)}</td>
-                      <td>{b.permanent ? <Badge tone="bad">permanent</Badge> : <span className="muted">{fmtAgo(b.expires_at)}</span>}</td>
-                      <td className="right" style={{ whiteSpace: "nowrap" }}>
-                        {!b.permanent && <button className="small" onClick={() => promote(b)}>Make permanent</button>}{" "}
-                        <button className="small danger" onClick={() => removeBan(b)}>Unban</button>
-                      </td>
+              <>
+                {selected.length > 0 && (
+                  <div className="row" style={{ marginBottom: 10, alignItems: "center" }}>
+                    <span className="muted">{selected.length} selected</span>
+                    <button className="small" disabled={bulkBusy} onClick={() => bulk("permanent")}>Make permanently banned</button>
+                    <button className="small danger" disabled={bulkBusy} onClick={() => bulk("remove")}>Unban</button>
+                    <button className="small" disabled={bulkBusy} onClick={() => setSelected([])}>Clear</button>
+                  </div>
+                )}
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 28 }}>
+                        <input
+                          type="checkbox"
+                          style={{ width: "auto" }}
+                          checked={allSelected}
+                          disabled={selectable.length === 0}
+                          title="Select every temporary ban"
+                          onChange={() => setSelected(allSelected ? [] : selectable.map((b) => b.id))}
+                        />
+                      </th>
+                      <th>IP / CIDR</th><th>Reason</th><th>Source</th><th>Hits</th><th>Created</th><th>Expires</th><th />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {bans.map((b) => (
+                      <tr key={b.id}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            style={{ width: "auto" }}
+                            disabled={b.permanent}
+                            checked={selected.includes(b.id)}
+                            onChange={(e) =>
+                              setSelected(e.target.checked ? [...selected, b.id] : selected.filter((id) => id !== b.id))
+                            }
+                          />
+                        </td>
+                        <td className="mono">{b.cidr}</td>
+                        <td>{b.reason}</td>
+                        <td><Badge tone={b.source === "decoy" || b.source === "crowdsec" ? "bad" : "info"}>{b.source}</Badge></td>
+                        <td className="num">{b.hits}</td>
+                        <td className="muted">{fmtAgo(b.created_at)}</td>
+                        <td>{b.permanent ? <Badge tone="bad">permanent</Badge> : <span className="muted">{fmtAgo(b.expires_at)}</span>}</td>
+                        <td className="right" style={{ whiteSpace: "nowrap" }}>
+                          {!b.permanent && <button className="small" onClick={() => promote(b)}>Make permanent</button>}{" "}
+                          <button className="small danger" onClick={() => removeBan(b)}>Unban</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             )}
           </Card>
         </>
@@ -230,7 +322,10 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       )}
 
       {tab === "profiles" && (
-        <Card title="CRS protection profiles">
+        <Card
+          title="CRS protection profiles"
+          actions={<button className="small primary" onClick={() => setProfile(newProfile())}>New profile</button>}
+        >
           {profiles.length === 0 ? <Empty>No profiles available.</Empty> : (
             <div style={{ overflowX: "auto" }}>
               <table>
@@ -246,7 +341,10 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                       <td className="num">{p.anomaly}</td>
                       <td className="muted mono" style={{ fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.allowed_methods}>{p.allowed_methods}</td>
                       <td className="num">{p.max_body.toLocaleString()}</td>
-                      <td className="right"><button className="small" onClick={() => setProfile({ ...p })}>Edit</button></td>
+                      <td className="right" style={{ whiteSpace: "nowrap" }}>
+                        <button className="small" onClick={() => setProfile({ ...p })}>Edit</button>{" "}
+                        {!p.builtin && <button className="small danger" onClick={() => removeProfile(p)}>Delete</button>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -369,7 +467,16 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       )}
 
       {profile && (
-        <Modal title={`Edit ${profile.name}`} onClose={() => setProfile(null)}>
+        <Modal title={profile.id === 0 ? "New CRS profile" : `Edit ${profile.name}`} onClose={() => setProfile(null)}>
+          {profile.id === 0 && (
+            <Field label="Profile name">
+              <input
+                value={profile.name}
+                onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+                placeholder="WordPress (this site)"
+              />
+            </Field>
+          )}
           <div className="row grow">
             <Field label="Mode">
               <select value={profile.mode} onChange={(e) => setProfile({ ...profile, mode: e.target.value })}>
@@ -422,8 +529,8 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           </Field>
           <div className="row mt" style={{ justifyContent: "flex-end" }}>
             <button onClick={() => setProfile(null)}>Cancel</button>
-            <button className="primary" onClick={saveProfile} disabled={savingProfile}>
-              {savingProfile ? "Saving…" : "Save profile"}
+            <button className="primary" onClick={saveProfile} disabled={savingProfile || profile.name.trim() === ""}>
+              {savingProfile ? "Saving…" : profile.id === 0 ? "Create profile" : "Save profile"}
             </button>
           </div>
         </Modal>

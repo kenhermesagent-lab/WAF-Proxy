@@ -129,7 +129,9 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/proxies/{id}", s.authed(s.deleteProxy))
 	m.HandleFunc("POST /api/proxies/{id}/gate/revoke", s.authed(s.revokeGate))
 	m.HandleFunc("GET /api/profiles", s.authed(s.listProfiles))
+	m.HandleFunc("POST /api/profiles", s.authed(s.createProfile))
 	m.HandleFunc("PUT /api/profiles/{id}", s.authed(s.updateProfile))
+	m.HandleFunc("DELETE /api/profiles/{id}", s.authed(s.deleteProfile))
 
 	m.HandleFunc("GET /api/policies", s.authed(s.listPolicies))
 	m.HandleFunc("POST /api/policies", s.authed(s.createPolicy))
@@ -140,6 +142,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/bans", s.authed(s.createBan))
 	m.HandleFunc("DELETE /api/bans/{id}", s.authed(s.deleteBan))
 	m.HandleFunc("POST /api/bans/{id}/promote", s.authed(s.promoteBan))
+	m.HandleFunc("POST /api/bans/bulk", s.authed(s.bulkBans))
 
 	m.HandleFunc("GET /api/feeds", s.authed(s.listFeeds))
 	m.HandleFunc("POST /api/feeds", s.authed(s.createFeed))

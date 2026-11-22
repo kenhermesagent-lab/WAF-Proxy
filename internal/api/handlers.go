@@ -419,6 +419,114 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
+// createProfile adds a CRS profile an admin names and tunes themselves. The
+// built-in profiles stay as reference defaults; a custom one starts from the
+// same safe values so a new profile never means "no WAF".
+func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
+	var in model.Profile
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" || len(name) > 64 {
+		writeError(w, http.StatusBadRequest, "a profile name of 1–64 characters is required")
+		return
+	}
+	p := model.Profile{
+		Name:           name,
+		Mode:           "block",
+		Paranoia:       1,
+		Anomaly:        5,
+		AllowedMethods: "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+		MaxBody:        131072,
+	}
+	if in.Mode != "" {
+		if !validWAFMode(in.Mode) {
+			writeError(w, http.StatusBadRequest, "invalid WAF mode")
+			return
+		}
+		p.Mode = in.Mode
+	}
+	if in.Paranoia >= 1 && in.Paranoia <= 4 {
+		p.Paranoia = in.Paranoia
+	}
+	if in.Anomaly > 0 && in.Anomaly <= 100 {
+		p.Anomaly = in.Anomaly
+	}
+	if strings.TrimSpace(in.AllowedMethods) != "" {
+		p.AllowedMethods = strings.TrimSpace(in.AllowedMethods)
+	}
+	if in.MaxBody >= 1024 && in.MaxBody <= 8388608 {
+		p.MaxBody = in.MaxBody
+	}
+	p.Exceptions = in.Exceptions
+	if err := s.st.CreateProfile(&p); err != nil {
+		if errors.Is(err, store.ErrDuplicate) {
+			writeError(w, http.StatusConflict, "a profile with that name already exists")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "cannot create profile")
+		return
+	}
+	if s.policy != nil {
+		if err := s.policy.ReloadWAF(); err != nil {
+			s.log.Error("reload WAF profiles", "err", err)
+		}
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "profile.create", p.Name, clientIP(r))
+	writeJSON(w, http.StatusCreated, p)
+}
+
+func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	p, err := s.st.GetProfile(id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	if p.Builtin {
+		writeError(w, http.StatusConflict, "built-in profiles cannot be deleted")
+		return
+	}
+	inUse, err := s.st.ProfileInUse(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	if inUse > 0 {
+		noun := "proxies"
+		if inUse == 1 {
+			noun = "proxy"
+		}
+		writeError(w, http.StatusConflict,
+			fmt.Sprintf("%s is selected by %d %s; assign another profile first", p.Name, inUse, noun))
+		return
+	}
+	if err := s.st.DeleteProfile(id); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot delete profile")
+		return
+	}
+	if s.policy != nil {
+		if err := s.policy.ReloadWAF(); err != nil {
+			s.log.Error("reload WAF profiles", "err", err)
+		}
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "profile.delete", p.Name, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+
 // ---------- policies ----------
 
 var policyKinds = map[string]bool{
@@ -651,6 +759,67 @@ func (s *Server) promoteBan(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "ban.promote", b.CIDR, clientIP(r))
+}
+
+// bulkBans promotes or lifts the selected bans in one call. The UI sends the
+// rows the admin ticked, so a select-all is one audited operation instead of
+// hundreds of requests.
+func (s *Server) bulkBans(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		IDs    []int64 `json:"ids"`
+		Action string  `json:"action"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	if len(in.IDs) == 0 {
+		writeError(w, http.StatusBadRequest, "select at least one ban")
+		return
+	}
+	if len(in.IDs) > 5000 {
+		writeError(w, http.StatusBadRequest, "too many bans in one request")
+		return
+	}
+	if in.Action != "permanent" && in.Action != "remove" {
+		writeError(w, http.StatusBadRequest, "action must be permanent or remove")
+		return
+	}
+
+	seen := make(map[int64]bool, len(in.IDs))
+	updated, skipped := 0, 0
+	for _, id := range in.IDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		b, err := s.bans.ByID(id)
+		if errors.Is(err, store.ErrNotFound) {
+			skipped++
+			continue
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "database error")
+			return
+		}
+		if in.Action == "permanent" {
+			if b.Permanent {
+				skipped++
+				continue
+			}
+			if err := s.bans.Promote(b.CIDR); err != nil {
+				skipped++
+				continue
+			}
+		} else if err := s.bans.Remove(b.CIDR); err != nil {
+			skipped++
+			continue
+		}
+		updated++
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "ban.bulk", fmt.Sprintf("%s %d ban(s)", in.Action, updated), clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]int{"updated": updated, "skipped": skipped})
 }
 
 // ---------- feeds ----------

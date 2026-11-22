@@ -21,6 +21,9 @@ type Store struct {
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrDuplicate is returned when a unique name is already taken.
+var ErrDuplicate = errors.New("duplicate")
+
 // ErrAlreadySetup is returned when the initial administrator already exists.
 var ErrAlreadySetup = errors.New("setup already completed")
 
