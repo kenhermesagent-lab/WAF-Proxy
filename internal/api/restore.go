@@ -199,6 +199,9 @@ func (s *Server) applySettings(in map[string]string, problems []string) (int, []
 			continue
 		}
 		v = strings.TrimSpace(v)
+		if v == "" {
+			continue // an empty exported value means "use the default"
+		}
 		switch k {
 		case "wan_ip", "lan_ip":
 			if net.ParseIP(v) == nil {

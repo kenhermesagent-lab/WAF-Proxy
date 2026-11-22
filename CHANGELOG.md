@@ -11,6 +11,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.27.0] — 2026-11-22
+
+### Changed
+
+- **YAML proxies and policies reference profiles and hosts by name.** `waf_profile`,
+  `protection_profile`, `access_profile` and a policy's `proxy` replace the numeric ids that only
+  meant something on the exporting install. A file exported here imports into an empty install,
+  resolves every reference, and re-exports identically — covered by a test that builds a full
+  configuration, imports it into a fresh store and compares the two documents. A 1.26 file with
+  numeric ids is refused; export it again from the install that wrote it.
+
+### Fixed
+
+- A configuration exported with empty settings no longer reports those empty values as invalid on
+  import, and a proxy-scoped policy finds a host created earlier in the same file.
+
 ## [1.26.0] — 2026-11-22
 
 ### Added
