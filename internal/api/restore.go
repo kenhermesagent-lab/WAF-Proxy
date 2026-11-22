@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -66,14 +67,37 @@ func (s *Server) backupDocument() ([]byte, error) {
 	return json.Marshal(backup)
 }
 
+// sealDownload encrypts a downloaded file when the request names a passphrase,
+// so the same passphrase covers the manual download and the scheduled file.
+func sealDownload(r *http.Request, data []byte) ([]byte, bool, error) {
+	pass := r.Header.Get("X-Backup-Passphrase")
+	if pass == "" {
+		return data, false, nil
+	}
+	if len(pass) < 16 {
+		return nil, false, errors.New("the passphrase must be at least 16 characters")
+	}
+	sealed, err := backup.Encrypt(pass, data)
+	return sealed, true, err
+}
+
 func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 	data, err := s.backupDocument()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot build the backup")
 		return
 	}
-	w.Header().Set("Content-Disposition", "attachment; filename=wafproxy-backup.json")
-	w.Header().Set("Content-Type", "application/json")
+	data, sealed, err := sealDownload(r, data)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	name, kind := "wafproxy-backup.json", "application/json"
+	if sealed {
+		name, kind = name+".enc", "application/octet-stream"
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	w.Header().Set("Content-Type", kind)
 	_, _ = w.Write(data)
 }
 

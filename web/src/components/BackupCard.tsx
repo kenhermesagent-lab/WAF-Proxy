@@ -193,20 +193,32 @@ export default function BackupCard({ onError, onOK }: { onError: (m: string) => 
             </>
           )}
 
-          <div className="row grow" style={{ marginTop: 12 }}>
-            <label style={{ margin: "18px 0 0", display: "flex", gap: 6, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
-              <input type="checkbox" style={{ width: "auto" }} checked={cfg.encrypt} onChange={(e) => set({ encrypt: e.target.checked })} /> encrypt backups
-            </label>
-            {cfg.encrypt && (
-              <Field label={cfg.has_passphrase ? "Passphrase (leave blank to keep)" : "Passphrase (16+ characters)"}>
-                <input type="password" minLength={16} placeholder="At least 16 characters" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
-              </Field>
-            )}
+          <div className="bar-row">
+            <div>Encrypt backups <span className="faint small-text">AES-256-GCM, restoring needs the same passphrase</span></div>
+            <div>
+              <input
+                type="checkbox"
+                aria-label="Encrypt backups"
+                style={{ width: "auto" }}
+                checked={cfg.encrypt}
+                onChange={(e) => set({ encrypt: e.target.checked })}
+              />
+            </div>
           </div>
           {cfg.encrypt && (
+            <Field label={cfg.has_passphrase ? "Passphrase (leave blank to keep)" : "Passphrase (16+ characters)"}>
+              <input
+                type="password"
+                minLength={16}
+                placeholder="At least 16 characters"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+              />
+            </Field>
+          )}
+          {cfg.encrypt && (
             <p className="faint small-text">
-              Each file is sealed with AES-256-GCM under this passphrase. Restoring one asks for the same passphrase; lose it
-              and the file cannot be opened.
+              Lose the passphrase and the files cannot be opened.
             </p>
           )}
 

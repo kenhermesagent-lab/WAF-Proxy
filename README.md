@@ -668,7 +668,7 @@ After either update, confirm the version in the console footer or
 | Export the audit log | `GET /api/audit` returns the 200 newest entries as JSON; add `?format=csv` for a CSV download of the whole audit table, oldest first |
 | Export the configuration | **Settings → Download YAML**, or `GET /api/config/export.yaml`, downloads the declarative configuration as readable YAML: settings, WAF, protection and access profiles, access lists, proxies and policies. Bans, feeds and secrets are not part of it |
 | Import a configuration | **Settings → Import YAML**, or `POST /api/config/import.yaml`, applies an exported file additively — existing names and hostnames are skipped — and returns the imported counts with every problem it found |
-| Encrypt backups | **Settings → Backup schedule** → *encrypt backups* with a 16+ character passphrase seals each scheduled file with AES-256-GCM; restore asks for the same passphrase |
+| Encrypt backups | **Settings → Backup schedule** → *Encrypt backups* with a 16+ character passphrase seals each scheduled file with AES-256-GCM; restore asks for the same passphrase. Filling the passphrase field beside **Download JSON** / **Download YAML** seals that file too |
 | Find out why a request was blocked | **Logs** → **Why?** on the event row. It replays the request through the ban, screening and WAF stages without reaching the upstream, lists every rule that matched, and offers to except a blocking rule after naming every other site the profile change would affect. |
 | Back up | **Settings → Download JSON** (secrets excluded) |
 | Upgrade | See [Updating from the repository](#updating-from-the-repository) for Docker and native systemd |
@@ -760,7 +760,7 @@ public issue for a security problem.
 - **Streaming traffic is a byte relay**, not an inspected proxy — see above.
 - **One administrator account.** There are no multi-user roles.
 - Not included yet: AbuseIPDB enrichment, tarpit, HTTP basic auth/mTLS per site, brotli,
-  per-site bandwidth history, encrypted backup archives, HTTP/3, HA and multi-user roles.
+  per-site bandwidth history, HTTP/3, HA and multi-user roles.
 
 ## Development
 

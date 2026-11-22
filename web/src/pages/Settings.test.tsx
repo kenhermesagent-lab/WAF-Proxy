@@ -3,13 +3,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import SettingsPage from "./Settings";
 
 vi.mock("../api", () => ({
-  api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn(), postRaw: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn(), postRaw: vi.fn(), download: vi.fn() },
 }));
 
 import { api } from "../api";
 
 const get = vi.mocked(api.get);
 const postRaw = vi.mocked(api.postRaw);
+const download = vi.mocked(api.download);
 
 const backupConfig = {
   enabled: false, transport: "local", schedule: "daily", time: "03:00", weekday: 0, keep: 7,
@@ -26,6 +27,7 @@ describe("Settings configuration transport", () => {
   beforeEach(() => {
     get.mockReset();
     postRaw.mockReset();
+    download.mockReset();
     get.mockImplementation(async (path: string) => {
       switch (path) {
         case "/api/settings":
@@ -48,13 +50,27 @@ describe("Settings configuration transport", () => {
     cleanup();
   });
 
-  it("offers the YAML download next to the JSON one", async () => {
+  it("downloads both formats, encrypting them when a passphrase is set", async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    URL.createObjectURL = vi.fn(() => "blob:file");
+    URL.revokeObjectURL = vi.fn();
+    download.mockResolvedValue({ blob: new Blob(["sealed"]), name: "wafproxy.yaml.enc" });
     renderPage();
     await screen.findByText("Configuration backup");
 
-    const link = screen.getByText("Download YAML").closest("a");
-    expect(link?.getAttribute("href")).toBe("/api/config/export.yaml");
-    expect(screen.getByText("Download JSON").closest("a")?.getAttribute("href")).toBe("/api/backup");
+    fireEvent.click(screen.getByText("Download JSON"));
+    expect(download).toHaveBeenLastCalledWith("/api/backup", {});
+
+    fireEvent.change(screen.getByPlaceholderText(/passphrase/i), {
+      target: { value: "a-16-character-passphrase" },
+    });
+    fireEvent.click(screen.getByText("Download YAML"));
+    await waitFor(() =>
+      expect(download).toHaveBeenLastCalledWith("/api/config/export.yaml", {
+        "X-Backup-Passphrase": "a-16-character-passphrase",
+      }),
+    );
+    click.mockRestore();
   });
 
   it("imports a YAML file and reports the result", async () => {
@@ -63,7 +79,7 @@ describe("Settings configuration transport", () => {
     await screen.findByText("Import YAML");
 
     postRaw.mockResolvedValue({ imported: { waf_profiles: 1 }, problems: [] });
-    const input = document.querySelector('input[accept=".yaml,.yml"]') as HTMLInputElement;
+    const input = document.querySelector('input[accept=".yaml,.yml,.enc"]') as HTMLInputElement;
     const file = new File(["version: \"1.0\"\n"], "config.yaml", { type: "application/yaml" });
     // jsdom's File has no text() in this environment.
     Object.defineProperty(file, "text", { value: async () => "version: \"1.0\"\n" });
@@ -82,7 +98,7 @@ describe("Settings configuration transport", () => {
     await screen.findByText("Import YAML");
 
     postRaw.mockRejectedValue(new Error("invalid configuration file"));
-    const input = document.querySelector('input[accept=".yaml,.yml"]') as HTMLInputElement;
+    const input = document.querySelector('input[accept=".yaml,.yml,.enc"]') as HTMLInputElement;
         const bad = new File(["nope"], "config.yaml", { type: "application/yaml" });
     Object.defineProperty(bad, "text", { value: async () => "nope" });
     fireEvent.change(input, { target: { files: [bad] } });

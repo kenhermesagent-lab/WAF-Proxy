@@ -35,7 +35,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
   const [installingGeo, setInstallingGeo] = useState(false);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [chain, setChain] = useState("");
-  const [restorePass, setRestorePass] = useState("");
+  const [backupPass, setBackupPass] = useState("");
   const [activeSection, setActiveSection] = useState("network");
   const [iface, setIface] = useState<{ wan: string; lan: string; wanAuto: boolean; lanAuto: boolean; available: string[] }>({
     wan: "", lan: "", wanAuto: false, lanAuto: false, available: [],
@@ -121,6 +121,22 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
 
   type ImportResult = { imported: Record<string, number>; problems: string[] };
 
+  const download = async (path: string) => {
+    try {
+      const headers: Record<string, string> = {};
+      if (backupPass) headers["X-Backup-Passphrase"] = backupPass;
+      const { blob, name } = await api.download(path, headers);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
+
   const reportImport = (r: ImportResult, verb: string) => {
     const parts = Object.entries(r.imported || {}).map(([k, v]) => `${v} ${k}`);
     onOK(`${verb} ${parts.join(", ")}${r.problems?.length ? ` (${r.problems.length} skipped)` : ""}`);
@@ -133,7 +149,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
       const r = text.trimStart().startsWith("WAFPROXY-ENC1")
         ? await api.postRaw<ImportResult>("/api/backup/restore", text, {
             "Content-Type": "application/octet-stream",
-            "X-Backup-Passphrase": restorePass,
+            "X-Backup-Passphrase": backupPass,
           })
         : await api.post<ImportResult>("/api/backup/restore", JSON.parse(text));
       reportImport(r, "Restored");
@@ -144,9 +160,9 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
 
   const importYAML = async (f: File) => {
     try {
-      const r = await api.postRaw<ImportResult>("/api/config/import.yaml", await f.text(), {
-        "Content-Type": "application/yaml",
-      });
+      const headers: Record<string, string> = { "Content-Type": "application/yaml" };
+      if (backupPass) headers["X-Backup-Passphrase"] = backupPass;
+      const r = await api.postRaw<ImportResult>("/api/config/import.yaml", await f.text(), headers);
       reportImport(r, "Imported");
     } catch (e) {
       onError(errText(e));
@@ -302,8 +318,8 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
           <div className="bar-row">
             <div>Configuration backup</div>
             <div className="row" style={{ gap: 6 }}>
-              <a href="/api/backup"><button className="small">Download JSON</button></a>
-              <a href="/api/config/export.yaml"><button className="small">Download YAML</button></a>
+              <button className="small" onClick={() => download("/api/backup")}>Download JSON</button>
+              <button className="small" onClick={() => download("/api/config/export.yaml")}>Download YAML</button>
             </div>
           </div>
           <div className="bar-row">
@@ -312,13 +328,13 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
               <div className="row" style={{ gap: 8 }}>
                 <input
                   type="password"
-                  value={restorePass}
-                  onChange={(e) => setRestorePass(e.target.value)}
-                  placeholder="Passphrase if encrypted"
+                  value={backupPass}
+                  onChange={(e) => setBackupPass(e.target.value)}
+                  placeholder="Passphrase (16+ chars) to encrypt or restore"
                   style={{ width: 200 }}
                 />
                 <input ref={file} type="file" accept=".json,.enc,application/json" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} />
-                <input ref={yamlFile} type="file" accept=".yaml,.yml" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && importYAML(e.target.files[0])} />
+                <input ref={yamlFile} type="file" accept=".yaml,.yml,.enc" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && importYAML(e.target.files[0])} />
                 <button className="small" onClick={() => file.current?.click()}>Import backup</button>
                 <button className="small" onClick={() => yamlFile.current?.click()}>Import YAML</button>
               </div>

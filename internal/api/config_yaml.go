@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
 
@@ -216,7 +217,7 @@ func (s *Server) configDocument() (configDoc, error) {
 }
 
 // exportConfigYAML renders the declarative configuration as readable YAML.
-func (s *Server) exportConfigYAML(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) exportConfigYAML(w http.ResponseWriter, r *http.Request) {
 	doc, err := s.configDocument()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot build the configuration")
@@ -238,8 +239,17 @@ func (s *Server) exportConfigYAML(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot convert the configuration")
 		return
 	}
-	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="wafproxy.yaml"`)
+	out, sealed, err := sealDownload(r, out)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	name, kind := "wafproxy.yaml", "application/yaml; charset=utf-8"
+	if sealed {
+		name, kind = name+".enc", "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", kind)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	_, _ = w.Write(out)
 }
 
@@ -250,6 +260,14 @@ func (s *Server) importConfigYAML(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid configuration file")
 		return
+	}
+	if backup.IsEncrypted(body) {
+		plain, err := backup.Decrypt(r.Header.Get("X-Backup-Passphrase"), body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		body = plain
 	}
 	var generic any
 	if err := yaml.Unmarshal(body, &generic); err != nil {

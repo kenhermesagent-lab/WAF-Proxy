@@ -11,6 +11,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.28.0] — 2026-11-22
+
+### Added
+
+- **The manual downloads can be encrypted.** Fill the passphrase field beside **Download JSON** or
+  **Download YAML** and the file is sealed with the same AES-256-GCM format as the scheduled backup;
+  **Import YAML** opens an encrypted file with that passphrase. A passphrase under 16 characters is
+  refused.
+
+### Changed
+
+- The backup encryption option is a labelled switch with its passphrase field directly beneath it,
+  and the console's request helpers share one response parser.
+
 ## [1.27.2] — 2026-11-22
 
 ### Added
