@@ -217,18 +217,13 @@ func run() error {
 
 	bans.OnAdd = func(rec ban.Record) {
 		kind := "Temporary ban"
-		event := "ban"
-		immediate := false
 		if rec.Permanent {
 			kind = "Permanent ban"
-			event = "permanent_ban"
-			immediate = true
 		}
-		// CrowdSec decisions have their own routing toggle: a busy blocklist
-		// would otherwise bury the bans this console decided on itself.
-		if strings.EqualFold(rec.Source, "crowdsec") {
-			event = "crowdsec"
-		}
+		// The routing class comes from the ban source, so a CrowdSec decision is
+		// muted by its own toggle and never by the temporary-ban one.
+		event := notify.BanClass(rec.Source, rec.Permanent)
+		immediate := rec.Permanent
 		text := fmt.Sprintf("%s: %s — %s (source: %s)", kind, rec.CIDR, rec.Reason, rec.Source)
 		// A temporary ban must not suppress the permanent-ban alert for the same
 		// address through the 24 hour dedupe window.

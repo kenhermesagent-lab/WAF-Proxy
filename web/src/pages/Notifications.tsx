@@ -158,7 +158,8 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
 
       <div className="row" style={{ justifyContent: "space-between" }}>
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-          Ban additions are batched into a five-minute digest. Permanent bans, feed freezes and certificate problems are sent immediately.
+          Ban additions are batched into a five-minute digest. Permanent bans, feed freezes and certificate problems are sent
+          immediately. Muting a class also suppresses what is already queued for it.
         </p>
         <button className="primary" onClick={save}>Save settings</button>
       </div>
@@ -174,7 +175,11 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
                   <td>{a.channel}</td>
                   <td className="muted">{a.kind}</td>
                   <td style={{ maxWidth: 520 }}>{a.payload}</td>
-                  <td><Badge tone={a.state === "sent" ? "ok" : a.state === "failed" ? "bad" : "info"}>{a.state}</Badge></td>
+                  <td>
+                    <Badge tone={a.state === "sent" ? "ok" : a.state === "failed" ? "bad" : a.state === "suppressed" ? "warn" : "info"}>
+                      {a.state}
+                    </Badge>
+                  </td>
                 </tr>
               ))}
             </tbody>

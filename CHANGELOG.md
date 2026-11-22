@@ -11,6 +11,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.11.1] — 2026-11-22
+
+### Fixed
+
+- **Muting an event class now stops what is already queued.** Routing was only checked when an alert was
+  enqueued, so alerts that were pending when a class was muted — including CrowdSec bans stored as plain bans by
+  an older build — were still delivered and retried. Routing is re-checked at delivery: an alert whose class is
+  muted is marked `suppressed` instead of sent.
+- CrowdSec ban classification moves into the notification package (`notify.BanClass`) and matches the source
+  case-insensitively with any `crowdsec:`/`crowdsec/` suffix, so a decision cannot fall through to the
+  temporary-ban class.
+
 ## [1.11.0] — 2026-11-22
 
 ### Added

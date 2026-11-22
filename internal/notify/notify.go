@@ -30,6 +30,13 @@ type EventKind struct {
 // EventKinds is the set of per-event toggles the API exposes. An empty
 // notify_events setting means every kind is delivered; the sentinel "none"
 // suppresses every event class while keeping channels configured.
+// Routing classes raised by ban handling.
+const (
+	KindBan          = "ban"
+	KindPermanentBan = "permanent_ban"
+	KindCrowdSecBan  = "crowdsec"
+)
+
 var EventKinds = []EventKind{
 	{Kind: "ban", Label: "Temporary ban"},
 	{Kind: "permanent_ban", Label: "Permanent ban"},
@@ -84,25 +91,10 @@ func (m *Manager) Channels() map[string]bool {
 // delivered on the next worker kick; everything else waits for the 5 minute
 // digest so a ban wave becomes one message instead of hundreds.
 func (m *Manager) Enqueue(kind, text, dedupe string, immediate bool) {
-	channels := m.Channels()
-	// Optional per-event routing: an empty list means every event is sent,
-	// while the explicit sentinel "none" disables all event classes.
-	if kv, err := m.st.Settings(); err == nil {
-		if raw := strings.TrimSpace(kv["notify_events"]); raw == "none" {
-			return
-		} else if raw != "" {
-			enabled := false
-			for _, part := range strings.Split(raw, ",") {
-				if strings.TrimSpace(part) == kind {
-					enabled = true
-					break
-				}
-			}
-			if !enabled {
-				return
-			}
-		}
+	if !m.EventEnabled(kind) {
+		return
 	}
+	channels := m.Channels()
 	if dedupe != "" {
 		if seen, err := m.st.AlertRecentlySent(dedupe, m.now().Add(-24*time.Hour)); err == nil && seen {
 			return
@@ -126,6 +118,68 @@ func (m *Manager) Enqueue(kind, text, dedupe string, immediate bool) {
 		default:
 		}
 	}
+}
+
+// BanClass is the routing class for a ban, from its source. CrowdSec decisions
+// get their own class so a noisy blocklist can be muted without hiding the bans
+// this console decided on itself.
+func BanClass(source string, permanent bool) string {
+	if isCrowdSec(source) {
+		return KindCrowdSecBan
+	}
+	if permanent {
+		return KindPermanentBan
+	}
+	return KindBan
+}
+
+func isCrowdSec(source string) bool {
+	s := strings.ToLower(strings.TrimSpace(source))
+	return s == "crowdsec" || strings.HasPrefix(s, "crowdsec:") || strings.HasPrefix(s, "crowdsec/")
+}
+
+// alertClass returns the routing class of a stored alert. Rows queued before
+// CrowdSec bans had their own class were stored as a plain ban and carry the
+// original source only in the message, so the message is inspected as well.
+func alertClass(a model.Alert) string {
+	if source, ok := banSourceInPayload(a.Payload); ok {
+		return BanClass(source, a.Kind == KindPermanentBan)
+	}
+	return a.Kind
+}
+
+func banSourceInPayload(payload string) (string, bool) {
+	if !strings.HasPrefix(payload, "Temporary ban:") && !strings.HasPrefix(payload, "Permanent ban:") {
+		return "", false
+	}
+	const marker = "(source: "
+	i := strings.LastIndex(payload, marker)
+	if i < 0 || !strings.HasSuffix(payload, ")") {
+		return "", false
+	}
+	return strings.TrimSpace(payload[i+len(marker) : len(payload)-1]), true
+}
+
+// EventEnabled reports whether a class may be delivered under the current
+// routing settings: an empty value means every class, "none" means none.
+func (m *Manager) EventEnabled(kind string) bool {
+	kv, err := m.st.Settings()
+	if err != nil {
+		return true
+	}
+	raw := strings.TrimSpace(kv["notify_events"])
+	if raw == "none" {
+		return false
+	}
+	if raw == "" {
+		return true
+	}
+	for _, part := range strings.Split(raw, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), kind) {
+			return true
+		}
+	}
+	return false
 }
 
 // Start runs the digest worker.
@@ -158,6 +212,13 @@ func (m *Manager) process(immediateOnly bool) {
 	byChannel := map[string][]model.Alert{}
 	for _, a := range alerts {
 		if immediateOnly && a.State != "immediate" {
+			continue
+		}
+		// Routing is checked again here, not only when the alert was queued: a
+		// class muted while its alerts are still pending must stop them, and a
+		// backlog queued by an older build must not outlive the mute.
+		if !m.EventEnabled(alertClass(a)) {
+			_ = m.st.MarkAlert(a.ID, "suppressed", a.Attempts)
 			continue
 		}
 		byChannel[a.Channel] = append(byChannel[a.Channel], a)
