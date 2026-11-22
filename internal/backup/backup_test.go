@@ -1,6 +1,9 @@
 package backup
 
 import (
+	"bytes"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +11,9 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
 func TestValidateRejectsIncompleteDestinations(t *testing.T) {
@@ -50,6 +56,30 @@ func TestWriteLocalPrunesOldFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "wafproxy-backup-20240102-000000.json")); err != nil {
 		t.Fatalf("new backup missing: %v", err)
+	}
+}
+
+// A local destination saved without a port must read back as SFTP's default,
+// or switching the transport later fails validation with a port of zero.
+func TestConfigDefaultsTheRemotePort(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := crypto.New(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(st, box, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	if err := m.Save(Config{Transport: "local", LocalDir: "/tmp/backups", Keep: 3, Time: "03:00"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Port != 22 {
+		t.Fatalf("port = %d, want 22", cfg.Port)
 	}
 }
 

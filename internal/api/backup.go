@@ -60,11 +60,11 @@ func (s *Server) runBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "the backup manager is not configured")
 		return
 	}
-	status, err := s.backup.RunNow()
-	if err != nil {
+	if _, err := s.backup.RunNow(); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	status := s.backup.Status()
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "backup.run", status.LastFile, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"status": status})

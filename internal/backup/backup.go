@@ -163,6 +163,9 @@ func (m *Manager) Config() (Config, error) {
 	if c.Transport == "" {
 		c.Transport = "local"
 	}
+	if c.Port == 0 {
+		c.Port = 22
+	}
 	if c.Schedule == "" {
 		c.Schedule = "daily"
 	}
