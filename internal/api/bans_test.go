@@ -25,7 +25,7 @@ func TestCreateBanReturnsTheListShape(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/bans",
 		strings.NewReader(`{"cidr":"203.0.113.9","reason":"test ban","ttl_seconds":3600}`))
 	req.Host = "gui.local"
-	req.RemoteAddr = "192.168.101.10:5000"
+	req.RemoteAddr = "10.0.0.10:5000"
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	req.Header.Set("X-CSRF-Token", csrf)
 	rec := httptest.NewRecorder()
@@ -56,7 +56,7 @@ func TestCreateBanReturnsTheListShape(t *testing.T) {
 	// POST response optimistically and then reloads does not see two entries.
 	get := httptest.NewRequest(http.MethodGet, "/api/bans", nil)
 	get.Host = "gui.local"
-	get.RemoteAddr = "192.168.101.10:5000"
+	get.RemoteAddr = "10.0.0.10:5000"
 	get.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	getRec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(getRec, get)
@@ -88,7 +88,7 @@ func TestRollupMovesPermanentBansIntoALocalFeed(t *testing.T) {
 		body := `{"cidr":"` + cidr + `","reason":"rollup test","permanent":` + map[bool]string{true: "true", false: "false"}[permanent] + `}`
 		req := httptest.NewRequest(http.MethodPost, "/api/bans", strings.NewReader(body))
 		req.Host = "gui.local"
-		req.RemoteAddr = "192.168.101.10:5000"
+		req.RemoteAddr = "10.0.0.10:5000"
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		req.Header.Set("X-CSRF-Token", csrf)
 		rec := httptest.NewRecorder()
@@ -102,7 +102,7 @@ func TestRollupMovesPermanentBansIntoALocalFeed(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/bans/rollup", nil)
 	req.Host = "gui.local"
-	req.RemoteAddr = "192.168.101.10:5000"
+	req.RemoteAddr = "10.0.0.10:5000"
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	req.Header.Set("X-CSRF-Token", csrf)
 	rec := httptest.NewRecorder()
@@ -167,7 +167,7 @@ func TestRollupKeepsBansWhenTheListCannotLoad(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/bans",
 		strings.NewReader(`{"cidr":"203.0.113.60","reason":"fail-safe test","permanent":true}`))
 	req.Host = "gui.local"
-	req.RemoteAddr = "192.168.101.10:5000"
+	req.RemoteAddr = "10.0.0.10:5000"
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	req.Header.Set("X-CSRF-Token", csrf)
 	rec := httptest.NewRecorder()
@@ -178,7 +178,7 @@ func TestRollupKeepsBansWhenTheListCannotLoad(t *testing.T) {
 
 	roll := httptest.NewRequest(http.MethodPost, "/api/bans/rollup", nil)
 	roll.Host = "gui.local"
-	roll.RemoteAddr = "192.168.101.10:5000"
+	roll.RemoteAddr = "10.0.0.10:5000"
 	roll.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	roll.Header.Set("X-CSRF-Token", csrf)
 	rollRec := httptest.NewRecorder()
@@ -210,7 +210,7 @@ func TestBanListTruncationFlagMatchesTheAppliedLimit(t *testing.T) {
 	get := func(query string) (int, bool) {
 		req := httptest.NewRequest(http.MethodGet, "/api/bans"+query, nil)
 		req.Host = "gui.local"
-		req.RemoteAddr = "192.168.101.10:5000"
+		req.RemoteAddr = "10.0.0.10:5000"
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)

@@ -25,3 +25,6 @@ node_modules/
 
 # TypeScript build metadata
 *.tsbuildinfo
+
+# Local verification artefacts
+/artifacts/

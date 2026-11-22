@@ -252,7 +252,7 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
                 </p>
 
                 <Field label={`${svc.label} server (host or host:port)`}>
-                  <input value={f.upstream} onChange={(e) => setField(svc.id, "upstream", e.target.value)} placeholder={`192.168.101.10:${svc.default_port}`} />
+                  <input value={f.upstream} onChange={(e) => setField(svc.id, "upstream", e.target.value)} placeholder={`10.0.0.10:${svc.default_port}`} />
                 </Field>
 
                 <div className="row grow">

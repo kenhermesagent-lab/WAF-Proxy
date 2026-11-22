@@ -40,7 +40,7 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
 }
 
 // postRaw sends a file body (an encrypted backup) with extra headers.
-async function postRaw<T>(path: string, body: string, headers: Record<string, string>): Promise<T> {
+async function postRaw<T>(path: string, body: BodyInit, headers: Record<string, string>): Promise<T> {
   const h = { ...headers };
   if (csrf) h["X-CSRF-Token"] = csrf;
   const res = await fetch(path, { method: "POST", headers: h, credentials: "same-origin", body });
@@ -65,7 +65,7 @@ async function download(path: string, headers: Record<string, string> = {}) {
 export const api = {
   get: <T>(p: string) => request<T>(p),
   post: <T>(p: string, body?: unknown) => request<T>(p, { method: "POST", body }),
-  postRaw: <T>(p: string, body: string, headers: Record<string, string>) => postRaw<T>(p, body, headers),
+  postRaw: <T>(p: string, body: BodyInit, headers: Record<string, string>) => postRaw<T>(p, body, headers),
   put: <T>(p: string, body?: unknown) => request<T>(p, { method: "PUT", body }),
   del: <T>(p: string) => request<T>(p, { method: "DELETE" }),
   upload,

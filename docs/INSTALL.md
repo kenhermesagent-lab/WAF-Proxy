@@ -72,7 +72,7 @@ Open `http://<host-ip>:8080` from the LAN and fill in:
 |---|---|
 | Admin username | `admin` |
 | Password | 12+ characters, stored as argon2id |
-| Base domain | `kendk.duckdns.org` |
+| Base domain | `example.duckdns.org` |
 | WAN IP / port | `192.168.1.20` / `443` |
 | LAN IP / GUI port | `192.168.1.10` / `8443` |
 | DuckDNS token | optional, stored AES-256-GCM encrypted |
@@ -106,25 +106,25 @@ recovery code).
 
 ## 4. Firewalla and DuckDNS
 
-1. DuckDNS keeps the A record for `kendk.duckdns.org`; DuckDNS mirrors A/AAAA and the single
-   TXT record to `*.kendk.duckdns.org`, so subdomains resolve without extra records.
+1. DuckDNS keeps the A record for `example.duckdns.org`; DuckDNS mirrors A/AAAA and the single
+   TXT record to `*.example.duckdns.org`, so subdomains resolve without extra records.
 2. On the Firewalla, create a port forward: WAN `443` → `192.168.1.20:443`.
    **Do not enable SNAT/masquerade on that rule**; the proxy needs real client IPs for
    GeoIP, bans and rate limits.
 3. Port 80 is not required for DNS-01. Forward it only if you choose the **HTTP-01** challenge;
    **TLS-ALPN-01** needs no extra port and is answered on 443.
-4. Optional second layer: block the bare apex `kendk.duckdns.org` at the Firewalla. The
+4. Optional second layer: block the bare apex `example.duckdns.org` at the Firewalla. The
    proxy already closes it without a response.
 
 Because DuckDNS stores exactly one TXT record per domain, request **one wildcard
-certificate** (`*.kendk.duckdns.org` plus the apex as SAN). The certificate manager
+certificate** (`*.example.duckdns.org` plus the apex as SAN). The certificate manager
 serialises ACME orders so two challenges cannot overwrite each other.
 
 ## 5. First certificate
 
 GUI → **Certificates** → **Request certificate**:
 
-- Domains: `*.kendk.duckdns.org,kendk.duckdns.org`
+- Domains: `*.example.duckdns.org,example.duckdns.org`
 - Challenge: `DNS-01` (wildcards require it)
 - Provider: `duckdns`
 - Credentials: leave blank if the wizard stored the token, otherwise paste
@@ -146,7 +146,7 @@ avoid Let's Encrypt rate limits.
 
 GUI → **Proxies** → **New proxy**:
 
-- Hostname: `app.kendk.duckdns.org` (single-label subdomain of the base domain; the apex is
+- Hostname: `app.example.duckdns.org` (single-label subdomain of the base domain; the apex is
   reserved and blackholed)
 - Upstream: `http://192.168.2.10:8080`
 - Protection profile: `Generic Web` (or `WordPress`, `API-only`, …)
@@ -156,8 +156,8 @@ GUI → **Proxies** → **New proxy**:
 Verify:
 
 ```bash
-curl -v https://app.kendk.duckdns.org/
-curl -v https://kendk.duckdns.org/        # connection closed, no response
+curl -v https://app.example.duckdns.org/
+curl -v https://example.duckdns.org/        # connection closed, no response
 ```
 
 ## 7. Optional CrowdSec

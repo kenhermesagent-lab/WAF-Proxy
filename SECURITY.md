@@ -12,11 +12,40 @@ schema and the unit files.
 
 | Version | Supported |
 |---|---|
-| 1.16.x | Yes |
-| 1.15.x and older | No — upgrade first (`deploy/install.sh`, or the Update button) |
+| 1.28.x | Yes |
+| 1.27.x and older | No — upgrade first (`deploy/install.sh`, or the Update button) |
 
 The version you run is shown on **Updates** and in `GET /api/health`. If a report only
 reproduces on an unsupported version, the first step is to confirm it on the newest release.
+
+## Security fixes delivered
+
+These are the fixes since the 1.16 review, newest first. Each has a matching CHANGELOG section.
+
+- **1.28.0** — Manual JSON and YAML downloads can be encrypted under the backup passphrase; a
+  passphrase shorter than 16 characters is refused. The console sends file bytes unchanged, so a
+  sealed file round-trips through import without text decoding.
+- **1.27.0** — YAML configuration references profiles, lists and hosts by name instead of the
+  exporting install's numeric ids, so a restored file cannot be linked to an unrelated row.
+  Empty exported settings are ignored instead of reported as validation errors.
+- **1.26.0** — Scheduled backups are sealed with AES-256-GCM under a scrypt-derived key, the
+  passphrase is stored sealed, and restores require it. YAML import resolves access-profile
+  references by name and reports an unknown target instead of guessing one.
+- **1.25.0** — Agent tokens are scoped per MCP tool (replacing the coarse group scopes), the
+  gateway refuses tools outside the token's set, and the audit hash is anchored in settings so
+  truncating the newest rows is detected.
+- **1.24.0** — `/metrics` requires a 32+ character bearer token and is closed when the variable is
+  unset; the audit table gains a SHA-256 chain and a full CSV export.
+- **1.21.0** — `/api/setup/status` stops disclosing the base domain, listener addresses,
+  interfaces and kernel-ban state once an administrator exists. The bot-challenge cookie is bound
+  to the client network (IPv4 exactly, IPv6 within its /64).
+- **1.20.0** — Administrator accounts and roles (RBAC) with per-area grants; an admin source
+  allowlist enforced at sign-in and on every API call, refusing a change that would exclude the
+  caller. The last administrator cannot be demoted or deleted.
+- **1.22.0** — Remote threat feeds can no longer inject private, loopback, link-local, multicast
+  or unspecified addresses into the ban engine; skipped entries are counted.
+
+## Reporting a vulnerability
 
 ## Reporting a vulnerability
 
@@ -101,19 +130,23 @@ Out of scope:
 ## Hardening the deployment
 
 `README.md` → **Security model and limitations** lists the deliberate trade-offs: the console is
-plain HTTP on the LAN, the update helper installs code as root from a checkout you recorded, and
-streaming ports are a byte relay rather than an inspected proxy. Do set a response ceiling and an
-admin allowlist on profiles for applications you expose (the presets fill in both), and keep the
-login rate limit on so credential stuffing is throttled here rather than at the application. Read it before exposing anything
-beyond a trusted network, and read `docs/INSTALL.md` → **Trusted proxies** if a tunnel or another
-proxy sits in front of this host.
+plain HTTP on the LAN, secrets are sealed under `master.key` in the data directory, the update
+helper installs code as root from a checkout you recorded, and streaming ports are a byte relay
+rather than an inspected proxy. Set a response ceiling and an admin allowlist on profiles for
+applications you expose (the presets fill in both), keep the login rate limit on so credential
+stuffing is throttled here rather than at the application, and keep the metrics token set if the
+console listener is reachable beyond the host. Read it before exposing anything beyond a trusted
+network, and read `docs/INSTALL.md` → **Trusted proxies** if a tunnel or another proxy sits in
+front of this host.
 
 ## Reviews and their scope
 
 The last independent review covered **1.14.0** and produced the findings fixed in **1.16.0**
 (webhook SSRF, session tokens at rest, unsafe container defaults, client address behind a
 trusted proxy, queue and memory bounds, a racy test). Its report is summarised in the 1.16.0
-CHANGELOG section; the document itself is not kept in the repository.
+CHANGELOG section; the document itself is not kept in the repository. The fixes delivered since
+that review are listed under **Security fixes delivered** above; they were found and addressed in
+normal development, not by an outside review.
 
 The next review is scoped to the parts that review did not reach, in this order:
 

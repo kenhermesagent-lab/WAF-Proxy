@@ -11,6 +11,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.28.1] — 2026-11-22
+
+### Fixed
+
+- **Encrypted imports read the file as text.** Both **Import backup** and **Import YAML** decoded the
+  selected file with `File.text()`, which replaces every invalid UTF-8 byte of ciphertext, so a
+  sealed file downloaded from the console could not be restored at all. Both paths now read bytes
+  and post a Blob; verified in a browser against a throwaway data directory.
+
+### Changed
+
+- README rewritten around 1.28 (RBAC, challenge types, encryption, transport), SECURITY.md names
+  the supported 1.28 line and lists the fixes delivered since the last review, example domains and
+  LAN addresses replace the reference deployment's, and unreferenced screenshots and design notes
+  are removed.
+
 ## [1.28.0] — 2026-11-22
 
 ### Added

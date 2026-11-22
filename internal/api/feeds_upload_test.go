@@ -39,7 +39,7 @@ func TestUploadLocalFeedPersistsFileAndDeletesIt(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/feeds/upload", &body)
 	req.Host = "gui.local"
-	req.RemoteAddr = "192.168.101.10:5000"
+	req.RemoteAddr = "10.0.0.10:5000"
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("X-CSRF-Token", csrf)
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
@@ -82,7 +82,7 @@ func TestUploadLocalFeedPersistsFileAndDeletesIt(t *testing.T) {
 
 	del := httptest.NewRequest(http.MethodDelete, "/api/feeds/"+strconv.FormatInt(created.ID, 10), nil)
 	del.Host = "gui.local"
-	del.RemoteAddr = "192.168.101.10:5000"
+	del.RemoteAddr = "10.0.0.10:5000"
 	del.Header.Set("X-CSRF-Token", csrf)
 	del.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	delRec := httptest.NewRecorder()

@@ -16,7 +16,7 @@ func authed(t *testing.T, srv *Server, token, csrf, method, path, body string) *
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Host = "gui.local"
-	req.RemoteAddr = "192.168.101.10:5000"
+	req.RemoteAddr = "10.0.0.10:5000"
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	if method != http.MethodGet {
 		req.Header.Set("X-CSRF-Token", csrf)

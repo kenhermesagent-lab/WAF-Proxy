@@ -81,15 +81,36 @@ describe("Settings configuration transport", () => {
     postRaw.mockResolvedValue({ imported: { waf_profiles: 1 }, problems: [] });
     const input = document.querySelector('input[accept=".yaml,.yml,.enc"]') as HTMLInputElement;
     const file = new File(["version: \"1.0\"\n"], "config.yaml", { type: "application/yaml" });
-    // jsdom's File has no text() in this environment.
-    Object.defineProperty(file, "text", { value: async () => "version: \"1.0\"\n" });
+    // jsdom's File has no arrayBuffer() in this environment.
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => new TextEncoder().encode("version: \"1.0\"\n").buffer,
+    });
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => expect(postRaw).toHaveBeenCalledTimes(1));
     expect(postRaw.mock.calls[0][0]).toBe("/api/config/import.yaml");
-    expect(postRaw.mock.calls[0][1]).toContain("version:");
+    // Bytes, not a decoded string: ciphertext must survive the round trip.
+    expect(postRaw.mock.calls[0][1]).toBeInstanceOf(Blob);
     expect(postRaw.mock.calls[0][2]).toEqual({ "Content-Type": "application/yaml" });
     await waitFor(() => expect(onOK).toHaveBeenCalledWith("Imported 1 waf_profiles"));
+  });
+
+  it("restores an encrypted backup as bytes", async () => {
+    renderPage();
+    await screen.findByText("Configuration backup");
+
+    postRaw.mockResolvedValue({ imported: { proxies: 1 }, problems: [] });
+    const sealed = new Uint8Array(14);
+    sealed.set(new TextEncoder().encode("WAFPROXY-ENC1"));
+    sealed[13] = 0x80;
+    const file = new File([sealed], "backup.json.enc");
+    Object.defineProperty(file, "arrayBuffer", { value: async () => sealed.buffer });
+    const input = document.querySelector('input[accept*=".json"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(postRaw).toHaveBeenCalledTimes(1));
+    expect(postRaw.mock.calls[0][0]).toBe("/api/backup/restore");
+    expect(postRaw.mock.calls[0][1]).toBeInstanceOf(Blob);
   });
 
   it("surfaces an import error through the page handler", async () => {
@@ -100,7 +121,7 @@ describe("Settings configuration transport", () => {
     postRaw.mockRejectedValue(new Error("invalid configuration file"));
     const input = document.querySelector('input[accept=".yaml,.yml,.enc"]') as HTMLInputElement;
         const bad = new File(["nope"], "config.yaml", { type: "application/yaml" });
-    Object.defineProperty(bad, "text", { value: async () => "nope" });
+    Object.defineProperty(bad, "arrayBuffer", { value: async () => new TextEncoder().encode("nope").buffer });
     fireEvent.change(input, { target: { files: [bad] } });
 
     await waitFor(() => expect(onError).toHaveBeenCalledWith("invalid configuration file"));

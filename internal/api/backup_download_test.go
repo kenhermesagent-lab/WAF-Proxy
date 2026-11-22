@@ -17,7 +17,7 @@ func TestDownloadsSealWithAPassphrase(t *testing.T) {
 	get := func(path, passphrase string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Host = "gui.local"
-		req.RemoteAddr = "192.168.101.10:5000"
+		req.RemoteAddr = "10.0.0.10:5000"
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		if passphrase != "" {
 			req.Header.Set("X-Backup-Passphrase", passphrase)
@@ -49,7 +49,7 @@ func TestDownloadsSealWithAPassphrase(t *testing.T) {
 	sealed := get("/api/config/export.yaml", pass)
 	req := httptest.NewRequest(http.MethodPost, "/api/config/import.yaml", bytes.NewReader(sealed.Body.Bytes()))
 	req.Host = "gui.local"
-	req.RemoteAddr = "192.168.101.10:5000"
+	req.RemoteAddr = "10.0.0.10:5000"
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	req.Header.Set("X-CSRF-Token", csrf)
 	req.Header.Set("Content-Type", "application/yaml")

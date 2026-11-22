@@ -145,13 +145,15 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
 
   const restore = async (f: File) => {
     try {
-      const text = await f.text();
-      const r = text.trimStart().startsWith("WAFPROXY-ENC1")
-        ? await api.postRaw<ImportResult>("/api/backup/restore", text, {
+      // The encrypted body is binary, so it must not pass through text().
+      const body = await f.arrayBuffer();
+      const sealed = new TextDecoder().decode(body.slice(0, 13)) === "WAFPROXY-ENC1";
+      const r = sealed
+        ? await api.postRaw<ImportResult>("/api/backup/restore", new Blob([body]), {
             "Content-Type": "application/octet-stream",
             "X-Backup-Passphrase": backupPass,
           })
-        : await api.post<ImportResult>("/api/backup/restore", JSON.parse(text));
+        : await api.post<ImportResult>("/api/backup/restore", JSON.parse(new TextDecoder().decode(body)));
       reportImport(r, "Restored");
     } catch (e) {
       onError(errText(e));
@@ -162,7 +164,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
     try {
       const headers: Record<string, string> = { "Content-Type": "application/yaml" };
       if (backupPass) headers["X-Backup-Passphrase"] = backupPass;
-      const r = await api.postRaw<ImportResult>("/api/config/import.yaml", await f.text(), headers);
+      const r = await api.postRaw<ImportResult>("/api/config/import.yaml", new Blob([await f.arrayBuffer()]), headers);
       reportImport(r, "Imported");
     } catch (e) {
       onError(errText(e));
@@ -212,7 +214,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
           <div className="field-grid">
             <Field label="WAN address (443 listener)"><input value={s.wan_ip ?? ""} onChange={(e) => set("wan_ip", e.target.value)} placeholder="192.168.191.2" /></Field>
             <Field label="WAN port"><input value={s.wan_port ?? "443"} onChange={(e) => set("wan_port", e.target.value)} /></Field>
-            <Field label="LAN egress address"><input value={s.lan_ip ?? ""} onChange={(e) => set("lan_ip", e.target.value)} placeholder="192.168.101.2" /></Field>
+            <Field label="LAN egress address"><input value={s.lan_ip ?? ""} onChange={(e) => set("lan_ip", e.target.value)} placeholder="10.0.0.2" /></Field>
             <Field label="Admin GUI port"><input value={s.gui_port ?? "8443"} onChange={(e) => set("gui_port", e.target.value)} /></Field>
             <Field label="WAN interface"><input list="iface-names" value={s.wan_iface ?? ""} onChange={(e) => set("wan_iface", e.target.value)} placeholder={iface.wan || "eth0"} /></Field>
             <Field label="LAN interface"><input list="iface-names" value={s.lan_iface ?? ""} onChange={(e) => set("lan_iface", e.target.value)} placeholder={iface.lan || "eth1"} /></Field>

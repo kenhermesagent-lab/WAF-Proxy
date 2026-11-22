@@ -58,14 +58,14 @@ func TestViewerIsRefusedOutsideItsPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	token := "viewer-token"
-	if err := st.CreateSession(token, uid, "csrf", "192.168.101.10", "test", time.Now().Add(time.Hour)); err != nil {
+	if err := st.CreateSession(token, uid, "csrf", "10.0.0.10", "test", time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
 	get := func(path string) int {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Host = "gui.local"
-		req.RemoteAddr = "192.168.101.10:5000"
+		req.RemoteAddr = "10.0.0.10:5000"
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)

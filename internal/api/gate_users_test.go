@@ -43,7 +43,7 @@ func (h *gateUserHarness) do(method, path string, body any) *httptest.ResponseRe
 	}
 	req := httptest.NewRequest(method, path, &buf)
 	req.Host = "gui.local"
-	req.RemoteAddr = "192.168.101.10:5000"
+	req.RemoteAddr = "10.0.0.10:5000"
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: h.token})
 	req.Header.Set("X-CSRF-Token", h.csrf)
 	rec := httptest.NewRecorder()

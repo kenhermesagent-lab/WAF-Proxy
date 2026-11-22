@@ -17,7 +17,7 @@ func TestMCPTokenCreateListAndRevoke(t *testing.T) {
 	// A mutation without the console CSRF token must not mint an agent token.
 	missing := httptest.NewRequest(http.MethodPost, "/api/mcp/tokens", strings.NewReader(`{"name":"hermes"}`))
 	missing.Host = "gui.local"
-	missing.RemoteAddr = "192.168.101.10:5000"
+	missing.RemoteAddr = "10.0.0.10:5000"
 	missing.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	missingRec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(missingRec, missing)
@@ -27,7 +27,7 @@ func TestMCPTokenCreateListAndRevoke(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/mcp/tokens", strings.NewReader(`{"name":"hermes","scopes":["query_logs"]}`))
 	req.Host = "gui.local"
-	req.RemoteAddr = "192.168.101.10:5000"
+	req.RemoteAddr = "10.0.0.10:5000"
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	req.Header.Set("X-CSRF-Token", csrf)
 	rec := httptest.NewRecorder()
@@ -57,7 +57,7 @@ func TestMCPTokenCreateListAndRevoke(t *testing.T) {
 	// An unknown scope must not quietly widen or narrow the token.
 	bad := httptest.NewRequest(http.MethodPost, "/api/mcp/tokens", strings.NewReader(`{"name":"bad","scopes":["root"]}`))
 	bad.Host = "gui.local"
-	bad.RemoteAddr = "192.168.101.10:5000"
+	bad.RemoteAddr = "10.0.0.10:5000"
 	bad.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	bad.Header.Set("X-CSRF-Token", csrf)
 	badRec := httptest.NewRecorder()
@@ -69,7 +69,7 @@ func TestMCPTokenCreateListAndRevoke(t *testing.T) {
 	// The list must not return the plaintext token or its hash.
 	get := httptest.NewRequest(http.MethodGet, "/api/mcp", nil)
 	get.Host = "gui.local"
-	get.RemoteAddr = "192.168.101.10:5000"
+	get.RemoteAddr = "10.0.0.10:5000"
 	get.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	getRec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(getRec, get)
@@ -94,7 +94,7 @@ func TestMCPTokenCreateListAndRevoke(t *testing.T) {
 
 	del := httptest.NewRequest(http.MethodDelete, "/api/mcp/tokens/"+strconv.FormatInt(created.ID, 10), nil)
 	del.Host = "gui.local"
-	del.RemoteAddr = "192.168.101.10:5000"
+	del.RemoteAddr = "10.0.0.10:5000"
 	del.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	del.Header.Set("X-CSRF-Token", csrf)
 	delRec := httptest.NewRecorder()

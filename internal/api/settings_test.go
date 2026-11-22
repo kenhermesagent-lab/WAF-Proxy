@@ -19,7 +19,7 @@ func TestSettingsInterfaceHints(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
 		req.Host = "gui.local"
-		req.RemoteAddr = "192.168.101.10:5000"
+		req.RemoteAddr = "10.0.0.10:5000"
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)

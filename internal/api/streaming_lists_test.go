@@ -23,7 +23,7 @@ func TestStreamingListSelectionIsSavedAndValidated(t *testing.T) {
 	put := func(ids string) *httptest.ResponseRecorder {
 		return authed(t, srv, token, csrf, http.MethodPut, "/api/streaming/plex",
 			fmt.Sprintf(`{"enabled":false,"listen_ip":"192.168.191.2","port":32400,`+
-				`"upstream":"192.168.101.10:32400","allow":"","max_conns":64,"list_ids":%s}`, ids))
+				`"upstream":"10.0.0.10:32400","allow":"","max_conns":64,"list_ids":%s}`, ids))
 	}
 
 	rec := put(fmt.Sprintf("[%d]", list.ID))

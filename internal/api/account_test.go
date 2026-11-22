@@ -73,12 +73,12 @@ func newAccountHarness(t *testing.T) *accountHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateSession(token, uid, csrf, "192.168.101.10", "test", time.Now().Add(time.Hour)); err != nil {
+	if err := st.CreateSession(token, uid, csrf, "10.0.0.10", "test", time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	// A second session represents another browser that a rotation must revoke.
 	other, _ := wfcrypto.RandomToken(32)
-	if err := st.CreateSession(other, uid, "other-csrf", "192.168.101.11", "other", time.Now().Add(time.Hour)); err != nil {
+	if err := st.CreateSession(other, uid, "other-csrf", "10.0.0.11", "other", time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	bans, err := ban.New(st, log, nil)
@@ -99,7 +99,7 @@ func (h *accountHarness) post(t *testing.T, path string, body any) *httptest.Res
 	}
 	req := httptest.NewRequest(http.MethodPost, "https://gui.local"+path, bytes.NewReader(raw))
 	req.Host = "gui.local"
-	req.RemoteAddr = "192.168.101.10:5000"
+	req.RemoteAddr = "10.0.0.10:5000"
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-CSRF-Token", h.csrf)
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: h.token})

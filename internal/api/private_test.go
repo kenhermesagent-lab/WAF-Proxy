@@ -45,7 +45,7 @@ func TestPrivateNetworksOnly(t *testing.T) {
 		remote string
 		want   int
 	}{
-		{"192.168.101.10:5000", http.StatusNoContent},
+		{"10.0.0.10:5000", http.StatusNoContent},
 		{"10.20.30.40:5000", http.StatusNoContent},
 		{"172.16.0.5:5000", http.StatusNoContent},
 		{"172.31.255.5:5000", http.StatusNoContent},

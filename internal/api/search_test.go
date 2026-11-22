@@ -23,7 +23,7 @@ func TestSearchHidesBansFromRolesWithoutPolicyAccess(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/bans",
 		strings.NewReader(`{"cidr":"203.0.113.44","reason":"search test"}`))
 	req.Host = "gui.local"
-	req.RemoteAddr = "192.168.101.10:5000"
+	req.RemoteAddr = "10.0.0.10:5000"
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: adminToken})
 	req.Header.Set("X-CSRF-Token", csrf)
 	rec := httptest.NewRecorder()
@@ -41,7 +41,7 @@ func TestSearchHidesBansFromRolesWithoutPolicyAccess(t *testing.T) {
 		t.Fatalf("create auditor: %v", err)
 	}
 	auditorToken, _ := wfcrypto.RandomToken(32)
-	if err := st.CreateSession(auditorToken, uid, "auditor-csrf", "192.168.101.11", "test", time.Now().Add(time.Hour)); err != nil {
+	if err := st.CreateSession(auditorToken, uid, "auditor-csrf", "10.0.0.11", "test", time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("create auditor session: %v", err)
 	}
 
@@ -49,7 +49,7 @@ func TestSearchHidesBansFromRolesWithoutPolicyAccess(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, "/api/search?q=203.0.113.44", nil)
 		req.Host = "gui.local"
-		req.RemoteAddr = "192.168.101.10:5000"
+		req.RemoteAddr = "10.0.0.10:5000"
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)

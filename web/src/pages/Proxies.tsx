@@ -52,7 +52,7 @@ function emptyDraft(): Draft {
     maintenance: false,
     waf_mode: "inherit",
     preset: "",
-    upstreams: [{ url: "http://192.168.101.10:8080", weight: 1, enabled: true }],
+    upstreams: [{ url: "http://10.0.0.10:8080", weight: 1, enabled: true }],
     routes: [],
     gate_users: [],
   };
@@ -381,7 +381,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
               {draft.upstreams.map((u, i) => (
                 <div key={i} className="upstream-row" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 90px auto", gap: 8, alignItems: "start", marginBottom: 8 }}>
                   <Field label={i === 0 ? "Upstream URL" : `Upstream ${i + 1}`}>
-                    <input value={u.url} placeholder="http://192.168.101.10:8080" onChange={(e) => patch((d) => { d.upstreams[i] = { ...d.upstreams[i], url: e.target.value }; })} />
+                    <input value={u.url} placeholder="http://10.0.0.10:8080" onChange={(e) => patch((d) => { d.upstreams[i] = { ...d.upstreams[i], url: e.target.value }; })} />
                   </Field>
                   <Field label="Weight">
                     <input type="number" min={1} value={u.weight} onChange={(e) => patch((d) => { d.upstreams[i] = { ...d.upstreams[i], weight: Number(e.target.value) }; })} />

@@ -25,7 +25,7 @@ func TestListCertsExposesProviderChoices(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, "/api/certs", nil)
 		req.Host = "gui.local"
-		req.RemoteAddr = "192.168.101.10:5000"
+		req.RemoteAddr = "10.0.0.10:5000"
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)
@@ -88,7 +88,7 @@ func TestUpdateCertRenewMode(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPut, "/api/certs/"+certID, strings.NewReader(body))
 		req.Host = "gui.local"
-		req.RemoteAddr = "192.168.101.10:5000"
+		req.RemoteAddr = "10.0.0.10:5000"
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		req.Header.Set("X-CSRF-Token", csrf)
 		rec := httptest.NewRecorder()
@@ -127,7 +127,7 @@ func TestCreateCertRejectsMissingProvider(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPost, "/api/certs", strings.NewReader(body))
 		req.Host = "gui.local"
-		req.RemoteAddr = "192.168.101.10:5000"
+		req.RemoteAddr = "10.0.0.10:5000"
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		req.Header.Set("X-CSRF-Token", csrf)
 		rec := httptest.NewRecorder()
