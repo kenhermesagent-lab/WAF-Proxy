@@ -2,7 +2,10 @@
 package store
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -16,6 +19,9 @@ import (
 // Store wraps the SQLite database.
 type Store struct {
 	db *sql.DB
+	// sessionKey hides session cookies in the database, so a copy of the file
+	// does not hand out live admin sessions.
+	sessionKey []byte
 }
 
 // ErrNotFound is returned when a row does not exist.
@@ -50,6 +56,21 @@ func Open(dir string) (*Store, error) {
 
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
+
+// SetSessionKey installs the key that session identifiers are derived from. It
+// must be set before the store serves requests, and must stay stable across
+// restarts or every session is invalidated.
+func (s *Store) SetSessionKey(key []byte) { s.sessionKey = key }
+
+// sessionID is what the sessions table stores: a keyed digest of the cookie
+// value. The cookie itself is never written down, so reading the database file
+// is not enough to replay a session.
+func (s *Store) sessionID(token string) string {
+	mac := hmac.New(sha256.New, s.sessionKey)
+	mac.Write([]byte("wafproxy-session\x00"))
+	mac.Write([]byte(token))
+	return hex.EncodeToString(mac.Sum(nil))
+}
 
 const schema = `
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -369,7 +390,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "12"
+const schemaVersion = "13"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -423,8 +444,28 @@ func (s *Store) migrateAddColumns() error {
 			return fmt.Errorf("migrate %s.%s: %w", step.table, step.column, err)
 		}
 	}
+	if err := s.dropLegacySessions(); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`INSERT INTO schema_meta(key, value) VALUES('version', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, schemaVersion)
+	return err
+}
+
+// dropLegacySessions clears sessions written before schema 13, when the cookie
+// value was the primary key. Those rows cannot be turned into digests (the
+// token is not stored anywhere else), and keeping them would leave rows that
+// never match a cookie. Everyone signs in once after the upgrade.
+func (s *Store) dropLegacySessions() error {
+	var v string
+	err := s.db.QueryRow(`SELECT value FROM schema_meta WHERE key = 'version'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) || v == schemaVersion {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	_, err = s.db.Exec(`DELETE FROM sessions`)
 	return err
 }
 
@@ -642,10 +683,11 @@ type Session struct {
 	ExpiresAt time.Time
 }
 
-// CreateSession stores a new session.
+// CreateSession stores a new session. The cookie value is hashed on the way in;
+// only the caller ever holds the token itself.
 func (s *Store) CreateSession(id string, userID int64, csrf, ip, ua string, expires time.Time) error {
 	_, err := s.db.Exec(`INSERT INTO sessions(id, user_id, csrf, ip, ua, created_at, expires_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?)`, id, userID, csrf, ip, ua, stamp(time.Now()), stamp(expires))
+		VALUES(?, ?, ?, ?, ?, ?, ?)`, s.sessionID(id), userID, csrf, ip, ua, stamp(time.Now()), stamp(expires))
 	return err
 }
 
@@ -653,16 +695,18 @@ func (s *Store) CreateSession(id string, userID int64, csrf, ip, ua string, expi
 func (s *Store) LookupSession(id string) (*Session, error) {
 	var out Session
 	var created, exp string
-	err := s.db.QueryRow(`SELECT s.id, s.user_id, u.username, s.csrf, s.created_at, s.expires_at
+	err := s.db.QueryRow(`SELECT s.user_id, u.username, s.csrf, s.created_at, s.expires_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.id = ? AND s.expires_at > ?`, id, stamp(time.Now())).
-		Scan(&out.ID, &out.UserID, &out.Username, &out.CSRF, &created, &exp)
+		WHERE s.id = ? AND s.expires_at > ?`, s.sessionID(id), stamp(time.Now())).
+		Scan(&out.UserID, &out.Username, &out.CSRF, &created, &exp)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	// Callers keep using the token they hold; the digest never leaves the store.
+	out.ID = id
 	out.CreatedAt = parseStamp(created)
 	out.ExpiresAt = parseStamp(exp)
 	return &out, nil
@@ -670,7 +714,7 @@ func (s *Store) LookupSession(id string) (*Session, error) {
 
 // TouchSession extends a session's idle expiry.
 func (s *Store) TouchSession(id string, expires time.Time) error {
-	_, err := s.db.Exec(`UPDATE sessions SET expires_at = ? WHERE id = ?`, stamp(expires), id)
+	_, err := s.db.Exec(`UPDATE sessions SET expires_at = ? WHERE id = ?`, stamp(expires), s.sessionID(id))
 	return err
 }
 
@@ -699,7 +743,7 @@ func (s *Store) ClaimTOTPStep(userID, step int64) (bool, error) {
 
 // DeleteSession removes one session.
 func (s *Store) DeleteSession(id string) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE id = ?`, s.sessionID(id))
 	return err
 }
 

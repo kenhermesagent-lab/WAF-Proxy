@@ -173,7 +173,11 @@ docker compose -f deploy/docker-compose.yml logs -f wafproxy
 
 ```ini
 # This host's real LAN address. The console is bound only here, port 8080.
-WAFPROXY_LISTEN_GUI=192.168.101.2:8080
+WAFPROXY_LISTEN_GUI=192.168.1.10:8080
+
+# Nothing is trusted by default: only set this to the CIDRs of a proxy or
+# tunnel in front of the console.
+WAFPROXY_TRUSTED_PROXIES=
 
 # Refuse console requests that do not come from a private network, even if the
 # listener ends up bound more widely than intended. Leave this true for Docker.
@@ -203,8 +207,8 @@ Open `http://<LAN IP>:8080` from the LAN and complete the wizard:
 | Admin username | `admin` |
 | Password | 12+ characters (argon2id) |
 | Base domain | `example.duckdns.org` |
-| WAN IP : port | `192.168.191.2` : `443` |
-| LAN egress IP : GUI port | `192.168.101.2` : `8443` |
+| WAN IP : port | `192.168.1.20` : `443` |
+| LAN egress IP : GUI port | `192.168.1.10` : `8443` |
 | DuckDNS token | optional, stored encrypted |
 | ACME email | Let’s Encrypt contact |
 
@@ -215,8 +219,8 @@ recovery codes **once** — save both, then restart so the listeners move:
 docker compose -f deploy/docker-compose.yml restart wafproxy
 ```
 
-The console is now `http://192.168.101.2:8443` and every sign-in needs password + TOTP (or a
-recovery code). The proxy is on `192.168.191.2:443`.
+The console is now `http://192.168.1.10:8443` and every sign-in needs password + TOTP (or a
+recovery code). The proxy is on `192.168.1.20:443`.
 
 If a stored address is not present on the host at boot (DHCP change, NIC renamed), the
 listener falls back to the first-boot address and logs why instead of exiting, so the console
@@ -401,7 +405,7 @@ A minimal MCP client configuration:
   "mcpServers": {
     "wafproxy": {
       "type": "http",
-      "url": "http://192.168.101.2:8443/mcp",
+      "url": "http://192.168.1.10:8443/mcp",
       "headers": { "Authorization": "Bearer <agent token>" }
     }
   }
@@ -438,9 +442,9 @@ blocklist can be muted without hiding the bans the console decided on itself.
    the computed next date is shown under the menu. Renewal is checked every 12 hours, and a
    failed attempt keeps the previous certificate serving until the next check.
 3. **Proxies → New proxy.** Hostname `app.example.duckdns.org`, upstream
-   `http://192.168.101.10:8080`, a protection profile, and `Detect only` for the first 48
+   `http://192.168.2.10:8080`, a protection profile, and `Detect only` for the first 48
    hours if the application is new to you.
-4. **Router.** Forward WAN `443` to `192.168.191.2:443`, **DNAT only, no SNAT**, so real
+4. **Router.** Forward WAN `443` to `192.168.1.20:443`, **DNAT only, no SNAT**, so real
    client IPs survive for GeoIP, bans and rate limits.
 5. **Verify.**
 
@@ -629,6 +633,25 @@ These are deliberate design decisions, not gaps to discover later:
   session cookie is only marked `Secure` when the console is served over TLS. Do not port
   forward it. The optional Tailscale admin listener is also plain HTTP, but only inside
   Tailscale's WireGuard transport and only from `100.64.0.0/10`; it is not public.
+- **The console is private by default.** A bare `docker run`, or the binary with no environment
+  set, binds the console to `127.0.0.1:8080` and refuses any client that is not on a private
+  network (`WAFPROXY_GUI_PRIVATE_ONLY=true`). Binding a LAN address is an explicit choice; keep
+  that port firewalled from the WAN.
+- **A client address comes from the socket unless you name a proxy.**
+  `WAFPROXY_TRUSTED_PROXIES` lists the CIDRs allowed to set `X-Forwarded-For`, and nothing is
+  trusted by default. Without it, a client cannot claim an address the access lists, the ban
+  engine or the audit log would believe. Put a tunnel or fronting proxy in the list or every
+  client behind it looks like the tunnel itself, and one decoy hit bans the tunnel.
+- **Session cookies are stored as a keyed digest.** A copy of `wafproxy.db` — backup, rsync,
+  container volume — holds no usable admin session; the cookie value exists only in the browser.
+  Sessions written by an earlier release are cleared once, so upgrading signs everyone out.
+- **Request memory is bounded.** `WAFPROXY_MAX_INFLIGHT` (default 128) caps concurrent requests,
+  each of which may buffer up to the body limit. Past the budget requests get `503` instead of
+  the host running out of memory, and the dashboard shows the current count.
+- **Outbound URLs are filtered.** Proxy upstreams, threat feeds, notification webhooks and agent
+  webhooks all go through the same guard, which refuses link-local and cloud metadata targets
+  (agent webhooks may point at the LAN or loopback, never at `169.254.169.254`); the agent client
+  does not follow redirects.
 - **The MCP agent token is an operator credential.** It grants security operations — reviewing
   logs, blocking IPs/usernames and revoking gate sessions — to any client that holds it. The
   gateway exposes no shell, filesystem, package or settings API, and every mutation is
@@ -654,9 +677,8 @@ These are deliberate design decisions, not gaps to discover later:
   requests them.
 - **Streaming traffic is a byte relay**, not an inspected proxy — see above.
 - **One administrator account.** There are no multi-user roles.
-- Not included in 1.3.0 (tracked in [PLAN.md](PLAN.md) §13): AbuseIPDB enrichment, tarpit,
-  HTTP basic auth/mTLS per site, brotli, per-site bandwidth history, encrypted backup
-  archives, HTTP/3, HA and multi-user roles.
+- Not included yet: AbuseIPDB enrichment, tarpit, HTTP basic auth/mTLS per site, brotli,
+  per-site bandwidth history, encrypted backup archives, HTTP/3, HA and multi-user roles.
 
 ## Development
 
@@ -680,7 +702,6 @@ container image build.
 - [docs/MCP.md](docs/MCP.md) — agent gateway, tool reference, containment playbook
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — runbook, troubleshooting, capacity
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology
-- [PLAN.md](PLAN.md) — architecture, pipeline, data model, phases, risks
 - [CHANGELOG.md](CHANGELOG.md) — release history
 
 ## License

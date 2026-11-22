@@ -7,6 +7,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/agentlink"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/urlguard"
 )
 
 // SetAgentLinks attaches the webhook dispatcher.
@@ -25,6 +26,12 @@ func validateAgentLink(name, endpoint string) string {
 	}
 	if !isHTTPURL(endpoint) {
 		return "the endpoint must be an absolute http(s) URL"
+	}
+	// Every other operator-supplied outbound URL goes through the same guard.
+	// A LAN collector such as Home Assistant stays allowed; a link-local or
+	// cloud metadata address does not.
+	if err := urlguard.Check(endpoint, urlguard.Webhook); err != nil {
+		return "the endpoint cannot be a link-local or cloud metadata address (" + err.Error() + ")"
 	}
 	return ""
 }

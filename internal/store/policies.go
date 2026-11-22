@@ -587,6 +587,20 @@ func (s *Store) DeleteProxyGateSessions(proxyID int64) error {
 	return err
 }
 
+// CountBans reports how many bans match the same filter as ListBansPage, so
+// the API can say whether a page is a sample of a longer list.
+func (s *Store) CountBans(includeExpired bool) (int, error) {
+	q := `SELECT COUNT(*) FROM bans`
+	args := []any{}
+	if !includeExpired {
+		q += ` WHERE permanent = 1 OR expires_at IS NULL OR expires_at > ?`
+		args = append(args, stamp(time.Now()))
+	}
+	var n int
+	err := s.db.QueryRow(q, args...).Scan(&n)
+	return n, err
+}
+
 // ListBansPage returns the newest bans for the dashboard. The engine loads the
 // full set through ListBans; only the API view is capped so the list an
 // operator reads stays short no matter how many addresses were ever banned.

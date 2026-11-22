@@ -231,6 +231,18 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
             <div className="sub">{totals.blocked.toLocaleString()} blocked · {fmtBytes(totals.bytesOut)} out</div>
           </div>
         </Card>
+        <Card>
+          <div className="stat">
+            <div className="k">Request budget</div>
+            <div className="v">
+              {metrics?.inflight ?? 0}
+              <span className="muted" style={{ fontSize: 13 }}> / {metrics?.max_inflight ?? 0}</span>
+            </div>
+            <div className="sub">
+              {(metrics?.shed ?? 0).toLocaleString()} refused while full
+            </div>
+          </div>
+        </Card>
       </div>
 
       <p className="muted" style={{ fontSize: 11.5, margin: "-4px 2px 0", lineHeight: 1.6 }}>

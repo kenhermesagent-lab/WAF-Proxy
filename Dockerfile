@@ -40,7 +40,8 @@ RUN setcap cap_net_bind_service,cap_net_admin+ep /usr/local/bin/wafproxy \
     && setcap cap_net_admin+ep /usr/sbin/nft || true
 USER wafproxy
 ENV WAFPROXY_DATA_DIR=/data \
-    WAFPROXY_LISTEN_GUI=:8080 \
+    WAFPROXY_LISTEN_GUI=127.0.0.1:8080 \
+    WAFPROXY_GUI_PRIVATE_ONLY=true \
     WAFPROXY_LISTEN_WAN=:8443
 EXPOSE 443 8080 8443
 VOLUME ["/data"]

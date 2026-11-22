@@ -3,9 +3,9 @@
 This is the production path for the reference deployment:
 
 ```
-Internet → Firewalla 192.168.191.1 → DNAT 443 → 192.168.191.2:443 (this stack)
-                                                        ↓ source 192.168.101.2
-                                              backends 192.168.101.0/24
+Internet → Firewalla 192.168.1.1 → DNAT 443 → 192.168.1.20:443 (this stack)
+                                                        ↓ source 192.168.1.10
+                                              backends 192.168.2.0/24
 ```
 
 Only `443/tcp` is exposed. The admin GUI binds to the LAN address only.
@@ -51,9 +51,12 @@ Set both values in `deploy/.env` before the first start:
 
 ```ini
 # This host's real LAN address. The console listens only here.
-WAFPROXY_LISTEN_GUI=192.168.101.2:8080
+WAFPROXY_LISTEN_GUI=192.168.1.10:8080
 # Refuse console requests from anything but a private network.
 WAFPROXY_GUI_PRIVATE_ONLY=true
+# Only if a proxy or tunnel sits in front of this host: the CIDRs whose
+# X-Forwarded-For may name the client. Empty trusts nobody.
+WAFPROXY_TRUSTED_PROXIES=
 ```
 
 `WAFPROXY_LISTEN_WAN=:8443` is the first-boot proxy port; the wizard moves it to `443` on the
@@ -70,8 +73,8 @@ Open `http://<host-ip>:8080` from the LAN and fill in:
 | Admin username | `admin` |
 | Password | 12+ characters, stored as argon2id |
 | Base domain | `kendk.duckdns.org` |
-| WAN IP / port | `192.168.191.2` / `443` |
-| LAN IP / GUI port | `192.168.101.2` / `8443` |
+| WAN IP / port | `192.168.1.20` / `443` |
+| LAN IP / GUI port | `192.168.1.10` / `8443` |
 | DuckDNS token | optional, stored AES-256-GCM encrypted |
 | ACME email | Let's Encrypt account contact |
 
@@ -98,14 +101,14 @@ The wizard returns the TOTP secret and ten recovery codes **once**. Save both. T
 docker compose -f deploy/docker-compose.yml restart wafproxy
 ```
 
-The GUI is now `http://192.168.101.2:8443` and every login requires password + TOTP (or a
+The GUI is now `http://192.168.1.10:8443` and every login requires password + TOTP (or a
 recovery code).
 
 ## 4. Firewalla and DuckDNS
 
 1. DuckDNS keeps the A record for `kendk.duckdns.org`; DuckDNS mirrors A/AAAA and the single
    TXT record to `*.kendk.duckdns.org`, so subdomains resolve without extra records.
-2. On the Firewalla, create a port forward: WAN `443` → `192.168.191.2:443`.
+2. On the Firewalla, create a port forward: WAN `443` → `192.168.1.20:443`.
    **Do not enable SNAT/masquerade on that rule**; the proxy needs real client IPs for
    GeoIP, bans and rate limits.
 3. Do not forward port 80. ACME uses DNS-01 only.
@@ -138,7 +141,7 @@ GUI → **Proxies** → **New proxy**:
 
 - Hostname: `app.kendk.duckdns.org` (single-label subdomain of the base domain; the apex is
   reserved and blackholed)
-- Upstream: `http://192.168.101.10:8080`
+- Upstream: `http://192.168.2.10:8080`
 - Protection profile: `Generic Web` (or `WordPress`, `API-only`, …)
 - WAF mode: `Detect only` for the first 48 hours if the app is unknown, then `Inherit` or
   `Block`.
@@ -181,23 +184,23 @@ adding another application is a catalog entry plus a settings row, and unknown e
 render with the generic firewall steps.
 
 1. GUI → **Streaming** → the application's section → enable.
-2. **Listen address** = an address assigned to this host (`192.168.191.2` in the two-NIC
+2. **Listen address** = an address assigned to this host (`192.168.1.20` in the two-NIC
    reference; on a single-NIC host the LAN address the router forwards to), **port** = the
    port clients will use (any free port works, defaults are 32400 and 8096), **server** =
-   the LAN address and port of that application (`192.168.101.10:32400`,
-   `192.168.101.11:8096`).
+   the LAN address and port of that application (`192.168.2.10:32400`,
+   `192.168.2.11:8096`).
 3. **Allowed sources** is optional: empty accepts any client the firewall lets through; a
    CIDR restricts further. **Max connections** caps concurrent streams.
 4. **Save and apply** binds the port immediately. There is no Docker restart to do while the
    stack uses `network_mode: host`. A port already used by the GUI, the HTTP proxy or another
    streaming section is refused with a clear message.
-5. On the Firewalla: WAN `32400/tcp` → `192.168.191.2:32400` (and the same for 8096),
+5. On the Firewalla: WAN `32400/tcp` → `192.168.1.20:32400` (and the same for 8096),
    **DNAT only, no SNAT**. The listener address must not appear as the source, or the server
    cannot trust it.
 6. In the application:
    - **Plex**: Settings → Network → *List of IP addresses and networks that are allowed
-     without auth* → add `192.168.101.2/32`, and keep the list strict.
-   - **Jellyfin**: Settings → Networking → *Known proxies* → add `192.168.101.2`. Jellyfin has
+     without auth* → add `192.168.1.10/32`, and keep the list strict.
+   - **Jellyfin**: Settings → Networking → *Known proxies* → add `192.168.1.10`. Jellyfin has
      no IP whitelist of its own; use the allow list above when only some clients should
      connect.
 
@@ -306,8 +309,8 @@ root. It does not need `setcap` on the binary, and `ProtectSystem=strict` leaves
 `install.sh` writes the selected addresses to `/etc/wafproxy/wafproxy.env`:
 
 ```ini
-WAFPROXY_LISTEN_WAN=192.168.191.2:443
-WAFPROXY_LISTEN_GUI=192.168.101.2:8443
+WAFPROXY_LISTEN_WAN=192.168.1.20:443
+WAFPROXY_LISTEN_GUI=192.168.1.10:8443
 WAFPROXY_WAN_IFACE=<wan-iface>
 WAFPROXY_LAN_IFACE=<lan-iface>
 WAFPROXY_GUI_PRIVATE_ONLY=true
@@ -315,9 +318,9 @@ WAFPROXY_GUI_PRIVATE_ONLY=true
 
 On a dual-homed host:
 
-- **WAN interface** (for example `192.168.191.2`): proxy listener `443` and any streaming ports.
-- **LAN interface** (for example `192.168.101.2`): admin GUI `8443` and egress to backends.
-- **Router**: DNAT `443` to `192.168.191.2:443`, no SNAT, exactly as in §4.
+- **WAN interface** (for example `192.168.1.20`): proxy listener `443` and any streaming ports.
+- **LAN interface** (for example `192.168.1.10`): admin GUI `8443` and egress to backends.
+- **Router**: DNAT `443` to `192.168.1.20:443`, no SNAT, exactly as in §4.
 
 Both addresses must be assigned to the host before running the installer. If a stored address
 is later missing (DHCP change or a renamed NIC), the listener falls back to the env address and
@@ -337,7 +340,7 @@ so the stored addresses are used:
 sudo systemctl restart wafproxy
 ```
 
-The GUI is now `http://192.168.101.2:8443`, the proxy is on `192.168.191.2:443`, and later edits
+The GUI is now `http://192.168.1.10:8443`, the proxy is on `192.168.1.20:443`, and later edits
 to the env file no longer move the listeners (change them in **Settings** and restart). On an
 existing install, the addresses already stored in SQLite take precedence over the installer’s
 env file; re-run the installer only to update the binary/unit, and change moved interfaces in
@@ -347,6 +350,23 @@ If you install the unit by hand instead of running `install.sh`, the shipped env
 binds both listeners to loopback. Set `WAFPROXY_LISTEN_GUI` and `WAFPROXY_LISTEN_WAN`, or use
 `ssh -L 8080:127.0.0.1:8080 <this-host>` and add `WAFPROXY_GUI_PRIVATE_ONLY=true` before
 starting the service.
+
+### Trusted proxies
+
+Addresses, access profiles, rate limits, the ban engine and the audit log all act on the client
+address. It is the socket peer unless `WAFPROXY_TRUSTED_PROXIES` names the CIDRs of a proxy or
+tunnel in front of this host; only then is `X-Forwarded-For` believed, and the right-most entry
+that is not itself a trusted proxy wins. Nothing is trusted by default, so a spoofed header from
+a directly connected client is still discarded.
+
+Set it when the console or the sites are reached through another hop (a reverse proxy on the
+same host, a container network, Cloudflare Tunnel). Leaving it empty behind a tunnel makes every
+client look like `127.0.0.1`: the LAN check passes for traffic that is not on the LAN, and a
+single decoy hit bans the tunnel.
+
+`WAFPROXY_MAX_INFLIGHT` (default `128`) caps requests in flight; each may buffer a body up to the
+profile limit, so this is the memory ceiling for request bodies. Requests past it receive `503`,
+and **Dashboard → Request budget** shows the current count and how many were refused.
 
 ### 11.3 Firewall and nftables
 

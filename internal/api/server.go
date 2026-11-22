@@ -22,6 +22,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crowdsec"
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
@@ -345,12 +346,26 @@ func sessionFrom(r *http.Request) *store.Session {
 	return sess
 }
 
+// trustedProxies is the process-wide allowlist whose X-Forwarded-For may name
+// the client. Nil or empty means the socket peer always wins.
+var trustedProxies *clientip.Resolver
+
+// SetTrustedProxies installs the allowlist parsed from WAFPROXY_TRUSTED_PROXIES.
+func SetTrustedProxies(r *clientip.Resolver) { trustedProxies = r }
+
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
-	return host
+	if trustedProxies == nil {
+		return host
+	}
+	addr, ok := trustedProxies.FromRequest(r)
+	if !ok {
+		return host
+	}
+	return addr.String()
 }
 
 // ---------- public endpoints ----------

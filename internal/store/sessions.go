@@ -13,7 +13,7 @@ func (s *Store) DeleteUserSessions(userID int64) error {
 // after a credential rotation so other browsers must sign in again while the
 // current tab stays usable.
 func (s *Store) DeleteOtherSessions(userID int64, keepID string) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE user_id = ? AND id <> ?`, userID, keepID)
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE user_id = ? AND id <> ?`, userID, s.sessionID(keepID))
 	return err
 }
 

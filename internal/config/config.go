@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/tailnet"
@@ -24,6 +25,12 @@ type Config struct {
 	WANIface       string
 	LANIface       string
 	GUIPrivateOnly bool
+	// TrustedProxies lists the CIDRs whose X-Forwarded-For may name the
+	// client. Empty means nothing is trusted and the socket peer always wins.
+	TrustedProxies []string
+	// MaxInflight bounds the requests that may be buffered at once, which is
+	// what keeps a burst of large uploads from exhausting a small host.
+	MaxInflight int
 	// TailscaleIP is the tailscale0 IPv4 address captured at boot. Settings
 	// decide whether it is used; a missing interface leaves it empty and the
 	// service continues with only the LAN/WAN listeners.
@@ -42,10 +49,12 @@ func Load() (*Config, error) {
 	c := &Config{
 		DataDir:        envOr("WAFPROXY_DATA_DIR", "./data"),
 		ListenWAN:      envOr("WAFPROXY_LISTEN_WAN", ":8443"),
-		ListenGUI:      envOr("WAFPROXY_LISTEN_GUI", ":8080"),
+		ListenGUI:      envOr("WAFPROXY_LISTEN_GUI", "127.0.0.1:8080"),
 		WANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_WAN_IFACE")),
 		LANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_LAN_IFACE")),
-		GUIPrivateOnly: envBool("WAFPROXY_GUI_PRIVATE_ONLY"),
+		GUIPrivateOnly: envBoolOr("WAFPROXY_GUI_PRIVATE_ONLY", true),
+		TrustedProxies: splitList(os.Getenv("WAFPROXY_TRUSTED_PROXIES")),
+		MaxInflight:    envInt("WAFPROXY_MAX_INFLIGHT", 128),
 		TailscaleIP:    tailscaleIPv4(),
 		CrowdSecURL:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_URL")),
 		CrowdSecKey:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_KEY")),
@@ -161,10 +170,28 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func envBool(key string) bool {
+func envBoolOr(key string, fallback bool) bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
 	case "1", "true", "yes", "on":
 		return true
+	case "0", "false", "no", "off":
+		return false
 	}
-	return false
+	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key)))
+	if err != nil || v <= 0 {
+		return fallback
+	}
+	return v
+}
+
+func splitList(raw string) []string {
+	var out []string
+	for _, v := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' }) {
+		out = append(out, v)
+	}
+	return out
 }

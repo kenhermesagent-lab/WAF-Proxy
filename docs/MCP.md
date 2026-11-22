@@ -59,7 +59,7 @@ protocol version and advertises only the `tools` capability. A 2026 client may c
 
 ```bash
 TOKEN='<agent token>'
-curl -sS http://192.168.101.2:8443/mcp \
+curl -sS http://192.168.1.10:8443/mcp \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
@@ -68,7 +68,7 @@ curl -sS http://192.168.101.2:8443/mcp \
 List the tools:
 
 ```bash
-curl -sS http://192.168.101.2:8443/mcp \
+curl -sS http://192.168.1.10:8443/mcp \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
@@ -77,7 +77,7 @@ curl -sS http://192.168.101.2:8443/mcp \
 Call one:
 
 ```bash
-curl -sS http://192.168.101.2:8443/mcp \
+curl -sS http://192.168.1.10:8443/mcp \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_ip_activity","arguments":{"ip":"203.0.113.9"}}}'
@@ -96,7 +96,7 @@ Use the HTTP MCP transport with a fixed `Authorization` header:
   "mcpServers": {
     "wafproxy": {
       "type": "http",
-      "url": "http://192.168.101.2:8443/mcp",
+      "url": "http://192.168.1.10:8443/mcp",
       "headers": { "Authorization": "Bearer <agent token>" }
     }
   }

@@ -227,13 +227,21 @@ func TestBanListTruncationFlagMatchesTheAppliedLimit(t *testing.T) {
 		return len(out.Bans), out.Limited
 	}
 
-	if n, limited := get(""); n != 200 || !limited {
-		t.Fatalf("default limit returned %d rows, limited=%v; want a truncated list", n, limited)
+	// Exactly a full page means nothing is hidden, so the flag stays false.
+	if n, limited := get(""); n != 200 || limited {
+		t.Fatalf("default limit returned %d rows, limited=%v; want a complete list", n, limited)
 	}
 	if n, limited := get("?limit=50"); n != 50 || !limited {
 		t.Fatalf("explicit limit returned %d rows, limited=%v", n, limited)
 	}
 	if n, limited := get("?limit=1000"); n != 200 || limited {
 		t.Fatalf("a limit above the table size reported %d rows, limited=%v", n, limited)
+	}
+	// One row past the page is what the flag exists for.
+	if _, err := st.AddBan(&model.Ban{CIDR: "198.51.99.99/32", Reason: "fill", Source: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	if n, limited := get(""); n != 200 || !limited {
+		t.Fatalf("a 201-row table reported %d rows, limited=%v; want a truncated list", n, limited)
 	}
 }

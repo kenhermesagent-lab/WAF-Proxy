@@ -22,6 +22,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/api"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crowdsec"
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
@@ -93,11 +94,27 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	trusted, err := clientip.New(cfg.TrustedProxies)
+	if err != nil {
+		return err
+	}
+	// The console is safe without a wrapper: a bare container or binary binds
+	// loopback and refuses non-private clients unless the operator says so.
+	if host, _, splitErr := net.SplitHostPort(cfg.ListenGUI); splitErr == nil {
+		ip := net.ParseIP(host)
+		if !cfg.GUIPrivateOnly && (ip == nil || !ip.IsLoopback()) {
+			log.Warn("the admin console accepts clients from any network", "addr", cfg.ListenGUI,
+				"hint", "bind 127.0.0.1:8080 or set WAFPROXY_GUI_PRIVATE_ONLY=true")
+		}
+	}
 	st, err := store.Open(cfg.DataDir)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	// Session cookies are stored as a keyed digest, so a copy of the database
+	// does not hand out live admin sessions.
+	st.SetSessionKey(cfg.MasterKey)
 
 	box, err := wfcrypto.New(cfg.MasterKey)
 	if err != nil {
@@ -280,11 +297,12 @@ func run() error {
 	}
 	px, err := proxy.New(proxy.Deps{
 		Store: st, Policy: pol, Gate: gateEngine, Bots: bots, Bans: bans,
-		Geo: geo, Metrics: met, Log: log,
+		Geo: geo, Metrics: met, Log: log, ClientIP: trusted,
 	})
 	if err != nil {
 		return err
 	}
+	px.SetMaxInflight(cfg.MaxInflight)
 	px.SetCertProvider(certs)
 	cur := pol.CurrentSettings()
 	px.SetBodyLimit(cur.MaxBody)
@@ -374,6 +392,7 @@ func run() error {
 			}
 		}
 	}()
+	api.SetTrustedProxies(trusted)
 	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
 	apiServer.StartBackup(ctx)
 	apiServer.StartAutoUpdate(ctx)

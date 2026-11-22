@@ -11,6 +11,68 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.16.0] — 2026-11-22
+
+Findings from a security review of 1.14.0, fixed. None of them was a pre-authentication remote
+compromise; each is a case where a safe default or an existing guarantee did not hold.
+
+### Security
+
+- **Agent webhooks go through the SSRF guard.** Saving an agent link now runs the endpoint
+  through the same check as proxy upstreams, threat feeds and notification webhooks, so a
+  link-local or cloud metadata address is refused instead of turning the console into the pivot
+  the guard exists to prevent. A LAN or loopback collector is still accepted. The dispatcher
+  uses its own client with a 5-second timeout that does **not** follow redirects, so a `302` to
+  `169.254.169.254` cannot walk around the save-time check.
+- **Session cookies are no longer stored in the clear.** `sessions.id` is an HMAC-SHA256 digest
+  under the console key instead of the cookie value, so a copied database, backup, rsync or
+  container volume holds no usable admin session. The digest is stable across restarts; sessions
+  written by an earlier release cannot be converted and are cleared once, which signs everyone
+  out after the upgrade.
+- **`docker run` alone is safe.** The console now defaults to `127.0.0.1:8080` and
+  `WAFPROXY_GUI_PRIVATE_ONLY=true` in the binary and the image, not only in compose and
+  `install.sh`. The boot log warns when the console is bound off-host with the private-network
+  check disabled. Nothing changes for an existing install: compose, `install.sh` and the
+  wizard's stored listener all supply both values explicitly, and the stored listener still wins.
+- **Real client addresses behind a trusted proxy.** New `WAFPROXY_TRUSTED_PROXIES` (empty by
+  default) lists the CIDRs whose `X-Forwarded-For` may name the client. The right-most entry that
+  is not itself a trusted proxy wins; an untrusted peer's header is still discarded, so spoofing
+  remains impossible. The resolved address is used by the access gate, access profiles, rate
+  limits, the ban engine, GeoIP, the access log, the upstream `X-Forwarded-For` and the
+  console's private-network and Tailscale checks. Behind a tunnel, leaving it empty makes every
+  client look like loopback — the LAN check then passes for traffic that is not on the LAN, and
+  one decoy hit bans the tunnel itself.
+- **The agent delivery queue is bounded.** At most 1000 pending rows per link: the oldest are
+  dropped (and the drop is logged once per event) so a detector firing against a dead agent
+  cannot fill an SD card. A link whose last delivery exhausted its attempts stops queueing new
+  rows; the failed row stays visible for inspection.
+- **Request memory is bounded.** New `WAFPROXY_MAX_INFLIGHT` (default 128) caps concurrent
+  requests, each of which may buffer a body up to the profile limit. Requests past the budget
+  are refused with `503` instead of growing the heap, and **Dashboard → Request budget** shows
+  the current count and how many were refused.
+
+### Fixed
+
+- `TestDecoyMatchesCanonicalPaths` used one source address for every case while the decoy ban is
+  recorded in a goroutine, so it could observe its own earlier ban and fail under `-race`. Each
+  case now uses its own documentation address.
+- `GET /api/bans` reported `limited: true` whenever the page was exactly full, even though
+  nothing was hidden. It now means "there are more rows than shown"; the payload also carries
+  `total`.
+- A temporary ban longer than 24 hours was silently shortened. `POST /api/bans` now answers
+  `400` and says so, instead of quietly applying a different ban than the one requested.
+- README claimed features were "not included in 1.3.0" at version 1.15, and linked two headings
+  that no longer existed.
+
+### Changed
+
+- The repository no longer carries the internal planning document, the dated design specs or the
+  security review that produced this release; the README, `docs/` and this changelog cover what
+  ships.
+- Example addresses in `.env.example`, the README and `docs/INSTALL.md` are neutral
+  (`127.0.0.1`, `192.168.1.10`) instead of one specific home network, and the Plex/Jellyfin
+  examples no longer name a real host.
+
 ## [1.15.0] — 2026-11-22
 
 ### Changed
@@ -459,7 +521,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **Decoy honeypot bypass.** The decoy list was matched against the raw request path and was
   skipped entirely for whitelisted clients, so `/./secret-admin`, `//secret-admin` or
   `/x/../secret-admin` reached the upstream without a ban. Decoys now run for every client and
-  compare a canonical path. See `SECURITY_DEMO_FINDINGS.md`.
+  compare a canonical path.
 
 ## [1.3.0] — 2026-11-21
 
@@ -835,7 +897,7 @@ Closes the remaining 1.0.0 feature gaps and adds executable pipeline coverage pl
 ## [1.0.0] — 2026-11-19
 
 The ten planned phases were implemented together and shipped as the first release, so the
-per-phase version numbers described in [PLAN.md](PLAN.md) did not exist as separate tags.
+per-phase version numbers described in the project plan did not exist as separate tags.
 This section records what each phase contributes to `1.0.0`.
 
 ### Added — foundation (Phase 0)
@@ -964,4 +1026,4 @@ This section records what each phase contributes to `1.0.0`.
 
 ## [0.0.0] — 2026-11-19
 
-Planning baseline. Full design in [PLAN.md](PLAN.md); no application code yet.
+Planning baseline. Full design in the project plan; no application code yet.

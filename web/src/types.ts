@@ -416,6 +416,9 @@ export interface Metrics {
   dual_nic: boolean;
   proxy: Flow;
   host: Flow;
+  inflight: number;
+  max_inflight: number;
+  shed: number;
 }
 
 export interface GateUser {

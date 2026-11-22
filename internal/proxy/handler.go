@@ -17,6 +17,21 @@ import (
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	// One trusted-proxy decision per request, taken before any forwarding header
+	// is stripped: the access lists, the ban engine, GeoIP, the access log and
+	// the upstream all read the same address from RemoteAddr afterwards.
+	if s.d.ClientIP != nil {
+		if addr, ok := s.d.ClientIP.FromRequest(r); ok {
+			r.RemoteAddr = net.JoinHostPort(addr.String(), "0")
+		}
+	}
+	if !s.acquire() {
+		w.Header().Set("Retry-After", "1")
+		uniformError(w, http.StatusServiceUnavailable)
+		return
+	}
+	defer s.release()
+
 	host := normalizeHost(r.Host)
 	e := s.lookup(host)
 

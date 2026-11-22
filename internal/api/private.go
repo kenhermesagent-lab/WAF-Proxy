@@ -9,10 +9,10 @@ import (
 )
 
 // PrivateNetworksOnly refuses admin-console requests whose source address is
-// not RFC1918 or loopback. It is opt-in (WAFPROXY_GUI_PRIVATE_ONLY) because the
-// Docker deployment has historically allowed reaching the GUI from any address
-// the operator exposes; the native installer enables it and binds the GUI to
-// the LAN interface.
+// not RFC1918 or loopback. It is on by default (WAFPROXY_GUI_PRIVATE_ONLY=true)
+// and can be switched off for an operator who terminates the console elsewhere.
+// The client address comes from the trusted-proxy allowlist, so a console behind
+// a tunnel is judged by the real client, not by the tunnel's loopback address.
 func PrivateNetworksOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := net.ParseIP(clientIP(r))

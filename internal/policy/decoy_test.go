@@ -1,10 +1,16 @@
 package policy
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
+
+// decoySource returns a distinct documentation address per case. The decoy ban
+// is recorded in a goroutine, so a shared source would let one case observe the
+// ban its predecessor just created.
+func decoySource(i int) string { return fmt.Sprintf("198.51.100.%d", i+1) }
 
 // A whitelisted source is still a scanner's source. The honeypot must fire for
 // it, otherwise a compromised friendly host can probe decoy paths freely.
@@ -42,14 +48,14 @@ func TestDecoyMatchesCanonicalPaths(t *testing.T) {
 	if err := pol.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/.env", "/./.env", "//.env", "/x/../.env", "/.env/", "/././.env", "/.ENV"} {
-		if v := screen(pol, "203.0.113.7", path); v.Action != "ban" {
+	for i, path := range []string{"/.env", "/./.env", "//.env", "/x/../.env", "/.env/", "/././.env", "/.ENV"} {
+		if v := screen(pol, decoySource(i), path); v.Action != "ban" {
 			t.Errorf("%q did not trigger the decoy: %+v", path, v)
 		}
 	}
 	// A decoy must not swallow unrelated paths that merely share a prefix.
-	for _, path := range []string{"/.environment", "/", "/safe/.env.example"} {
-		if v := screen(pol, "203.0.113.7", path); v.Action == "ban" {
+	for i, path := range []string{"/.environment", "/", "/safe/.env.example"} {
+		if v := screen(pol, decoySource(20+i), path); v.Action == "ban" {
 			t.Errorf("%q matched the decoy but should not: %+v", path, v)
 		}
 	}

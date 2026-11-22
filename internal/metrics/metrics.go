@@ -78,6 +78,11 @@ type Snapshot struct {
 	// upstream legs of proxied requests.
 	Proxy Flow `json:"proxy"`
 	Host  Flow `json:"host"`
+	// Request budget of the proxy: what is in flight, what is allowed, and how
+	// many requests were refused because the budget was full.
+	Inflight    int   `json:"inflight"`
+	MaxInflight int   `json:"max_inflight"`
+	Shed        int64 `json:"shed"`
 }
 
 type ifSample struct {

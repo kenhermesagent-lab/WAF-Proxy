@@ -24,6 +24,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/gate"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
@@ -39,14 +40,15 @@ type CertProvider interface {
 
 // Deps are the collaborators the proxy needs.
 type Deps struct {
-	Store   *store.Store
-	Policy  *policy.Engine
-	Gate    *gate.Gate
-	Bots    *botguard.Guard
-	Bans    *ban.Engine
-	Geo     *geoip.Geo
-	Metrics *metrics.Collector
-	Log     *slog.Logger
+	Store    *store.Store
+	Policy   *policy.Engine
+	Gate     *gate.Gate
+	Bots     *botguard.Guard
+	Bans     *ban.Engine
+	Geo      *geoip.Geo
+	Metrics  *metrics.Collector
+	Log      *slog.Logger
+	ClientIP *clientip.Resolver
 }
 
 type edge struct {
@@ -80,6 +82,13 @@ type Server struct {
 
 	hardBody int64
 
+	// inflight bounds the requests buffered at once; shed counts the ones
+	// refused because that budget was full.
+	inflight    chan struct{}
+	inflightN   atomic.Int64
+	maxInflight atomic.Int64
+	shed        atomic.Int64
+
 	listenMu  sync.Mutex
 	listenErr map[string]string
 }
@@ -97,6 +106,7 @@ func New(d Deps) (*Server, error) {
 		events:   make(chan model.Event, 8192),
 		hardBody: 8 << 20,
 	}
+	s.SetMaxInflight(DefaultMaxInflight)
 	s.transport = &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -119,6 +129,49 @@ func (s *Server) SetBodyLimit(n int64) {
 	if n > 0 {
 		s.hardBody = n
 	}
+}
+
+// DefaultMaxInflight is the request budget when none is configured. With the
+// 8 MiB body ceiling this keeps the worst case near a gigabyte rather than
+// letting a few hundred concurrent uploads take the host down.
+const DefaultMaxInflight = 128
+
+// SetMaxInflight bounds how many requests may be in flight or buffered at once.
+// It is called once at startup, before the listeners serve.
+func (s *Server) SetMaxInflight(n int) {
+	if n <= 0 {
+		n = DefaultMaxInflight
+	}
+	s.maxInflight.Store(int64(n))
+	s.inflight = make(chan struct{}, n)
+}
+
+// Capacity reports the current request budget: in flight, allowed, and how many
+// requests have been refused because the budget was full.
+func (s *Server) Capacity() (inflight, max int, shed int64) {
+	return int(s.inflightN.Load()), int(s.maxInflight.Load()), s.shed.Load()
+}
+
+func (s *Server) acquire() bool {
+	if s.inflight == nil {
+		return true
+	}
+	select {
+	case s.inflight <- struct{}{}:
+		s.inflightN.Add(1)
+		return true
+	default:
+		s.shed.Add(1)
+		return false
+	}
+}
+
+func (s *Server) release() {
+	if s.inflight == nil {
+		return
+	}
+	<-s.inflight
+	s.inflightN.Add(-1)
 }
 
 // Reload rebuilds every host route from the database.

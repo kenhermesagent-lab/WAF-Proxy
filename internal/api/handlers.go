@@ -740,8 +740,14 @@ func (s *Server) listBans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	active, reason := s.bans.KernelStatus()
+	total, err := s.st.CountBans(all)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"bans": list, "active": s.bans.Count(), "limited": len(list) == limit,
+		"bans": list, "active": s.bans.Count(), "limited": len(list) == limit && total > limit,
+		"total":  total,
 		"kernel": map[string]any{"active": active, "reason": reason},
 	})
 }
@@ -780,9 +786,15 @@ func (s *Server) createBan(w http.ResponseWriter, r *http.Request) {
 	ttl := time.Duration(0)
 	if !in.Permanent {
 		// A temporary ban lasts at most a day: the point is a cool-down, and an
-		// unbounded TTL turns the list into a second permanent list.
-		if in.TTL <= 0 || in.TTL > int(ban.MaxTempTTL/time.Second) {
-			in.TTL = int(ban.MaxTempTTL / time.Second)
+		// unbounded TTL turns the list into a second permanent list. Refuse the
+		// request instead of silently shortening what the operator asked for.
+		max := int(ban.MaxTempTTL / time.Second)
+		if in.TTL <= 0 {
+			in.TTL = max
+		}
+		if in.TTL > max {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("a temporary ban lasts at most %d seconds (24 hours); make it permanent to keep it", max))
+			return
 		}
 		ttl = time.Duration(in.TTL) * time.Second
 	}
@@ -1317,7 +1329,11 @@ func (s *Server) deleteCert(w http.ResponseWriter, r *http.Request) {
 // ---------- observability ----------
 
 func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.metrics.Snapshot())
+	snap := s.metrics.Snapshot()
+	if s.proxy != nil {
+		snap.Inflight, snap.MaxInflight, snap.Shed = s.proxy.Capacity()
+	}
+	writeJSON(w, http.StatusOK, snap)
 }
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {

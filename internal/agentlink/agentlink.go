@@ -32,6 +32,14 @@ const MaxAttempts = 8
 // it, capped at one hour.
 const BaseBackoff = 30 * time.Second
 
+// client never follows a redirect. The endpoint is checked when it is saved,
+// and a 302 from an allowed host to a metadata service would walk straight
+// around that check.
+var client = &http.Client{
+	Timeout:       10 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
+
 // Backoff returns the wait after a given attempt number (1-based).
 func Backoff(attempt int) time.Duration {
 	if attempt < 1 {
@@ -81,12 +89,21 @@ func (d *Dispatcher) Publish(e model.AnomalyEvent) {
 	if err != nil {
 		return
 	}
+	// A link that exhausted its attempts is reported once by its last failed
+	// row; queueing another payload per event would only fill the table.
+	last, _ := d.st.LastDeliveries()
 	for _, l := range links {
 		if !l.Enabled {
 			continue
 		}
-		if _, err := d.st.EnqueueDelivery(l.ID, e.ID, e.Kind, string(body)); err != nil {
+		if prev, ok := last[l.ID]; ok && prev.State == "failed" {
+			d.log.Debug("agent link is dead; event not queued", "agent", l.Name)
+			continue
+		}
+		if _, dropped, err := d.st.EnqueueDelivery(l.ID, e.ID, e.Kind, string(body)); err != nil {
 			d.log.Warn("agent event could not be queued", "agent", l.Name, "err", err)
+		} else if dropped > 0 {
+			d.log.Warn("agent queue full; oldest events dropped", "agent", l.Name, "dropped", dropped)
 		}
 	}
 }
@@ -105,7 +122,7 @@ func (d *Dispatcher) SendTest(ctx context.Context, l model.AgentLink) error {
 	if err != nil {
 		return err
 	}
-	id, err := d.st.EnqueueDelivery(l.ID, 0, "test", string(body))
+	id, _, err := d.st.EnqueueDelivery(l.ID, 0, "test", string(body))
 	if err != nil {
 		return err
 	}
@@ -211,7 +228,7 @@ func (d *Dispatcher) post(ctx context.Context, l model.AgentLink, body []byte) (
 		mac.Write(body)
 		req.Header.Set("X-Wafproxy-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, err
 	}

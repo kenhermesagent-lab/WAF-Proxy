@@ -29,17 +29,32 @@ func scanDelivery(row interface{ Scan(...any) error }) (*model.Delivery, error) 
 	return &d, nil
 }
 
+// MaxPendingPerLink caps the durable queue of one agent link. A detector firing
+// against a dead agent would otherwise grow the table, and the database file,
+// without bound on a device that may be an SD card.
+const MaxPendingPerLink = 1000
+
 // EnqueueDelivery stores a webhook payload. It is written before any network
-// call so a restart, crash or slow agent cannot lose the event.
-func (s *Store) EnqueueDelivery(linkID, eventID int64, kind, body string) (int64, error) {
+// call so a restart, crash or slow agent cannot lose the event. The oldest
+// pending rows of that link are dropped to stay inside MaxPendingPerLink; the
+// count is returned so the caller can say so once instead of per event.
+func (s *Store) EnqueueDelivery(linkID, eventID int64, kind, body string) (int64, int, error) {
 	now := stamp(time.Now())
 	res, err := s.db.Exec(`INSERT INTO agent_deliveries(link_id, event_id, kind, body, state,
 		attempts, next_attempt_at, created_at) VALUES(?, ?, ?, ?, 'pending', 0, ?, ?)`,
 		linkID, eventID, kind, body, now, now)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return res.LastInsertId()
+	trim, err := s.db.Exec(`DELETE FROM agent_deliveries WHERE state = 'pending' AND link_id = ? AND id NOT IN
+		(SELECT id FROM agent_deliveries WHERE state = 'pending' AND link_id = ? ORDER BY id DESC LIMIT ?)`,
+		linkID, linkID, MaxPendingPerLink)
+	if err != nil {
+		return 0, 0, err
+	}
+	id, err := res.LastInsertId()
+	dropped, _ := trim.RowsAffected()
+	return id, int(dropped), err
 }
 
 // DueDeliveries returns pending payloads whose backoff has elapsed.
