@@ -11,6 +11,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.15.0] — 2026-11-22
+
+### Changed
+
+- **The Update button prepares the install root itself.** `self-update` now creates
+  `/var/lib/waf-proxy/{bin,lib,data}` with the owner and mode `install.sh` uses and moves state
+  from `/var/lib/wafproxy` before installing. An update from 1.13 can no longer install the new
+  unit, which expects `/var/lib/waf-proxy/data`, and leave the service dead with a missing
+  database. The migration test is the database file rather than an empty directory, so the
+  updater's own result record cannot make the move look unnecessary; `install.sh` uses the same
+  test.
+- **A failed update is rolled back, not left half-installed.** Before touching anything the
+  updater keeps the binaries its current unit names, both unit files, the `/usr/local` symlinks
+  and the pre-1.14 state path. If the install step, the restart or the first seconds of the new
+  service fail, it puts every one of them back, restarts the previous build and reports that it
+  did. A failed Update button therefore leaves WAF-Proxy running the version it ran before, and
+  the message tells the operator to run `deploy/install.sh` if the console does not come back.
+- **The outcome of the last update survives the restart.** The updater writes
+  `data/last-app-update` and the Updates page shows it with an installed/failed badge, which is
+  the only way the rollback message can reach the console: the update ends by replacing the very
+  process that would have displayed it. Docker installs put the previous image tag back when the
+  new container does not come up.
+- Copying the helper scripts and binaries is now atomic (write, then rename), so a running script
+  is never overwritten in place and an interrupted copy cannot leave a half-written binary.
+
+### Fixed
+
+- A failed application update reported `exit status 1` instead of the reason; the console now
+  shows the updater's last output line, and the full output stays under **Last update output**.
+- Removed the unused `joinIDList` store helper, and the snapshot fields that were produced but
+  never read (`app_update_run_error`, `app_update_output`).
+- Two README anchors (`#host-updates`, `docs/INSTALL.md#13-host-updates-on-systemd`) pointed at
+  headings that no longer exist.
+
 ## [1.14.1] — 2026-11-22
 
 ### Fixed

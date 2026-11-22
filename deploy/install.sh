@@ -241,8 +241,10 @@ install -d -m 0750 -o root -g wafproxy /etc/wafproxy
 
 # Upgrades from 1.13 and earlier kept state in /var/lib/wafproxy. Move it once,
 # while the service is stopped, so the database, master key and GeoIP files end
-# up in the install root. The old directory is kept as a backup.
-if [[ -d /var/lib/wafproxy && -z "$(ls -A "$data_dir" 2>/dev/null)" ]]; then
+# up in the install root. The old directory is kept as a backup. The test is for
+# the database itself: a stray file in data/ (the updater leaves its result
+# record there) must not make the move look unnecessary.
+if [[ -d /var/lib/wafproxy && ! -e "$data_dir/wafproxy.db" ]]; then
   systemctl stop wafproxy.service >/dev/null 2>&1 || true
   cp -a /var/lib/wafproxy/. "$data_dir"/
   chown -R wafproxy:wafproxy "$data_dir"

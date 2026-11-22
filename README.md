@@ -23,7 +23,7 @@ sample traffic, not production figures.***
 - [First certificate and first site](#first-certificate-and-first-site)
 - [Streaming forwarders (Plex, Jellyfin)](#streaming-forwarders-plex-jellyfin)
 - [Tailscale access](#tailscale-access)
-- [Host updates](#host-updates)
+- [Application and host updates](#application-and-host-updates)
 - [AI Agent Access (MCP gateway and webhooks)](#ai-agent-access-mcp-gateway-and-webhooks)
 - [Notifications and event routing](#notifications-and-event-routing)
 - [CrowdSec](#crowdsec)
@@ -315,7 +315,7 @@ or run `tailscale up` for you. See [docs/INSTALL.md](docs/INSTALL.md#12-optional
 for the ACL and split-DNS setup. Tailscale ACLs still gate who can reach the ports; the admin
 console still requires password + TOTP.
 
-### Updates
+### Application and host updates
 
 The **Updates** page has two parts:
 
@@ -331,6 +331,14 @@ The **Updates** page has two parts:
   `tzdata`, refresh the apt index and apply one allowlisted package through the same helper.
   OSV high/critical advisories are shown for the installed version.
 
+Before it installs anything the updater prepares the install root the same way the installer
+does, including moving state from a pre-1.14 `/var/lib/wafproxy`, so the Update button works on a
+host that has not run `install.sh` since 1.13. It also keeps the binaries and unit files it is
+about to replace: if the build, the install step or the restart fails, or the new service does
+not stay up, it restores them and starts the previous version again. The result of the last
+attempt is shown on the page, because the update replaces the process that would have reported
+it.
+
 The console never supplies a URL, branch, package or shell command for the application
 update. `deploy/install.sh` records the checkout and its owner once; the root-owned helper runs
 only the fixed `self-update-check` and `self-update` scripts. A checkout typed into the page
@@ -340,7 +348,7 @@ container cannot see the host's `/etc` or `/usr/local`. The public repository ne
 token or login; a private fork can use the checkout owner's existing git credentials. A Docker
 image still cannot update itself without the host helper, so an install without it stays
 check-only. See
-[docs/INSTALL.md](docs/INSTALL.md#13-host-updates-on-systemd) for the helper details.
+[docs/INSTALL.md](docs/INSTALL.md#13-application-and-host-updates) for the helper details.
 
 ### AI Agent Access (MCP gateway and webhooks)
 

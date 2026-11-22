@@ -84,6 +84,8 @@ type Manager struct {
 	appRunErr    string
 	appRunOutput string
 
+	dataDir string
+
 	buildMu sync.Mutex
 	opMu    sync.Mutex
 	busy    atomic.Bool
@@ -125,19 +127,18 @@ type Snapshot struct {
 	AppBuildDate  string    `json:"app_build_date"`
 	GoVersion     string    `json:"go_version"`
 
-	AppUpdateAvailable bool   `json:"app_update_available"`
-	AppRemoteVersion   string `json:"app_remote_version,omitempty"`
-	AppRemoteCommit    string `json:"app_remote_commit,omitempty"`
-	AppRemoteDate      string `json:"app_remote_date,omitempty"`
-	AppRemoteURL       string `json:"app_remote_url,omitempty"`
-	AppRemoteBranch    string `json:"app_remote_branch,omitempty"`
-	AppUpdateError     string `json:"app_update_error,omitempty"`
-	AppUpdateSupported bool   `json:"app_update_supported"`
-	AppUpdateReason    string `json:"app_update_reason,omitempty"`
-	AppSourceDir       string `json:"app_source_dir,omitempty"`
-	AppUpdating        bool   `json:"app_updating"`
-	AppUpdateRunError  string `json:"app_update_run_error,omitempty"`
-	AppUpdateOutput    string `json:"app_update_output,omitempty"`
+	AppUpdateAvailable bool           `json:"app_update_available"`
+	AppRemoteVersion   string         `json:"app_remote_version,omitempty"`
+	AppRemoteCommit    string         `json:"app_remote_commit,omitempty"`
+	AppRemoteDate      string         `json:"app_remote_date,omitempty"`
+	AppRemoteURL       string         `json:"app_remote_url,omitempty"`
+	AppRemoteBranch    string         `json:"app_remote_branch,omitempty"`
+	AppUpdateError     string         `json:"app_update_error,omitempty"`
+	AppUpdateSupported bool           `json:"app_update_supported"`
+	AppUpdateReason    string         `json:"app_update_reason,omitempty"`
+	AppSourceDir       string         `json:"app_source_dir,omitempty"`
+	AppUpdating        bool           `json:"app_updating"`
+	AppLastUpdate      *LastAppUpdate `json:"app_last_update,omitempty"`
 }
 
 // AppUpdateStatus is polled while an application rebuild is running.
@@ -190,11 +191,27 @@ func New(log *slog.Logger) *Manager {
 		client:       &http.Client{Timeout: 12 * time.Second},
 		run:          execRunner,
 		now:          time.Now,
+		dataDir:      defaultDataDir(),
 	}
 	if !m.host.available {
 		log.Warn("host package updates unavailable", "reason", m.host.reason)
 	}
 	return m
+}
+
+// SetDataDir records the state directory, so the console can show the result
+// the updater left there after the restart.
+func (m *Manager) SetDataDir(dir string) {
+	if dir != "" {
+		m.dataDir = dir
+	}
+}
+
+func defaultDataDir() string {
+	if v := osGetenv("WAFPROXY_DATA_DIR"); v != "" {
+		return v
+	}
+	return "data"
 }
 
 func execRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -340,10 +357,7 @@ func (m *Manager) mergeApp(snap Snapshot, app appInfo) Snapshot {
 	snap.AppRemoteBranch = app.remoteBranch
 	snap.AppUpdateError = app.err
 	snap.AppUpdating = m.appBusy.Load()
-	m.appRunMu.Lock()
-	snap.AppUpdateRunError = m.appRunErr
-	snap.AppUpdateOutput = m.appRunOutput
-	m.appRunMu.Unlock()
+	snap.AppLastUpdate = readLastAppUpdate(m.dataDir)
 	ready, msg := m.helperState()
 	status, fromHelper := m.appStatusSnapshot()
 	if fromHelper {
@@ -723,7 +737,7 @@ func (m *Manager) StartAppUpdate(onSuccess func()) error {
 		if err != nil {
 			message = err.Error()
 		} else if !resp.OK {
-			message = resp.Error
+			message = helperFailure(resp)
 		}
 		m.appRunMu.Lock()
 		m.appRunActive = false
@@ -737,6 +751,18 @@ func (m *Manager) StartAppUpdate(onSuccess func()) error {
 		}
 	}()
 	return nil
+}
+
+// The updater prints the reason, and what it restored, as the last line of its
+// output; that reads better than the bare "exit status 1" of the process.
+func helperFailure(resp HelperResponse) string {
+	lines := strings.Split(strings.TrimSpace(resp.Output), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return line
+		}
+	}
+	return resp.Error
 }
 
 func dirExists(path string) bool {

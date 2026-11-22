@@ -228,16 +228,6 @@ func (s *Store) DeleteAccessProfile(id int64) error {
 	return err
 }
 
-func joinIDList(ids []int64) string {
-	parts := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if id > 0 {
-			parts = append(parts, strconv.FormatInt(id, 10))
-		}
-	}
-	return strings.Join(parts, ",")
-}
-
 func parseIDList(raw string) []int64 {
 	out := []int64{}
 	for _, part := range strings.Split(raw, ",") {

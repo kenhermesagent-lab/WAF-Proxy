@@ -225,6 +225,22 @@ export default function UpdatesPage({
             )}
           </div>
         </div>
+        {snap.app_last_update && (
+          <div className="bar-row" style={{ borderBottom: 0 }}>
+            <div style={{ whiteSpace: "nowrap" }}>Last update</div>
+            <div>
+              <Badge tone={snap.app_last_update.status === "ok" ? "ok" : "bad"}>
+                {snap.app_last_update.status === "ok" ? "installed" : "failed"}
+              </Badge>{" "}
+              <span className="muted" style={{ fontSize: 12 }}>
+                {snap.app_last_update.message}
+                {snap.app_last_update.at
+                  ? ` · ${new Date(snap.app_last_update.at).toLocaleString()}`
+                  : ""}
+              </span>
+            </div>
+          </div>
+        )}
         {snap.app_remote_date && (
           <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
             Latest commit {fmtAgo(snap.app_remote_date)} on {snap.app_remote_branch || "the tracked branch"}

@@ -604,7 +604,10 @@ repository URLs and options are rejected. The console still keeps its reduced ca
 and never runs apt or a build itself.
 
 `install.sh` records the checkout path and its owner in `/etc/wafproxy/self-update.conf` and
-installs `/var/lib/waf-proxy/lib/self-update` and `self-update-check`. The default checkout is
+installs `/var/lib/waf-proxy/lib/self-update` and `self-update-check`. That script can run on a
+host that has not been through `install.sh` since 1.13: it creates the install root, moves state
+out of `/var/lib/wafproxy` and installs the environment file the unit expects, exactly as the
+installer does. The default checkout is
 the root-owned clone at `/var/lib/waf-proxy/src`, so neither a home directory nor an
 operator's git credentials are needed; a host where the clone could not be created falls back
 to the directory the installer ran from. The check runs `git fetch` there. The public repository
@@ -614,7 +617,15 @@ console bundle do not count), runs `git pull --ff-only` and `make all`, installs
 into `/var/lib/waf-proxy/bin` and refreshes the helper scripts, reloads systemd units, restarts
 the helper and then restarts `wafproxy.service` so the new binary is loaded. It never accepts an
 argument from the browser, and the data directory is untouched. If the button does not finish,
-`sudo journalctl -u wafproxy-updates -n 80 --no-pager` has the pull and build output. Only install
+`sudo journalctl -u wafproxy-updates -n 80 --no-pager` has the pull and build output.
+
+The updater is its own rollback: before installing it copies the binaries its current unit
+names, both unit files, the `/usr/local` symlinks and, on an upgrade from 1.13, the state
+directory it moved. A build, install or restart failure restores all of it, restarts the
+previous version and prints what it did; the same line is written to
+`/var/lib/waf-proxy/data/last-app-update` and shown on the Updates page, so an operator who is
+signed out during the restart still sees the outcome. If the service does not come back at all,
+run `sudo ./deploy/install.sh` from the checkout: it repairs the paths the updater could not. Only install
 from a repository you trust: the helper builds that checkout's code. A checkout recorded from
 the console must have the same origin as the running build (`owner/repository`, in any git
 remote spelling); the helper refuses one that points at another repository, so an administrator

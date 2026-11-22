@@ -356,6 +356,7 @@ func run() error {
 	}
 
 	updateManager := updates.New(log)
+	updateManager.SetDataDir(cfg.DataDir)
 	// Check host packages daily so the Updates page already has an answer when
 	// it is opened, instead of only after the operator presses Check.
 	go func() {

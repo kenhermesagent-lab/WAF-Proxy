@@ -41,6 +41,16 @@ as_user() {
   fi
 }
 
+# Write through a temporary file in the destination directory: a running script
+# or binary is never truncated in place, and a failed copy cannot leave a
+# half-written file behind.
+install_file() {
+  local source="$1" dest="$2" perm="$3" tmp
+  tmp="$(dirname "$dest")/.$(basename "$dest").new"
+  install -m "$perm" "$source" "$tmp" || return 1
+  mv -f "$tmp" "$dest"
+}
+
 if [[ ! -d "$src/.git" ]]; then
   echo "self-update source is not a git checkout: $src" >&2
   exit 1
@@ -66,15 +76,22 @@ fi
 as_user git -C "$src" checkout -- internal/webui/dist 2>/dev/null || true
 as_user git -C "$src" pull --ff-only origin "$branch"
 cd "$src"
+new_version="$(cat VERSION)"
+new_commit="$(git rev-parse --short HEAD)"
 
 if [[ "$mode" == "docker" ]]; then
   if ! command -v docker >/dev/null; then
     echo "self-update needs docker on the host" >&2
     exit 1
   fi
-  version="$(cat VERSION)"
   env_file="${WAFPROXY_UPDATE_ENV_FILE:-$src/deploy/.env}"
+  previous_version=""
   if [[ -f "$env_file" ]]; then
+    previous_version="$(sed -n 's/^VERSION=//p' "$env_file" | tail -n 1)"
+  fi
+  set_env_version() {
+    local version="$1" tmp
+    [[ -f "$env_file" ]] || return 0
     tmp="$(mktemp)"
     if grep -q '^VERSION=' "$env_file"; then
       awk -v version="$version" '
@@ -88,20 +105,37 @@ if [[ "$mode" == "docker" ]]; then
     # Copy back instead of renaming so the operator's ownership and mode stay.
     cat "$tmp" >"$env_file"
     rm -f "$tmp"
-  fi
+  }
+  set_env_version "$new_version"
   args=(compose)
   if [[ -f "$env_file" ]]; then
     args+=(--env-file "$env_file")
   fi
-  args+=(-f deploy/docker-compose.yml up -d --build wafproxy)
-  VERSION="$version" COMMIT="$(git rev-parse --short HEAD)" \
-    BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" docker "${args[@]}"
-  echo "rebuilt and recreated the WAF-Proxy container from $(cat VERSION) ($(git rev-parse --short HEAD))"
+  args+=(-f deploy/docker-compose.yml)
+  if ! VERSION="$new_version" COMMIT="$new_commit" BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    docker "${args[@]}" up -d --build wafproxy; then
+    echo "self-update: the image build failed; the previous container is still serving" >&2
+    exit 1
+  fi
+  if [[ -z "$(VERSION="$new_version" docker "${args[@]}" ps --status running --services 2>/dev/null | grep -x wafproxy || true)" ]]; then
+    if [[ -n "$previous_version" ]]; then
+      echo "self-update: $new_version is not running; starting $previous_version again" >&2
+      set_env_version "$previous_version"
+      VERSION="$previous_version" docker "${args[@]}" up -d --no-build wafproxy >&2 || true
+    fi
+    echo "self-update: the new container did not come up; see 'docker compose logs wafproxy' and rerun the update, or restore the previous image tag by hand" >&2
+    exit 1
+  fi
+  echo "rebuilt and recreated the WAF-Proxy container from $new_version ($new_commit)"
   exit 0
 fi
 
 if ! command -v make >/dev/null; then
   echo "self-update needs make on the host" >&2
+  exit 1
+fi
+if ! command -v systemctl >/dev/null; then
+  echo "self-update needs systemd on the host" >&2
   exit 1
 fi
 as_user make -C "$src" all
@@ -113,34 +147,250 @@ for file in bin/wafproxy bin/wafproxy-updated deploy/wafproxy.service deploy/waf
   fi
 done
 
+# The same install layout deploy/install.sh creates. Everything the native
+# deployment owns lives under one root, and the state is in data/ owned by the
+# service user; the program files and the checkout stay root-owned.
 app_dir=/var/lib/waf-proxy
-install -d -m 0755 "$app_dir" "$app_dir/bin" "$app_dir/lib"
-install -m 0755 "$src/bin/wafproxy" "$app_dir/bin/wafproxy"
-install -m 0755 "$src/bin/wafproxy-updated" "$app_dir/bin/wafproxy-updated"
-ln -sfn "$app_dir/bin/wafproxy" /usr/local/bin/wafproxy
-ln -sfn "$app_dir/bin/wafproxy-updated" /usr/local/bin/wafproxy-updated
-# Older installs kept the helper scripts in a real directory at this path.
-if [[ -d /usr/local/lib/wafproxy && ! -L /usr/local/lib/wafproxy ]]; then
-  rm -rf /usr/local/lib/wafproxy
-fi
-ln -sfn "$app_dir/lib" /usr/local/lib/wafproxy
-install -m 0755 "$src/deploy/wafproxy-self-update.sh" "$app_dir/lib/self-update"
-install -m 0755 "$src/deploy/wafproxy-self-update-check.sh" "$app_dir/lib/self-update-check"
-if [[ -f "$src/deploy/crowdsec-install.sh" ]]; then
-  install -m 0755 "$src/deploy/crowdsec-install.sh" "$app_dir/lib/crowdsec-install"
-fi
-install -m 0644 "$src/deploy/wafproxy.service" /etc/systemd/system/wafproxy.service
-install -m 0644 "$src/deploy/wafproxy-updates.service" /etc/systemd/system/wafproxy-updates.service
-systemctl daemon-reload
+data_dir="$app_dir/data"
+unit_file=/etc/systemd/system/wafproxy.service
+helper_unit_file=/etc/systemd/system/wafproxy-updates.service
+backup_dir="$app_dir/.rollback"
+old_state_dir=/var/lib/wafproxy
+old_state_backup=/var/lib/wafproxy.pre-1.14
+migrated=0
 
-# The console only sees new helper actions (CrowdSec status, for one) once the
-# helper runs the new binary. Restarting it does not touch the console.
-systemctl try-restart wafproxy-updates.service >/dev/null 2>&1 || true
+install -d -m 0755 -o root -g root "$app_dir"
+
+# What is running now, by the paths its own unit names, so a build that cannot
+# start can be replaced by the exact files that were working a minute ago.
+old_exec=""
+old_helper=""
+had_bin_link=0 old_bin_target=""
+had_helper_link=0 old_helper_target=""
+had_lib_link=0 old_lib_target=""
+snapshot_previous() {
+  rm -rf "$backup_dir"
+  install -d -m 0700 "$backup_dir"
+  if [[ -f "$unit_file" ]]; then
+    cp -a "$unit_file" "$backup_dir/wafproxy.service"
+    old_exec="$(awk -F= '/^ExecStart=/{print $2; exit}' "$unit_file" | awk '{print $1}')"
+  fi
+  if [[ -f "$helper_unit_file" ]]; then
+    cp -a "$helper_unit_file" "$backup_dir/wafproxy-updates.service"
+  fi
+  if [[ -n "$old_exec" && -f "$old_exec" ]]; then
+    cp -a "$old_exec" "$backup_dir/wafproxy"
+    old_helper="$(dirname "$old_exec")/wafproxy-updated"
+    if [[ -f "$old_helper" ]]; then
+      cp -a "$old_helper" "$backup_dir/wafproxy-updated"
+    fi
+  fi
+  if [[ -L /usr/local/bin/wafproxy ]]; then
+    had_bin_link=1 old_bin_target="$(readlink /usr/local/bin/wafproxy)"
+  fi
+  if [[ -L /usr/local/bin/wafproxy-updated ]]; then
+    had_helper_link=1 old_helper_target="$(readlink /usr/local/bin/wafproxy-updated)"
+  fi
+  if [[ -L /usr/local/lib/wafproxy ]]; then
+    had_lib_link=1 old_lib_target="$(readlink /usr/local/lib/wafproxy)"
+  fi
+}
+
+# Put the snapshot back: units, the binaries at the paths those units name, the
+# /usr/local symlinks and the state directory of an install that predates the
+# single install root. A failed update must never leave WAF-Proxy down.
+restore_previous() {
+  # This is the recovery path: every step is best effort, because one failed
+  # copy must not stop the rest of the rollback from running.
+  systemctl stop wafproxy.service >/dev/null 2>&1 || true
+  if ((migrated)); then
+    if [[ -d "$old_state_backup" ]]; then
+      rm -rf "$old_state_dir"
+      mv "$old_state_backup" "$old_state_dir" || true
+    fi
+    # Leave data/ empty so the next install.sh migrates the restored state
+    # instead of finding a stale copy and skipping the move.
+    find "$data_dir" -mindepth 1 -delete 2>/dev/null || true
+  fi
+  if [[ -f "$backup_dir/wafproxy.service" ]]; then
+    install -m 0644 "$backup_dir/wafproxy.service" "$unit_file" >/dev/null 2>&1 || true
+  else
+    rm -f "$unit_file" || true
+  fi
+  if [[ -f "$backup_dir/wafproxy-updates.service" ]]; then
+    install -m 0644 "$backup_dir/wafproxy-updates.service" "$helper_unit_file" >/dev/null 2>&1 || true
+  else
+    rm -f "$helper_unit_file" || true
+  fi
+  if [[ -n "$old_exec" && -f "$backup_dir/wafproxy" ]]; then
+    install -d -m 0755 "$(dirname "$old_exec")" || true
+    install -m 0755 "$backup_dir/wafproxy" "$old_exec" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$old_helper" && -f "$backup_dir/wafproxy-updated" ]]; then
+    install -m 0755 "$backup_dir/wafproxy-updated" "$old_helper" >/dev/null 2>&1 || true
+  fi
+  if ((had_bin_link)); then
+    ln -sfn "$old_bin_target" /usr/local/bin/wafproxy || true
+  else
+    rm -f /usr/local/bin/wafproxy || true
+  fi
+  if ((had_helper_link)); then
+    ln -sfn "$old_helper_target" /usr/local/bin/wafproxy-updated || true
+  else
+    rm -f /usr/local/bin/wafproxy-updated || true
+  fi
+  if ((had_lib_link)); then
+    ln -sfn "$old_lib_target" /usr/local/lib/wafproxy || true
+  else
+    rm -f /usr/local/lib/wafproxy || true
+  fi
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl try-restart wafproxy-updates.service >/dev/null 2>&1 || true
+  systemctl restart wafproxy.service >/dev/null 2>&1 || true
+}
+
+# The update ends with a restart, so the console that reports it is a new
+# process. The result goes into the data directory where the next console reads
+# it: "failed" tells the operator what was restored and what to run next.
+record_app_update() {
+  local status="$1" message="$2" file="$data_dir/last-app-update" tmp
+  [[ -d "$data_dir" ]] || return 0
+  tmp="$data_dir/.last-app-update.new"
+  printf '%s|%s|%s\n' "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${message//$'\n'/ }" >"$tmp" 2>/dev/null || return 0
+  chmod 0644 "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$file" 2>/dev/null || true
+}
+
+# The unit is Type=simple with Restart=always, so a binary that cannot start is
+# back in activating/failed within seconds. Staying active for the whole window
+# is what "healthy" means here; the listener address is stored in SQLite and
+# cannot be read reliably from the command line.
+service_is_healthy() {
+  for _ in $(seq 1 20); do
+    systemctl is-active --quiet wafproxy.service || return 1
+    sleep 0.5
+  done
+  systemctl is-active --quiet wafproxy.service
+}
+
+# Create or migrate the install root exactly as deploy/install.sh does, so an
+# update from a release that kept state in /var/lib/wafproxy cannot start the
+# new unit against a missing data directory.
+prepare_native_dirs() {
+  if ! getent group wafproxy >/dev/null; then
+    groupadd --system wafproxy || return 1
+  fi
+  if ! id -u wafproxy >/dev/null 2>&1; then
+    local nologin
+    nologin="$(command -v nologin || echo /bin/false)"
+    useradd --system --gid wafproxy --home-dir /var/lib/wafproxy --no-create-home --shell "$nologin" wafproxy || return 1
+  fi
+  install -d -m 0755 -o root -g root "$app_dir" "$app_dir/bin" "$app_dir/lib" || return 1
+  install -d -m 0750 -o wafproxy -g wafproxy "$data_dir" /var/log/wafproxy || return 1
+  install -d -m 0750 -o root -g wafproxy /etc/wafproxy || return 1
+
+  # Releases before 1.14 kept the database, master key and GeoIP files here.
+  # Copy them once while the service is stopped and keep the old directory as a
+  # backup, exactly as install.sh does on an upgrade.
+  if [[ -d "$old_state_dir" && ! -e "$data_dir/wafproxy.db" ]]; then
+    systemctl stop wafproxy.service >/dev/null 2>&1 || true
+    cp -a "$old_state_dir/." "$data_dir"/ || return 1
+    chown -R wafproxy:wafproxy "$data_dir" || return 1
+    chmod 0750 "$data_dir" || return 1
+    migrated=1
+    rm -rf "$old_state_backup"
+    if mv "$old_state_dir" "$old_state_backup"; then
+      echo "moved state from $old_state_dir to $data_dir (old copy kept at $old_state_backup)"
+    else
+      echo "warning: state copied to $data_dir but $old_state_dir could not be moved" >&2
+    fi
+  fi
+
+  # Program files used to live in /usr/local/waf-proxy. Carry its helper
+  # scripts over; the directory itself stays until the new build has started,
+  # because the unit being replaced may point into it.
+  if [[ -d /usr/local/waf-proxy/lib ]]; then
+    cp -a /usr/local/waf-proxy/lib/. "$app_dir/lib/" 2>/dev/null || true
+  fi
+
+  # The unit reads this file; install.sh creates it from the example and the
+  # unit's EnvironmentFile is optional, so a missing file must not stop an
+  # update but should not stay missing either.
+  if [[ ! -e /etc/wafproxy/wafproxy.env && -f "$src/deploy/wafproxy.env.example" ]]; then
+    install -m 0640 -o root -g wafproxy "$src/deploy/wafproxy.env.example" /etc/wafproxy/wafproxy.env || return 1
+    echo "installed /etc/wafproxy/wafproxy.env from the example"
+  fi
+}
+
+install_native() {
+  install_file "$src/bin/wafproxy" "$app_dir/bin/wafproxy" 0755 || return 1
+  install_file "$src/bin/wafproxy-updated" "$app_dir/bin/wafproxy-updated" 0755 || return 1
+  ln -sfn "$app_dir/bin/wafproxy" /usr/local/bin/wafproxy || return 1
+  ln -sfn "$app_dir/bin/wafproxy-updated" /usr/local/bin/wafproxy-updated || return 1
+  # Older installs kept the helper scripts in a real directory at this path.
+  if [[ -d /usr/local/lib/wafproxy && ! -L /usr/local/lib/wafproxy ]]; then
+    rm -rf /usr/local/lib/wafproxy || return 1
+  fi
+  ln -sfn "$app_dir/lib" /usr/local/lib/wafproxy || return 1
+  install_file "$src/deploy/wafproxy-self-update.sh" "$app_dir/lib/self-update" 0755 || return 1
+  install_file "$src/deploy/wafproxy-self-update-check.sh" "$app_dir/lib/self-update-check" 0755 || return 1
+  if [[ -f "$src/deploy/crowdsec-install.sh" ]]; then
+    install_file "$src/deploy/crowdsec-install.sh" "$app_dir/lib/crowdsec-install" 0755 || return 1
+  fi
+  install_file "$src/deploy/wafproxy.service" "$unit_file" 0644 || return 1
+  install_file "$src/deploy/wafproxy-updates.service" "$helper_unit_file" 0644 || return 1
+  systemctl daemon-reload || return 1
+  # The console only sees new helper actions once the helper runs the new
+  # binary. Restarting it does not touch the console.
+  systemctl try-restart wafproxy-updates.service >/dev/null 2>&1 || true
+  return 0
+}
+
+snapshot_previous
+
+if ! prepare_native_dirs || ! install_native; then
+  echo "self-update: installing $new_version failed; restoring the previous install" >&2
+  restore_previous
+  record_app_update failed "installing $new_version failed; the previous install was restored. Run sudo $src/deploy/install.sh if anything looks wrong."
+  if service_is_healthy; then
+    echo "self-update: wafproxy.service is running the previous version again. Nothing was upgraded." >&2
+  else
+    echo "self-update: wafproxy.service did not come back; run sudo $src/deploy/install.sh to repair this host" >&2
+  fi
+  exit 1
+fi
 
 # Restarting here, from the fixed script, is what loads the new binary. The
 # console cannot do it itself: it is the process being replaced.
-if ! systemctl try-restart wafproxy.service; then
-  echo "warning: installed $(cat VERSION) but could not restart wafproxy.service; run sudo systemctl restart wafproxy" >&2
+if ! systemctl restart wafproxy.service; then
+  echo "self-update: wafproxy.service did not restart with $new_version; restoring the previous install" >&2
+  journalctl -u wafproxy.service -n 30 --no-pager >&2 || true
+  restore_previous
+  record_app_update failed "$new_version did not start; the previous version was restored. Run sudo $src/deploy/install.sh if the console does not come back."
+  if service_is_healthy; then
+    echo "self-update: the previous version is running again. Fix the cause and press Update again, or run sudo $src/deploy/install.sh." >&2
+  else
+    echo "self-update: wafproxy.service is down; run sudo $src/deploy/install.sh to repair this host" >&2
+  fi
+  exit 1
 fi
 
-echo "installed $(cat VERSION) from $(git rev-parse --short HEAD) into $app_dir and restarted wafproxy.service"
+if ! service_is_healthy; then
+  echo "self-update: $new_version started but did not stay up; restoring the previous install" >&2
+  journalctl -u wafproxy.service -n 30 --no-pager >&2 || true
+  restore_previous
+  record_app_update failed "$new_version did not stay up; the previous version was restored. Run sudo $src/deploy/install.sh if the console does not come back."
+  if service_is_healthy; then
+    echo "self-update: the previous version is running again. Check journalctl -u wafproxy, then run sudo $src/deploy/install.sh." >&2
+  else
+    echo "self-update: wafproxy.service is down; run sudo $src/deploy/install.sh to repair this host" >&2
+  fi
+  exit 1
+fi
+
+# The new build has started, so the old program directory is no longer needed.
+rm -rf /usr/local/waf-proxy
+rm -rf "$backup_dir"
+
+record_app_update ok "installed $new_version from $new_commit"
+echo "installed $new_version from $new_commit into $app_dir and restarted wafproxy.service"

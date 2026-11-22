@@ -58,6 +58,7 @@ export interface UpdatesSnapshot {
   app_update_reason?: string;
   app_source_dir?: string;
   app_updating: boolean;
+  app_last_update?: { status: string; at?: string; message?: string };
 }
 
 export interface TailscaleStatus {
