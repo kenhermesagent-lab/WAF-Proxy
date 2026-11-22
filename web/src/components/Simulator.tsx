@@ -26,10 +26,10 @@ export default function Simulator({ event, onClose, onError }: {
 
   useEffect(() => {
     let live = true;
-    api.get<{ proxies?: Proxy[] }>("/api/proxies")
-      .then((r) => {
+    api.get<Proxy[]>("/api/proxies")
+      .then((list) => {
         if (!live) return;
-        setProxy((r.proxies ?? []).find((p) => p.hostname === event.host) ?? null);
+        setProxy((list ?? []).find((p) => p.hostname === event.host) ?? null);
         setLoaded(true);
       })
       .catch((e) => {
@@ -57,7 +57,7 @@ export default function Simulator({ event, onClose, onError }: {
 
   const except = async (ex: SimException) => {
     try {
-      const { profiles } = await api.get<{ profiles: Profile[] }>("/api/profiles");
+      const profiles = await api.get<Profile[]>("/api/profiles");
       const prof = (profiles ?? []).find((p) => p.id === ex.profile_id);
       if (!prof) {
         onError("That protection profile no longer exists.");
@@ -67,6 +67,7 @@ export default function Simulator({ event, onClose, onError }: {
       if (!ids.includes(String(ex.rule_id))) ids.push(String(ex.rule_id));
       await api.put(`/api/profiles/${ex.profile_id}`, { ...prof, exceptions: ids.join(",") });
       setConfirming(null);
+      setResult((prev) => (prev ? { ...prev, exception: undefined } : prev));
       setSaved(`Rule ${ex.rule_id} is now excepted in ${ex.profile}.`);
     } catch (e) {
       onError(errText(e));
@@ -144,11 +145,13 @@ export default function Simulator({ event, onClose, onError }: {
               </div>
             )}
             <div className="muted">
-              {result.route
-                ? result.route
-                : result.upstream
-                  ? `served by ${result.upstream}`
-                  : "no route or upstream would serve this request"}
+              {result.verdict.action === "block" || result.verdict.action === "ban"
+                ? "blocked before the request was routed"
+                : result.route
+                  ? result.route
+                  : result.upstream
+                    ? `served by ${result.upstream}`
+                    : "no route or upstream would serve this request"}
             </div>
             {result.truncated && <div><Badge tone="warn">Body truncated at the profile limit</Badge></div>}
             {result.notes.length > 0 && (

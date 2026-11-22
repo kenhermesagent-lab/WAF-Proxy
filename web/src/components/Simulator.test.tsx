@@ -36,7 +36,8 @@ describe("Simulator", () => {
   beforeEach(() => {
     get.mockReset();
     post.mockReset();
-    get.mockResolvedValue({ proxies: [{ id: 7, hostname: "app.example.com" }] });
+    // /api/proxies and /api/profiles answer with a bare array.
+    get.mockResolvedValue([{ id: 7, hostname: "app.example.com" }]);
     post.mockResolvedValue(blocked);
   });
 
@@ -53,7 +54,7 @@ describe("Simulator", () => {
 
     expect(await screen.findByText(/SQL Injection Attack Detected/)).toBeTruthy();
     expect(screen.getByText("state is per client")).toBeTruthy();
-    expect(screen.getByText("served by http://127.0.0.1:8080")).toBeTruthy();
+    expect(screen.getByText("blocked before the request was routed")).toBeTruthy();
     expect(post).toHaveBeenCalledWith("/api/simulate", expect.objectContaining({ proxy_id: 7 }));
 
     fireEvent.click(screen.getByRole("button", { name: /Except rule 942100/ }));

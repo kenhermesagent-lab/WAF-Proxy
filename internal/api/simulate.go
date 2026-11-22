@@ -93,7 +93,12 @@ func (s *Server) simulate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
+	// A browser encodes a pasted query before sending it; without this a space
+	// in the query field trips 920100 for a request line no client can send.
 	u.RawQuery = in.Query
+	if vals, err := url.ParseQuery(in.Query); err == nil {
+		u.RawQuery = vals.Encode()
+	}
 
 	addrText := in.ClientIP
 	if addrText == "" {
