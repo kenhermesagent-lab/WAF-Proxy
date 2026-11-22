@@ -86,7 +86,7 @@ export default function AccessLists({
   };
 
   const remove = async (l: AccessList) => {
-    if (!confirm(`Delete the ${l.name} list? Access profiles and forwarders using it must detach it first.`)) return;
+    if (!confirm(`Delete the ${l.name} list? Access profiles, forwarders and Global Profile using it must detach it first.`)) return;
     try {
       await api.del(`/api/lists/${l.id}`);
       onOK("List deleted");

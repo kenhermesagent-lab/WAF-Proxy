@@ -37,7 +37,9 @@ type upstreamBody struct {
 	ProxyID int64  `json:"proxy_id"`
 	URL     string `json:"url"`
 	Weight  int    `json:"weight"`
-	Enabled bool   `json:"enabled"`
+	// Enabled is a pointer so an omitted field means "on": a caller that only
+	// names the target must not end up with a site that has no live upstream.
+	Enabled *bool `json:"enabled"`
 }
 
 type proxyBody struct {
@@ -355,7 +357,11 @@ func (s *Server) saveChildren(proxyID int64, in proxyBody) {
 		if w <= 0 {
 			w = 1
 		}
-		ups = append(ups, model.Upstream{ProxyID: proxyID, URL: u.URL, Weight: w, Enabled: u.Enabled})
+		enabled := true
+		if u.Enabled != nil {
+			enabled = *u.Enabled
+		}
+		ups = append(ups, model.Upstream{ProxyID: proxyID, URL: u.URL, Weight: w, Enabled: enabled})
 	}
 	_ = s.st.ReplaceUpstreams(proxyID, ups)
 	_ = s.st.ReplaceRoutes(proxyID, in.Routes)

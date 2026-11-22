@@ -10,6 +10,7 @@ import (
 	"html"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -80,13 +81,15 @@ func (g *Guard) Start(ctx context.Context) {
 	}()
 }
 
-// Verified reports whether the request carries a valid challenge cookie.
-func (g *Guard) Verified(r *http.Request) bool {
+// Verified reports whether the request carries a valid challenge cookie for
+// this client. The address is part of the binding, so a solved proof cannot be
+// replayed from another host.
+func (g *Guard) Verified(r *http.Request, ip string) bool {
 	c, err := r.Cookie(cookieName)
 	if err != nil || c.Value == "" {
 		return false
 	}
-	return g.validCookie(c.Value, r)
+	return g.validCookie(c.Value, r, ip)
 }
 
 // BrowserLike reports whether a request looks like a navigation, which is the
@@ -100,7 +103,7 @@ func BrowserLike(r *http.Request) bool {
 	return strings.Contains(a, "text/html") || strings.Contains(a, "application/xhtml+xml")
 }
 
-func (g *Guard) validCookie(value string, r *http.Request) bool {
+func (g *Guard) validCookie(value string, r *http.Request, ip string) bool {
 	parts := strings.Split(value, ".")
 	if len(parts) != 2 {
 		return false
@@ -110,17 +113,37 @@ func (g *Guard) validCookie(value string, r *http.Request) bool {
 		return false
 	}
 	mac := hmac.New(sha256.New, g.secret)
-	mac.Write([]byte("bot|" + parts[0] + "|" + clientKey(r)))
+	mac.Write([]byte("bot|" + parts[0] + "|" + clientKey(r, ip)))
 	want := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(want), []byte(parts[1]))
 }
 
-func clientKey(r *http.Request) string {
+func clientKey(r *http.Request, ip string) string {
 	host := r.Host
 	if i := strings.IndexByte(host, ':'); i > 0 {
 		host = host[:i]
 	}
-	return host + "|" + r.UserAgent()
+	return host + "|" + r.UserAgent() + "|" + clientNetwork(ip)
+}
+
+// clientNetwork binds the cookie to the network an address belongs to. IPv4 is
+// exact; IPv6 uses its /64 because one subscriber rotates addresses freely
+// inside that block, and treating each as a new client would break the cookie
+// for half the internet.
+func clientNetwork(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ""
+	}
+	a = a.Unmap()
+	if a.Is4() {
+		return a.String()
+	}
+	p, err := a.Prefix(64)
+	if err != nil {
+		return a.String()
+	}
+	return p.String()
 }
 
 // HandleChallenge serves the challenge page or verifies a solution.
@@ -155,7 +178,7 @@ func (g *Guard) solve(w http.ResponseWriter, r *http.Request, p *model.Proxy, ip
 		return
 	}
 	exp := g.now().Add(g.ttl).Unix()
-	payload := strconv.FormatInt(exp, 10) + "|" + clientKey(r)
+	payload := strconv.FormatInt(exp, 10) + "|" + clientKey(r, ip)
 	mac := hmac.New(sha256.New, g.secret)
 	mac.Write([]byte("bot|" + payload))
 	value := strconv.FormatInt(exp, 10) + "." + hex.EncodeToString(mac.Sum(nil))

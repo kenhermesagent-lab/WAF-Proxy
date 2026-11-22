@@ -41,6 +41,23 @@ func joinSettingIDs(ids []int64) string {
 	return strings.Join(parts, ",")
 }
 
+// globalListAttached reports whether a list is applied under Global Profile.
+// Deleting it from its own tab would otherwise stop enforcing it silently.
+func (s *Server) globalListAttached(id int64) (bool, error) {
+	kv, err := s.st.Settings()
+	if err != nil {
+		return false, err
+	}
+	for _, key := range []string{"global_whitelist_ids", "global_blocklist_ids"} {
+		for _, ref := range parseSettingIDs(kv[key]) {
+			if ref == id {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 func (s *Server) getGlobalLists(w http.ResponseWriter, r *http.Request) {
 	kv, err := s.st.Settings()
 	if err != nil {
@@ -105,9 +122,10 @@ func (s *Server) putGlobalLists(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "global_lists.update",
 		"whitelists "+joinSettingIDs(in.WhitelistIDs)+" blocklists "+joinSettingIDs(in.BlocklistIDs), clientIP(r))
+	wl, bl := joinSettingIDs(in.WhitelistIDs), joinSettingIDs(in.BlocklistIDs)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"whitelist_ids": parseSettingIDs(joinSettingIDs(in.WhitelistIDs)),
-		"blocklist_ids": parseSettingIDs(joinSettingIDs(in.BlocklistIDs)),
+		"whitelist_ids": parseSettingIDs(wl),
+		"blocklist_ids": parseSettingIDs(bl),
 	})
 }
 

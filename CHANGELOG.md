@@ -43,6 +43,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `action: "temp"` to demote a permanent ban back to a 24-hour temporary one, audited like the
   other movements.
 
+### Fixed
+
+- **A Global Profile list can no longer be deleted out from under itself.** Deleting a
+  Whitelist/Blocklist still attached to Global Profile is refused with a 409 naming Global
+  Profile, matching the existing refusal for access profiles and forwarders; detach it first.
+- **The bot-challenge cookie is bound to the client network.** It was signed over host and user
+  agent only, so one solved proof could be replayed from any address. IPv4 is bound exactly and
+  IPv6 within its /64, so a rotating privacy address does not lose the cookie.
+- **An upstream no longer defaults to disabled.** Creating or updating a proxy whose upstream
+  omitted `enabled` stored it off, leaving the site on `502 no healthy upstream`; an omitted field
+  now means enabled, and an explicit `false` still disables it.
+- **`/api/setup/status` stops describing the host after setup.** The unauthenticated endpoint now
+  returns only `needs_setup` and `version` once an administrator exists, instead of the base
+  domain, listener addresses, interface names and kernel-ban state.
+
 ## [1.20.0] — 2026-11-22
 
 ### Added

@@ -38,7 +38,7 @@ function policyKind(type: string, action: string): string {
 
 const stamp = (iso?: string | null) => (iso ? iso.slice(0, 16).replace("T", " ") : "—");
 
-function banSummary(l: { ips: string; countries: string }): string {
+function listSummary(l: { ips: string; countries: string }): string {
   const ips = l.ips ? l.ips.split(",").filter(Boolean).length : 0;
   const countries = l.countries ? l.countries.split(",").filter(Boolean).length : 0;
   return [ips ? `${ips} IP(s)` : "", countries ? `${countries} country(s)` : ""].filter(Boolean).join(" · ") || "empty";
@@ -95,7 +95,7 @@ function BanMoveModal({
     else act("temp", permSel.includes(id) ? permSel : [id]);
   };
 
-  const rows = (list: Ban[], selected: number[], setSelected: (ids: number[]) => void, permanent: boolean) => (
+  const rows = (list: Ban[], selected: number[], setSelected: (ids: number[]) => void) => (
     <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 9, padding: 6 }}>
       {list.length === 0 ? (
         <div className="muted" style={{ fontSize: 12, padding: 6 }}>Empty.</div>
@@ -115,9 +115,7 @@ function BanMoveModal({
               onChange={() => toggle(selected, setSelected, b.id)}
             />
             <span className="mono" style={{ fontSize: 12 }}>{b.cidr}</span>
-            <span className="faint" style={{ fontSize: 11, marginLeft: "auto" }}>
-              {permanent ? stamp(b.created_at) : stamp(b.created_at)}
-            </span>
+            <span className="faint" style={{ fontSize: 11, marginLeft: "auto" }}>{stamp(b.created_at)}</span>
           </div>
         ))
       )}
@@ -136,7 +134,7 @@ function BanMoveModal({
             Temporary ({temp.length}) {focus === "temp" && <Badge tone="info">current</Badge>}
           </div>
           <div onDragOver={(e) => e.preventDefault()} onDrop={dropInto("temp")}>
-            {rows(temp, tempSel, setTempSel, false)}
+            {rows(temp, tempSel, setTempSel)}
           </div>
         </div>
         <div>
@@ -144,7 +142,7 @@ function BanMoveModal({
             Permanent ({perm.length}) {focus === "perm" && <Badge tone="bad">current</Badge>}
           </div>
           <div onDragOver={(e) => e.preventDefault()} onDrop={dropInto("permanent")}>
-            {rows(perm, permSel, setPermSel, true)}
+            {rows(perm, permSel, setPermSel)}
           </div>
         </div>
       </div>
@@ -767,7 +765,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                             onChange={() => toggleGlobal("whitelist", l.id)}
                           />
                           <span>{l.name}</span>
-                          <span className="faint" style={{ fontSize: 11 }}>{banSummary(l)}</span>
+                          <span className="faint" style={{ fontSize: 11 }}>{listSummary(l)}</span>
                         </label>
                       ))
                     )}
@@ -789,7 +787,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                             onChange={() => toggleGlobal("blocklist", l.id)}
                           />
                           <span>{l.name}</span>
-                          <span className="faint" style={{ fontSize: 11 }}>{banSummary(l)}</span>
+                          <span className="faint" style={{ fontSize: 11 }}>{listSummary(l)}</span>
                         </label>
                       ))
                     )}

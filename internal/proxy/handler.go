@@ -149,7 +149,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		event.Action = "challenge"
 		// A solved challenge cookie satisfies a feed challenge too; otherwise a
 		// challenged visitor would loop forever on the same feed entry.
-		if verdict.Stage == "feed" && s.d.Bots.Verified(r) {
+		if verdict.Stage == "feed" && s.d.Bots.Verified(r, ip.String()) {
 			// The visitor already solved a challenge: carry on and let the
 			// deferred logger record the request as allowed.
 			blocked = false
@@ -195,7 +195,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if e.proxy.BotLevel != "" && e.proxy.BotLevel != "off" &&
-		botguard.BrowserLike(r) && !s.d.Bots.Verified(r) {
+		botguard.BrowserLike(r) && !s.d.Bots.Verified(r, ip.String()) {
 		if s.d.Bots.HandleChallenge(rw, r, &e.proxy, ip.String()) {
 			event.Stage, event.Action = "bot-challenge", "challenge"
 			blocked = true

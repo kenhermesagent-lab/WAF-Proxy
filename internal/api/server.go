@@ -425,12 +425,17 @@ func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	base, _ := s.st.GetSetting("base_domain")
+	if n > 0 {
+		// Everything below describes the first-boot wizard, and this endpoint
+		// is unauthenticated: once setup is done, report only what a signed-out
+		// console needs to decide between the login form and the wizard.
+		writeJSON(w, http.StatusOK, map[string]any{"needs_setup": false, "version": version.Version})
+		return
+	}
 	wanIP, wanPort := listenerParts(s.cfg.ListenWAN, 443)
 	lanIP, guiPort := listenerParts(s.cfg.ListenGUI, 8443)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"needs_setup": n == 0,
-		"base_domain": base,
+		"needs_setup": true,
 		"version":     version.Version,
 		"geoip":       s.geo.Available(),
 		"kernel":      kernelStatus(s.bans),

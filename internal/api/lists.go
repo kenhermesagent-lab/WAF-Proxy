@@ -185,8 +185,16 @@ func (s *Server) deleteAccessList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	forwarders := s.streamListUsers(id)
-	if inUse > 0 || len(forwarders) > 0 {
+	global, err := s.globalListAttached(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	if inUse > 0 || len(forwarders) > 0 || global {
 		parts := forwarders
+		if global {
+			parts = append(parts, "Global Profile")
+		}
 		if inUse > 0 {
 			noun := "access profiles"
 			if inUse == 1 {
