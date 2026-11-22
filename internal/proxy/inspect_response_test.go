@@ -1,7 +1,12 @@
 package proxy
 
 import (
+	"bufio"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -110,6 +115,54 @@ func TestResponseInspectionSkipsBodiesItCannotInspect(t *testing.T) {
 				t.Fatalf("event = %+v, want reason %q", e, tc.reason)
 			}
 		})
+	}
+}
+
+// A protocol switch must pass through: the client needs the 101 and the raw
+// connection, not a buffered page.
+func TestResponseInspectionLeavesUpgradeUntouched(t *testing.T) {
+	h := newHarness(t)
+	attachProfile(t, h, model.Profile{Name: "resp-ws", Responses: "block"})
+
+	srv := httptest.NewServer(h.px)
+	defer srv.Close()
+	conn, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, _ = fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n"+
+		"Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n", testHost)
+
+	br := bufio.NewReader(conn)
+	status, err := br.ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(status, "101") {
+		t.Fatalf("status line = %q, want a 101", strings.TrimSpace(status))
+	}
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+	rest := make([]byte, 5)
+	if _, err := io.ReadFull(br, rest); err != nil {
+		t.Fatalf("reading the switched protocol: %v", err)
+	}
+	if string(rest) != "ws-yo" {
+		t.Fatalf("switched protocol payload = %q, want ws-yo", rest)
+	}
+	// The request is only logged once the tunnelled connection ends.
+	_ = conn.Close()
+	e := h.waitEvent(t, func(e model.Event) bool { return e.Stage == "response-skipped" })
+	if e.RuleID != "upgrade" || e.Action != "allow" {
+		t.Fatalf("event = %+v, want an allowed response-skipped upgrade", e)
 	}
 }
 

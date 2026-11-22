@@ -40,7 +40,7 @@ sample traffic, not production figures.***
 
 | Feature | Behaviour |
 |---|---|
-| **OWASP CRS WAF** | Coraza v3 with the embedded Core Rule Set. Five profiles (Generic Web, WordPress, API-only, Static/CDN, Admin panel), paranoia level 1–4, anomaly thresholds, per-profile method allowlists, body and response ceilings, per-path login throttling, admin-path allowlists and per-rule exceptions — all editable from **Policies → WAF profiles**, and filled in from an application preset when a site is created. Each site can inherit its profile, or override with `block`, `detect` or `off`, and admins can add and delete their own profiles. |
+| **OWASP CRS WAF** | Coraza v3 with the embedded Core Rule Set. Five profiles (Generic Web, WordPress, API-only, Static/CDN, Admin panel), paranoia level 1–4, anomaly thresholds, per-profile method allowlists, body and response ceilings, optional upstream response inspection (`off`, `flag` or `block`), per-path login throttling, admin-path allowlists and per-rule exceptions — all editable from **Policies → WAF profiles**, and filled in from an application preset when a site is created. Each site can inherit its profile, or override with `block`, `detect` or `off`, and admins can add and delete their own profiles. |
 | **Ban engine** | Temporary bans last at most **24 hours** and are deleted when they expire, so the list only ever holds recent cool-downs. Permanent bans are absolute — no whitelist lifts them — and **Policies → Bans → Roll up** can fold them into one local threat list (`<data>/feeds/permanent-bans.txt`), which stays enforced while the ban rows are cleared. A roll-up only deletes rows after the new list has loaded and reports every expected entry, so a failed load can never leave an address unblocked. **Policies → Bans** shows the newest ten temporary and ten permanent bans, searches both lists at once, and opens a two-pane view for the full list where addresses can be dragged between temporary and permanent (or ticked and moved), moved back to a fresh 24-hour ban, or lifted. Enforced in the kernel with nftables (IPv4 + IPv6), or use the `unban` CLI. |
 | **Anomaly detection** | Per-proxy baselines over the last hour of one-minute windows drive three detectors: **egress byte spike** (outbound data far above the site's own median, the exfiltration signal), **request-rate spike** and **login-failure burst**. Detections are stored as events, raise their own notification classes, are visible on **Anomaly events**, reach an attached agent by webhook, and can be acknowledged. Thresholds are tunable on the same page. |
 | **Rate limiting** | Global per-IP request rate with burst, plus per-scope `rate_limit` policies (`rps/burst`) that can be global or attached to one site. |
@@ -108,6 +108,13 @@ Internet ──► router DNAT 443 ──► WAN listener (TLS, SNI)
              → temporary ban → rate limit → method → bot challenge
              → access gate → WAF → upstream (weighted round-robin)
 ```
+
+With response inspection on, the answer is checked on the way back too: up to the profile's body
+limit is buffered and run through the CRS response rules, and a match is refused with the uniform
+502 before the status line is written, so the upstream body never reaches the browser. SSE,
+WebSocket upgrades, range requests, compressed, bodyless and oversized responses are forwarded
+untouched and logged as `response-skipped` with the reason. It is off by default because it delays
+the first byte by up to one buffer.
 
 Every decision that blocks, bans or challenges produces one event row (source, country, ASN,
 host, path, stage, rule) that feeds the dashboard, the globe, Logs, Sources and notifications.
@@ -652,7 +659,7 @@ After either update, confirm the version in the console footer or
 |---|---|
 | Lift a ban | **Policies → Bans** (search the address, then Remove, or open the full list), or `docker exec wafproxy unban 203.0.113.7` (takes effect within 30 s) |
 | Change an address or port | **Settings**, then restart the container |
-| Tune the WAF | **Policies → WAF profiles** → edit paranoia, anomaly threshold, methods, body and response ceilings, login rate, admin paths or rule exceptions |
+| Tune the WAF | **Policies → WAF profiles** → edit paranoia, anomaly threshold, methods, body and response ceilings, upstream response inspection, login rate, admin paths or rule exceptions |
 | Find out why a request was blocked | **Logs** → **Why?** on the event row. It replays the request through the ban, screening and WAF stages without reaching the upstream, lists every rule that matched, and offers to except a blocking rule after naming every other site the profile change would affect. |
 | Back up | **Settings → Download JSON** (secrets excluded) |
 | Upgrade | See [Updating from the repository](#updating-from-the-repository) for Docker and native systemd |

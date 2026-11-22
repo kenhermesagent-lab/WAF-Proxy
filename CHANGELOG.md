@@ -20,6 +20,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   that matched, names the upstream or route that would serve the request, and offers to except a
   blocking CRS rule after naming every other site that shares the profile. `POST /api/simulate`
   needs `policies.read`; nothing is audited or persisted.
+- **Response inspection.** A WAF profile chooses `off`, `flag` or `block` for upstream responses.
+  In `flag` and `block` the proxy buffers up to the profile body limit in `ModifyResponse` and runs
+  the CRS response rules over the status, headers and body; a `block` match returns the uniform 502
+  before the status line is written, so the upstream body never reaches the browser. `flag` records
+  the rule and forwards the page. `text/event-stream`, WebSocket upgrades, range requests,
+  compressed, bodyless and oversized responses are forwarded whole and logged as
+  `response-skipped` with the reason as the rule. Off by default. Logs gains `response-waf` and
+  `response-skipped` stage filters.
+- **Bulk ban selection.** The Bans list has a select-all box, Ctrl/Cmd-click to add an address and
+  press-and-drag over a range; an address stays draggable into the other box.
 - **Release-check regression test.** `make test-release` (and CI) proves `deploy/check-version.sh`
   still refuses a `VERSION` that is not SemVer, a CHANGELOG mismatch, a stale `version.go` default
   and a release tag that disagrees with `VERSION`.
@@ -28,6 +38,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 - A logged verdict keeps the stage that produced it (`waf`) instead of being relabelled `route` by
   the forward that follows the log.
+- The **Why?** modal reads the bare arrays `GET /api/proxies` and `GET /api/profiles` return, so a
+  real event no longer claims no proxy is configured. A pasted query is re-encoded the way a
+  browser sends it, a blocked result no longer claims there is no upstream, and the exception
+  offer disappears once it has been saved.
 - A clean request under a `block` profile no longer counts CRS setup actions as a match, which had
   logged every such request as a WAF event.
 

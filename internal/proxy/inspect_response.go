@@ -73,7 +73,7 @@ func skipReason(res *http.Response) string {
 	case res.Request.Method == http.MethodHead, res.StatusCode == http.StatusNoContent,
 		res.StatusCode == http.StatusNotModified:
 		return "no-body"
-	case res.Header.Get("Upgrade") != "":
+	case res.StatusCode == http.StatusSwitchingProtocols, res.Header.Get("Upgrade") != "":
 		return "upgrade"
 	case strings.HasPrefix(strings.ToLower(strings.TrimSpace(res.Header.Get("Content-Type"))), "text/event-stream"):
 		return "sse"
