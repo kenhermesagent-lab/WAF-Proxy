@@ -41,6 +41,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
     wan: "", lan: "", wanAuto: false, lanAuto: false, available: [],
   });
   const file = useRef<HTMLInputElement>(null);
+  const yamlFile = useRef<HTMLInputElement>(null);
 
   const load = () =>
     api
@@ -118,19 +119,35 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
 
   const set = (k: string, v: string) => setS((prev) => ({ ...prev, [k]: v }));
 
+  type ImportResult = { imported: Record<string, number>; problems: string[] };
+
+  const reportImport = (r: ImportResult, verb: string) => {
+    const parts = Object.entries(r.imported || {}).map(([k, v]) => `${v} ${k}`);
+    onOK(`${verb} ${parts.join(", ")}${r.problems?.length ? ` (${r.problems.length} skipped)` : ""}`);
+    load();
+  };
+
   const restore = async (f: File) => {
     try {
       const text = await f.text();
-      type Result = { imported: Record<string, number>; problems: string[] };
       const r = text.trimStart().startsWith("WAFPROXY-ENC1")
-        ? await api.postRaw<Result>("/api/backup/restore", text, {
+        ? await api.postRaw<ImportResult>("/api/backup/restore", text, {
             "Content-Type": "application/octet-stream",
             "X-Backup-Passphrase": restorePass,
           })
-        : await api.post<Result>("/api/backup/restore", JSON.parse(text));
-      const parts = Object.entries(r.imported || {}).map(([k, v]) => `${v} ${k}`);
-      onOK(`Restored ${parts.join(", ")}${r.problems?.length ? ` (${r.problems.length} skipped)` : ""}`);
-      load();
+        : await api.post<ImportResult>("/api/backup/restore", JSON.parse(text));
+      reportImport(r, "Restored");
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
+
+  const importYAML = async (f: File) => {
+    try {
+      const r = await api.postRaw<ImportResult>("/api/config/import.yaml", await f.text(), {
+        "Content-Type": "application/yaml",
+      });
+      reportImport(r, "Imported");
     } catch (e) {
       onError(errText(e));
     }
@@ -284,7 +301,10 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
           )}
           <div className="bar-row">
             <div>Configuration backup</div>
-            <div><a href="/api/backup"><button className="small">Download JSON</button></a></div>
+            <div className="row" style={{ gap: 6 }}>
+              <a href="/api/backup"><button className="small">Download JSON</button></a>
+              <a href="/api/config/export.yaml"><button className="small">Download YAML</button></a>
+            </div>
           </div>
           <div className="bar-row">
             <div>Restore backup <span className="faint small-text">(additive, gates reset to off)</span></div>
@@ -298,7 +318,9 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
                   style={{ width: 200 }}
                 />
                 <input ref={file} type="file" accept=".json,.enc,application/json" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} />
+                <input ref={yamlFile} type="file" accept=".yaml,.yml" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && importYAML(e.target.files[0])} />
                 <button className="small" onClick={() => file.current?.click()}>Import backup</button>
+                <button className="small" onClick={() => yamlFile.current?.click()}>Import YAML</button>
               </div>
             </div>
           </div>

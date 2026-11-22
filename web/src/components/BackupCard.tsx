@@ -199,7 +199,7 @@ export default function BackupCard({ onError, onOK }: { onError: (m: string) => 
             </label>
             {cfg.encrypt && (
               <Field label={cfg.has_passphrase ? "Passphrase (leave blank to keep)" : "Passphrase (16+ characters)"}>
-                <input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
+                <input type="password" minLength={16} placeholder="At least 16 characters" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
               </Field>
             )}
           </div>
