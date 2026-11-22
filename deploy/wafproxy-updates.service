@@ -6,6 +6,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# The self-update script runs inside this unit's cgroup. systemd's default
+# KillMode=control-group stops every process in it, so the script must never
+# restart this service itself; it schedules the refresh in a transient unit
+# after it has finished. See deploy/wafproxy-self-update.sh.
 ExecStart=/var/lib/waf-proxy/bin/wafproxy-updated --socket /run/wafproxy-updates/updates.sock
 RuntimeDirectory=wafproxy-updates
 RuntimeDirectoryMode=0755

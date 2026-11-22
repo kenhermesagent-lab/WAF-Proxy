@@ -265,7 +265,6 @@ restore_previous() {
     rm -f /usr/local/lib/wafproxy || true
   fi
   systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl try-restart wafproxy-updates.service >/dev/null 2>&1 || true
   systemctl restart wafproxy.service >/dev/null 2>&1 || true
 }
 
@@ -361,10 +360,23 @@ install_native() {
   install_file "$src/deploy/wafproxy.service" "$unit_file" 0644 || return 1
   install_file "$src/deploy/wafproxy-updates.service" "$helper_unit_file" 0644 || return 1
   systemctl daemon-reload || return 1
-  # The console only sees new helper actions once the helper runs the new
-  # binary. Restarting it does not touch the console.
-  systemctl try-restart wafproxy-updates.service >/dev/null 2>&1 || true
+  # Do not restart wafproxy-updates.service here: this script is a child of
+  # that unit, and its default KillMode=control-group stops every process in
+  # the cgroup. Restarting it from inside would kill this update right after
+  # the build, leaving the new binaries on disk but the old console running.
+  # The restart is scheduled from outside the cgroup at the end instead.
   return 0
+}
+
+# The console only sees new helper actions once the helper runs the new binary.
+# systemd-run puts the restart in its own transient unit, so stopping the helper
+# cannot reach this script; the delay lets the update finish first.
+schedule_helper_refresh() {
+  if ! command -v systemd-run >/dev/null; then
+    return 0
+  fi
+  systemd-run --quiet --collect --unit="wafproxy-helper-refresh-$$" --on-active=10 \
+    systemctl try-restart wafproxy-updates.service >/dev/null 2>&1 || true
 }
 
 snapshot_previous
@@ -414,4 +426,5 @@ rm -rf /usr/local/waf-proxy
 rm -rf "$backup_dir"
 
 record_app_update ok "installed $new_version from $new_commit"
+schedule_helper_refresh
 echo "installed $new_version from $new_commit into $app_dir and restarted wafproxy.service"

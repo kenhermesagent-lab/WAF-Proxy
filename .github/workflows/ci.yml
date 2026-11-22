@@ -49,6 +49,8 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
+      - run: npm test
+        working-directory: web
       - name: Committed console bundle matches the source
         run: |
           # The binary embeds internal/webui/dist, so a release has to carry the
@@ -73,6 +75,9 @@ jobs:
         run: for f in deploy/wafproxy-self-update.sh deploy/wafproxy-update-lib.sh deploy/install.sh; do bash -n "$f"; done
       - name: A built checkout blocks git pull and the restore step lets it through
         run: bash deploy/test-self-update-restore.sh
+
+      - name: Guard the updater against restarting its own unit
+        run: bash deploy/test-self-update-no-self-restart.sh
 
   docker:
     name: Container image build
