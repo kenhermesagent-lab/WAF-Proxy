@@ -11,6 +11,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.17.2] — 2026-11-22
+
+### Fixed
+
+- **The Update button and the documented upgrade commands failed on a checkout that had been
+  built.** `npm run build` rewrites `internal/webui/dist`, which the repository commits, so
+  `sudo git pull --ff-only` refused to run with "local changes to the following files would be
+  overwritten", and the updater's restore of that directory left the built asset names behind:
+  an untracked asset blocks the incoming commit exactly as an edited file does. The updater now
+  puts the directory back before pulling (`git checkout` plus a scoped clean), and the README,
+  `docs/INSTALL.md` and the console's fallback text give the sequence that works, ending in
+  `deploy/wafproxy-self-update.sh` — the same script the button runs, which pulls, builds,
+  installs and rolls back on failure.
+- **An application update no longer needs a Node toolchain on the update user's `PATH`.** The
+  updater ran `make all`, so a host where `npm` lives in an operator's shell (nvm), or one
+  without npm registry access, failed at `npm ci` and the update aborted before any binary was
+  installed. It now builds the console only when `npm` is reachable, and always runs `make
+  build`, which embeds the console bundle the release already commits.
+
 ## [1.17.1] — 2026-11-22
 
 ### Added

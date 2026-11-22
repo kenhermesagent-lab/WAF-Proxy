@@ -434,9 +434,10 @@ Use **Updates → Update application** for the in-console rebuild, or the manual
 
 ```bash
 cd /var/lib/waf-proxy/src           # the checkout the Update button also builds
+sudo git checkout -- internal/webui/dist   # a local build edits the committed bundle
+sudo git clean -fdq internal/webui/dist    # and leaves new asset names behind
 sudo git pull --ff-only             # or: sudo git fetch --tags && sudo git checkout vX.Y.Z
-sudo make all                       # rebuild the console and both Go binaries
-sudo ./deploy/install.sh            # keeps the env file and /var/lib/waf-proxy/data
+sudo ./deploy/wafproxy-self-update.sh      # build, install both binaries, restart
 
 journalctl -u wafproxy -f           # service log
 sudo env WAFPROXY_DATA_DIR=/var/lib/waf-proxy/data wafproxy unban 203.0.113.7
@@ -631,11 +632,13 @@ installer does. The default checkout is
 the root-owned clone at `/var/lib/waf-proxy/src`, so neither a home directory nor an
 operator's git credentials are needed; a host where the clone could not be created falls back
 to the directory the installer ran from. The check runs `git fetch` there. The public repository
-needs no token or login; a private fork uses the recorded user's existing git credentials. The
-application action refuses changes to tracked files (untracked build output and the regenerated
-console bundle do not count), runs `git pull --ff-only` and `make all`, installs both binaries
-into `/var/lib/waf-proxy/bin` and refreshes the helper scripts, reloads systemd units, restarts
-the helper and then restarts `wafproxy.service` so the new binary is loaded. It never accepts an
+needs no token or login; a private fork uses the recorded user's existing git credentials. The application action refuses changes to tracked files (untracked build output and the
+regenerated console bundle do not count), restores `internal/webui/dist` to the checkout so a
+previous build cannot block the pull, runs `git pull --ff-only`, then `make build` and `make ui`
+when `npm` is available (a host without Node, or without registry access, updates with the
+console bundle the release commits), installs both binaries into `/var/lib/waf-proxy/bin` and
+refreshes the helper scripts, reloads systemd units, restarts the helper and then restarts
+`wafproxy.service` so the new binary is loaded. It never accepts an
 argument from the browser, and the data directory is untouched. If the button does not finish,
 `sudo journalctl -u wafproxy-updates -n 80 --no-pager` has the pull and build output.
 

@@ -257,7 +257,9 @@ refuses every client outside RFC1918, with loopback also accepted for local chec
 prefilled with those addresses, so open `http://<LAN-IP>:8443` and finish setup. The wizard,
 firewall rules and first certificate are otherwise identical. After that first install, upgrades
 run from **Updates → Update application**; the manual fallback is
-`git pull && make all && sudo ./deploy/install.sh` (it prompts again and keeps the database;
+`cd /var/lib/waf-proxy/src && sudo ./deploy/wafproxy-self-update.sh`, which pulls, builds and
+restarts (add `sudo git checkout -- internal/webui/dist` first if a local build edited the
+bundle; the database is kept;
 on an existing install the addresses stored in **Settings** still take precedence over the env
 file). The page tells you when the button is unavailable and why. To remove the native install, run `sudo ./deploy/uninstall.sh`; it prompts before
 removing the units, binaries, config, data, logs, app-owned nftables table and `wafproxy`
@@ -326,8 +328,9 @@ The **Updates** page has two parts:
 
 - **WAF-Proxy application** — compares the running build with its tracked branch and shows an
   **Update application** button when a newer build is available. On native systemd installs the
-  root helper pulls the recorded checkout as its owner, runs `make all`, installs both binaries
-  and lets systemd restart the service. For Docker Compose, install the optional host updater
+  root helper pulls the recorded checkout as its owner, builds the console when `npm` is
+  available on the host, builds both binaries, installs them and lets systemd restart the
+  service. For Docker Compose, install the optional host updater
   once with `sudo ./deploy/install-docker-updater.sh`; Compose mounts its socket and the button
   then rebuilds the image and recreates the container. The database volume is kept.
   The rebuild runs in the background, so the page can reconnect while Docker recreates the
@@ -572,13 +575,22 @@ removing the checkout.
 
 ```bash
 cd /var/lib/waf-proxy/src             # the checkout the Update button also uses
-sudo git status --short               # expect no local changes before pulling
+sudo git checkout -- internal/webui/dist   # a local build edits the committed bundle
+sudo git clean -fdq internal/webui/dist    # and leaves new asset names behind
 sudo git pull --ff-only               # or: sudo git fetch --tags && sudo git checkout vX.Y.Z
-sudo make all                         # rebuild the console and both Go binaries
-sudo ./deploy/install.sh              # prompts again; keeps the database and env file
+sudo ./deploy/wafproxy-self-update.sh # build, install both binaries, restart; rolls back on failure
 sudo systemctl status wafproxy wafproxy-updates
 curl -fsS http://<LAN-IP>:8443/api/health
 ```
+
+Those two lines before the pull are what the Update button does itself. Skip them and
+`git pull` refuses with "local changes to the following files would be overwritten", because
+`npm run build` rewrites `internal/webui/dist`, which the repository commits.
+`deploy/wafproxy-self-update.sh` is the script the button runs as
+`/var/lib/waf-proxy/lib/self-update`: it refuses a checkout with edited tracked files, pulls,
+builds, installs, restarts and restores the previous install if a step fails. Its console build
+is skipped when `npm` is not on the update user's `PATH`; the checkout already carries the built
+console, so the Go build still produces a matching binary.
 
 `/var/lib/waf-proxy/src` is owned by `root`, so every step needs `sudo`. An install done before
 1.14 still records the directory `install.sh` was run from in
@@ -587,7 +599,8 @@ checkout it points at `/var/lib/waf-proxy/src`. To rebuild from a tag instead of
 tag out in that directory and run the same `make all` and `sudo ./deploy/install.sh` steps.
 
 `make all` is `make ui` followed by `make build`; it refreshes the embedded console as well as
-`bin/wafproxy` and `bin/wafproxy-updated`. `deploy/install.sh` reinstalls the units and binaries,
+`bin/wafproxy` and `bin/wafproxy-updated`. `make build` on its own is enough where there is no
+Node toolchain, because the release commits a console built from the same source. `deploy/install.sh` reinstalls the units and binaries,
 preserves `/etc/wafproxy/wafproxy.env` and `/var/lib/waf-proxy/data`, and restarts both services. It
 asks for the WAN/LAN interfaces again; the addresses already stored in **Settings** still take
 precedence after boot. If the installer reports that the listener did not open, use

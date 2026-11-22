@@ -70,10 +70,12 @@ if [[ -n "$dirty" ]]; then
   exit 1
 fi
 
-# The build regenerates the embedded console bundle, and commits carry a
-# rebuilt copy. Restore it before pulling so a previous build cannot make the
-# pull or the dirty check fail.
+# The build regenerates the embedded console bundle and commits carry a rebuilt
+# copy. A local build also leaves new asset names behind, and an untracked asset
+# blocks the incoming commit just as an edited tracked file does, so put the
+# whole directory back before pulling.
 as_user git -C "$src" checkout -- internal/webui/dist 2>/dev/null || true
+as_user git -C "$src" clean -fdq -- internal/webui/dist 2>/dev/null || true
 as_user git -C "$src" pull --ff-only origin "$branch"
 cd "$src"
 new_version="$(cat VERSION)"
@@ -138,7 +140,19 @@ if ! command -v systemctl >/dev/null; then
   echo "self-update needs systemd on the host" >&2
   exit 1
 fi
-as_user make -C "$src" all
+# The release commits the built console, so a host without Node on the update
+# user's PATH, or without registry access, still updates with a bundle that
+# matches the checkout: the console build is best effort, the Go build is not.
+if as_user sh -c 'command -v npm >/dev/null'; then
+  as_user make -C "$src" ui || {
+    echo "self-update: the console build failed; using the bundle committed in the checkout" >&2
+    # vite empties dist before it writes, so a failed build would otherwise be
+    # embedded: put the committed bundle back before the Go build reads it.
+    as_user git -C "$src" checkout -- internal/webui/dist 2>/dev/null || true
+    as_user git -C "$src" clean -fdq -- internal/webui/dist 2>/dev/null || true
+  }
+fi
+as_user make -C "$src" build
 
 for file in bin/wafproxy bin/wafproxy-updated deploy/wafproxy.service deploy/wafproxy-updates.service; do
   if [[ ! -e "$src/$file" ]]; then

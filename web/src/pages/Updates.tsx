@@ -299,14 +299,15 @@ export default function UpdatesPage({
                 </p>
                 {snap.container ? (
                   <p className="muted" style={{ fontSize: 12, lineHeight: 1.7, margin: 0 }}>
-                    On the host run <code>git pull --ff-only</code>, then{" "}
+                    On the host run <code>git checkout -- internal/webui/dist</code>,{" "}
+                    <code>git pull --ff-only</code>, then{" "}
                     <code>docker compose -f deploy/docker-compose.yml up -d --build</code>.
                   </p>
                 ) : (
                   <pre
                     className="mono"
                     style={{ fontSize: 12, margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
-                  >{`cd /var/lib/waf-proxy/src\nsudo git pull --ff-only\nsudo make all\nsudo ./deploy/install.sh`}</pre>
+                  >{`cd /var/lib/waf-proxy/src\nsudo git checkout -- internal/webui/dist\nsudo git clean -fdq internal/webui/dist\nsudo git pull --ff-only\nsudo ./deploy/wafproxy-self-update.sh`}</pre>
                 )}
               </>
             )}
