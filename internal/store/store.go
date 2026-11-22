@@ -110,7 +110,13 @@ CREATE TABLE IF NOT EXISTS profiles (
   anomaly INTEGER NOT NULL DEFAULT 5,
   allowed_methods TEXT NOT NULL DEFAULT 'GET,HEAD,POST',
   max_body INTEGER NOT NULL DEFAULT 131072,
-  exceptions TEXT NOT NULL DEFAULT ''
+  exceptions TEXT NOT NULL DEFAULT '',
+  max_response INTEGER NOT NULL DEFAULT 0,
+  login_paths TEXT NOT NULL DEFAULT '',
+  login_rps INTEGER NOT NULL DEFAULT 0,
+  login_burst INTEGER NOT NULL DEFAULT 0,
+  admin_paths TEXT NOT NULL DEFAULT '',
+  admin_ips TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS certificates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -390,7 +396,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "13"
+const schemaVersion = "14"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -431,6 +437,14 @@ func (s *Store) migrateAddColumns() error {
 		// A rolled-up permanent-ban list is enforced even for allowlisted
 		// addresses, matching the ban it replaced.
 		{"feeds", "always_block", `ALTER TABLE feeds ADD COLUMN always_block INTEGER NOT NULL DEFAULT 0`},
+		// The response ceiling and the two path-scoped limits live on the WAF
+		// profile, which is what a proxy already selects.
+		{"profiles", "max_response", `ALTER TABLE profiles ADD COLUMN max_response INTEGER NOT NULL DEFAULT 0`},
+		{"profiles", "login_paths", `ALTER TABLE profiles ADD COLUMN login_paths TEXT NOT NULL DEFAULT ''`},
+		{"profiles", "login_rps", `ALTER TABLE profiles ADD COLUMN login_rps INTEGER NOT NULL DEFAULT 0`},
+		{"profiles", "login_burst", `ALTER TABLE profiles ADD COLUMN login_burst INTEGER NOT NULL DEFAULT 0`},
+		{"profiles", "admin_paths", `ALTER TABLE profiles ADD COLUMN admin_paths TEXT NOT NULL DEFAULT ''`},
+		{"profiles", "admin_ips", `ALTER TABLE profiles ADD COLUMN admin_ips TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)

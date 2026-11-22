@@ -190,6 +190,19 @@ type Profile struct {
 	AllowedMethods string `json:"allowed_methods"`
 	MaxBody        int64  `json:"max_body"`
 	Exceptions     string `json:"exceptions"` // comma separated CRS rule IDs
+	// MaxResponse cuts an upstream response instead of streaming it without
+	// bound; 0 leaves it unlimited.
+	MaxResponse int64 `json:"max_response"`
+	// LoginPaths are the path prefixes that take credentials. They get their own
+	// token bucket so credential stuffing is throttled before it reaches the
+	// application, whose own login may have no limit at all.
+	LoginPaths string `json:"login_paths"`
+	LoginRPS   int    `json:"login_rps"`
+	LoginBurst int    `json:"login_burst"`
+	// AdminPaths are the path prefixes that only the addresses in AdminIPs may
+	// reach. An empty AdminIPs leaves the rule inert.
+	AdminPaths string `json:"admin_paths"`
+	AdminIPs   string `json:"admin_ips"`
 }
 
 // Certificate renewal policies.

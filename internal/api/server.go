@@ -143,6 +143,7 @@ func (s *Server) routes() {
 	m.HandleFunc("PUT /api/proxies/{id}", s.authed(s.updateProxy))
 	m.HandleFunc("DELETE /api/proxies/{id}", s.authed(s.deleteProxy))
 	m.HandleFunc("POST /api/proxies/{id}/gate/revoke", s.authed(s.revokeGate))
+	m.HandleFunc("GET /api/presets", s.authed(s.listPresets))
 	m.HandleFunc("GET /api/profiles", s.authed(s.listProfiles))
 	m.HandleFunc("POST /api/profiles", s.authed(s.createProfile))
 	m.HandleFunc("PUT /api/profiles/{id}", s.authed(s.updateProfile))

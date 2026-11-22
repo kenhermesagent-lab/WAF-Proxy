@@ -102,7 +102,9 @@ Out of scope:
 
 `README.md` → **Security model and limitations** lists the deliberate trade-offs: the console is
 plain HTTP on the LAN, the update helper installs code as root from a checkout you recorded, and
-streaming ports are a byte relay rather than an inspected proxy. Read it before exposing anything
+streaming ports are a byte relay rather than an inspected proxy. Do set a response ceiling and an
+admin allowlist on profiles for applications you expose (the presets fill in both), and keep the
+login rate limit on so credential stuffing is throttled here rather than at the application. Read it before exposing anything
 beyond a trusted network, and read `docs/INSTALL.md` → **Trusted proxies** if a tunnel or another
 proxy sits in front of this host.
 

@@ -662,6 +662,17 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 			Reason: rec.Reason, Status: http.StatusForbidden, BanSource: rec.Source}
 	}
 
+	prof := e.ProfileFor(p)
+	// An admin path is meant for the operator's own network: the profile names
+	// the addresses allowed to reach it, and everyone else gets the same uniform
+	// rejection the rest of the pipeline uses.
+	if prof != nil && strings.TrimSpace(prof.AdminIPs) != "" && pathUnderAny(req.Path, prof.AdminPaths) {
+		if !addrInPrefixes(req.Addr, prof.AdminIPs) {
+			return model.Verdict{Action: "block", Stage: "admin-path", Rule: canonicalPath(req.Path),
+				Reason: "admin path is not reachable from this address", Status: http.StatusForbidden}
+		}
+	}
+
 	e.mu.RLock()
 	dosRPS, dosBurst := e.settings.RPS, e.settings.Burst
 	e.mu.RUnlock()
@@ -680,6 +691,20 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 		}
 		return model.Verdict{Action: "block", Stage: "dos", Rule: "rate-limit",
 			Reason: "request rate exceeded", Status: http.StatusTooManyRequests}
+	}
+
+	// Credential stuffing is throttled per client and per login path before the
+	// request reaches an application that may have no limit of its own.
+	if prof != nil && prof.LoginRPS > 0 && pathUnderAny(req.Path, prof.LoginPaths) {
+		burst := prof.LoginBurst
+		if burst <= 0 {
+			burst = prof.LoginRPS
+		}
+		key := "login|" + rateKey(req) + "|" + canonicalPath(req.Path)
+		if allowed, _ := e.rl.Allow(key, prof.LoginRPS, burst, e.now()); !allowed {
+			return model.Verdict{Action: "block", Stage: "login-limit", Rule: "rate-limit",
+				Reason: "login attempts exceeded", Status: http.StatusTooManyRequests}
+		}
 	}
 
 	if req.Method == http.MethodTrace {
@@ -727,6 +752,61 @@ func (e *Engine) ReloadWAF() error {
 	}
 	e.mu.Unlock()
 	return nil
+}
+
+// ProfileFor returns the WAF profile a proxy selects. The proxy edge keeps its
+// own copy of the values it enforces on responses, so a reload replaces both.
+func (e *Engine) ProfileFor(p *model.Proxy) *model.Profile {
+	if p == nil || p.ProfileID == nil {
+		return nil
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	prof, ok := e.profiles[*p.ProfileID]
+	if !ok {
+		return nil
+	}
+	return &prof
+}
+
+// pathUnderAny reports whether a path is one of the listed prefixes or below
+// one. An empty list matches nothing.
+func pathUnderAny(p, list string) bool {
+	clean := canonicalPath(p)
+	for _, prefix := range strings.Split(list, ",") {
+		prefix = strings.ToLower(strings.TrimSpace(prefix))
+		if prefix == "" {
+			continue
+		}
+		if !strings.HasPrefix(prefix, "/") {
+			prefix = "/" + prefix
+		}
+		prefix = strings.TrimSuffix(prefix, "/")
+		if prefix == "" || clean == prefix || strings.HasPrefix(clean, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// addrInPrefixes reports whether an address is inside any listed prefix. The
+// API rejects malformed entries on save; one left in the row by hand matches
+// nothing, so the rule fails closed rather than admitting everyone.
+func addrInPrefixes(addr netip.Addr, list string) bool {
+	for _, part := range strings.Split(list, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		pr, err := netmatchPrefix(part)
+		if err != nil {
+			continue
+		}
+		if pr.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 // canonicalPath resolves dot segments, duplicate slashes and case the way most

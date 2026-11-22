@@ -195,7 +195,8 @@ func (s *Store) ReplaceRoutes(proxyID int64, routes []model.Route) error {
 
 // ListProfiles returns all protection profiles.
 func (s *Store) ListProfiles() ([]model.Profile, error) {
-	rows, err := s.db.Query(`SELECT id, name, builtin, mode, paranoia, anomaly, allowed_methods, max_body, exceptions
+	rows, err := s.db.Query(`SELECT id, name, builtin, mode, paranoia, anomaly, allowed_methods, max_body, exceptions,
+		max_response, login_paths, login_rps, login_burst, admin_paths, admin_ips
 		FROM profiles ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -206,7 +207,8 @@ func (s *Store) ListProfiles() ([]model.Profile, error) {
 		var p model.Profile
 		var builtin int
 		if err := rows.Scan(&p.ID, &p.Name, &builtin, &p.Mode, &p.Paranoia, &p.Anomaly,
-			&p.AllowedMethods, &p.MaxBody, &p.Exceptions); err != nil {
+			&p.AllowedMethods, &p.MaxBody, &p.Exceptions, &p.MaxResponse, &p.LoginPaths,
+			&p.LoginRPS, &p.LoginBurst, &p.AdminPaths, &p.AdminIPs); err != nil {
 			return nil, err
 		}
 		p.Builtin = i2b(builtin)
@@ -219,9 +221,11 @@ func (s *Store) ListProfiles() ([]model.Profile, error) {
 func (s *Store) GetProfile(id int64) (*model.Profile, error) {
 	var p model.Profile
 	var builtin int
-	err := s.db.QueryRow(`SELECT id, name, builtin, mode, paranoia, anomaly, allowed_methods, max_body, exceptions
+	err := s.db.QueryRow(`SELECT id, name, builtin, mode, paranoia, anomaly, allowed_methods, max_body, exceptions,
+		max_response, login_paths, login_rps, login_burst, admin_paths, admin_ips
 		FROM profiles WHERE id = ?`, id).
-		Scan(&p.ID, &p.Name, &builtin, &p.Mode, &p.Paranoia, &p.Anomaly, &p.AllowedMethods, &p.MaxBody, &p.Exceptions)
+		Scan(&p.ID, &p.Name, &builtin, &p.Mode, &p.Paranoia, &p.Anomaly, &p.AllowedMethods, &p.MaxBody, &p.Exceptions,
+			&p.MaxResponse, &p.LoginPaths, &p.LoginRPS, &p.LoginBurst, &p.AdminPaths, &p.AdminIPs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -235,8 +239,10 @@ func (s *Store) GetProfile(id int64) (*model.Profile, error) {
 // UpdateProfile writes the tunable fields of a profile.
 func (s *Store) UpdateProfile(p *model.Profile) error {
 	_, err := s.db.Exec(`UPDATE profiles SET mode = ?, paranoia = ?, anomaly = ?, allowed_methods = ?,
-		max_body = ?, exceptions = ? WHERE id = ?`,
-		p.Mode, p.Paranoia, p.Anomaly, p.AllowedMethods, p.MaxBody, p.Exceptions, p.ID)
+		max_body = ?, exceptions = ?, max_response = ?, login_paths = ?, login_rps = ?, login_burst = ?,
+		admin_paths = ?, admin_ips = ? WHERE id = ?`,
+		p.Mode, p.Paranoia, p.Anomaly, p.AllowedMethods, p.MaxBody, p.Exceptions, p.MaxResponse,
+		p.LoginPaths, p.LoginRPS, p.LoginBurst, p.AdminPaths, p.AdminIPs, p.ID)
 	return err
 }
 
@@ -249,9 +255,11 @@ func (s *Store) CreateProfile(p *model.Profile) error {
 	if exists > 0 {
 		return ErrDuplicate
 	}
-	res, err := s.db.Exec(`INSERT INTO profiles(name, builtin, mode, paranoia, anomaly, allowed_methods, max_body, exceptions)
-		VALUES(?, 0, ?, ?, ?, ?, ?, ?)`,
-		p.Name, p.Mode, p.Paranoia, p.Anomaly, p.AllowedMethods, p.MaxBody, p.Exceptions)
+	res, err := s.db.Exec(`INSERT INTO profiles(name, builtin, mode, paranoia, anomaly, allowed_methods, max_body,
+		exceptions, max_response, login_paths, login_rps, login_burst, admin_paths, admin_ips)
+		VALUES(?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.Name, p.Mode, p.Paranoia, p.Anomaly, p.AllowedMethods, p.MaxBody, p.Exceptions, p.MaxResponse,
+		p.LoginPaths, p.LoginRPS, p.LoginBurst, p.AdminPaths, p.AdminIPs)
 	if err != nil {
 		return err
 	}

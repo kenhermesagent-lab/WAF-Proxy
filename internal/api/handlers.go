@@ -22,6 +22,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/preset"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/urlguard"
 )
@@ -40,23 +41,27 @@ type upstreamBody struct {
 
 type proxyBody struct {
 	// ID is accepted but the path parameter is authoritative.
-	ID                  int64          `json:"id"`
-	Hostname            string         `json:"hostname"`
-	Enabled             *bool          `json:"enabled"`
-	ProfileID           *int64         `json:"profile_id"`
-	CertID              *int64         `json:"cert_id"`
-	ProtectionProfileID *int64         `json:"protection_profile_id"`
-	AccessProfileID     *int64         `json:"access_profile_id"`
-	AuthProviderID      *int64         `json:"auth_provider_id"`
-	GateMode            string         `json:"gate_mode"`
-	GateSecret          string         `json:"gate_secret"`
-	Fingerprint         string         `json:"fingerprint"`
-	BotLevel            string         `json:"bot_level"`
-	Maintenance         *bool          `json:"maintenance"`
-	WAFMode             string         `json:"waf_mode"`
-	Upstreams           []upstreamBody `json:"upstreams"`
-	Routes              []model.Route  `json:"routes"`
-	GateUsers           []string       `json:"gate_users"`
+	ID                  int64  `json:"id"`
+	Hostname            string `json:"hostname"`
+	Enabled             *bool  `json:"enabled"`
+	ProfileID           *int64 `json:"profile_id"`
+	CertID              *int64 `json:"cert_id"`
+	ProtectionProfileID *int64 `json:"protection_profile_id"`
+	AccessProfileID     *int64 `json:"access_profile_id"`
+	AuthProviderID      *int64 `json:"auth_provider_id"`
+	GateMode            string `json:"gate_mode"`
+	GateSecret          string `json:"gate_secret"`
+	Fingerprint         string `json:"fingerprint"`
+	BotLevel            string `json:"bot_level"`
+	Maintenance         *bool  `json:"maintenance"`
+	WAFMode             string `json:"waf_mode"`
+	// Preset names an application preset to turn into a WAF profile when the
+	// proxy is created. It is ignored on update: the profile is edited directly
+	// from then on.
+	Preset    string         `json:"preset"`
+	Upstreams []upstreamBody `json:"upstreams"`
+	Routes    []model.Route  `json:"routes"`
+	GateUsers []string       `json:"gate_users"`
 }
 
 type proxyView struct {
@@ -138,8 +143,28 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		p.GateSecret = enc
 	}
+	var fromPreset *int64
+	if in.Preset != "" {
+		pre, ok := preset.Get(in.Preset)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "unknown application preset")
+			return
+		}
+		prof := pre.Profile(p.Hostname)
+		if err := s.st.CreateProfile(&prof); err != nil {
+			writeError(w, http.StatusInternalServerError, "cannot create the preset's WAF profile")
+			return
+		}
+		p.ProfileID = &prof.ID
+		fromPreset = &prof.ID
+	}
 	id, err := s.st.CreateProxy(p)
 	if err != nil {
+		// The profile was only created for this proxy; leaving it behind would
+		// litter the list every time a duplicate hostname was offered.
+		if fromPreset != nil {
+			_ = s.st.DeleteProfile(*fromPreset)
+		}
 		writeError(w, http.StatusConflict, "hostname already exists")
 		return
 	}
@@ -465,12 +490,21 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 		p.MaxBody = in.MaxBody
 	}
 	p.Exceptions = in.Exceptions
+	if msg := validateProfileLimits(in); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	p.MaxResponse, p.LoginPaths, p.LoginRPS = in.MaxResponse, in.LoginPaths, in.LoginRPS
+	p.LoginBurst, p.AdminPaths, p.AdminIPs = in.LoginBurst, in.AdminPaths, in.AdminIPs
 	if err := s.st.UpdateProfile(p); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
-	if err := s.policy.ReloadWAF(); err != nil {
-		s.log.Error("reload WAF profiles", "err", err)
+	// A server built without the engines (unit tests) has nothing to reload.
+	if s.policy != nil {
+		if err := s.policy.ReloadWAF(); err != nil {
+			s.log.Error("reload WAF profiles", "err", err)
+		}
 	}
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "profile.update", p.Name, clientIP(r))
@@ -519,6 +553,12 @@ func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
 		p.MaxBody = in.MaxBody
 	}
 	p.Exceptions = in.Exceptions
+	if msg := validateProfileLimits(in); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	p.MaxResponse, p.LoginPaths, p.LoginRPS = in.MaxResponse, in.LoginPaths, in.LoginRPS
+	p.LoginBurst, p.AdminPaths, p.AdminIPs = in.LoginBurst, in.AdminPaths, in.AdminIPs
 	if err := s.st.CreateProfile(&p); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			writeError(w, http.StatusConflict, "a profile with that name already exists")
@@ -535,6 +575,40 @@ func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "profile.create", p.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, p)
+}
+
+// validateProfileLimits rejects a record that would not do what it says. A
+// mistyped CIDR is refused rather than silently ignored, because ignoring it
+// would leave an admin path open to everyone.
+func validateProfileLimits(in model.Profile) string {
+	if in.MaxResponse < 0 || in.MaxResponse > 1<<32 {
+		return "the response ceiling must be between 0 (unlimited) and 4 GiB"
+	}
+	if in.LoginRPS < 0 || in.LoginRPS > 1000 {
+		return "login rate must be between 0 (off) and 1000 requests per second"
+	}
+	if in.LoginBurst < 0 || in.LoginBurst > 10000 {
+		return "login burst must be between 0 and 10000"
+	}
+	if strings.TrimSpace(in.LoginPaths) != "" && in.LoginRPS == 0 {
+		return "set a login rate when login paths are listed"
+	}
+	for _, part := range strings.Split(in.AdminIPs, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, err := netip.ParsePrefix(part); err != nil {
+			if _, err := netip.ParseAddr(part); err != nil {
+				return "invalid address or CIDR in the admin allowlist: " + part
+			}
+		}
+	}
+	return ""
+}
+
+func (s *Server) listPresets(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, preset.All())
 }
 
 func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {

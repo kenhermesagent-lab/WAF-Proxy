@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
-import { AccessProfile, AuthProvider, Cert, ProtectionProfile, Proxy, Route, Upstream } from "../types";
+import { AccessProfile, AuthProvider, Cert, Preset, ProtectionProfile, Proxy, Route, Upstream } from "../types";
 
 type Draft = {
   id?: number;
@@ -18,6 +18,8 @@ type Draft = {
   bot_level: string;
   maintenance: boolean;
   waf_mode: string;
+  /** Application preset, sent only when creating a proxy. */
+  preset: string;
   upstreams: Upstream[];
   routes: Route[];
   gate_users: string[];
@@ -38,6 +40,7 @@ function emptyDraft(): Draft {
     bot_level: "light",
     maintenance: false,
     waf_mode: "inherit",
+    preset: "",
     upstreams: [{ url: "http://192.168.101.10:8080", weight: 1, enabled: true }],
     routes: [],
     gate_users: [],
@@ -50,6 +53,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
   const [accessProfiles, setAccessProfiles] = useState<AccessProfile[]>([]);
   const [providers, setProviders] = useState<AuthProvider[]>([]);
   const [certs, setCerts] = useState<Cert[]>([]);
+  const [presets, setPresets] = useState<Preset[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -60,13 +64,15 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
       api.get<AccessProfile[]>("/api/access-profiles"),
       api.get<AuthProvider[]>("/api/auth-providers"),
       api.get<{ certs: Cert[] }>("/api/certs"),
+      api.get<Preset[]>("/api/presets"),
     ])
-      .then(([p, pp, ap, prov, c]) => {
+      .then(([p, pp, ap, prov, c, pre]) => {
         setList(p);
         setProtections(pp);
         setAccessProfiles(ap);
         setProviders(prov);
         setCerts(c.certs || []);
+        setPresets(pre);
       })
       .catch((e) => onError(errText(e)));
 
@@ -98,6 +104,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
       bot_level: p.bot_level || "light",
       maintenance: p.maintenance,
       waf_mode: p.waf_mode || "inherit",
+      preset: "",
       upstreams: p.upstreams?.length ? p.upstreams : [{ url: "", weight: 1, enabled: true }],
       routes: p.routes ?? [],
       gate_users: p.gate_users ?? [],
@@ -107,9 +114,11 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
     if (!draft) return;
     setSaving(true);
     try {
-      const payload = { ...draft, gate_users: draft.gate_users };
-      if (draft.id) await api.put(`/api/proxies/${draft.id}`, payload);
-      else await api.post("/api/proxies", payload);
+      // The preset is a one-time starting point: on create it becomes an
+      // editable WAF profile, and on update the profile is what gets changed.
+      const { preset, ...rest } = draft;
+      if (draft.id) await api.put(`/api/proxies/${draft.id}`, rest);
+      else await api.post("/api/proxies", { ...rest, preset });
       onOK(draft.id ? "Proxy updated" : "Proxy created");
       setDraft(null);
       await load();
@@ -140,6 +149,8 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
       onError(errText(e));
     }
   };
+
+  const chosenPreset = presets.find((p) => p.id === draft?.preset);
 
   const patch = (fn: (d: Draft) => void) =>
     setDraft((d) => {
@@ -204,6 +215,37 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
 
       {draft && (
         <Modal title={draft.id ? `Edit ${draft.hostname}` : "New proxy"} onClose={() => setDraft(null)}>
+          {!draft.id && (
+            <Field label="Application preset">
+              <select value={draft.preset} onChange={(e) => patch((d) => (d.preset = e.target.value))}>
+                <option value="">No preset — default profile</option>
+                {presets.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              {chosenPreset ? (
+                <div className="faint mt" style={{ fontSize: 12 }}>
+                  <div>{chosenPreset.description}</div>
+                  <div className="mono" style={{ fontSize: 11 }}>
+                    methods {chosenPreset.methods} · body {chosenPreset.max_body.toLocaleString()} B
+                    {chosenPreset.max_response ? ` · responses ${Math.round(chosenPreset.max_response / 1024)} KiB` : ""}
+                    {chosenPreset.login_rps ? ` · logins ${chosenPreset.login_rps}/s on ${chosenPreset.login_paths}` : ""}
+                  </div>
+                  {chosenPreset.exceptions && (
+                    <div className="mono" style={{ fontSize: 11 }}>suppresses CRS {chosenPreset.exceptions}</div>
+                  )}
+                  <div>
+                    Creates the WAF profile “{chosenPreset.name}
+                    {draft.hostname ? ` (${draft.hostname})` : ""}”, editable under Policies → WAF profiles.
+                  </div>
+                </div>
+              ) : (
+                <div className="faint mt" style={{ fontSize: 12 }}>
+                  A preset fills in the WAF profile for this site; it is not applied automatically.
+                </div>
+              )}
+            </Field>
+          )}
           <div className="row grow">
             <Field label="Hostname">
               <input value={draft.hostname} onChange={(e) => patch((d) => (d.hostname = e.target.value))} placeholder={`app.${base}`} />

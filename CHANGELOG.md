@@ -11,6 +11,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.17.0] — 2026-11-22
+
+### Added
+
+- **A protocol conformance suite and fuzz corpora.** `internal/proxy/conformance_test.go` covers
+  the request shapes that end in smuggling advisories: a duplicate `Content-Length`, a length
+  together with `Transfer-Encoding`, empty or malformed header names, an absolute-form target, an
+  `OPTIONS *` target, an `h2c` upgrade and an upgrade on a method other than `GET`. It also proves
+  a `#` in a percent-encoded path survives forwarding, a dot-segment cannot reach a decoy path
+  unseen, and a WebSocket `101` reaches the client with the tunnel usable. `conformance_fuzz_test.go`
+  fuzzes `cleanPathSegments` (absolute, no dot segments, idempotent) and inbound header screening
+  (no panic, no spoofable header survives). Fuzzing found three real parser bugs, fixed here: an
+  empty or relative path was forwarded as-is instead of being rooted, `OPTIONS *` was treated as a
+  site request, and an upgrade header was forwarded without being limited to a WebSocket `GET`.
+- **A per-site response ceiling.** A WAF profile's `max_response` refuses an upstream response
+  whose declared length exceeds it (502, with a `response-cap` event) and cuts a streamed response
+  the moment it passes, discarding the partial cache entry. An upstream failure after the response
+  started now logs and stops instead of appending an error page to a partial body.
+- **Login-path throttling and an admin-path allowlist.** A profile can name the paths that take
+  credentials (`login_paths`, `login_rps`, `login_burst`); each client gets its own bucket per path,
+  so credential stuffing is throttled before it reaches an application that may have no limit of
+  its own. `admin_paths` plus `admin_ips` restrict paths to the operator's own ranges; a malformed
+  CIDR is refused at save time rather than silently leaving the path open.
+- **Application presets.** `internal/preset` holds starting configurations for Nextcloud, Jellyfin,
+  Plex, Home Assistant, Proxmox VE and a generic application: method allowlist, body and response
+  ceilings, login paths and rate, admin paths and allowlist, and the CRS rule IDs each application
+  is commonly a false positive for. Choosing one when a proxy is created writes an ordinary WAF
+  profile named after the host (`GET /api/presets`, **Proxies → New proxy → Application preset**), so
+  every value stays editable under **Policies → WAF profiles**. The console shows what a preset will
+  set before it is applied and never re-applies it on edit.
+
+### Fixed
+
+- Saving a WAF profile no longer panics when the API runs without the policy engine (test servers);
+  the reload is skipped instead.
+- The proxy's WAF-profile columns gained the ceiling and the two path lists in schema version 14.
+
 ## [1.16.1] — 2026-11-22
 
 ### Added

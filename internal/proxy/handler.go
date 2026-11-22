@@ -262,6 +262,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out = cw
 	}
 
+	if e.waf != nil && e.waf.MaxResponse > 0 {
+		cap := &capWriter{ResponseWriter: out, limit: e.waf.MaxResponse}
+		cap.trip = func() {
+			blocked = true
+			// The wire may already carry a 200 the client will see truncated;
+			// the log records what actually happened to the response.
+			rw.status = http.StatusBadGateway
+			event.Stage, event.RuleID = "response-cap", "too-large"
+			event.RuleMsg = "upstream response exceeded the profile limit"
+			if cw != nil {
+				cw.skip = true
+			}
+		}
+		out = cap
+	}
+
 	ctx := context.WithValue(r.Context(), ctxUpstream, up)
 	r = r.WithContext(ctx)
 	e.rp.ServeHTTP(out, r)
@@ -354,7 +370,13 @@ func cleanPathSegments(p string) (string, bool) {
 	if strings.ContainsRune(p, 0) {
 		return "", false
 	}
-	if !strings.ContainsAny(p, "\\") && !strings.Contains(p, ".") && !strings.Contains(p, "//") {
+	if p == "" {
+		return "/", true
+	}
+	// Anything that does not start with a slash is rooted below, so the path the
+	// upstream receives is always absolute.
+	if strings.HasPrefix(p, "/") && !strings.ContainsAny(p, "\\") &&
+		!strings.Contains(p, ".") && !strings.Contains(p, "//") {
 		return p, true
 	}
 	trailing := strings.HasSuffix(p, "/")
@@ -379,6 +401,11 @@ func cleanPathSegments(p string) (string, bool) {
 	return clean, true
 }
 
+// badRequestFraming rejects requests whose meaning depends on which hop reads
+// them: two lengths, a length and a chunked body, a target in absolute form, or
+// a header name that cannot be written back out. net/http rejects most of these
+// itself; the pipeline is also reached by tests and future callers, so it
+// refuses them on its own terms.
 func badRequestFraming(r *http.Request) bool {
 	if len(r.TransferEncoding) > 0 && r.ContentLength > 0 {
 		return true
@@ -386,13 +413,50 @@ func badRequestFraming(r *http.Request) bool {
 	if len(r.Header.Values("Content-Length")) > 1 {
 		return true
 	}
+	for name := range r.Header {
+		if !validHeaderName(name) {
+			return true
+		}
+	}
 	if strings.HasPrefix(r.RequestURI, "http://") || strings.HasPrefix(r.RequestURI, "https://") {
+		return true
+	}
+	// "OPTIONS *" addresses the server itself rather than a site behind it.
+	if r.RequestURI == "*" {
 		return true
 	}
 	if r.Method == http.MethodTrace || r.Method == "TRACK" || r.Method == http.MethodConnect {
 		return true
 	}
+	// WebSocket is the one protocol switch an upstream can expect. Anything else
+	// (notably h2c) would turn the proxy into a tunnel for a protocol it does not
+	// inspect, so it is refused rather than forwarded.
+	if upgrade := r.Header.Get("Upgrade"); upgrade != "" {
+		if !strings.EqualFold(strings.TrimSpace(upgrade), "websocket") || r.Method != http.MethodGet {
+			return true
+		}
+	}
 	return false
+}
+
+// validHeaderName accepts the RFC 9110 token characters. net/http enforces the
+// same rule when it parses a request; this keeps the check true for a request
+// assembled in memory.
+func validHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		octet := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+		switch {
+		case octet:
+		case strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func readBody(r *http.Request, limit int64) ([]byte, bool, error) {

@@ -231,6 +231,28 @@ export interface Profile {
   allowed_methods: string;
   max_body: number;
   exceptions: string;
+  max_response: number;
+  login_paths: string;
+  login_rps: number;
+  login_burst: number;
+  admin_paths: string;
+  admin_ips: string;
+}
+
+export interface Preset {
+  id: string;
+  name: string;
+  description: string;
+  methods: string;
+  max_body: number;
+  max_response: number;
+  login_paths: string;
+  login_rps: number;
+  login_burst: number;
+  admin_paths: string;
+  admin_ips: string;
+  exceptions: string;
+  notes: string[];
 }
 
 export interface Policy {

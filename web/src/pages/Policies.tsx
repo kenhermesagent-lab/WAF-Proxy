@@ -217,6 +217,12 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
     allowed_methods: "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
     max_body: 131072,
     exceptions: "",
+    max_response: 0,
+    login_paths: "",
+    login_rps: 0,
+    login_burst: 0,
+    admin_paths: "",
+    admin_ips: "",
   });
 
   const selectable = bans.filter((b) => !b.permanent);
@@ -375,7 +381,19 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                 <tbody>
                   {profiles.map((p) => (
                     <tr key={p.id}>
-                      <td style={{ whiteSpace: "nowrap" }}>{p.name}{p.exceptions ? <div className="faint" style={{ fontSize: 11 }}>{p.exceptions.split(",").filter(Boolean).length} rule exception(s)</div> : null}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {p.name}
+                        {p.exceptions ? <div className="faint" style={{ fontSize: 11 }}>{p.exceptions.split(",").filter(Boolean).length} rule exception(s)</div> : null}
+                        {(p.login_rps > 0 || p.max_response > 0 || (p.admin_paths && p.admin_ips)) && (
+                          <div className="faint" style={{ fontSize: 11 }}>
+                            {[
+                              p.login_rps > 0 ? `logins ${p.login_rps}/s` : "",
+                              p.max_response > 0 ? `responses ${Math.round(p.max_response / 1024)} KiB` : "",
+                              p.admin_paths && p.admin_ips ? "admin paths" : "",
+                            ].filter(Boolean).join(" · ")}
+                          </div>
+                        )}
+                      </td>
                       <td><Badge tone={p.mode === "block" ? "ok" : p.mode === "detect" ? "info" : "warn"}>{p.mode}</Badge></td>
                       <td className="num">{p.paranoia}</td>
                       <td className="num">{p.anomaly}</td>
@@ -572,6 +590,57 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
               placeholder="only the rules this application needs removed"
             />
           </Field>
+          <div className="row grow">
+            <Field label="Upstream response ceiling (bytes, 0 = unlimited)">
+              <input
+                type="number"
+                min={0}
+                value={profile.max_response}
+                onChange={(e) => setProfile({ ...profile, max_response: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Login paths (comma separated)">
+              <input
+                value={profile.login_paths}
+                onChange={(e) => setProfile({ ...profile, login_paths: e.target.value })}
+                placeholder="/login,/api/session"
+              />
+            </Field>
+          </div>
+          <div className="row grow">
+            <Field label="Login rate (requests/second)">
+              <input
+                type="number"
+                min={0}
+                value={profile.login_rps}
+                onChange={(e) => setProfile({ ...profile, login_rps: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Login burst">
+              <input
+                type="number"
+                min={0}
+                value={profile.login_burst}
+                onChange={(e) => setProfile({ ...profile, login_burst: Number(e.target.value) })}
+              />
+            </Field>
+          </div>
+          <div className="row grow">
+            <Field label="Admin paths (comma separated)">
+              <input
+                value={profile.admin_paths}
+                onChange={(e) => setProfile({ ...profile, admin_paths: e.target.value })}
+                placeholder="/admin,/settings"
+              />
+            </Field>
+            <Field label="Admin allowlist (CIDRs; empty leaves the rule off)">
+              <input
+                value={profile.admin_ips}
+                onChange={(e) => setProfile({ ...profile, admin_ips: e.target.value })}
+                placeholder="192.168.0.0/16"
+              />
+            </Field>
+          </div>
           <div className="row mt" style={{ justifyContent: "flex-end" }}>
             <button onClick={() => setProfile(null)}>Cancel</button>
             <button className="primary" onClick={saveProfile} disabled={savingProfile || profile.name.trim() === ""}>

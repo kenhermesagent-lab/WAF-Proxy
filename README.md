@@ -40,7 +40,7 @@ sample traffic, not production figures.***
 
 | Feature | Behaviour |
 |---|---|
-| **OWASP CRS WAF** | Coraza v3 with the embedded Core Rule Set. Five profiles (Generic Web, WordPress, API-only, Static/CDN, Admin panel), paranoia level 1–4, anomaly thresholds, per-profile method allowlists, body limits and per-rule exceptions — all editable from **Policies → WAF profiles**. Each site can inherit its profile, or override with `block`, `detect` or `off`, and admins can add and delete their own profiles. |
+| **OWASP CRS WAF** | Coraza v3 with the embedded Core Rule Set. Five profiles (Generic Web, WordPress, API-only, Static/CDN, Admin panel), paranoia level 1–4, anomaly thresholds, per-profile method allowlists, body and response ceilings, per-path login throttling, admin-path allowlists and per-rule exceptions — all editable from **Policies → WAF profiles**, and filled in from an application preset when a site is created. Each site can inherit its profile, or override with `block`, `detect` or `off`, and admins can add and delete their own profiles. |
 | **Ban engine** | Temporary bans last at most **24 hours** and are deleted when they expire, so the list only ever holds recent cool-downs. Permanent bans are absolute — no whitelist lifts them — and **Policies → Permanent** can roll them into one local threat list (`<data>/feeds/permanent-bans.txt`), which stays enforced while the ban rows are cleared. A roll-up only deletes rows after the new list has loaded and reports every expected entry, so a failed load can never leave an address unblocked. Enforced in the kernel with nftables (IPv4 + IPv6); tick any number of rows to promote or lift them together, or use the `unban` CLI. |
 | **Anomaly detection** | Per-proxy baselines over the last hour of one-minute windows drive three detectors: **egress byte spike** (outbound data far above the site's own median, the exfiltration signal), **request-rate spike** and **login-failure burst**. Detections are stored as events, raise their own notification classes, are visible on **Anomaly events**, reach an attached agent by webhook, and can be acknowledged. Thresholds are tunable on the same page. |
 | **Rate limiting** | Global per-IP request rate with burst, plus per-scope `rate_limit` policies (`rps/burst`) that can be global or attached to one site. |
@@ -457,6 +457,25 @@ blocklist can be muted without hiding the bans the console decided on itself.
 The apex is reserved and blackholed; only single-label subdomains of the base domain are
 accepted.
 
+### Application presets
+
+**Proxies → New proxy → Application preset** offers a starting configuration for Nextcloud,
+Jellyfin, Plex, Home Assistant, Proxmox VE and a generic application. Choosing one creates an
+ordinary WAF profile for that hostname and selects it; nothing is hidden:
+
+| Setting | What the preset fills in |
+|---|---|
+| Method allowlist | WebDAV verbs for Nextcloud, POST-only APIs for Home Assistant, and so on |
+| Body ceiling | The largest request body the proxy will buffer to inspect |
+| Response ceiling | How large an upstream response may get before it is refused (0 = streamed unbounded) |
+| Login paths and rate | The paths that take credentials, and the per-client rate they are limited to |
+| Admin paths and allowlist | Paths meant for the operator's network, and the CIDRs allowed to reach them |
+| CRS exceptions | Rule IDs this application is commonly a false positive for |
+
+Everything is a suggestion: edit the profile afterwards under **Policies → WAF profiles**, and check
+the CRS exceptions in `Detect only` mode before trusting them. The admin allowlist starts at the
+private ranges, so an admin path is refused from the internet until you widen it.
+
 ## Streaming forwarders (Plex, Jellyfin)
 
 Media servers validate their own certificates (Plex clients check the `*.plex.direct` names
@@ -595,7 +614,7 @@ After either update, confirm the version in the console footer or
 |---|---|
 | Lift a ban | **Policies → Temp bans / Permanent → Unban**, or `docker exec wafproxy unban 203.0.113.7` (takes effect within 30 s) |
 | Change an address or port | **Settings**, then restart the container |
-| Tune the WAF | **Policies → WAF profiles** → edit paranoia, anomaly threshold, methods, body limit or rule exceptions |
+| Tune the WAF | **Policies → WAF profiles** → edit paranoia, anomaly threshold, methods, body and response ceilings, login rate, admin paths or rule exceptions |
 | Back up | **Settings → Download JSON** (secrets excluded) |
 | Upgrade | See [Updating from the repository](#updating-from-the-repository) for Docker and native systemd |
 | Check health | `docker compose -f deploy/docker-compose.yml ps`, `curl -s http://<lan-ip>:8443/api/health` |

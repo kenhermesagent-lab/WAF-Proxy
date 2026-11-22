@@ -5,10 +5,12 @@ import (
 	"compress/gzip"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
@@ -125,6 +127,97 @@ func (w *responseWriter) Status() int {
 
 func (w *responseWriter) Size() int64 { return w.size }
 
+// headersSent reports whether the status line has gone out. The reverse proxy
+// uses it to decide whether an upstream failure can still become an error page.
+func (w *responseWriter) headersSent() bool { return w.wroteHeader }
+
+// errResponseCap is returned when an upstream response passes the profile's
+// ceiling. The reverse proxy stops reading on it, which cuts the response.
+var errResponseCap = errors.New("upstream response exceeded the profile limit")
+
+// capWriter enforces a response ceiling. A declared length above the limit is
+// refused before any body is sent; a streamed body is cut the moment it passes,
+// so an upstream cannot stream without bound through the proxy.
+type capWriter struct {
+	http.ResponseWriter
+	limit int64
+	n     int64
+	sent  bool
+	// refused is set when the declared length was over the ceiling and the
+	// refusal page replaced the response. over is set when a streamed body had
+	// to be cut, which the caller turns into an aborted connection because
+	// there is no status left to change.
+	refused   bool
+	over      bool
+	discarded int64
+	// trip runs once, when the ceiling is hit, so the caller can discard a
+	// partial cache entry and record what happened.
+	trip func()
+}
+
+func (w *capWriter) WriteHeader(code int) {
+	if w.sent || w.over || w.refused {
+		return
+	}
+	if cl := w.Header().Get("Content-Length"); cl != "" {
+		if n, err := strconv.ParseInt(cl, 10, 64); err == nil && n > w.limit {
+			w.refused = true
+			for name := range w.Header() {
+				w.Header().Del(name)
+			}
+			w.trip()
+			uniformError(w.ResponseWriter, http.StatusBadGateway)
+			return
+		}
+	}
+	w.sent = true
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *capWriter) Write(b []byte) (int, error) {
+	if w.refused {
+		// The refusal page has been written, so the body is swallowed until the
+		// reverse proxy finishes and the response is flushed. A lying upstream
+		// that keeps sending past a generous bound ends the connection instead.
+		w.discarded += int64(len(b))
+		if w.discarded > 4<<20 {
+			return 0, errResponseCap
+		}
+		return len(b), nil
+	}
+	if w.over {
+		return 0, errResponseCap
+	}
+	if !w.sent {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.n+int64(len(b)) > w.limit {
+		w.over = true
+		w.trip()
+		return 0, errResponseCap
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.n += int64(n)
+	return n, err
+}
+
+func (w *capWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *capWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("hijacking not supported")
+	}
+	w.sent = true
+	return hj.Hijack()
+}
+
+func (w *capWriter) headersSent() bool { return w.sent || w.over || w.refused }
+
 func (w *responseWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
@@ -177,6 +270,8 @@ func (w *gzipWriter) Write(b []byte) (int, error) {
 	}
 	return w.ResponseWriter.Write(b)
 }
+
+func (w *gzipWriter) headersSent() bool { return w.decided }
 
 func (w *gzipWriter) Close() error {
 	if w.gz != nil {

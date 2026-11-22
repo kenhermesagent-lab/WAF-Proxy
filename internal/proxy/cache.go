@@ -156,6 +156,8 @@ func (w *cacheWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+func (w *cacheWriter) headersSent() bool { return w.decided }
+
 func (w *cacheWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()

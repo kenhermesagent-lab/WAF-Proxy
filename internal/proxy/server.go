@@ -54,12 +54,15 @@ type Deps struct {
 type edge struct {
 	proxy      model.Proxy
 	protection *model.ProtectionProfile
-	ups        []*upstream
-	routes     []model.Route
-	rr         uint64
-	rp         *httputil.ReverseProxy
-	cache      *responseCache
-	cancel     context.CancelFunc
+	// waf is the selected WAF profile, kept for the limits it carries: the
+	// response ceiling. The policy engine reads the same row for the rest.
+	waf    *model.Profile
+	ups    []*upstream
+	routes []model.Route
+	rr     uint64
+	rp     *httputil.ReverseProxy
+	cache  *responseCache
+	cancel context.CancelFunc
 }
 
 type ctxKey int
@@ -241,7 +244,8 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 		return nil, err
 	}
 	child, cancel := context.WithCancel(ctx)
-	e := &edge{proxy: p, ups: ups, routes: routes, cache: newResponseCache(32 << 20), cancel: cancel}
+	e := &edge{proxy: p, ups: ups, routes: routes, cache: newResponseCache(32 << 20), cancel: cancel,
+		waf: s.d.Policy.ProfileFor(&p)}
 	if p.ProtectionProfileID != nil {
 		prof, err := s.d.Store.GetProtectionProfile(*p.ProtectionProfileID)
 		if err != nil {
@@ -264,6 +268,12 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 		Transport:     s.transport,
 		FlushInterval: 100 * time.Millisecond,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			// Once the response has started there is no status left to change:
+			// writing an error page would append it to the truncated body.
+			if hs, ok := w.(interface{ headersSent() bool }); ok && hs.headersSent() {
+				s.d.Log.Warn("upstream failed after the response started", "host", p.Hostname, "err", err)
+				return
+			}
 			s.d.Log.Warn("upstream error", "host", p.Hostname, "err", err)
 			uniformError(w, http.StatusBadGateway)
 		},

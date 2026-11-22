@@ -78,6 +78,34 @@ func newHarness(t *testing.T) *harness {
 			return
 		}
 		hits.Add(1)
+		switch r.URL.Path {
+		case "/large":
+			// A declared length above a profile's ceiling must be refused before
+			// the body starts, not streamed and cut.
+			w.Header().Set("Content-Type", "text/plain")
+			w.Header().Set("Content-Length", "200000")
+			_, _ = w.Write(make([]byte, 200000))
+			return
+		case "/stream":
+			// No length: the response is cut once it passes the ceiling.
+			w.Header().Set("Content-Type", "text/plain")
+			for i := 0; i < 8; i++ {
+				_, _ = w.Write(make([]byte, 32*1024))
+				w.(http.Flusher).Flush()
+			}
+			return
+		}
+		if r.URL.Path == "/ws" {
+			conn, brw, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				return
+			}
+			_, _ = brw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n" +
+				"Connection: Upgrade\r\n\r\nws-yo")
+			_ = brw.Flush()
+			_ = conn.Close()
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if r.URL.Path == "/cache" {
 			w.Header().Set("Cache-Control", "max-age=60")
