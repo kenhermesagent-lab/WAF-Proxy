@@ -526,3 +526,20 @@ Every item in the review maps to exactly one phase or to an explicit deferral.
 HA/multi-node clustering, HTTP/3, third-party config importers, dynamic upstream
 discovery, shared cache, hosted docs site, SSO, site mTLS, contributor
 screenshots. None of them are required by a single-node deployment.
+
+## Delivery status (updated as releases land)
+
+- **1.30.0 — Phase 1: delivered.** All five defects fixed with tests: balancing policies and
+  `max_conns`, configurable probes with passive ejection, per-site and per-client budgets,
+  matched-pattern certificate selection with `cert_id` authoritative, environment proxying
+  removed.
+- **1.31.0 — Phase 2: core delivered.** Per-site upstream timeout, bounded idempotent retries,
+  502/504 taxonomy, ordered request/response header rewriting. Not yet delivered from this
+  phase: method/header/query/regex route matchers with per-rule upstreams, per-route (as opposed
+  to per-site) timeouts, regex path rewriting and redirect status choice, the published
+  conformance table.
+- **1.32.0 — Phase 3: core delivered.** Shared process-wide cache with per-host quotas,
+  eviction and purge; warm connections preserved across reload; drain readiness. Not yet
+  delivered: per-upstream transports with DNS TTL, explicit Happy Eyeballs, TCP/UDP stream
+  routes with SNI passthrough and connection caps.
+- **Phase 4 (TLS/ACME) and Phase 5 (operability/observability): not started.**
