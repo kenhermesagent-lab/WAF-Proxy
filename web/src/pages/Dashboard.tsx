@@ -10,22 +10,6 @@ import { Event, GlobeHit, GlobePoint, Metrics, Proxy, Uptime } from "../types";
 
 type Rate = { requests: number; bytesIn: number; bytesOut: number };
 
-function Spark({ values, color }: { values: number[]; color: string }) {
-  const max = Math.max(1, ...values);
-  const pts = values
-    .map((v, i) => {
-      const x = (i / Math.max(1, values.length - 1)) * 100;
-      const y = 28 - (v / max) * 26;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  return (
-    <svg className="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
-
 function compactBps(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB/s`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB/s`;
@@ -267,33 +251,40 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
 
       <div className="kpi-grid">
         {!metrics ? (
-          Array.from({ length: 4 }).map((_, i) => <div className="skeleton kpi" key={i} />)
+          Array.from({ length: 6 }).map((_, i) => <div className="skeleton kpi" key={i} />)
         ) : (
           <>
             <div className="kpi">
               <div className="kpi-label">
-                Proxy inbound
+                Proxy traffic
                 <Info label="How byte accounting works">
                   Every byte on the HTTPS listener, headers and TLS included, so it matches what the WAN interface
                   sees for proxied hosts. “Server &amp; other” is the rest of the interface: SSH, this console, OS
                   updates and upstream legs.
                 </Info>
               </div>
-              <div className="kpi-value">{fmtBps(metrics.proxy.in_bps)}</div>
-              <div className="kpi-sub">{fmtBytes(metrics.proxy.in_total)} since start · {fmtBps(metrics.proxy.out_bps)} out</div>
-              <Spark values={metrics.history.map((h) => h.proxy_rx)} color="#4f8cff" />
+              <div className="kpi-pair">
+                <div>
+                  <div className="kpi-dir"><span className="in">↓</span>Inbound</div>
+                  <div className="kpi-value">{fmtBps(metrics.proxy.in_bps)}</div>
+                  <div className="kpi-sub">{fmtBytes(metrics.proxy.in_total)} total</div>
+                </div>
+                <div>
+                  <div className="kpi-dir"><span className="out">↑</span>Outbound</div>
+                  <div className="kpi-value">{fmtBps(metrics.proxy.out_bps)}</div>
+                  <div className="kpi-sub">{fmtBytes(metrics.proxy.out_total)} total</div>
+                </div>
+              </div>
             </div>
             <div className="kpi">
               <div className="kpi-label">Requests</div>
               <div className="kpi-value">{totals.requests.toLocaleString()}</div>
               <div className="kpi-sub">{blockedShare.toFixed(2)}% blocked · {fmtBytes(totals.bytesOut)} delivered</div>
-              <Spark values={metrics.history.map((h) => h.proxy_tx)} color="#3ecf8e" />
             </div>
             <div className="kpi">
               <div className="kpi-label">Blocked</div>
               <div className="kpi-value">{totals.blocked.toLocaleString()}</div>
               <div className="kpi-sub">{metrics.inflight} in flight · {metrics.shed.toLocaleString()} shed at capacity</div>
-              <Spark values={metrics.history.map((h) => h.host_rx)} color="#e5a54b" />
             </div>
             <div className="kpi">
               <div className="kpi-label">Sessions</div>
@@ -307,6 +298,41 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
                 <span><b>{metrics.wan.name || "—"}</b> WAN</span>
                 <span><b>{metrics.lan.name || "—"}</b> LAN</span>
                 <span>{metrics.dual_nic ? "dual NIC" : "single NIC"}</span>
+              </div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">
+                Server &amp; other
+                <Info label="What server traffic means">
+                  Actual host traffic outside the proxy listeners: SSH, this console, OS updates and the upstream legs
+                  of proxied requests. It is not proxy traffic.
+                </Info>
+              </div>
+              <div className="kpi-pair">
+                <div>
+                  <div className="kpi-dir"><span className="other-in">↓</span>Inbound</div>
+                  <div className="kpi-value">{fmtBps(metrics.host.in_bps)}</div>
+                  <div className="kpi-sub">{fmtBytes(metrics.host.in_total)} total</div>
+                </div>
+                <div>
+                  <div className="kpi-dir"><span>↑</span>Outbound</div>
+                  <div className="kpi-value">{fmtBps(metrics.host.out_bps)}</div>
+                  <div className="kpi-sub">{fmtBytes(metrics.host.out_total)} total</div>
+                </div>
+              </div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Request budget</div>
+              <div className="kpi-value">
+                {metrics.inflight}
+                <small> / {metrics.max_inflight}</small>
+              </div>
+              <div className="kpi-meter" aria-hidden="true">
+                <span style={{ width: `${metrics.max_inflight ? Math.min(100, (metrics.inflight / metrics.max_inflight) * 100) : 0}%` }} />
+              </div>
+              <div className="kpi-sub">
+                {metrics.max_inflight ? `${Math.round((metrics.inflight / metrics.max_inflight) * 100)}% of max` : "no limit"} ·{" "}
+                {metrics.shed.toLocaleString()} refused while full
               </div>
             </div>
           </>

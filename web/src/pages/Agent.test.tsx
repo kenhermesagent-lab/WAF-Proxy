@@ -73,7 +73,27 @@ describe("Agent access page", () => {
     screen.getByRole("button", { name: "New agent token" }).click();
     (await screen.findByRole("button", { name: "Create token" })).click();
 
-    await waitFor(() => expect(post).toHaveBeenCalledWith("/api/mcp/tokens", { name: "hermes-agent" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/mcp/tokens", {
+        name: "hermes-agent",
+        scopes: [
+          "get_security_overview",
+          "query_logs",
+          "get_ip_activity",
+          "list_anomalies",
+          "list_proxies",
+          "block_ip",
+          "unblock_ip",
+          "list_blocks",
+          "list_gate_users",
+          "block_username",
+          "unblock_username",
+          "list_sessions",
+          "revoke_session",
+          "revoke_sessions_for_ip",
+        ],
+      }),
+    );
     expect(await screen.findByText("one-time-secret-token")).toBeTruthy();
     expect(screen.getAllByText(/shown once/).length).toBeGreaterThan(0);
   });

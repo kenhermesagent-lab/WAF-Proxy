@@ -40,6 +40,8 @@ export default function AttackMap({
 
   const total = regions.reduce((n, r) => n + r.count, 0);
   const max = Math.max(1, ...regions.map((r) => r.count));
+  const selected = focus ? regions.find((r) => r.country === focus) : undefined;
+  const selectedHosts = selected?.hosts.size ?? 0;
 
   useEffect(() => {
     if (!focus) {
@@ -75,16 +77,9 @@ export default function AttackMap({
       }
       sub={`Blocked requests in the last ${hours} hour${hours === 1 ? "" : "s"} · ${total.toLocaleString()} events across ${regions.length} regions`}
       onClose={onClose}
-      footer={
-        <>
-          <span className="faint small-text" style={{ marginRight: "auto" }}>
-            Select a region or a point on the globe to filter the event feed.
-          </span>
-          <button onClick={onClose}>Close</button>
-        </>
-      }
+      footer={<button onClick={onClose}>Close</button>}
     >
-      <div className="map-shell" style={{ minHeight: "62vh" }}>
+      <div className="map-shell">
         <div className="map-stage">
           <div className="map-toolbar">
             <div className="btn-group">
@@ -94,7 +89,7 @@ export default function AttackMap({
                 </button>
               ))}
             </div>
-            <span className="faint small-text">Live arcs show new blocks; click a hotspot to isolate its region.</span>
+            <span className="faint small-text">Drag to rotate · click a country or hotspot to isolate it.</span>
           </div>
           <Globe
             points={points}
@@ -109,7 +104,11 @@ export default function AttackMap({
         <aside className="map-side">
           <div className="map-side-head">
             <h3>{focus ? `${countryFlag(focus)} ${countryName(focus)}` : "Attacks by region"}</h3>
-            <p>{focus ? `${regions.find((r) => r.country === focus)?.count.toLocaleString() ?? 0} blocked in range` : "Ranked by blocked requests"}</p>
+            <p>
+              {focus
+                ? `${selected?.count.toLocaleString() ?? 0} blocked · ${selectedHosts} ${selectedHosts === 1 ? "host" : "hosts"}`
+                : "Ranked by blocked requests"}
+            </p>
           </div>
           <div className="map-side-body">
             {!focus ? (

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { GlobeHit, GlobePoint } from "../types";
-import { LAND } from "../world";
+import { countryName } from "../countries";
+import { COUNTRY_LABELS, COUNTRY_SHAPES } from "../countries-geo";
 
 const COLORS: Record<string, string> = {
   waf: "#ef4444",
@@ -23,15 +24,17 @@ const COLORS: Record<string, string> = {
   "temp-ban": "#a855f7",
   "permanent-ban": "#ec4899",
   feed: "#14b8a6",
-  "bot-challenge": "#f97316",
+  "bot-challenge": "#60a5fa",
+  "bot-filter": "#60a5fa",
   decoy: "#ec4899",
 };
 
 const GROUPS = [
   { id: "waf", label: "WAF block", color: "#ef4444" },
   { id: "dos", label: "DoS / rate", color: "#f59e0b" },
-  { id: "ban", label: "ban / scanner", color: "#a855f7" },
-  { id: "feed", label: "threat feed", color: "#14b8a6" },
+  { id: "bot", label: "Bot protection", color: "#60a5fa" },
+  { id: "ban", label: "Ban / scanner", color: "#a855f7" },
+  { id: "feed", label: "Threat feed", color: "#14b8a6" },
 ] as const;
 
 type GroupID = (typeof GROUPS)[number]["id"];
@@ -39,12 +42,16 @@ type GroupID = (typeof GROUPS)[number]["id"];
 function groupFor(category: string): GroupID {
   switch (category) {
     case "dos":
+    case "login-limit":
+    case "rate-limit":
       return "dos";
+    case "bot-filter":
+    case "bot-challenge":
+      return "bot";
     case "temp-ban":
     case "permanent-ban":
     case "scanner":
     case "decoy":
-    case "bot-challenge":
     case "country-block":
     case "list-block":
     case "list-allow":
@@ -103,9 +110,17 @@ function unitVec(lat: number, lon: number): V3 {
   return { x: Math.cos(phi) * Math.sin(lambda), y: Math.sin(phi), z: Math.cos(phi) * Math.cos(lambda) };
 }
 
-// Land and the graticule never change, so their unit vectors are built once at
-// import time instead of running two trig calls per vertex per frame.
-const LAND_V: V3[][] = LAND.map((ring) => ring.map(([lon, lat]) => unitVec(lat, lon)));
+// Country rings and the graticule never change, so their unit vectors are built
+// once at import time instead of running two trig calls per vertex per frame.
+type Country = { code: string; rings: V3[][]; label: V3 };
+const COUNTRIES_V: Country[] = Object.entries(COUNTRY_SHAPES).map(([code, rings]) => {
+  const label = COUNTRY_LABELS[code] || rings[0][0];
+  return {
+    code,
+    rings: rings.map((ring) => ring.map(([lon, lat]) => unitVec(lat, lon))),
+    label: unitVec(label[1], label[0]),
+  };
+});
 
 const GRID: V3[][] = (() => {
   const lines: V3[][] = [];
@@ -211,18 +226,8 @@ function drawArc(
 
 type Live = { hit: GlobeHit; born: number; life: number };
 
-function drawLand(ctx: CanvasRenderingContext2D, project: Screen, cx: number, cy: number, r: number) {
-  // Clip to the disc: coastlines that cross the horizon are folded onto the
-  // limb, which keeps each shape closed and hides the far side.
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.fillStyle = "rgba(96,165,250,0.16)";
-  ctx.strokeStyle = "rgba(191,219,254,0.32)";
-  ctx.lineWidth = 0.9;
-  for (const ring of LAND_V) {
-    ctx.beginPath();
+function countryPath(ctx: CanvasRenderingContext2D | Path2D, country: Country, project: Screen, cx: number, cy: number, r: number) {
+  for (const ring of country.rings) {
     let started = false;
     for (const v of ring) {
       const p = project(v, r);
@@ -242,9 +247,97 @@ function drawLand(ctx: CanvasRenderingContext2D, project: Screen, cx: number, cy
         started = true;
       }
     }
-    ctx.closePath();
+    if (started) ctx.closePath();
+  }
+}
+
+function drawCountries(
+  ctx: CanvasRenderingContext2D,
+  project: Screen,
+  cx: number,
+  cy: number,
+  r: number,
+  counts: Map<string, number>,
+  max: number,
+  focus: string | null,
+) {
+  // Clip to the disc: coasts that cross the horizon are folded onto the limb,
+  // which keeps each shape closed and hides the far side.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  for (const country of COUNTRIES_V) {
+    if (project(country.label, r).z <= 0.01) continue;
+    const count = counts.get(country.code) ?? 0;
+    const dim = focus !== null && country.code !== focus;
+    const selected = focus === country.code;
+    const weight = count > 0 ? Math.min(1, Math.log10(1 + count) / Math.log10(1 + max)) : 0;
+    ctx.globalAlpha = dim ? 0.35 : 1;
+    ctx.beginPath();
+    countryPath(ctx, country, project, cx, cy, r);
+    ctx.fillStyle = count > 0 ? heatColor(weight) : "rgba(96,165,250,0.13)";
     ctx.fill();
+    ctx.strokeStyle = selected
+      ? "rgba(235,245,255,0.9)"
+      : count > 0
+        ? "rgba(255,190,164,0.5)"
+        : "rgba(191,219,254,0.24)";
+    ctx.lineWidth = selected ? 1.4 : count > 0 ? 0.8 : 0.55;
     ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawCountryLabels(
+  ctx: CanvasRenderingContext2D,
+  project: Screen,
+  r: number,
+  w: number,
+  h: number,
+  counts: Map<string, number>,
+  focus: string | null,
+) {
+  const top = [...counts.entries()]
+    .filter(([code]) => COUNTRY_LABELS[code])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  if (focus && !top.some(([code]) => code === focus)) {
+    const count = counts.get(focus);
+    if (count) top.unshift([focus, count]);
+  }
+  // Keep the top-left HUD clear.
+  const taken: { x: number; y: number; w: number; h: number }[] = [
+    { x: 6, y: 6, w: 220, h: 54 },
+  ];
+  ctx.save();
+  ctx.font = "500 10px Inter, ui-sans-serif, sans-serif";
+  ctx.textBaseline = "middle";
+  for (const [code, count] of top) {
+    const at = COUNTRY_LABELS[code];
+    if (!at) continue;
+    const p = project(unitVec(at[1], at[0]), r);
+    if (p.z <= 0.08) continue;
+    const text = `${flagEmoji(code)} ${countryName(code)}  ${count.toLocaleString()}`;
+    const width = Math.ceil(ctx.measureText(text).width) + 14;
+    const height = 20;
+    const box = {
+      x: Math.max(8, Math.min(w - width - 8, p.x - width / 2)),
+      y: Math.max(8, Math.min(h - height - 8, p.y - height / 2)),
+      w: width,
+      h: height,
+    };
+    if (taken.some((b) => box.x < b.x + b.w + 4 && box.x + box.w + 4 > b.x && box.y < b.y + b.h + 3 && box.y + box.h + 3 > b.y)) continue;
+    taken.push(box);
+    ctx.beginPath();
+    ctx.roundRect(box.x, box.y, box.w, box.h, 5);
+    ctx.fillStyle = "rgba(7,15,23,0.9)";
+    ctx.fill();
+    ctx.strokeStyle = focus === code ? "rgba(157,192,255,0.9)" : "rgba(255,255,255,0.16)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = "#e6eef8";
+    ctx.fillText(text, box.x + 7, box.y + box.h / 2 + 0.5);
   }
   ctx.restore();
 }
@@ -287,7 +380,7 @@ export default function Globe({
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const size = useRef({ w: 0, h: 0 });
   const dots = useRef<{ x: number; y: number; r: number; pt: GlobePoint }[]>([]);
-  const [visible, setVisible] = useState<Record<GroupID, boolean>>({ waf: true, dos: true, ban: true, feed: true });
+  const [visible, setVisible] = useState<Record<GroupID, boolean>>({ waf: true, dos: true, bot: true, ban: true, feed: true });
   const [localFocus, setLocalFocus] = useState<string | null>(null);
   const focus = focusProp !== undefined ? focusProp : localFocus;
   const chooseFocus = (next: string | null) => {
@@ -298,6 +391,9 @@ export default function Globe({
   // The animation loop never re-runs, so it reads hover state through a ref.
   const tipRef = useRef(false);
   tipRef.current = tip !== null;
+  const hoverRef = useRef(false);
+  const suppressClick = useRef(false);
+  const drag = useRef({ active: false, startX: 0, startRotation: 0, moved: false });
   // One tick keeps "attacks / min" and "last hit" counting down between polls.
   const [tick, setTick] = useState(0);
 
@@ -328,7 +424,7 @@ export default function Globe({
   }, []);
 
   const counts = useMemo(() => {
-    const out: Record<GroupID, number> = { waf: 0, dos: 0, ban: 0, feed: 0 };
+    const out: Record<GroupID, number> = { waf: 0, dos: 0, bot: 0, ban: 0, feed: 0 };
     for (const p of points) out[groupFor(p.category)] += p.count;
     return out;
   }, [points]);
@@ -378,7 +474,7 @@ export default function Globe({
       const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
       const paused = reduced || document.visibilityState !== "visible";
 
-      if (!paused) {
+      if (!paused && !drag.current.active && !hoverRef.current) {
         // A new burst eases the sphere round to face the source, then hands
         // control back to the slow spin so the map keeps showing everything.
         if (follow.active && now < follow.until) {
@@ -474,7 +570,15 @@ export default function Globe({
         ctx.stroke();
       }
 
-      drawLand(ctx, project, cx, cy, r);
+      const focus = state.current.focus ? state.current.focus.toUpperCase() : null;
+      const shown = state.current.points.filter((p) => state.current.visible[groupFor(p.category)]);
+      const countryCounts = new Map<string, number>();
+      for (const pt of shown) {
+        const code = pt.country.toUpperCase();
+        countryCounts.set(code, (countryCounts.get(code) ?? 0) + pt.count);
+      }
+      const countryMax = Math.max(1, ...countryCounts.values());
+      drawCountries(ctx, project, cx, cy, r, countryCounts, countryMax, focus);
 
       // limb darkening over the land, so the sphere reads as a ball rather
       // than a flat map.
@@ -525,8 +629,6 @@ export default function Globe({
       live = live.filter((l) => now - l.born < l.life);
 
       const homeP = project(homeVec, r);
-      const focus = state.current.focus;
-      const shown = state.current.points.filter((p) => state.current.visible[groupFor(p.category)]);
       // Aggregated arcs are drawn brightest for the busiest sources; the rest
       // stay as faint strands so nothing is silently dropped.
       const hot = shown.slice(0, 40);
@@ -639,6 +741,10 @@ export default function Globe({
         ctx.restore();
       }
 
+      if (variant === "expanded") {
+        drawCountryLabels(ctx, project, r, cssW, cssH, countryCounts, focus);
+      }
+
       ctx.strokeStyle = "rgba(96,165,250,0.22)";
       ctx.lineWidth = 1.2;
       ctx.beginPath();
@@ -656,6 +762,14 @@ export default function Globe({
   const onMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    hoverRef.current = true;
+    if (drag.current.active) {
+      const dx = e.clientX - drag.current.startX;
+      if (Math.abs(dx) > 3) drag.current.moved = true;
+      state.current.rotation = (drag.current.startRotation + dx * 0.4) % 360;
+      setTip(null);
+      return;
+    }
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -684,78 +798,150 @@ export default function Globe({
     });
   };
 
-  const pin = () => {
-    if (!tip || !tip.pt.country) return;
-    chooseFocus(focus === tip.pt.country ? null : tip.pt.country);
+  const pickCountry = (x: number, y: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
+    const r = Math.min(w, h) * 0.4;
+    const cx = w / 2;
+    const cy = h / 2;
+    const project = makeProjector(state.current.rotation, cx, cy);
+    // Hit-testing ignores the context transform, so convert CSS pixels to backing-store pixels.
+    const scale = canvas.width / rect.width;
+    for (const country of COUNTRIES_V) {
+      if (project(country.label, r).z <= 0.01) continue;
+      const path = new Path2D();
+      countryPath(path, country, project, cx, cy, r);
+      if (ctx.isPointInPath(path, x * scale, y * scale)) {
+        chooseFocus(focus === country.code ? null : country.code);
+        return;
+      }
+    }
+  };
+
+  const onDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (variant !== "expanded") return;
+    suppressClick.current = false;
+    drag.current = { active: true, startX: e.clientX, startRotation: state.current.rotation, moved: false };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setTip(null);
+  };
+
+  const onUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!drag.current.active) return;
+    drag.current.active = false;
+    suppressClick.current = drag.current.moved;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* pointer capture can already be gone after a cancel */
+    }
+  };
+
+  const onClick = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    for (const d of dots.current) {
+      if (Math.hypot(d.x - x, d.y - y) <= d.r + 7) {
+        const code = d.pt.country.toUpperCase();
+        chooseFocus(focus === code ? null : code);
+        return;
+      }
+    }
+    pickCountry(x, y);
   };
 
   const tipW = 210;
   const tipLeft = tip ? Math.min(tip.x + 14, Math.max(6, (size.current.w || 0) - tipW - 6)) : 0;
 
   return (
-    <div className={`globe-wrap ${variant === "compact" ? "compact" : ""} ${variant === "expanded" ? "expanded" : ""}`} ref={wrapRef}>
-      <canvas
-        ref={canvasRef}
-        role="img"
-        aria-label={`World map of blocked attacks in the last ${hours} hour${hours === 1 ? "" : "s"}`}
-        onPointerMove={onMove}
-        onPointerLeave={() => setTip(null)}
-        onClick={pin}
-        style={{ cursor: tip ? "pointer" : "default" }}
-      />
-      <div className="globe-hud" aria-hidden="true">
-        <span className="globe-hud-rate">
-          <b>{liveStats.perMin}</b> attacks/min
-        </span>
-        <span>
-          last {hours}h · <b>{shownTotal(counts).toLocaleString()}</b> blocked
-        </span>
-        {liveStats.top && (
-          <span>
-            top {flagEmoji(liveStats.top[0])} {liveStats.top[0]} · {liveStats.top[1]}
+    <>
+      <div className={`globe-wrap ${variant === "compact" ? "compact" : ""} ${variant === "expanded" ? "expanded" : ""}`} ref={wrapRef}>
+        <canvas
+          ref={canvasRef}
+          role="img"
+          aria-label={`World map of blocked attacks in the last ${hours} hour${hours === 1 ? "" : "s"}`}
+          onPointerMove={onMove}
+          onPointerDown={onDown}
+          onPointerUp={onUp}
+          onClick={onClick}
+          onPointerCancel={() => { drag.current.active = false; }}
+          onPointerLeave={() => { hoverRef.current = false; if (!drag.current.active) setTip(null); }}
+          style={{ cursor: variant === "expanded" ? "grab" : tip ? "pointer" : "default" }}
+        />
+        <div className="globe-hud" aria-hidden="true">
+          <span className="globe-hud-rate">
+            <b>{liveStats.perMin}</b> attacks/min
           </span>
-        )}
-        {liveStats.last !== null && <span className="globe-hud-last">last hit {liveStats.last}s ago</span>}
-        {focus && (
-          <button className="globe-focus" onClick={() => chooseFocus(null)} title="Clear the country filter">
-            {flagEmoji(focus)} {focus} ✕
-          </button>
-        )}
-      </div>
-      <p className="sr-only" aria-live="polite">
-        {summary}
-      </p>
-      {tip && (
-        <div className="globe-tip" style={{ left: tipLeft, top: Math.max(6, tip.y - 12), width: tipW }}>
-          <div className="globe-tip-head">
+          <span>
+            last {hours}h · <b>{shownTotal(counts).toLocaleString()}</b> blocked
+          </span>
+          {liveStats.top && (
             <span>
-              {flagEmoji(tip.pt.country)} {tip.pt.country || "unknown"}
+              top {flagEmoji(liveStats.top[0])} {countryName(liveStats.top[0])} · {liveStats.top[1]}
             </span>
-            <b>{tip.pt.count.toLocaleString()}</b>
-          </div>
-          <div className="globe-tip-row">{tip.pt.host || "any host"}</div>
-          <div className="globe-tip-row">
-            {tip.pt.category} · {ago(tip.pt.last_seen)}
-          </div>
-          <div className="globe-tip-hint">click to isolate</div>
+          )}
+          {liveStats.last !== null && <span className="globe-hud-last">last hit {liveStats.last}s ago</span>}
+          {focus && (
+            <button className="globe-focus" onClick={() => chooseFocus(null)} title="Clear the country filter">
+              {flagEmoji(focus)} {countryName(focus)} ✕
+            </button>
+          )}
         </div>
-      )}
-      <div className="globe-legend" aria-label="Attack categories">
-        {GROUPS.map((g) => (
-          <button
-            key={g.id}
-            className={`globe-key ${visible[g.id] ? "" : "off"}`}
-            onClick={() => setVisible((v) => ({ ...v, [g.id]: !v[g.id] }))}
-            aria-pressed={visible[g.id]}
-            title={`${visible[g.id] ? "Hide" : "Show"} ${g.label}`}
-          >
-            <i style={{ background: g.color }} />
-            {g.label}
-            <b>{counts[g.id].toLocaleString()}</b>
-          </button>
-        ))}
+        <p className="sr-only" aria-live="polite">
+          {summary}
+        </p>
+        {tip && (
+          <div className="globe-tip" style={{ left: tipLeft, top: Math.max(6, tip.y - 12), width: tipW }}>
+            <div className="globe-tip-head">
+              <span>
+                {flagEmoji(tip.pt.country)} {countryName(tip.pt.country) || "unknown"}
+              </span>
+              <b>{tip.pt.count.toLocaleString()}</b>
+            </div>
+            <div className="globe-tip-row">{tip.pt.host || "any host"}</div>
+            <div className="globe-tip-row">
+              {tip.pt.category} · {ago(tip.pt.last_seen)}
+            </div>
+            <div className="globe-tip-hint">click to isolate</div>
+          </div>
+        )}
       </div>
-    </div>
+      <div className={`globe-legend-bar ${variant === "compact" ? "compact" : ""}`}>
+        <div className="globe-legend" role="group" aria-label="Attack categories">
+          {GROUPS.map((g) => (
+            <button
+              key={g.id}
+              className={`globe-key ${visible[g.id] ? "" : "off"}`}
+              onClick={() => setVisible((v) => ({ ...v, [g.id]: !v[g.id] }))}
+              aria-pressed={visible[g.id]}
+              title={`${visible[g.id] ? "Hide" : "Show"} ${g.label}`}
+            >
+              <i style={{ background: g.color }} />
+              {g.label}
+              <b>{counts[g.id].toLocaleString()}</b>
+            </button>
+          ))}
+        </div>
+        {variant === "expanded" && (
+          <p className="globe-footnote">
+            <b>WAF block</b> = signature match. <b>DoS / rate</b> = rate, concurrency or login limit.{" "}
+            <b>Bot protection</b> = user-agent filter or browser challenge. <b>Ban / scanner</b> = existing ban,
+            decoy/scanner hit, or country/list/ASN deny — CrowdSec decisions are counted here because the globe feed
+            does not record the ban source. <b>Threat feed</b> = IP matched a threat-intel feed.
+          </p>
+        )}
+      </div>
+    </>
   );
 }
 

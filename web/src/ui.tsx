@@ -161,6 +161,13 @@ export function Drawer({
   wide?: boolean;
 }) {
   const ref = useDialogFocus(true, onClose);
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
   return (
     <div className="drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <aside
