@@ -295,7 +295,7 @@ func (s *Server) applyProxies(in []backupProxy, problems []string) (int, []strin
 				problems = append(problems, "proxy "+host+": bad upstream "+u.URL+": "+err.Error())
 				continue
 			}
-			ups = append(ups, model.Upstream{URL: strings.TrimSpace(u.URL), Weight: u.Weight, Enabled: u.Enabled})
+			ups = append(ups, model.Upstream{URL: strings.TrimSpace(u.URL), Weight: u.Weight, Enabled: u.Enabled, MaxConns: u.MaxConns})
 		}
 		if err := s.st.ReplaceUpstreams(id, ups); err != nil {
 			problems = append(problems, "proxy "+host+" upstreams: "+err.Error())

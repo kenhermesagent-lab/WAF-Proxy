@@ -62,14 +62,26 @@ type configProxy struct {
 	BotLevel          string           `json:"bot_level"`
 	Maintenance       bool             `json:"maintenance"`
 	WAFMode           string           `json:"waf_mode"`
+	LBPolicy          string           `json:"lb_policy,omitempty"`
+	HealthPath        string           `json:"health_path,omitempty"`
+	HealthExpect      string           `json:"health_expect,omitempty"`
+	HealthInterval    int              `json:"health_interval,omitempty"`
+	HealthFailAfter   int              `json:"health_fail_after,omitempty"`
+	MaxInflight       int              `json:"max_inflight,omitempty"`
+	MaxInflightClient int              `json:"max_inflight_per_client,omitempty"`
+	UpstreamTimeout   int              `json:"upstream_timeout,omitempty"`
+	Retries           int              `json:"retries,omitempty"`
+	RequestHeaders    []model.HeaderOp `json:"request_headers,omitempty"`
+	ResponseHeaders   []model.HeaderOp `json:"response_headers,omitempty"`
 	Upstreams         []configUpstream `json:"upstreams"`
 	Routes            []configRoute    `json:"routes"`
 }
 
 type configUpstream struct {
-	URL     string `json:"url"`
-	Weight  int    `json:"weight"`
-	Enabled bool   `json:"enabled"`
+	URL      string `json:"url"`
+	Weight   int    `json:"weight"`
+	Enabled  bool   `json:"enabled"`
+	MaxConns int    `json:"max_conns,omitempty"`
 }
 
 type configRoute struct {
@@ -169,6 +181,11 @@ func (s *Server) configDocument() (configDoc, error) {
 		row := configProxy{
 			Hostname: p.Hostname, Enabled: p.Enabled, GateMode: p.GateMode,
 			Fingerprint: p.Fingerprint, BotLevel: p.BotLevel, Maintenance: p.Maintenance, WAFMode: p.WAFMode,
+			LBPolicy: p.LBPolicy, HealthPath: p.HealthPath, HealthExpect: p.HealthExpect,
+			HealthInterval: p.HealthInterval, HealthFailAfter: p.HealthFailAfter,
+			MaxInflight: p.MaxInflight, MaxInflightClient: p.MaxInflightPerClient,
+			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries,
+			RequestHeaders: p.RequestHeaders, ResponseHeaders: p.ResponseHeaders,
 		}
 		if p.ProfileID != nil {
 			row.WAFProfile = wafName[*p.ProfileID]
@@ -181,7 +198,7 @@ func (s *Server) configDocument() (configDoc, error) {
 		}
 		ups, _ := s.st.ListUpstreams(p.ID)
 		for _, u := range ups {
-			row.Upstreams = append(row.Upstreams, configUpstream{URL: u.URL, Weight: u.Weight, Enabled: u.Enabled})
+			row.Upstreams = append(row.Upstreams, configUpstream{URL: u.URL, Weight: u.Weight, Enabled: u.Enabled, MaxConns: u.MaxConns})
 		}
 		routes, _ := s.st.ListRoutes(p.ID)
 		for _, r := range routes {
@@ -472,6 +489,11 @@ func (s *Server) applyConfigProxies(in []configProxy, problems []string) (int, [
 		bp := backupProxy{Proxy: model.Proxy{
 			Hostname: p.Hostname, Enabled: p.Enabled, GateMode: p.GateMode,
 			Fingerprint: p.Fingerprint, BotLevel: p.BotLevel, Maintenance: p.Maintenance, WAFMode: p.WAFMode,
+			LBPolicy: p.LBPolicy, HealthPath: p.HealthPath, HealthExpect: p.HealthExpect,
+			HealthInterval: p.HealthInterval, HealthFailAfter: p.HealthFailAfter,
+			MaxInflight: p.MaxInflight, MaxInflightPerClient: p.MaxInflightClient,
+			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries,
+			RequestHeaders: p.RequestHeaders, ResponseHeaders: p.ResponseHeaders,
 		}}
 		known := true
 		if p.WAFProfile != "" {
@@ -494,7 +516,7 @@ func (s *Server) applyConfigProxies(in []configProxy, problems []string) (int, [
 			continue
 		}
 		for _, u := range p.Upstreams {
-			bp.Upstreams = append(bp.Upstreams, model.Upstream{URL: u.URL, Weight: u.Weight, Enabled: u.Enabled})
+			bp.Upstreams = append(bp.Upstreams, model.Upstream{URL: u.URL, Weight: u.Weight, Enabled: u.Enabled, MaxConns: u.MaxConns})
 		}
 		for _, r := range p.Routes {
 			bp.Routes = append(bp.Routes, model.Route{Kind: r.Kind, Match: r.Match, Target: r.Target, StripPrefix: r.StripPrefix})

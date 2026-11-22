@@ -438,7 +438,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "15"
+const schemaVersion = "17"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -500,6 +500,22 @@ func (s *Store) migrateAddColumns() error {
 		{"audit", "hash", `ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`},
 		// Agent tokens can be limited to read, ban or session tools.
 		{"mcp_tokens", "scopes", `ALTER TABLE mcp_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT ''`},
+		// Balancing, health probes and per-site capacity are configured per
+		// site; zero or empty values mean the defaults.
+		{"proxies", "lb_policy", `ALTER TABLE proxies ADD COLUMN lb_policy TEXT NOT NULL DEFAULT 'weighted_rr'`},
+		{"proxies", "health_path", `ALTER TABLE proxies ADD COLUMN health_path TEXT NOT NULL DEFAULT '/'`},
+		{"proxies", "health_expect", `ALTER TABLE proxies ADD COLUMN health_expect TEXT NOT NULL DEFAULT '200-399'`},
+		{"proxies", "health_interval", `ALTER TABLE proxies ADD COLUMN health_interval INTEGER NOT NULL DEFAULT 0`},
+		{"proxies", "health_fail_after", `ALTER TABLE proxies ADD COLUMN health_fail_after INTEGER NOT NULL DEFAULT 0`},
+		{"proxies", "max_inflight", `ALTER TABLE proxies ADD COLUMN max_inflight INTEGER NOT NULL DEFAULT 0`},
+		{"proxies", "max_inflight_per_client", `ALTER TABLE proxies ADD COLUMN max_inflight_per_client INTEGER NOT NULL DEFAULT 0`},
+		{"upstreams", "max_conns", `ALTER TABLE upstreams ADD COLUMN max_conns INTEGER NOT NULL DEFAULT 0`},
+		// Timeout, retries and header rewrites are per site. Header rules are a
+		// JSON array so their order is preserved.
+		{"proxies", "upstream_timeout", `ALTER TABLE proxies ADD COLUMN upstream_timeout INTEGER NOT NULL DEFAULT 0`},
+		{"proxies", "retries", `ALTER TABLE proxies ADD COLUMN retries INTEGER NOT NULL DEFAULT 0`},
+		{"proxies", "request_headers", `ALTER TABLE proxies ADD COLUMN request_headers TEXT NOT NULL DEFAULT '[]'`},
+		{"proxies", "response_headers", `ALTER TABLE proxies ADD COLUMN response_headers TEXT NOT NULL DEFAULT '[]'`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)
