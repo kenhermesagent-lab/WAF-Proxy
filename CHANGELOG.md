@@ -28,6 +28,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   compressed, bodyless and oversized responses are forwarded whole and logged as
   `response-skipped` with the reason as the rule. Off by default. Logs gains `response-waf` and
   `response-skipped` stage filters.
+- **Metrics scrape endpoint.** `GET /metrics` serves the per-proxy request, block and byte counters in
+  the Prometheus text format. It is public like `/api/health` and stays behind the console listener's
+  private-network default.
+- **Audit export.** `GET /api/audit?format=csv` downloads the 200 newest entries as CSV; without the
+  parameter the JSON list is unchanged.
 - **Bulk ban selection.** The Bans list has a select-all box, Ctrl/Cmd-click to add an address and
   press-and-drag over a range; an address stays draggable into the other box.
 - **Release-check regression test.** `make test-release` (and CI) proves `deploy/check-version.sh`
@@ -38,6 +43,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 - A logged verdict keeps the stage that produced it (`waf`) instead of being relabelled `route` by
   the forward that follows the log.
+- A WebSocket upgrade is logged with the 101 the client received instead of a 200, and the tunnel is
+  untouched.
 - The **Why?** modal reads the bare arrays `GET /api/proxies` and `GET /api/profiles` return, so a
   real event no longer claims no proxy is configured. A pasted query is re-encoded the way a
   browser sends it, a blocked result no longer claims there is no upstream, and the exception

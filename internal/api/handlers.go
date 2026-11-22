@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1496,7 +1498,48 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	if r.URL.Query().Get("format") != "csv" {
+		writeJSON(w, http.StatusOK, list)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="audit.csv"`)
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"id", "time", "user", "action", "detail", "ip"})
+	for _, e := range list {
+		_ = cw.Write([]string{strconv.FormatInt(e.ID, 10), e.TS.Format(time.RFC3339), e.User, e.Action, e.Detail, e.IP})
+	}
+	cw.Flush()
+}
+
+// prometheusMetrics serves the per-proxy counters in the text exposition format
+// so a scraper reads them without the console. It is public like /api/health;
+// the console listener only admits private networks unless that is turned off.
+func (s *Server) prometheusMetrics(w http.ResponseWriter, _ *http.Request) {
+	snap := s.metrics.Snapshot()
+	ids := make([]string, 0, len(snap.Proxies))
+	for id := range snap.Proxies {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	var b strings.Builder
+	for _, m := range []struct {
+		name, help string
+		val        func(*metrics.Counters) int64
+	}{
+		{"wafproxy_requests_total", "Requests handled, by proxy.", func(c *metrics.Counters) int64 { return c.Requests }},
+		{"wafproxy_blocked_total", "Requests blocked, by proxy.", func(c *metrics.Counters) int64 { return c.Blocked }},
+		{"wafproxy_bytes_in_total", "Request bytes read, by proxy.", func(c *metrics.Counters) int64 { return c.BytesIn }},
+		{"wafproxy_bytes_out_total", "Response bytes written, by proxy.", func(c *metrics.Counters) int64 { return c.BytesOut }},
+	} {
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s counter\n", m.name, m.help, m.name)
+		for _, id := range ids {
+			fmt.Fprintf(&b, "%s{proxy=%q} %d\n", m.name, id, m.val(snap.Proxies[id]))
+		}
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, _ = io.WriteString(w, b.String())
 }
 
 // ---------- notifications ----------

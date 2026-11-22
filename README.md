@@ -660,6 +660,8 @@ After either update, confirm the version in the console footer or
 | Lift a ban | **Policies → Bans** (search the address, then Remove, or open the full list), or `docker exec wafproxy unban 203.0.113.7` (takes effect within 30 s) |
 | Change an address or port | **Settings**, then restart the container |
 | Tune the WAF | **Policies → WAF profiles** → edit paranoia, anomaly threshold, methods, body and response ceilings, upstream response inspection, login rate, admin paths or rule exceptions |
+| Scrape metrics | `curl -s http://<lan-ip>:8443/metrics` returns per-proxy request, block and byte counters in the Prometheus text format. No session is needed, the same as `/api/health`; the console listener only admits private networks unless `WAFPROXY_GUI_PRIVATE_ONLY` is off. |
+| Export the audit log | `GET /api/audit` returns the 200 newest entries as JSON; add `?format=csv` for a CSV download |
 | Find out why a request was blocked | **Logs** → **Why?** on the event row. It replays the request through the ban, screening and WAF stages without reaching the upstream, lists every rule that matched, and offers to except a blocking rule after naming every other site the profile change would affect. |
 | Back up | **Settings → Download JSON** (secrets excluded) |
 | Upgrade | See [Updating from the repository](#updating-from-the-repository) for Docker and native systemd |
