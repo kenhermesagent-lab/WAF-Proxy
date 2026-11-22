@@ -6,7 +6,7 @@ live observability. One Go binary and one React console, deployed either as a Do
 stack or as a systemd service on a two-NIC Linux host. Built to run on a home server, a lab box
 or a small office network without a cloud dependency.
 
-**Version 1.3.0** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
+**Version 1.12.0** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -24,7 +24,8 @@ sample traffic, not production figures.***
 - [Streaming forwarders (Plex, Jellyfin)](#streaming-forwarders-plex-jellyfin)
 - [Tailscale access](#tailscale-access)
 - [Host updates](#host-updates)
-- [Agent access (MCP gateway)](#agent-access-mcp-gateway)
+- [AI Agent Access (MCP gateway and webhooks)](#ai-agent-access-mcp-gateway-and-webhooks)
+- [Notifications and event routing](#notifications-and-event-routing)
 - [CrowdSec](#crowdsec)
 - [Updating from the repository](#updating-from-the-repository)
 - [Day-to-day operations](#day-to-day-operations)
@@ -40,7 +41,8 @@ sample traffic, not production figures.***
 | Feature | Behaviour |
 |---|---|
 | **OWASP CRS WAF** | Coraza v3 with the embedded Core Rule Set. Five profiles (Generic Web, WordPress, API-only, Static/CDN, Admin panel), paranoia level 1–4, anomaly thresholds, per-profile method allowlists, body limits and per-rule exceptions — all editable from **Policies → WAF profiles**. Each site can inherit its profile, or override with `block`, `detect` or `off`, and admins can add and delete their own profiles. |
-| **Ban engine** | Temporary and permanent bans with a mandatory reason and source. Enforced in the kernel with nftables (IPv4 + IPv6), so banned traffic is dropped before it reaches the proxy, and expires on its own. Every ban is listed in the console and can be lifted there or with the `unban` CLI; tick any number of rows to make them permanent or lift them together. |
+| **Ban engine** | Temporary bans last at most **24 hours** and are deleted when they expire, so the list only ever holds recent cool-downs. Permanent bans are absolute — no whitelist lifts them — and **Policies → Permanent** can roll them into one local threat list (`<data>/feeds/permanent-bans.txt`), which stays enforced while the ban rows are cleared. A roll-up only deletes rows after the new list has loaded and reports every expected entry, so a failed load can never leave an address unblocked. Enforced in the kernel with nftables (IPv4 + IPv6); tick any number of rows to promote or lift them together, or use the `unban` CLI. |
+| **Anomaly detection** | Per-proxy baselines over the last hour of one-minute windows drive three detectors: **egress byte spike** (outbound data far above the site's own median, the exfiltration signal), **request-rate spike** and **login-failure burst**. Detections are stored as events, raise their own notification classes, are visible on **Anomaly events**, reach an attached agent by webhook, and can be acknowledged. Thresholds are tunable on the same page. |
 | **Rate limiting** | Global per-IP request rate with burst, plus per-scope `rate_limit` policies (`rps/burst`) that can be global or attached to one site. |
 | **Country / ASN policy** | Allow and block lists by ISO country code and by ASN, using MaxMind GeoLite2 or DB-IP Lite databases. The country picker lists every ISO code, and a country allow list is exclusive: countries not on it are blocked unless the source matches an explicit IP allow list. **Settings → GeoIP database** can download and install the DB-IP Lite city and ASN files, validate them and reload without a restart. Without a database the stages report “unavailable” instead of silently allowing traffic. |
 | **Threat feeds** | Nine built-in lists (FireHOL 1/2, Spamhaus DROP/EDROP, Tor exits, Feodo C2, URLhaus, ET compromised, DShield), your own HTTP(S) feeds, and uploaded `.txt`/`.csv` local lists. ETag/If-Modified-Since caching, CIDR de-duplication, a 5× growth freeze and last-good retention so a broken upstream cannot empty the table. Local uploads are always global blocks. |
@@ -58,6 +60,7 @@ sample traffic, not production figures.***
 | **TLS** | DNS-01 wildcard certificates through lego — DuckDNS, Cloudflare, Route53, DigitalOcean, Hetzner, OVH, GoDaddy and RFC2136. Per-site assignment, per-certificate renewal policy (monthly, every 2 or 3 months, or 1 month before expiry), serialised ACME orders, staging toggle. |
 | **Streaming forwarders** | Transparent TCP relays for **Plex** and **Jellyfin** on their own WAN ports, with a source allowlist (one or more IPs/CIDRs, comma separated, empty = any), connection cap, banned-source refusal that also cuts running streams, and live counters. |
 | **Maintenance mode** | Per-site switch that answers with a maintenance response instead of the backend. |
+| **Access profiles** | One named profile per host holds everything the site's policy needs: lists from **Countries, IPs, ASN** marked *allow only these* or *block these*, plus the WAF and protection profiles it uses. Creating or editing a proxy asks for one selection. A host profile stacks on the global lists: an allow list narrows that site to the addresses and countries it names, a block list drops them even when a global allow list names them, so one site can be stricter than the global setting and another wider. |
 
 ### Operations
 
@@ -70,16 +73,17 @@ sample traffic, not production figures.***
 | **Sources** | Per-IP explorer: request and block counts, distinct hosts, first/last seen, ban state, recent requests, and one-click ban/unban. |
 | **Audit log** | Every sign-in, settings change, proxy/certificate change, ban and restore is recorded and shown under **Settings → Recent administrator activity**. |
 | **Host updates** | Native systemd installs can inspect the packages WAF-Proxy uses, refresh the apt index, see high/critical OSV advisories and apply one allowlisted package upgrade through a root-owned helper. |
-| **Notifications** | Telegram, SMTP/Gmail and a generic webhook (Slack, Teams, …). Five-minute digest for bans, instant alerts for permanent bans, certificate problems, feed freezes and backend up/down transitions, with per-event routing. |
+| **Notifications** | Telegram, SMTP/Gmail and a generic webhook (Slack, Teams, …). Five-minute digest for bans, instant alerts for permanent bans, certificate problems, feed freezes and backend up/down transitions, with a per-event routing switch for every class (including CrowdSec bans and each anomaly detector). Muting a class also suppresses alerts already queued for it. |
 | **Backup** | One-click JSON export/import of settings, sites, routes, policies, feeds and bans. Secrets, private keys and password hashes are excluded by design. |
 | **Admin security** | LAN-only console, argon2id passwords, mandatory TOTP with single-use codes and recovery codes, CSRF tokens, login rate limits, 12-hour idle / 7-day absolute sessions, password and authenticator rotation, sign-out-everywhere, CSP and secrets encrypted at rest. |
 
 ### Console
 
 A dark single-page console: **Dashboard**, **Statistics**, **Proxies**, **Streaming**, **Policies** (bans,
-countries/IPs/ASN, WAF profiles), **Sources**, **Threat intel**, **CrowdSec**, **Certificates**,
-**Access gate**, **Notifications**, **Updates**, **Logs**, **Settings** and **Account**. It uses
-native controls and is responsive down to a phone.
+permanent bans, countries/IPs/ASN lists, WAF profiles, protection profiles, access profiles, identity
+providers), **Sources**, **Threat intel**, **CrowdSec**, **Anomaly events**, **Certificates**, **Access gate**,
+**AI Agent Access**, **Notifications**, **Updates**, **Logs**, **Settings** and **Account**. It uses native
+controls and is responsive down to a phone.
 
 ![WAF profiles](docs/screenshots/waf-profiles.png)
 
@@ -152,31 +156,42 @@ and copy them into `bin/` before running `install.sh`. See
 ## Quick start
 
 ```bash
-git clone https://github.com/kenhermesagent-lab/WAF-Proxy-Docker.git waf-proxy-docker
-cd waf-proxy-docker
+git clone https://github.com/kenhermesagent-lab/WAF-Proxy.git WAF-Proxy
+cd WAF-Proxy
 cp .env.example deploy/.env
-$EDITOR deploy/.env                       # set TZ; optional CrowdSec key
+$EDITOR deploy/.env                       # set TZ, WAFPROXY_LISTEN_GUI, optional CrowdSec key
 docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml logs -f wafproxy
 ```
+
+`deploy/.env` ships these two lines on purpose, and you should check both before the first start:
+
+```ini
+# This host's real LAN address. The console is bound only here, port 8080.
+WAFPROXY_LISTEN_GUI=192.168.101.2:8080
+
+# Refuse console requests that do not come from a private network, even if the
+# listener ends up bound more widely than intended. Leave this true for Docker.
+WAFPROXY_GUI_PRIVATE_ONLY=true
+```
+
+With the GUI default left at `127.0.0.1:8080` the console is reachable only from inside the
+container host, so the unauthenticated setup wizard can never be exposed by starting the stack
+before the file is filled in. `WAFPROXY_LISTEN_WAN=:8443` is the first-boot proxy port; the
+wizard moves it to `443` once it has stored your WAN address.
 
 The image builds the console and embeds it in the binary, so there is nothing else to install.
 
 ### First boot
 
-With no stored binding the process listens on **`0.0.0.0:8080`** for the console and
-**`0.0.0.0:8443`** for the proxy. That is deliberate: the wizard writes the real addresses to
-the database and the listeners move on the next start.
+With no stored binding the Docker stack listens on **`<WAFPROXY_LISTEN_GUI>`** (loopback
+`127.0.0.1:8080` unless you set it, as above) for the console and **`0.0.0.0:8443`** for the
+proxy. The wizard is unauthenticated and whoever reaches it first can claim the administrator
+account, so the console is never bound to the WAN address by default and
+`WAFPROXY_GUI_PRIVATE_ONLY=true` refuses any request whose source is not a private network
+address. Do not set `WAFPROXY_GUI_PRIVATE_ONLY=0` on a host reachable from the internet.
 
-The wizard is unauthenticated, and whoever reaches it first can claim the administrator
-account. Before first boot you can keep it off the WAN:
-
-```ini
-# deploy/.env
-WAFPROXY_LISTEN_GUI=192.168.101.2:8080
-```
-
-Open `http://<host>:8080` from the LAN and complete the wizard:
+Open `http://<LAN IP>:8080` from the LAN and complete the wizard:
 
 | Field | Example |
 |---|---|
@@ -200,8 +215,10 @@ recovery code). The proxy is on `192.168.191.2:443`.
 
 If a stored address is not present on the host at boot (DHCP change, NIC renamed), the
 listener falls back to the first-boot address and logs why instead of exiting, so the console
-stays reachable. The fallback console port is `:8080` on every interface; the boot log warns
-about it, so fix the address in **Settings** promptly.
+stays reachable. For the binary that fallback console port is `:8080` on every interface (the
+Docker compose file overrides it to `<WAFPROXY_LISTEN_GUI>`); the boot log warns about it, so
+fix the address in **Settings** promptly. `WAFPROXY_GUI_PRIVATE_ONLY=true` still refuses
+non-private sources in that state.
 
 ### Single NIC
 
@@ -299,11 +316,20 @@ image still cannot update itself without the host helper, so an install without 
 check-only. See
 [docs/INSTALL.md](docs/INSTALL.md#13-host-updates-on-systemd) for the helper details.
 
-### Agent access (MCP gateway)
+### AI Agent Access (MCP gateway and webhooks)
 
-The **Agent access** page exposes a Model Context Protocol (MCP) endpoint at `/mcp` so a
-standalone agent such as a Hermes agent can review traffic and take containment actions
-without a browser session. Create a named token on that page and give it only to the agent.
+The **AI Agent Access** page lets an external agent — a Hermes agent, an automation, or your own
+service — both *pull* the state and *receive* events. Two independent mechanisms live there:
+
+- **Agent links** push every anomaly event to a webhook you control. Delivery is durable: the
+  payload is queued before any network call, retried with exponential backoff (30 s doubling,
+  capped at one hour, eight attempts) and the page shows the last delivery's state, attempt count
+  and the error the agent returned, with **Retry** and **Test** buttons. Each POST is signed with
+  `X-Wafproxy-Signature: sha256=HMAC(secret, body)` plus `X-Wafproxy-Timestamp`, so the agent can
+  prove the event came from this console and reject replays. No model runs in the console.
+- **The MCP gateway** at `/mcp` gives an agent tools to review traffic and take containment
+  actions without a browser session. Create a named token on that page and give it only to the
+  agent.
 The token is shown once, stored as a SHA-256 hash, and can be revoked immediately. A headless
 install can instead set `WAFPROXY_MCP_TOKEN` to a 32+ character secret in
 `/etc/wafproxy/wafproxy.env`; `WAFPROXY_MCP_ACTOR` names that token in the audit log.
@@ -318,6 +344,7 @@ not a shell:
 | Add a gate username to the blacklist | `block_username` (also revokes that account's sessions) |
 | Clear every session from an IP | `revoke_sessions_for_ip` |
 | Kill one session that looks like exfiltration | `list_sessions` then `revoke_session` |
+| Review anomaly detections | `list_anomalies` |
 | Undo a block | `unblock_ip`, `unblock_username` |
 
 Every mutating tool requires a `reason`; the action and the reason are written to the audit
@@ -329,7 +356,7 @@ The endpoint is served by the same LAN-only listener as the console. Do not expo
 WAN. An agent running on another host should reach it over the LAN, Tailscale or another
 private tunnel; terminate TLS in front of it if the path crosses an untrusted network. The
 bearer token grants the security operations above to anyone who holds it, so rotate it on the
-**Agent access** page if it is ever logged or copied into the wrong place.
+**AI Agent Access** page if it is ever logged or copied into the wrong place.
 
 A minimal MCP client configuration:
 
@@ -347,6 +374,20 @@ A minimal MCP client configuration:
 
 See [docs/MCP.md](docs/MCP.md) for the protocol exchange, every tool's arguments, the audit
 model and a containment playbook for an agent.
+
+## Notifications and event routing
+
+**Notifications** configures Telegram, SMTP/Gmail and a generic webhook, sends a test message, and
+lists recent deliveries with their state. Bans are batched into a five-minute digest; permanent
+bans, certificate problems, feed freezes, backend up/down transitions and anomalies are sent
+immediately.
+
+**Event routing** has one switch per class: temporary ban, permanent ban, access-gate lockout,
+certificate expiry, backend up/down, application update, CrowdSec ban, and one for each anomaly
+detector. Unchecking a class suppresses it on every channel, including alerts that were already
+queued when you switched it off — those are marked `suppressed` rather than sent. CrowdSec
+decisions always route to their own switch, never to the ordinary temporary-ban class, so a noisy
+blocklist can be muted without hiding the bans the console decided on itself.
 
 ## First certificate and first site
 

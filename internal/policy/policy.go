@@ -527,6 +527,15 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 			Reason: rec.Reason, Status: http.StatusForbidden, BanSource: rec.Source}
 	}
 
+	// A permanent ban rolled into a local threat list keeps its absolute force:
+	// it is checked before the allow lists, so a whitelist cannot lift it.
+	if e.feeds != nil {
+		if entry, ok := e.feeds.MatchAlways(req.Addr); ok {
+			return model.Verdict{Action: "block", Stage: "permanent-ban-list", Rule: entry.Feed,
+				Reason: "address is on a permanent ban list", Status: http.StatusForbidden}
+		}
+	}
+
 	// An explicit IP block list beats the allow list: a compromised allowlisted
 	// host is still refused, which is what an operator means by "block this IP".
 	for _, pr := range rules.ipDeny {

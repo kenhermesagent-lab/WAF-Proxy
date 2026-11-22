@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -69,6 +70,11 @@ func (s *Server) rollupBans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.feeds == nil {
+		writeError(w, http.StatusServiceUnavailable, "the threat-intel feed engine is not running, so the bans were kept")
+		return
+	}
+
 	// Replace the previous rolled-up feed so its local path and entry count
 	// always describe the file that was just written.
 	feeds, err := s.st.ListFeeds()
@@ -86,10 +92,27 @@ func (s *Server) rollupBans(w http.ResponseWriter, r *http.Request) {
 	}
 	feedID, err := s.st.CreateFeed(&model.Feed{
 		Name: permanentFeedName, Action: "block", IntervalS: 3600, Enabled: true,
-		Local: true, Filename: "permanent-bans.txt", LocalPath: path,
+		Local: true, AlwaysBlock: true, Filename: "permanent-bans.txt", LocalPath: path,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot create the rolled-up feed")
+		return
+	}
+
+	// Load the list before anything is deleted. If the file cannot be parsed or
+	// the engine does not report every entry, the bans stay in force and the
+	// half-built feed is removed, so an address is never left unblocked.
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	s.feeds.Refresh(ctx, feedID)
+	loaded, loadErr := s.st.FeedByID(feedID)
+	if loadErr != nil || loaded.State != "ok" || loaded.LastCount != len(permanent) {
+		_, _ = s.st.DeleteFeed(feedID)
+		reason := "the new threat list did not load, so the bans were kept"
+		if loaded != nil && loaded.LastError != "" {
+			reason = "the new threat list did not load (" + loaded.LastError + "), so the bans were kept"
+		}
+		writeError(w, http.StatusBadGateway, reason)
 		return
 	}
 
@@ -99,9 +122,6 @@ func (s *Server) rollupBans(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		removed++
-	}
-	if s.feeds != nil {
-		go s.feeds.Refresh(r.Context(), feedID)
 	}
 
 	sess := sessionFrom(r)

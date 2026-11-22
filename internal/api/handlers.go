@@ -696,6 +696,11 @@ func (s *Server) deletePolicy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listBans(w http.ResponseWriter, r *http.Request) {
 	all := r.URL.Query().Get("all") == "1"
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	// Mirror the store's own normalisation so the flag describes the limit that
+	// was actually applied, not just whether the caller passed one.
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
 	list, err := s.st.ListBansPage(all, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
@@ -703,7 +708,7 @@ func (s *Server) listBans(w http.ResponseWriter, r *http.Request) {
 	}
 	active, reason := s.bans.KernelStatus()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"bans": list, "active": s.bans.Count(), "limited": limit > 0 && len(list) == limit,
+		"bans": list, "active": s.bans.Count(), "limited": len(list) == limit,
 		"kernel": map[string]any{"active": active, "reason": reason},
 	})
 }

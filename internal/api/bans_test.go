@@ -2,11 +2,17 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
 
 // TestCreateBanReturnsTheListShape keeps POST /api/bans and GET /api/bans on the
@@ -76,6 +82,7 @@ func TestCreateBanReturnsTheListShape(t *testing.T) {
 func TestRollupMovesPermanentBansIntoALocalFeed(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
 	srv.cfg.DataDir = t.TempDir()
+	srv.feeds = intel.New(st, slog.New(slog.NewTextHandler(io.Discard, nil)), 0)
 
 	makeBan := func(cidr string, permanent bool) {
 		body := `{"cidr":"` + cidr + `","reason":"rollup test","permanent":` + map[bool]string{true: "true", false: "false"}[permanent] + `}`
@@ -129,6 +136,12 @@ func TestRollupMovesPermanentBansIntoALocalFeed(t *testing.T) {
 	found := false
 	for _, f := range feeds {
 		if f.Name == permanentFeedName && f.LocalPath == out.Path && f.Action == "block" {
+			if !f.AlwaysBlock {
+				t.Fatalf("the rolled-up list is not enforced ahead of the allow lists: %+v", f)
+			}
+			if f.State != "ok" || f.LastCount != 1 {
+				t.Fatalf("the rolled-up list did not load before the bans were removed: %+v", f)
+			}
 			found = true
 		}
 	}
@@ -142,5 +155,85 @@ func TestRollupMovesPermanentBansIntoALocalFeed(t *testing.T) {
 	}
 	if len(bans) != 1 || bans[0].CIDR != "203.0.113.51/32" {
 		t.Fatalf("the rolled-up ban is still in the table: %+v", bans)
+	}
+}
+
+// TestRollupKeepsBansWhenTheListCannotLoad proves the fail-safe: with no feed
+// engine to load the list, nothing is deleted and the request fails loudly.
+func TestRollupKeepsBansWhenTheListCannotLoad(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	srv.cfg.DataDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/bans",
+		strings.NewReader(`{"cidr":"203.0.113.60","reason":"fail-safe test","permanent":true}`))
+	req.Host = "gui.local"
+	req.RemoteAddr = "192.168.101.10:5000"
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	req.Header.Set("X-CSRF-Token", csrf)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /api/bans = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	roll := httptest.NewRequest(http.MethodPost, "/api/bans/rollup", nil)
+	roll.Host = "gui.local"
+	roll.RemoteAddr = "192.168.101.10:5000"
+	roll.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	roll.Header.Set("X-CSRF-Token", csrf)
+	rollRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rollRec, roll)
+	if rollRec.Code == http.StatusOK {
+		t.Fatalf("rollup succeeded without a loaded list: %s", rollRec.Body.String())
+	}
+
+	bans, err := st.ListBans(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bans) != 1 || bans[0].CIDR != "203.0.113.60/32" {
+		t.Fatalf("the ban was dropped without the list being loaded: %+v", bans)
+	}
+}
+
+// TestBanListTruncationFlagMatchesTheAppliedLimit covers the note in the ban
+// view: the flag must describe the limit the store actually applied, including
+// the default, rather than only an explicitly passed one.
+func TestBanListTruncationFlagMatchesTheAppliedLimit(t *testing.T) {
+	srv, st, token, _ := newObservabilityServer(t)
+	for i := 0; i < 200; i++ {
+		cidr := fmt.Sprintf("198.51.%d.%d/32", i/250, i%250+1)
+		if _, err := st.AddBan(&model.Ban{CIDR: cidr, Reason: "fill", Source: "test"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(query string) (int, bool) {
+		req := httptest.NewRequest(http.MethodGet, "/api/bans"+query, nil)
+		req.Host = "gui.local"
+		req.RemoteAddr = "192.168.101.10:5000"
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /api/bans%s = %d: %s", query, rec.Code, rec.Body.String())
+		}
+		var out struct {
+			Bans    []map[string]any `json:"bans"`
+			Limited bool             `json:"limited"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return len(out.Bans), out.Limited
+	}
+
+	if n, limited := get(""); n != 200 || !limited {
+		t.Fatalf("default limit returned %d rows, limited=%v; want a truncated list", n, limited)
+	}
+	if n, limited := get("?limit=50"); n != 50 || !limited {
+		t.Fatalf("explicit limit returned %d rows, limited=%v", n, limited)
+	}
+	if n, limited := get("?limit=1000"); n != 200 || limited {
+		t.Fatalf("a limit above the table size reported %d rows, limited=%v", n, limited)
 	}
 }

@@ -192,7 +192,7 @@ func (s *Store) PurgeBans() error {
 
 // ListFeeds returns all feeds.
 func (s *Store) ListFeeds() ([]model.Feed, error) {
-	rows, err := s.db.Query(`SELECT id, name, url, action, interval_s, enabled, builtin, local, filename,
+	rows, err := s.db.Query(`SELECT id, name, url, action, interval_s, enabled, builtin, local, always_block, filename,
 		local_path, etag, last_modified, last_fetch, last_count, state, last_error FROM feeds ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -201,15 +201,16 @@ func (s *Store) ListFeeds() ([]model.Feed, error) {
 	out := []model.Feed{}
 	for rows.Next() {
 		var f model.Feed
-		var enabled, builtin, local int
+		var enabled, builtin, local, always int
 		var lastFetch sql.NullString
-		if err := rows.Scan(&f.ID, &f.Name, &f.URL, &f.Action, &f.IntervalS, &enabled, &builtin, &local,
+		if err := rows.Scan(&f.ID, &f.Name, &f.URL, &f.Action, &f.IntervalS, &enabled, &builtin, &local, &always,
 			&f.Filename, &f.LocalPath, &f.ETag, &f.LastModified, &lastFetch, &f.LastCount, &f.State, &f.LastError); err != nil {
 			return nil, err
 		}
 		f.Enabled = i2b(enabled)
 		f.Builtin = i2b(builtin)
 		f.Local = i2b(local)
+		f.AlwaysBlock = i2b(always)
 		f.LastFetch = parseStampPtr(lastFetch)
 		out = append(out, f)
 	}
@@ -220,12 +221,12 @@ func (s *Store) ListFeeds() ([]model.Feed, error) {
 // so an uploaded file is not left behind in the data directory.
 func (s *Store) FeedByID(id int64) (*model.Feed, error) {
 	var f model.Feed
-	var enabled, builtin, local int
+	var enabled, builtin, local, always int
 	var lastFetch sql.NullString
-	err := s.db.QueryRow(`SELECT id, name, url, action, interval_s, enabled, builtin, local, filename,
+	err := s.db.QueryRow(`SELECT id, name, url, action, interval_s, enabled, builtin, local, always_block, filename,
 		local_path, etag, last_modified, last_fetch, last_count, state, last_error
 		FROM feeds WHERE id = ?`, id).Scan(&f.ID, &f.Name, &f.URL, &f.Action, &f.IntervalS, &enabled, &builtin,
-		&local, &f.Filename, &f.LocalPath, &f.ETag, &f.LastModified, &lastFetch, &f.LastCount, &f.State, &f.LastError)
+		&local, &always, &f.Filename, &f.LocalPath, &f.ETag, &f.LastModified, &lastFetch, &f.LastCount, &f.State, &f.LastError)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -235,6 +236,7 @@ func (s *Store) FeedByID(id int64) (*model.Feed, error) {
 	f.Enabled = i2b(enabled)
 	f.Builtin = i2b(builtin)
 	f.Local = i2b(local)
+	f.AlwaysBlock = i2b(always)
 	f.LastFetch = parseStampPtr(lastFetch)
 	return &f, nil
 }
@@ -263,9 +265,9 @@ func (s *Store) CreateFeed(f *model.Feed) (int64, error) {
 	if f.IntervalS <= 0 {
 		f.IntervalS = 900
 	}
-	res, err := s.db.Exec(`INSERT INTO feeds(name, url, action, interval_s, enabled, builtin, local, filename, local_path, state)
-		VALUES(?, ?, ?, ?, ?, 0, ?, ?, ?, 'pending')`, f.Name, f.URL, f.Action, f.IntervalS, b2i(f.Enabled),
-		b2i(f.Local), f.Filename, f.LocalPath)
+	res, err := s.db.Exec(`INSERT INTO feeds(name, url, action, interval_s, enabled, builtin, local, always_block, filename, local_path, state)
+		VALUES(?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'pending')`, f.Name, f.URL, f.Action, f.IntervalS, b2i(f.Enabled),
+		b2i(f.Local), b2i(f.AlwaysBlock), f.Filename, f.LocalPath)
 	if err != nil {
 		return 0, err
 	}

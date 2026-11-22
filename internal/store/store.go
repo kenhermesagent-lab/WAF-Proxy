@@ -369,7 +369,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "11"
+const schemaVersion = "12"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -407,6 +407,9 @@ func (s *Store) migrateAddColumns() error {
 		{"access_profiles", "rule_roles", `ALTER TABLE access_profiles ADD COLUMN rule_roles TEXT NOT NULL DEFAULT ''`},
 		{"access_profiles", "waf_profile_id", `ALTER TABLE access_profiles ADD COLUMN waf_profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL`},
 		{"access_profiles", "protection_profile_id", `ALTER TABLE access_profiles ADD COLUMN protection_profile_id INTEGER REFERENCES protection_profiles(id) ON DELETE SET NULL`},
+		// A rolled-up permanent-ban list is enforced even for allowlisted
+		// addresses, matching the ban it replaced.
+		{"feeds", "always_block", `ALTER TABLE feeds ADD COLUMN always_block INTEGER NOT NULL DEFAULT 0`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)

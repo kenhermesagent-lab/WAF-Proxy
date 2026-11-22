@@ -5,12 +5,12 @@ services:
     build:
       context: ..
       args:
-        VERSION: ${VERSION:-1.11.1}
+        VERSION: ${VERSION:-1.12.0}
         COMMIT: ${COMMIT:-unknown}
         BUILD_DATE: ${BUILD_DATE:-unknown}
         # A fork sets REPO so the Updates page accepts its own checkout.
-        REPO: ${REPO:-kenhermesagent-lab/WAF-Proxy-Docker}
-    image: wafproxy:${VERSION:-1.11.1}
+        REPO: ${REPO:-kenhermesagent-lab/WAF-Proxy}
+    image: wafproxy:${VERSION:-1.12.0}
     container_name: wafproxy
     # Host networking is required: the proxy binds the WAN/LAN addresses chosen
     # in the setup wizard, sees real client IPs, and manages nftables directly.
@@ -30,10 +30,16 @@ services:
       WAFPROXY_DATA_DIR: /data
       WAFPROXY_LOG_LEVEL: ${WAFPROXY_LOG_LEVEL:-info}
       # First-boot and fallback listeners only: once the wizard has stored the
-      # real WAN/LAN addresses, those are used instead. Point the GUI at a LAN
-      # address here to keep the setup wizard off the WAN.
-      WAFPROXY_LISTEN_GUI: "${WAFPROXY_LISTEN_GUI:-:8080}"
+      # real WAN/LAN addresses, those are used instead. The GUI default binds
+      # loopback so a container that is started before deploy/.env is filled in
+      # cannot expose the unauthenticated setup wizard on the WAN. Set
+      # WAFPROXY_LISTEN_GUI in deploy/.env to this host's LAN address:8080 to
+      # finish the wizard from another machine on the LAN.
+      WAFPROXY_LISTEN_GUI: "${WAFPROXY_LISTEN_GUI:-127.0.0.1:8080}"
       WAFPROXY_LISTEN_WAN: "${WAFPROXY_LISTEN_WAN:-:8443}"
+      # Refuse any console request that does not come from a private network,
+      # even if the listener is bound more widely than intended.
+      WAFPROXY_GUI_PRIVATE_ONLY: "${WAFPROXY_GUI_PRIVATE_ONLY:-true}"
       WAFPROXY_ACCESS_LOG: /logs/access.log
       # Optional CrowdSec bouncer. Create the key with:
       #   docker exec crowdsec cscli bouncers add wafproxy
@@ -56,8 +62,9 @@ services:
       - /run/wafproxy-updates:/run/wafproxy-updates
     tmpfs:
       - /tmp:size=16m
-    # First boot listens on :8443 (WAN) and :8080 (GUI). Complete the wizard,
-    # then `docker compose restart wafproxy` to bind the addresses it stored.
+    # First boot listens on 127.0.0.1:8080 (GUI, private only) and :8443 (proxy).
+    # Set WAFPROXY_LISTEN_GUI to the LAN address in deploy/.env, complete the
+    # wizard, then `docker compose restart wafproxy` to bind the stored addresses.
 
   crowdsec:
     image: crowdsecurity/crowdsec:v1.6.4

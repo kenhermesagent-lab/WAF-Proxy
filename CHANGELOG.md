@@ -11,6 +11,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.12.0] — 2026-11-22
+
+### Changed
+
+- **Permanent-ban roll-up is fail-safe.** The list is written, loaded and checked against the expected
+  entry count before any ban row is deleted. If the list cannot load, the half-built feed is removed, the
+  bans stay in force and the request fails with the reason instead of reporting a success that left
+  addresses unblocked.
+- **Rolled-up bans stay absolute.** The permanent-ban list is marked `always_block` and evaluated before
+  the allow lists, so an address on a global IP whitelist is still refused while it is on that list — the
+  same force it had as a ban row.
+- **Docker keeps the console private by default.** Compose now binds the GUI to `127.0.0.1:8080` unless
+  `WAFPROXY_LISTEN_GUI` is set, and passes `WAFPROXY_GUI_PRIVATE_ONLY=true`, so the unauthenticated setup
+  wizard cannot be published on the WAN by starting the stack before `deploy/.env` is filled in.
+  `deploy/.env` / `.env.example` document the LAN address and port to use.
+
+### Fixed
+
+- The temp-ban view's **Showing the newest 200** note now appears: the API's `limited` flag reflects the
+  limit the store actually applied (including the default) instead of only an explicit one.
+
+### Documentation
+
+- The repository is **WAF-Proxy**; the build metadata default (`AppRepo`), quick-start clone URL and docs
+  links follow the new name, and the README covers anomaly detection, AI Agent Access (agent webhooks and
+  MCP tools), access profiles, the ban lifecycle, event routing and the Docker console binding.
+
 ## [1.11.1] — 2026-11-22
 
 ### Fixed

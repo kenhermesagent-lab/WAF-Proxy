@@ -17,7 +17,7 @@ COPY --from=ui /src/internal/webui/dist ./internal/webui/dist
 ARG VERSION=0.0.0
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
-ARG REPO=kenhermesagent-lab/WAF-Proxy-Docker
+ARG REPO=kenhermesagent-lab/WAF-Proxy
 RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w \
       -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.Version=${VERSION} \

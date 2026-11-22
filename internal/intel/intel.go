@@ -27,6 +27,8 @@ type Entry struct {
 	FeedID int64
 	Feed   string
 	Action string
+	// Always marks a permanent-ban list, enforced before the allow lists.
+	Always bool
 }
 
 // Status is the runtime state of one feed, exposed to the GUI.
@@ -56,6 +58,7 @@ type Manager struct {
 	mu     sync.RWMutex
 	feeds  map[int64]*feedSet
 	merged map[uint8]*netmatch.Map[Entry] // keyed by action class
+	always *netmatch.Map[Entry]           // unconditional entries
 	total  int
 
 	// guardrails
@@ -159,7 +162,8 @@ func (m *Manager) refreshOne(ctx context.Context, id int64) {
 	for _, f := range feeds {
 		if f.ID == id {
 			feed = &storeFeed{name: f.Name, url: f.URL, action: f.Action, localPath: f.LocalPath,
-				etag: f.ETag, lastModified: f.LastModified, lastCount: f.LastCount, state: f.State}
+				etag: f.ETag, lastModified: f.LastModified, lastCount: f.LastCount, state: f.State,
+				always: f.AlwaysBlock}
 			break
 		}
 	}
@@ -185,6 +189,7 @@ type storeFeed struct {
 	etag, lastModified           string
 	lastCount                    int
 	state                        string
+	always                       bool
 }
 
 func (m *Manager) fetch(ctx context.Context, id int64, f *storeFeed) (int, error) {
@@ -260,7 +265,7 @@ func (m *Manager) applyPrefixes(id int64, f *storeFeed, prefixes []netip.Prefix)
 		return f.lastCount, nil
 	}
 
-	entry := Entry{FeedID: id, Feed: f.name, Action: normalizeAction(f.action)}
+	entry := Entry{FeedID: id, Feed: f.name, Action: normalizeAction(f.action), Always: f.always}
 	agg := netmatch.Aggregate(prefixes)
 	set := netmatch.New[Entry]()
 	for _, p := range agg {
@@ -278,10 +283,17 @@ func (m *Manager) applyPrefixes(id int64, f *storeFeed, prefixes []netip.Prefix)
 func (m *Manager) rebuild() {
 	merged := map[uint8]*netmatch.Map[Entry]{}
 	var byAction = map[string]*netmatch.Map[Entry]{}
+	always := netmatch.New[Entry]()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	total := 0
 	for _, fs := range m.feeds {
+		if fs.meta.Always {
+			fs.set.Range(func(p netip.Prefix, e Entry) bool {
+				always.AddPrefix(p, e)
+				return true
+			})
+		}
 		key := normalizeAction(fs.meta.Action)
 		class := actionClass(key)
 		mm, ok := byAction[key]
@@ -300,6 +312,7 @@ func (m *Manager) rebuild() {
 		merged[actionClass(k)] = v
 	}
 	m.merged = merged
+	m.always = always
 	m.total = total
 }
 
@@ -338,6 +351,22 @@ func (m *Manager) Match(addr netip.Addr) (Entry, bool) {
 		}
 	}
 	return Entry{}, false
+}
+
+// MatchAlways returns a permanent-ban list match. These entries are enforced
+// before the allow lists, because a permanent ban is absolute.
+func (m *Manager) MatchAlways(addr netip.Addr) (Entry, bool) {
+	m.mu.RLock()
+	always := m.always
+	m.mu.RUnlock()
+	if always == nil {
+		return Entry{}, false
+	}
+	e, hit := always.Match(addr)
+	if hit {
+		m.noteMatch(e.FeedID, addr)
+	}
+	return e, hit
 }
 
 func (m *Manager) noteMatch(feedID int64, addr netip.Addr) {

@@ -263,14 +263,17 @@ type Ban struct {
 
 // Feed is an external threat-intelligence list or an uploaded local blocklist.
 type Feed struct {
-	ID           int64      `json:"id"`
-	Name         string     `json:"name"`
-	URL          string     `json:"url"`
-	Action       string     `json:"action"` // block | challenge | log
-	IntervalS    int        `json:"interval_s"`
-	Enabled      bool       `json:"enabled"`
-	Builtin      bool       `json:"builtin"`
-	Local        bool       `json:"local"`
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Action    string `json:"action"` // block | challenge | log
+	IntervalS int    `json:"interval_s"`
+	Enabled   bool   `json:"enabled"`
+	Builtin   bool   `json:"builtin"`
+	Local     bool   `json:"local"`
+	// AlwaysBlock feeds are enforced before the allow lists: they hold bans the
+	// operator made permanent, which no whitelist may override.
+	AlwaysBlock  bool       `json:"always_block"`
 	Filename     string     `json:"filename,omitempty"`
 	LocalPath    string     `json:"-"`
 	ETag         string     `json:"-"`

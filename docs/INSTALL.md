@@ -42,12 +42,24 @@ docker compose -f deploy/docker-compose.yml logs -f wafproxy
 ```
 
 The image builds the React SPA and embeds it in the Go binary. First boot has no saved
-binding, so the process listens on `:8443` (proxy) and `:8080` (GUI) **on all interfaces**.
-This is intentional: the wizard writes the real addresses to SQLite, and the listeners move
-on the next start. Until the wizard is complete, anyone who can reach port 8080 can claim
-the administrator account — finish setup before exposing the host, or set
-`WAFPROXY_LISTEN_GUI` to a LAN address in `deploy/.env` for the first boot (the shipped
-compose file passes `WAFPROXY_LISTEN_GUI` and `WAFPROXY_LISTEN_WAN` into the container).
+binding, so the process listens on `:8443` (proxy) and, by default, **`127.0.0.1:8080`** for the
+console. Compose deliberately keeps the console on loopback: the setup wizard is
+unauthenticated, and a container started before `deploy/.env` is filled in must not be able to
+publish it on the WAN.
+
+Set both values in `deploy/.env` before the first start:
+
+```ini
+# This host's real LAN address. The console listens only here.
+WAFPROXY_LISTEN_GUI=192.168.101.2:8080
+# Refuse console requests from anything but a private network.
+WAFPROXY_GUI_PRIVATE_ONLY=true
+```
+
+`WAFPROXY_LISTEN_WAN=:8443` is the first-boot proxy port; the wizard moves it to `443` on the
+next start. `WAFPROXY_GUI_PRIVATE_ONLY=true` is an independent second guard: even if the
+listener ends up bound more widely than intended, requests whose source address is not private
+are refused. Leave it true for Docker.
 
 ## 3. Complete the wizard
 
@@ -247,7 +259,7 @@ Build on the host (Go 1.27; the console is embedded from `internal/webui/dist`, 
 committed, so `make ui` is only needed after changing `web/`):
 
 ```bash
-git clone https://github.com/kenhermesagent-lab/WAF-Proxy-Docker.git waf-proxy-docker
+git clone https://github.com/kenhermesagent-lab/WAF-Proxy.git waf-proxy-docker
 cd waf-proxy-docker
 make build
 sudo ./deploy/install.sh

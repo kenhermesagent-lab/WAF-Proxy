@@ -1,14 +1,18 @@
 package policy
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
@@ -239,6 +243,56 @@ func TestAccessProfileDenyBeatsGlobalAllow(t *testing.T) {
 		t.Fatalf("a profile block list was ignored: %+v", v)
 	}
 	if v := screenHost(pol, host, "203.0.113.10"); v.Action != "allow" {
+		t.Fatalf("the rest of the allowed prefix was refused: %+v", v)
+	}
+}
+
+// A permanent ban rolled into a local threat list must stay absolute: an address
+// on a global allow list is still refused while it is on that list.
+func TestRolledUpPermanentBanBeatsTheAllowList(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	path := filepath.Join(t.TempDir(), "permanent-bans.txt")
+	if err := os.WriteFile(path, []byte("203.0.113.9\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	feedID, err := st.CreateFeed(&model.Feed{
+		Name: "Permanent bans (rolled up)", Action: "block", IntervalS: 3600, Enabled: true,
+		Local: true, AlwaysBlock: true, Filename: "permanent-bans.txt", LocalPath: path,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	feeds := intel.New(st, log, 0)
+	feeds.Refresh(context.Background(), feedID)
+
+	bans, err := ban.New(st, log, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pol, err := New(st, bans, feeds, nil, waf.NewSet(nil, log), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreatePolicy(&model.Policy{
+		Scope: "global", Kind: model.PolicyIPWhitelist, Value: "203.0.113.0/24",
+		Action: "allow", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	if v := screen(pol, "203.0.113.9", "/"); v.Action != "block" || v.Stage != "permanent-ban-list" {
+		t.Fatalf("a rolled-up permanent ban was lifted by the allow list: %+v", v)
+	}
+	if v := screen(pol, "203.0.113.10", "/"); v.Action != "allow" {
 		t.Fatalf("the rest of the allowed prefix was refused: %+v", v)
 	}
 }
