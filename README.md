@@ -6,7 +6,7 @@ live observability. One Go binary and one React console, deployed either as a Do
 stack or as a systemd service on a two-NIC Linux host. Built to run on a home server, a lab box
 or a small office network without a cloud dependency.
 
-**Version 1.13.0** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
+**Version 1.14.0** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -140,7 +140,7 @@ Why this size:
   for the WAF while accepting TLS connections and writing events.
 - The stack's steady-state RAM is roughly **300–600 MB**; the extra RAM is for SQLite page
   cache, optional CrowdSec (about 60–120 MB), GeoIP and burst absorption.
-- SQLite WAL is random-I/O bound, so keep `/var/lib/wafproxy` on local SSD/NVMe — never NFS or
+- SQLite WAL is random-I/O bound, so keep `/var/lib/waf-proxy/data` on local SSD/NVMe — never NFS or
   SMB. Seven days of events at roughly 1M events/day can use 5–10 GB before logs, GeoIP and
   backups.
 - Two NICs preserve real WAN client IPs: the router DNATs `443` to the WAN address without
@@ -240,7 +240,7 @@ sudo systemctl status wafproxy
 
 The installer lists the host’s IPv4 interfaces and asks which one is **WAN** and which is
 **LAN** (plus the WAN and GUI ports, defaulting to 443 and 8443). It creates the `wafproxy`
-user and `/var/lib/wafproxy`, installs the unit with only `CAP_NET_BIND_SERVICE` and
+user and `/var/lib/waf-proxy/data`, installs the unit with only `CAP_NET_BIND_SERVICE` and
 `CAP_NET_ADMIN` (so 443 and kernel bans work without root), and starts the service. The proxy
 is bound to the WAN address and the admin GUI to the LAN address only; the admin listener also
 refuses every client outside RFC1918, with loopback also accepted for local checks. The wizard is
@@ -249,11 +249,32 @@ firewall rules and first certificate are otherwise identical. After that first i
 run from **Updates → Update application**; the manual fallback is
 `git pull && make all && sudo ./deploy/install.sh` (it prompts again and keeps the database;
 on an existing install the addresses stored in **Settings** still take precedence over the env
-file). The page tells you when the button is unavailable and why; if the checkout lives in
-another directory, type its path there and the helper records it. To remove the native install, run `sudo ./deploy/uninstall.sh`; it prompts before
+file). The page tells you when the button is unavailable and why. To remove the native install, run `sudo ./deploy/uninstall.sh`; it prompts before
 removing the units, binaries, config, data, logs, app-owned nftables table and `wafproxy`
 user/group. Use `--keep-data` to keep the database and config for a later reinstall. See
 [docs/INSTALL.md](docs/INSTALL.md#11-bare-metal-with-systemd).
+
+#### Where a native install lives
+
+One root holds everything the native install owns, so there is no second copy to keep in step:
+
+| Path | Contents |
+|---|---|
+| `/var/lib/waf-proxy/bin` | `wafproxy` and `wafproxy-updated` |
+| `/var/lib/waf-proxy/lib` | fixed helper scripts (`self-update`, `self-update-check`, `crowdsec-install`) |
+| `/var/lib/waf-proxy/src` | the git checkout the Update button pulls and builds |
+| `/var/lib/waf-proxy/data` | SQLite database, master key, GeoIP files, threat lists, backups (owner `wafproxy`) |
+| `/etc/wafproxy` | `wafproxy.env` and `self-update.conf` |
+| `/var/log/wafproxy` | access log and app log |
+| `/usr/local/bin/wafproxy`, `/usr/local/lib/wafproxy` | symlinks for `PATH` lookups and older scripts |
+
+Releases up to 1.13 split this across `/usr/local/waf-proxy` (program files) and
+`/var/lib/wafproxy` (state), and the update checkout was whatever directory `install.sh` was run
+from — often a home directory. Running `sudo ./deploy/install.sh` once moves the program files and
+the state into the single root (the old state directory is kept as `/var/lib/wafproxy.pre-1.14`
+until you delete it) and creates the root-owned checkout at `/var/lib/waf-proxy/src`, which is
+what the **Update application** button pulls from. Nothing needs to be cloned into a home
+directory again.
 
 ### Tailscale access
 
@@ -479,7 +500,9 @@ still work as first-boot defaults; values saved on the page override them.
 ## Updating from the repository
 
 The console can apply application updates itself when its privileged helper is installed; use
-**Updates → Update application**. It keeps the existing data volume or `/var/lib/wafproxy`.
+**Updates → Update application**. It pulls the recorded checkout, rebuilds, installs into
+`/var/lib/waf-proxy` and restarts the service; the data directory `/var/lib/waf-proxy/data` is not
+touched.
 For the manual path, pull from the checkout that matches the running deployment. The database
 and `deploy/.env` are outside the tracked files, so a normal update does not replace them. Take
 a **Settings → Download JSON** backup and note the current `VERSION` before starting.
@@ -487,7 +510,7 @@ a **Settings → Download JSON** backup and note the current `VERSION` before st
 ### Docker Compose
 
 ```bash
-cd /path/to/WAF-Proxy-Docker
+cd /path/to/WAF-Proxy
 git status --short                    # expect no local changes before pulling
 git pull --ff-only                    # or: git fetch --tags && git checkout vX.Y.Z
 # Keep the image tag in deploy/.env aligned with the new VERSION file.
@@ -511,21 +534,35 @@ removing the checkout.
 ### Native systemd
 
 ```bash
-cd /path/to/WAF-Proxy-Docker
-git status --short                    # expect no local changes before pulling
-git pull --ff-only                    # or: git fetch --tags && git checkout vX.Y.Z
-make all                              # rebuild the console and both Go binaries
+cd /var/lib/waf-proxy/src             # the checkout the Update button also uses
+sudo git status --short               # expect no local changes before pulling
+sudo git pull --ff-only               # or: sudo git fetch --tags && sudo git checkout vX.Y.Z
+sudo make all                         # rebuild the console and both Go binaries
 sudo ./deploy/install.sh              # prompts again; keeps the database and env file
 sudo systemctl status wafproxy wafproxy-updates
 curl -fsS http://<LAN-IP>:8443/api/health
 ```
 
+`/var/lib/waf-proxy/src` is owned by `root`, so every step needs `sudo`. An install done before
+1.14 still records the directory `install.sh` was run from in
+`/etc/wafproxy/self-update.conf`; after one run of `sudo ./deploy/install.sh` from the new
+checkout it points at `/var/lib/waf-proxy/src`. To rebuild from a tag instead of `main`, check the
+tag out in that directory and run the same `make all` and `sudo ./deploy/install.sh` steps.
+
 `make all` is `make ui` followed by `make build`; it refreshes the embedded console as well as
 `bin/wafproxy` and `bin/wafproxy-updated`. `deploy/install.sh` reinstalls the units and binaries,
-preserves `/etc/wafproxy/wafproxy.env` and `/var/lib/wafproxy`, and restarts both services. It
+preserves `/etc/wafproxy/wafproxy.env` and `/var/lib/waf-proxy/data`, and restarts both services. It
 asks for the WAN/LAN interfaces again; the addresses already stored in **Settings** still take
 precedence after boot. If the installer reports that the listener did not open, use
 `journalctl -u wafproxy -n 50 --no-pager` before retrying.
+
+If the **Update application** button spins and then reports nothing, the helper's own log is the
+authority: `sudo journalctl -u wafproxy-updates -n 80 --no-pager` shows the `git pull` and `make`
+output, and the Updates page repeats the last output under **Last update output**. The two reasons
+the button used to fail on an existing host are fixed in 1.14: the dirty check no longer refuses a
+checkout because of untracked files or a rebuild's own console bundle, and an update is no longer
+dependent on a checkout under `/home`. Never run `git pull` as a different user in the same
+checkout the helper builds; use one checkout (`/var/lib/waf-proxy/src`) for both.
 
 After either update, confirm the version in the console footer or
 `GET /api/version`, and check [CHANGELOG.md](CHANGELOG.md) for schema or behaviour changes.
@@ -551,9 +588,9 @@ The database schema is applied idempotently on boot. Event retention is configur
 days, default 7) and pruned hourly together with expired bans and sessions.
 
 With the systemd install, use
-`sudo env WAFPROXY_DATA_DIR=/var/lib/wafproxy wafproxy unban <ip>`, `journalctl -u wafproxy -f` and
+`sudo env WAFPROXY_DATA_DIR=/var/lib/waf-proxy/data wafproxy unban <ip>`, `journalctl -u wafproxy -f` and
 `sudo systemctl restart wafproxy` in place of the container commands above; the data lives in
-`/var/lib/wafproxy`.
+`/var/lib/waf-proxy/data`.
 
 ## Statistics and uptime
 

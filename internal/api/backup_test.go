@@ -25,7 +25,7 @@ func TestBackupScheduleRoundTrip(t *testing.T) {
 	if rec := put(`{"transport":"local","local_dir":"backups","keep":7,"time":"03:00"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("relative directory accepted: %d %s", rec.Code, rec.Body)
 	}
-	rec := put(`{"enabled":true,"transport":"local","local_dir":"/var/lib/wafproxy/backups","schedule":"weekly","weekday":1,"keep":4,"time":"02:30"}`)
+	rec := put(`{"enabled":true,"transport":"local","local_dir":"/var/lib/waf-proxy/data/backups","schedule":"weekly","weekday":1,"keep":4,"time":"02:30"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("save failed: %d %s", rec.Code, rec.Body)
 	}
@@ -49,7 +49,7 @@ func TestBackupScheduleRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(grec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if !out.Config.Enabled || out.Config.Weekday != 1 || out.Config.LocalDir != "/var/lib/wafproxy/backups" {
+	if !out.Config.Enabled || out.Config.Weekday != 1 || out.Config.LocalDir != "/var/lib/waf-proxy/data/backups" {
 		t.Fatalf("config not persisted: %+v", out.Config)
 	}
 	if out.Status["next_run"] == "" || out.Status["next_run"] == nil {

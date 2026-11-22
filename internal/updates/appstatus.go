@@ -4,8 +4,8 @@ import "strings"
 
 // AppStatus is the recorded checkout and installed updater scripts as the host
 // sees them. A Docker install runs the console inside a container where /etc
-// and /usr/local are not the host's, so the console asks the root helper for
-// this instead of stat()ing its own filesystem.
+// and /var/lib/waf-proxy are not the host's, so the console asks the root helper
+// for this instead of stat()ing its own filesystem.
 type AppStatus struct {
 	SourceDir      string
 	Mode           string

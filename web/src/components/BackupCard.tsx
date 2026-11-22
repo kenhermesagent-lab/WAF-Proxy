@@ -129,7 +129,7 @@ export default function BackupCard({ onError, onOK }: { onError: (m: string) => 
 
           {cfg.transport === "local" && (
             <Field label="Directory (absolute, on this host)">
-              <input value={cfg.local_dir} onChange={(e) => set({ local_dir: e.target.value })} placeholder="/var/lib/wafproxy/backups" />
+              <input value={cfg.local_dir} onChange={(e) => set({ local_dir: e.target.value })} placeholder="/var/lib/waf-proxy/data/backups" />
             </Field>
           )}
 

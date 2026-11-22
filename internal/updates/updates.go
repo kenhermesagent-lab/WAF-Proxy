@@ -42,7 +42,11 @@ var (
 // checkout recorded from the console must have: the helper rebuilds and installs
 // as root, so another repository would be code the operator never approved.
 // A fork sets it at build time with -X .../internal/updates.AppRepo=owner/repo.
-var AppRepo = "kenhermesagent-lab/WAF-Proxy-Docker"
+var AppRepo = "kenhermesagent-lab/WAF-Proxy"
+
+// AppRepoAliases are former names of the same repository. A checkout cloned
+// before the rename keeps that origin URL, and GitHub redirects it.
+var AppRepoAliases = []string{"kenhermesagent-lab/WAF-Proxy-Docker"}
 
 type runner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
@@ -389,7 +393,7 @@ func (m *Manager) mergeApp(snap Snapshot, app appInfo) Snapshot {
 
 // refreshAppStatus asks the root helper whether the recorded checkout and the
 // installed updater scripts are present. A Docker install runs the console in a
-// container, where /etc/wafproxy and /usr/local/waf-proxy belong to the image,
+// container, where /etc/wafproxy and /var/lib/waf-proxy belong to the image,
 // not to the host the updater works on.
 func (m *Manager) refreshAppStatus(ctx context.Context) {
 	status, ok := m.helperAppStatus(ctx)

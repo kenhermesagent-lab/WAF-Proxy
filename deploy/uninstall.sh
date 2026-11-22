@@ -16,15 +16,16 @@ Usage: sudo ./deploy/uninstall.sh [--yes] [--keep-data]
 
 Removes the native WAF-Proxy installation:
   - wafproxy.service and wafproxy-updates.service
-  - /usr/local/waf-proxy and the /usr/local/bin and /usr/local/lib/wafproxy links
+  - /var/lib/waf-proxy (bin, lib, src and data), /usr/local/waf-proxy and the
+    /usr/local/bin and /usr/local/lib/wafproxy links
   - the app-owned nftables table inet wafproxy
-  - /etc/wafproxy, /var/lib/wafproxy and /var/log/wafproxy
+  - /etc/wafproxy and /var/log/wafproxy
   - the wafproxy system user and group
 
 Options:
   --yes         Skip the confirmation prompt (for automation).
-  --keep-data   Keep /etc/wafproxy, /var/lib/wafproxy, /var/log/wafproxy and
-                the wafproxy user/group so a later reinstall can reuse them.
+  --keep-data   Keep /var/lib/waf-proxy/data, /etc/wafproxy, /var/log/wafproxy
+                and the wafproxy user/group so a later reinstall can reuse them.
   -h, --help    Show this help.
 
 Not touched: OS packages, host firewall/router rules, Tailscale, CrowdSec,
@@ -69,7 +70,7 @@ The repository checkout is not removed. Shared OS packages, Tailscale,
 CrowdSec and Docker are not removed.
 EOF
 if ((keep_data)); then
-  echo "Keeping /etc/wafproxy, /var/lib/wafproxy, /var/log/wafproxy and the wafproxy user/group."
+  echo "Keeping /var/lib/waf-proxy/data, /etc/wafproxy, /var/log/wafproxy and the wafproxy user/group."
 fi
 
 if (( !assume_yes )); then
@@ -115,11 +116,25 @@ remove_path /usr/local/waf-proxy
 remove_path /run/wafproxy-updates
 
 if ((keep_data)); then
-  echo "kept /etc/wafproxy, /var/lib/wafproxy and /var/log/wafproxy"
+  echo "kept /var/lib/waf-proxy/data, /etc/wafproxy and /var/log/wafproxy"
 else
   remove_path /etc/wafproxy
-  remove_path /var/lib/wafproxy
   remove_path /var/log/wafproxy
+fi
+
+# The install root holds the binaries, helper scripts and the update checkout;
+# the state lives in its data/ subdirectory.
+remove_path /var/lib/waf-proxy/src
+remove_path /var/lib/waf-proxy/bin
+remove_path /var/lib/waf-proxy/lib
+if ((keep_data)); then
+  echo "kept /var/lib/waf-proxy/data"
+else
+  remove_path /var/lib/waf-proxy/data
+  rmdir /var/lib/waf-proxy 2>/dev/null || true
+  # State and program files from releases before 1.14.
+  remove_path /var/lib/wafproxy
+  remove_path /var/lib/wafproxy.pre-1.14
 
   if getent passwd wafproxy >/dev/null 2>&1; then
     if ! userdel wafproxy; then

@@ -40,5 +40,19 @@ func RepoFromRemote(remote string) string {
 // at another origin would run that repository's code with the helper's rights.
 func RepoMatches(remote string) bool {
 	got := RepoFromRemote(remote)
-	return got != "" && got == strings.ToLower(AppRepo)
+	if got == "" {
+		return false
+	}
+	if got == strings.ToLower(AppRepo) {
+		return true
+	}
+	// The project was renamed from WAF-Proxy-Docker. Checkouts cloned before the
+	// rename still carry that origin URL, and GitHub redirects it, so accept the
+	// former name of the same repository.
+	for _, name := range AppRepoAliases {
+		if got == strings.ToLower(name) {
+			return true
+		}
+	}
+	return false
 }

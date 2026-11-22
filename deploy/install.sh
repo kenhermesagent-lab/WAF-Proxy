@@ -225,20 +225,47 @@ if ! id -u wafproxy >/dev/null 2>&1; then
   useradd --system --gid wafproxy --home-dir /var/lib/wafproxy --no-create-home --shell "$nologin" wafproxy
 fi
 
-install -d -m 0750 -o wafproxy -g wafproxy /var/lib/wafproxy /var/log/wafproxy
+# One root holds everything the native install owns:
+#   /var/lib/waf-proxy/bin   the two binaries
+#   /var/lib/waf-proxy/lib   fixed helper scripts
+#   /var/lib/waf-proxy/src   the git checkout application updates build from
+#   /var/lib/waf-proxy/data  database, master key, GeoIP and feeds (wafproxy)
+# /etc/wafproxy keeps the environment file and the update configuration; the
+# /usr/local/bin and /usr/local/lib/wafproxy names stay as symlinks for PATH
+# lookups and scripts written against older releases.
+app_dir=/var/lib/waf-proxy
+data_dir="$app_dir/data"
+install -d -m 0755 -o root -g root "$app_dir" "$app_dir/bin" "$app_dir/lib"
+install -d -m 0750 -o wafproxy -g wafproxy "$data_dir" /var/log/wafproxy
 install -d -m 0750 -o root -g wafproxy /etc/wafproxy
 
-# Program files live in one app directory. The conventional /usr/local/bin and
-# /usr/local/lib/wafproxy names stay as symlinks, so units, PATH lookups and
-# helper scripts from older releases keep resolving. State stays in
-# /var/lib/wafproxy and /etc/wafproxy.
-app_dir=/usr/local/waf-proxy
-install -d -m 0755 "$app_dir" "$app_dir/bin" "$app_dir/lib"
+# Upgrades from 1.13 and earlier kept state in /var/lib/wafproxy. Move it once,
+# while the service is stopped, so the database, master key and GeoIP files end
+# up in the install root. The old directory is kept as a backup.
+if [[ -d /var/lib/wafproxy && -z "$(ls -A "$data_dir" 2>/dev/null)" ]]; then
+  systemctl stop wafproxy.service >/dev/null 2>&1 || true
+  cp -a /var/lib/wafproxy/. "$data_dir"/
+  chown -R wafproxy:wafproxy "$data_dir"
+  chmod 0750 "$data_dir"
+  state_backup="/var/lib/wafproxy.pre-1.14"
+  rm -rf "$state_backup"
+  if mv /var/lib/wafproxy "$state_backup"; then
+    echo "moved state from /var/lib/wafproxy to $data_dir (old copy kept at $state_backup)"
+  else
+    echo "warning: state copied to $data_dir but /var/lib/wafproxy could not be moved" >&2
+  fi
+fi
+
+# Program files used to live in /usr/local/waf-proxy. Carry its helper scripts
+# over, then drop the old directory so only one copy of the app exists.
+if [[ -d /usr/local/waf-proxy ]]; then
+  cp -a /usr/local/waf-proxy/lib/. "$app_dir/lib/" 2>/dev/null || true
+  rm -rf /usr/local/waf-proxy
+fi
+
 install -m 0755 "$binary" "$app_dir/bin/wafproxy"
 ln -sfn "$app_dir/bin/wafproxy" /usr/local/bin/wafproxy
-if [[ -d /usr/local/lib/wafproxy && ! -L /usr/local/lib/wafproxy ]]; then
-  rm -rf /usr/local/lib/wafproxy
-fi
+rm -rf /usr/local/lib/wafproxy
 ln -sfn "$app_dir/lib" /usr/local/lib/wafproxy
 
 # The Updates page uses a separate root helper instead of sudo: the main unit
@@ -255,15 +282,39 @@ else
   echo "warning: $helper_binary not found; the Updates page will be read-only" >&2
 fi
 
-# The helper can rebuild the checked-out repository on request. Record the
-# checkout and its owner once, as root, so a private fork's existing git
-# credentials work; the public repository needs none. The browser never
-# supplies a URL or command.
+# The helper rebuilds one recorded checkout. By default that is a root-owned
+# clone in the install root ($app_dir/src), so application updates never depend
+# on a home directory, a user's git credentials or scattered files next to the
+# build. A host whose clone cannot be created falls back to the checkout this
+# script ran from, which is what releases before 1.14 recorded.
 self_update_installed=0
-update_source="$(pwd)"
-update_user="$(stat -c '%U' "$update_source" 2>/dev/null || true)"
-if [[ "$update_user" == "root" || "$update_user" == "" ]]; then
+src_dir="$app_dir/src"
+checkout_branch="main"
+origin_url=""
+if command -v git >/dev/null 2>&1 && [[ -d .git ]]; then
+  origin_url="$(git -C . config --get remote.origin.url 2>/dev/null || true)"
+  checkout_branch="$(git -C . symbolic-ref --short HEAD 2>/dev/null || echo main)"
+fi
+if [[ ! -d "$src_dir/.git" && -n "$origin_url" ]]; then
+  rm -rf "$src_dir"
+  if git clone --quiet --no-hardlinks "$(pwd)" "$src_dir"; then
+    git -C "$src_dir" remote set-url origin "$origin_url"
+    git -C "$src_dir" checkout --quiet "$checkout_branch" 2>/dev/null || true
+    echo "created the update checkout at $src_dir"
+  else
+    rm -rf "$src_dir"
+    echo "warning: could not create $src_dir; application updates will build from $(pwd)" >&2
+  fi
+fi
+if [[ -d "$src_dir/.git" ]]; then
+  update_source="$src_dir"
   update_user=""
+else
+  update_source="$(pwd)"
+  update_user="$(stat -c '%U' "$update_source" 2>/dev/null || true)"
+  if [[ "$update_user" == "root" || "$update_user" == "" ]]; then
+    update_user=""
+  fi
 fi
 update_remote=""
 update_branch="main"
@@ -387,8 +438,9 @@ LAN interface:  $lan_iface ($lan_ip:$gui_port, admin GUI only)
 Admin access:   http://$lan_ip:$gui_port
                 Only RFC1918 clients are accepted (loopback remains allowed for local checks).
 WAN proxy:      https://$wan_ip:$wan_port
-App files:      $app_dir (bin and lib; /usr/local/bin/wafproxy is a symlink)
-App updates:    $([[ $self_update_installed == 1 ]] && echo "enabled from $update_source" || echo "check-only; no git checkout")
+Install root:   $app_dir (bin, lib, src, data; /usr/local/bin/wafproxy is a symlink)
+Data:           $data_dir
+App updates:    $([[ $self_update_installed == 1 ]] && echo "enabled; builds $update_source and installs into $app_dir" || echo "check-only; no git checkout")
 Tailscale:      $tailscale_status
                 Enable admin/proxy access on the Tailscale page after setup.
                 Tailnet clients must be granted tcp:$wan_port, tcp:$gui_port and DNS 53 by ACL.

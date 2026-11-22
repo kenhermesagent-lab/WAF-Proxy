@@ -2,7 +2,7 @@ SHELL := /bin/bash
 VERSION := $(shell cat VERSION)
 # The repository this build updates. A fork builds with make REPO=owner/repo so
 # the Updates page accepts its own checkout and refuses anyone else's.
-REPO ?= kenhermesagent-lab/WAF-Proxy-Docker
+REPO ?= kenhermesagent-lab/WAF-Proxy
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w \

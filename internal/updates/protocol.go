@@ -46,11 +46,11 @@ const (
 // credentials and a private fork can use the owner's existing git auth. They
 // accept no argument from the browser.
 var (
-	AppSelfUpdateScript = firstScript("/usr/local/waf-proxy/lib/self-update", "/usr/local/lib/wafproxy/self-update")
-	AppCheckScript      = firstScript("/usr/local/waf-proxy/lib/self-update-check", "/usr/local/lib/wafproxy/self-update-check")
+	AppSelfUpdateScript = firstScript("/var/lib/waf-proxy/lib/self-update", "/usr/local/waf-proxy/lib/self-update")
+	AppCheckScript      = firstScript("/var/lib/waf-proxy/lib/self-update-check", "/usr/local/waf-proxy/lib/self-update-check")
 	// CrowdSecInstallScript installs and configures the Security Engine. It
 	// takes no argument: the browser never supplies a command, URL or package.
-	CrowdSecInstallScript = firstScript("/usr/local/waf-proxy/lib/crowdsec-install", "/usr/local/lib/wafproxy/crowdsec-install")
+	CrowdSecInstallScript = firstScript("/var/lib/waf-proxy/lib/crowdsec-install", "/usr/local/waf-proxy/lib/crowdsec-install")
 )
 
 // UpdateScript is one fixed script install.sh installs on the host.
@@ -80,8 +80,8 @@ func MissingUpdateScripts() []string {
 	return missing
 }
 
-// firstScript keeps a host installed before 1.3.2 working until install.sh is
-// re-run; those releases kept the helper scripts under /usr/local/lib/wafproxy.
+// firstScript keeps a host installed before 1.14 working until install.sh is
+// re-run; those releases kept the helper scripts under /usr/local/waf-proxy.
 func firstScript(paths ...string) string {
 	for _, p := range paths {
 		if _, err := os.Stat(p); err == nil {

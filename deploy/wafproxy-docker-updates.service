@@ -1,12 +1,12 @@
 [Unit]
 Description=WAF-Proxy privileged Docker application updater
-Documentation=https://github.com/kenhermesagent-lab/WAF-Proxy-Docker
+Documentation=https://github.com/kenhermesagent-lab/WAF-Proxy
 After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/wafproxy-updated --socket /run/wafproxy-updates/updates.sock
+ExecStart=/var/lib/waf-proxy/bin/wafproxy-updated --socket /run/wafproxy-updates/updates.sock
 Environment=WAFPROXY_UPDATE_SOCKET_GID=10001
 RuntimeDirectory=wafproxy-updates
 RuntimeDirectoryMode=0755

@@ -33,8 +33,8 @@ configuration are identical; pick the one that matches how the host is managed.
 ## 2. Start the stack
 
 ```bash
-git clone <this repo> waf-proxy-docker
-cd waf-proxy-docker
+git clone <this repo> WAF-Proxy
+cd WAF-Proxy
 cp .env.example deploy/.env
 # edit deploy/.env: TZ, optional CrowdSec settings
 docker compose -f deploy/docker-compose.yml up -d --build
@@ -248,7 +248,7 @@ This is destructive. Export the backup first if the configuration may be reused.
 
 ## 11. Bare metal with systemd
 
-The native deployment runs the same binary from `/usr/local/waf-proxy/bin/wafproxy`, with
+The native deployment runs the same binary from `/var/lib/waf-proxy/bin/wafproxy`, with
 `/usr/local/bin/wafproxy` kept as a symlink, under systemd. Use it when the
 host already manages nftables and the container layer is not wanted; the Docker Compose path
 above remains the reference deployment and is unchanged.
@@ -259,8 +259,8 @@ Build on the host (Go 1.27; the console is embedded from `internal/webui/dist`, 
 committed, so `make ui` is only needed after changing `web/`):
 
 ```bash
-git clone https://github.com/kenhermesagent-lab/WAF-Proxy.git waf-proxy-docker
-cd waf-proxy-docker
+git clone https://github.com/kenhermesagent-lab/WAF-Proxy.git WAF-Proxy
+cd WAF-Proxy
 make build
 sudo ./deploy/install.sh
 ```
@@ -273,16 +273,33 @@ The LAN address must be RFC1918 because the admin listener rejects non-private c
 Install `nftables` first (`apt install nftables` or `dnf install nftables`); the unit expects
 the `nft` binary and the host firewall is yours to configure.
 
-`install.sh` is idempotent. It creates the `wafproxy` system user, `/var/lib/wafproxy`
+`install.sh` is idempotent. It creates the `wafproxy` system user, `/var/lib/waf-proxy/data`
 (database, master key, GeoIP files) and `/var/log/wafproxy` (access log), installs
-the binaries and helper scripts under `/usr/local/waf-proxy`, links `/usr/local/bin/wafproxy`
-to `bin/wafproxy`, installs `/etc/systemd/system/wafproxy.service`, enables the unit and
-starts it. On upgrade it keeps `/etc/wafproxy/wafproxy.env` and the data directory.
+the binaries and helper scripts under `/var/lib/waf-proxy/bin` and `/var/lib/waf-proxy/lib`,
+links `/usr/local/bin/wafproxy` to `bin/wafproxy`, installs
+`/etc/systemd/system/wafproxy.service`, enables the unit and starts it. On upgrade it keeps
+`/etc/wafproxy/wafproxy.env` and the data directory.
+
+Everything the install owns lives in one root, `/var/lib/waf-proxy`:
+
+| Path | Contents |
+|---|---|
+| `bin/` | `wafproxy`, `wafproxy-updated` |
+| `lib/` | fixed helper scripts |
+| `src/` | root-owned git checkout the Update button pulls and builds |
+| `data/` | SQLite database, master key, GeoIP files, feeds, backups — owner `wafproxy` |
+
+Releases up to 1.13 used `/usr/local/waf-proxy` for the program files and `/var/lib/wafproxy`
+for the state. The installer moves both into the new root on the first run after upgrading and
+keeps the old state directory as `/var/lib/wafproxy.pre-1.14`; delete it once the console is
+healthy. It also clones the checkout it was run from into `/var/lib/waf-proxy/src` (with the
+original `origin` URL) and records that path in `/etc/wafproxy/self-update.conf`, so the
+**Update application** button builds the managed checkout instead of a home directory.
 
 The unit runs as `wafproxy` with `CAP_NET_BIND_SERVICE` and `CAP_NET_ADMIN` in both the bounding
 and ambient sets, and `NoNewPrivileges=yes`; that is how it binds 443 and runs `nft` without
 root. It does not need `setcap` on the binary, and `ProtectSystem=strict` leaves only
-`/var/lib/wafproxy` and `/var/log/wafproxy` writable.
+`/var/lib/waf-proxy/data` and `/var/log/wafproxy` writable.
 
 ### 11.2 Two interfaces
 
@@ -340,9 +357,9 @@ process can manage it. If `nft` is missing or the capabilities were removed, the
 the reason and bans fall back to the proxy layer.
 
 For GeoIP, use **Settings → GeoIP database → Install database**. It downloads and validates the
-DB-IP Lite city and ASN files into `/var/lib/wafproxy` and reloads them without a restart.
+DB-IP Lite city and ASN files into `/var/lib/waf-proxy/data` and reloads them without a restart.
 Alternatively copy `GeoLite2-City.mmdb` / `GeoLite2-ASN.mmdb` (or the DB-IP Lite equivalents)
-into `/var/lib/wafproxy`, owned by `wafproxy`, and restart.
+into `/var/lib/waf-proxy/data`, owned by `wafproxy`, and restart.
 
 ### 11.4 CrowdSec (optional)
 
@@ -396,12 +413,13 @@ defaults.
 Use **Updates → Update application** for the in-console rebuild, or the manual path:
 
 ```bash
-git pull
-make build
-sudo ./deploy/install.sh            # keeps the env file and /var/lib/wafproxy
+cd /var/lib/waf-proxy/src           # the checkout the Update button also builds
+sudo git pull --ff-only             # or: sudo git fetch --tags && sudo git checkout vX.Y.Z
+sudo make all                       # rebuild the console and both Go binaries
+sudo ./deploy/install.sh            # keeps the env file and /var/lib/waf-proxy/data
 
 journalctl -u wafproxy -f           # service log
-sudo env WAFPROXY_DATA_DIR=/var/lib/wafproxy wafproxy unban 203.0.113.7
+sudo env WAFPROXY_DATA_DIR=/var/lib/waf-proxy/data wafproxy unban 203.0.113.7
 ```
 
 To remove the native installation, use the uninstall script rather than deleting paths by
@@ -416,11 +434,11 @@ sudo ./deploy/uninstall.sh --keep-data
 ```
 
 It stops and disables `wafproxy.service`, `wafproxy-updates.service` and any installed
-`wafproxy-docker-updates.service`, removes the unit files, `/usr/local/waf-proxy` and the
-`/usr/local/bin` and `/usr/local/lib/wafproxy` links, deletes the app-owned `inet wafproxy`
-nftables table, and
-removes `/etc/wafproxy`, `/var/lib/wafproxy`, `/var/log/wafproxy`, the runtime helper socket
-and the `wafproxy` user/group. With `--keep-data`, the config, data, logs and user/group are kept.
+`wafproxy-docker-updates.service`, removes the unit files, the `/usr/local/bin` and
+`/usr/local/lib/wafproxy` links, deletes the app-owned `inet wafproxy` nftables table, and removes
+`/var/lib/waf-proxy` (`bin`, `lib`, `src` and `data`), `/etc/wafproxy`, `/var/log/wafproxy`, any
+pre-1.14 `/var/lib/wafproxy` directory, the runtime helper socket and the `wafproxy` user/group.
+With `--keep-data`, the data directory, config, logs and user/group are kept.
 
 The script intentionally does **not** remove shared OS packages (`nftables`, `ca-certificates`,
 `tzdata`), the Go toolchain, Tailscale, CrowdSec, Docker, host firewall/router rules, or the
@@ -574,7 +592,7 @@ new WAF-Proxy release to update them.
 The console service runs with `NoNewPrivileges=yes`, so it cannot use `sudo`. `install.sh`
 installs two pieces instead:
 
-- `/usr/local/waf-proxy/bin/wafproxy-updated` — a root-owned helper service, linked as
+- `/var/lib/waf-proxy/bin/wafproxy-updated` — a root-owned helper service, linked as
   `/usr/local/bin/wafproxy-updated`;
 - `/etc/systemd/system/wafproxy-updates.service` — the unit that starts it.
 
@@ -586,13 +604,17 @@ repository URLs and options are rejected. The console still keeps its reduced ca
 and never runs apt or a build itself.
 
 `install.sh` records the checkout path and its owner in `/etc/wafproxy/self-update.conf` and
-installs `/usr/local/waf-proxy/lib/self-update` and `self-update-check`. The check runs
-`git fetch` as the checkout owner. The public repository needs no token or login; a private
-fork uses that user's existing git credentials. The application action refuses a dirty
-checkout, runs `git pull --ff-only` and `make all` as the owner, installs both binaries and
-refreshes the helper scripts as root, reloads systemd units and restarts the helper; the console
-then exits so systemd starts the new build. It
-never accepts an argument from the browser, and the data directory is untouched. Only install
+installs `/var/lib/waf-proxy/lib/self-update` and `self-update-check`. The default checkout is
+the root-owned clone at `/var/lib/waf-proxy/src`, so neither a home directory nor an
+operator's git credentials are needed; a host where the clone could not be created falls back
+to the directory the installer ran from. The check runs `git fetch` there. The public repository
+needs no token or login; a private fork uses the recorded user's existing git credentials. The
+application action refuses changes to tracked files (untracked build output and the regenerated
+console bundle do not count), runs `git pull --ff-only` and `make all`, installs both binaries
+into `/var/lib/waf-proxy/bin` and refreshes the helper scripts, reloads systemd units, restarts
+the helper and then restarts `wafproxy.service` so the new binary is loaded. It never accepts an
+argument from the browser, and the data directory is untouched. If the button does not finish,
+`sudo journalctl -u wafproxy-updates -n 80 --no-pager` has the pull and build output. Only install
 from a repository you trust: the helper builds that checkout's code. A checkout recorded from
 the console must have the same origin as the running build (`owner/repository`, in any git
 remote spelling); the helper refuses one that points at another repository, so an administrator
@@ -644,7 +666,7 @@ sudo ./deploy/install-docker-updater.sh
 ```
 
 It copies `wafproxy-updated` out of the running container, installs `wafproxy-self-update.sh`
-and `wafproxy-self-update-check.sh` as `/usr/local/waf-proxy/lib/self-update` and
+and `wafproxy-self-update-check.sh` as `/var/lib/waf-proxy/lib/self-update` and
 `self-update-check`, installs `wafproxy-docker-updates.service`, records the checkout path,
 its owner and `deploy/.env`, and starts the root helper. The console reports the button
 available only when that helper confirms both scripts and the checkout exist on the host;

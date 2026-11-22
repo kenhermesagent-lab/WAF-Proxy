@@ -1,6 +1,6 @@
 [Unit]
 Description=WAF-Proxy reverse proxy and admin console
-Documentation=https://github.com/kenhermesagent-lab/WAF-Proxy-Docker
+Documentation=https://github.com/kenhermesagent-lab/WAF-Proxy
 After=network-online.target nftables.service tailscaled.service wafproxy-updates.service
 Wants=network-online.target wafproxy-updates.service
 
@@ -8,12 +8,12 @@ Wants=network-online.target wafproxy-updates.service
 Type=simple
 User=wafproxy
 Group=wafproxy
-WorkingDirectory=/var/lib/wafproxy
+WorkingDirectory=/var/lib/waf-proxy/data
 EnvironmentFile=-/etc/wafproxy/wafproxy.env
-Environment=WAFPROXY_DATA_DIR=/var/lib/wafproxy
+Environment=WAFPROXY_DATA_DIR=/var/lib/waf-proxy/data
 Environment=WAFPROXY_ACCESS_LOG=/var/log/wafproxy/access.log
-Environment=HOME=/var/lib/wafproxy
-ExecStart=/usr/local/bin/wafproxy
+Environment=HOME=/var/lib/waf-proxy/data
+ExecStart=/var/lib/waf-proxy/bin/wafproxy
 Restart=always
 RestartSec=5
 TimeoutStopSec=15
@@ -26,15 +26,15 @@ NoNewPrivileges=yes
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
 AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
 
-# Writable state only: the database, master key and GeoIP files live in
-# /var/lib/wafproxy; the optional CrowdSec access log lives in /var/log/wafproxy.
-StateDirectory=wafproxy
-StateDirectoryMode=0750
+# The install root /var/lib/waf-proxy holds the program files (bin, lib, src)
+# and the state (data/). Only data/ and the CrowdSec access log are writable;
+# the binaries and the update checkout stay read-only to the service.
 LogsDirectory=wafproxy
 LogsDirectoryMode=0750
 ProtectSystem=strict
 # The app only connects to the helper socket; this keeps /run writable enough
 # for that socket even when the helper starts after the app.
+ReadWritePaths=/var/lib/waf-proxy/data
 ReadWritePaths=-/run/wafproxy-updates
 ProtectHome=yes
 PrivateTmp=yes

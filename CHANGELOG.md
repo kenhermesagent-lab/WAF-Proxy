@@ -11,6 +11,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.14.0] — 2026-11-22
+
+### Changed
+
+- **One install root: `/var/lib/waf-proxy`.** `bin/`, `lib/`, the update checkout (`src/`) and the
+  state (`data/`) now live under the same directory, instead of `/usr/local/waf-proxy` for the
+  program files and `/var/lib/wafproxy` for the database. `install.sh` moves both into the new
+  root on upgrade and keeps the old state directory as `/var/lib/wafproxy.pre-1.14`.
+  `exec`, `ProtectSystem` and the helper units were updated to the new paths; `/usr/local/bin` and
+  `/usr/local/lib/wafproxy` remain symlinks for compatibility.
+- **Application updates build from a managed checkout.** `install.sh` clones the checkout it ran
+  from into `/var/lib/waf-proxy/src` (keeping the original `origin`) and records that as the
+  update source, so the **Update application** button no longer rebuilds a directory under
+  `/home` as its owner. A host where the clone cannot be created keeps recording the directory
+  the installer was run from.
+- **Build metadata uses the current repository name.** `AppRepo` and the Makefile default are
+  `kenhermesagent-lab/WAF-Proxy`; a checkout whose origin still says `WAF-Proxy-Docker` is
+  accepted as the same repository, and any other owner is still refused.
+
+### Fixed
+
+- **The Update button no longer refuses a normal checkout.** The pre-pull check ignored untracked
+  files (build output, `data/`) and the console bundle the build itself regenerates, which made
+  every update on an existing host fail. A rebuild now restores `internal/webui/dist` before
+  pulling, the helper has a usable `PATH`, and the self-update script restarts
+  `wafproxy.service` itself after installing, so the new binary is loaded.
+- The Updates page waits up to 20 minutes for a rebuild instead of six, shows the helper's output
+  while it runs, and reports a timeout with the log command to check instead of claiming success.
+
 ## [1.13.0] — 2026-11-22
 
 ### Added

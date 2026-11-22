@@ -76,7 +76,7 @@ export default function UpdatesPage({
   };
 
   const waitForAppUpdate = async (target: string) => {
-    for (let i = 0; i < 240; i++) {
+    for (let i = 0; i < 800; i++) {
       await new Promise((r) => setTimeout(r, 1500));
       let st: { updating: boolean; error?: string; output?: string };
       try {
@@ -109,7 +109,9 @@ export default function UpdatesPage({
         // The service is between the old and new process.
       }
     }
-    onOK("Update finished; reload this page when the service is back");
+    onError(
+      "The update did not finish in time. Check Last update output below, or run the manual steps on the host: sudo journalctl -u wafproxy-updates -n 80",
+    );
   };
 
   const applyApp = async () => {
@@ -258,7 +260,7 @@ export default function UpdatesPage({
                     id="app-source-dir"
                     value={sourceDir}
                     onChange={(e) => setSourceDir(e.target.value)}
-                    placeholder="/root/WAF-Proxy-Docker"
+                    placeholder="/var/lib/waf-proxy/src"
                     disabled={savingDir}
                     style={{ flex: 1 }}
                   />
@@ -267,9 +269,10 @@ export default function UpdatesPage({
                   </button>
                 </div>
                 <p className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, margin: "0 0 8px" }}>
-                  The root helper only records this path and rebuilds that checkout as its owner. It must be a
-                  git checkout of WAF-Proxy with an origin remote, and the installed update scripts must come
-                  from install.sh: re-run <code>sudo ./deploy/install.sh</code> if the page says they are missing.
+                  The root helper only records this path and rebuilds that checkout. It must be a git checkout
+                  of WAF-Proxy with an origin remote, and the installed update scripts must come from
+                  install.sh: re-run <code>sudo ./deploy/install.sh</code> if the page says they are missing.
+                  The default is the root-owned checkout at <code>/var/lib/waf-proxy/src</code>.
                 </p>
               </>
             )}
@@ -287,7 +290,7 @@ export default function UpdatesPage({
                   <pre
                     className="mono"
                     style={{ fontSize: 12, margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
-                  >{`git pull --ff-only\nmake all\nsudo ./deploy/install.sh`}</pre>
+                  >{`cd /var/lib/waf-proxy/src\nsudo git pull --ff-only\nsudo make all\nsudo ./deploy/install.sh`}</pre>
                 )}
               </>
             )}
@@ -297,7 +300,7 @@ export default function UpdatesPage({
           <p className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
             {snap.container
               ? "The host helper pulls the recorded checkout as its owner, rebuilds the image and recreates the wafproxy container. The named data volume is preserved."
-              : "The privileged helper pulls the installed checkout as its owner, rebuilds the console and both Go binaries, refreshes the bundled helper scripts and restarts the console to load the new build. Data in /var/lib/wafproxy is not touched."}
+              : "The privileged helper pulls the recorded checkout, rebuilds the console and both Go binaries, refreshes the bundled helper scripts, installs them into /var/lib/waf-proxy and restarts the service. Data in /var/lib/waf-proxy/data is not touched."}
           </p>
         )}
         {snap.app_update_error && (

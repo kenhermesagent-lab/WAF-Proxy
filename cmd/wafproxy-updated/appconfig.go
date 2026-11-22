@@ -33,7 +33,7 @@ func configureAppAt(dir, confPath string) updates.HelperResponse {
 		return updates.HelperResponse{Error: "a repository directory is required"}
 	}
 	if !filepath.IsAbs(dir) {
-		return updates.HelperResponse{Error: "use the absolute path of the checkout, for example /root/WAF-Proxy-Docker"}
+		return updates.HelperResponse{Error: "use the absolute path of the checkout, for example /var/lib/waf-proxy/src"}
 	}
 	dir = filepath.Clean(dir)
 	info, err := os.Stat(dir)

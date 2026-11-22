@@ -37,13 +37,13 @@ if ! docker cp "$container:/usr/local/bin/wafproxy-updated" "$tmp" 2>/dev/null; 
   echo "install-docker-updater.sh: this image has no wafproxy-updated; rebuild it with 'docker compose up -d --build' first" >&2
   exit 1
 fi
-app_dir=/usr/local/waf-proxy
-install -d -m 0755 "$app_dir" "$app_dir/bin" "$app_dir/lib" /etc/wafproxy
+app_dir=/var/lib/waf-proxy
+install -d -m 0755 "$app_dir" "$app_dir/bin" "$app_dir/lib"
+install -d -m 0750 -o root -g root /etc/wafproxy
 install -m 0755 "$tmp" "$app_dir/bin/wafproxy-updated"
 ln -sfn "$app_dir/bin/wafproxy-updated" /usr/local/bin/wafproxy-updated
-if [[ -d /usr/local/lib/wafproxy && ! -L /usr/local/lib/wafproxy ]]; then
-  rm -rf /usr/local/lib/wafproxy
-fi
+# Older installs kept a real directory here; replace it with the one-root link.
+rm -rf /usr/local/lib/wafproxy
 ln -sfn "$app_dir/lib" /usr/local/lib/wafproxy
 install -m 0755 deploy/wafproxy-self-update.sh "$app_dir/lib/self-update"
 install -m 0755 deploy/wafproxy-self-update-check.sh "$app_dir/lib/self-update-check"

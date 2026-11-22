@@ -50,3 +50,26 @@ func TestRepoMatchesCompiledRepository(t *testing.T) {
 		}
 	}
 }
+
+// The repository was renamed from WAF-Proxy-Docker. A checkout cloned before
+// the rename keeps that origin URL, and GitHub redirects it, so it must still be
+// accepted while another owner's repository stays refused.
+func TestRepoMatchesAcceptsTheFormerRepositoryName(t *testing.T) {
+	old := AppRepo
+	AppRepo = "kenhermesagent-lab/WAF-Proxy"
+	defer func() { AppRepo = old }()
+
+	for _, remote := range []string{
+		"https://github.com/kenhermesagent-lab/WAF-Proxy.git",
+		"git@github.com:kenhermesagent-lab/WAF-Proxy.git",
+		"https://github.com/kenhermesagent-lab/WAF-Proxy-Docker.git",
+		"git@github.com:kenhermesagent-lab/WAF-Proxy-Docker",
+	} {
+		if !RepoMatches(remote) {
+			t.Errorf("%q was refused, want it accepted", remote)
+		}
+	}
+	if RepoMatches("https://github.com/attacker/WAF-Proxy-Docker.git") {
+		t.Error("the former name was accepted from another owner")
+	}
+}
