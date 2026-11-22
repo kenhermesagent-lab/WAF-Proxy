@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -90,6 +91,22 @@ func newHarness(t *testing.T) *harness {
 			w.Header().Set("Content-Type", "text/plain")
 			w.Header().Set("Content-Length", "200000")
 			_, _ = w.Write(make([]byte, 200000))
+			return
+		case "/leak":
+			// A leaky error page the CRS response rules must catch.
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, "<html><body>You have an error in your SQL syntax; check the manual</body></html>")
+			return
+		case "/sse":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "data: You have an error in your SQL syntax\n\n")
+			return
+		case "/gzip":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Content-Encoding", "gzip")
+			gz := gzip.NewWriter(w)
+			_, _ = io.WriteString(gz, "<html><body>You have an error in your SQL syntax</body></html>")
+			_ = gz.Close()
 			return
 		case "/stream":
 			// No length: the response is cut once it passes the ceiling.

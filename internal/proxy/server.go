@@ -280,6 +280,9 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 		},
 		Transport:     s.transport,
 		FlushInterval: 100 * time.Millisecond,
+		ModifyResponse: func(res *http.Response) error {
+			return s.modifyResponse(e, res)
+		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			// Once the response has started there is no status left to change:
 			// writing an error page would append it to the truncated body.

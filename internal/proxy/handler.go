@@ -296,12 +296,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out = cap
 	}
 
+	rv := &respVerdict{}
 	ctx := context.WithValue(r.Context(), ctxUpstream, up)
+	ctx = context.WithValue(ctx, ctxRespVerdict, rv)
 	r = r.WithContext(ctx)
 	e.rp.ServeHTTP(out, r)
 	_ = gz.Close()
 	if cw != nil {
 		cw.finish()
+	}
+	// The response ceiling names its own outcome; leave that event alone.
+	if rv.stage != "" && event.Stage != "response-cap" {
+		event.Stage, event.RuleID, event.RuleMsg = rv.stage, rv.rule, rv.msg
+		if rv.action != "" {
+			event.Action = rv.action
+		}
+		blocked = rv.blocked
 	}
 }
 

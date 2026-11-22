@@ -977,6 +977,24 @@ func (e *Engine) ReloadWAF() error {
 
 // ProfileFor returns the WAF profile a proxy selects. The proxy edge keeps its
 // own copy of the values it enforces on responses, so a reload replaces both.
+// WAFEngine returns the compiled rules for a proxy's profile, so the response
+// inspector applies the same exceptions and paranoia as the request path.
+func (e *Engine) WAFEngine(profileID *int64) *waf.Engine {
+	return e.wafs.For(profileID)
+}
+
+// ResponseInspection reports how a proxy's profile wants upstream responses
+// handled: the response setting and the WAF mode that decides whether a match
+// blocks or only logs. Both are read live, so saving a profile needs no proxy
+// reload.
+func (e *Engine) ResponseInspection(p *model.Proxy) (responses, mode string) {
+	prof := e.ProfileFor(p)
+	if prof == nil {
+		return "off", ""
+	}
+	return prof.Responses, prof.Mode
+}
+
 func (e *Engine) ProfileFor(p *model.Proxy) *model.Profile {
 	if p == nil || p.ProfileID == nil {
 		return nil
