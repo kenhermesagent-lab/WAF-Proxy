@@ -14,6 +14,14 @@ export GIT_TERMINAL_PROMPT=0
 export PATH="$PATH:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
 export HOME="${HOME:-/root}"
 
+lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ ! -r "$lib_dir/wafproxy-update-lib.sh" ]]; then
+  echo "self-update: $lib_dir/wafproxy-update-lib.sh is missing; re-run deploy/install.sh" >&2
+  exit 1
+fi
+# shellcheck source=deploy/wafproxy-update-lib.sh
+source "$lib_dir/wafproxy-update-lib.sh"
+
 conf=/etc/wafproxy/self-update.conf
 if [[ ! -r "$conf" ]]; then
   echo "self-update is not configured: $conf is missing" >&2
@@ -74,8 +82,7 @@ fi
 # copy. A local build also leaves new asset names behind, and an untracked asset
 # blocks the incoming commit just as an edited tracked file does, so put the
 # whole directory back before pulling.
-as_user git -C "$src" checkout -- internal/webui/dist 2>/dev/null || true
-as_user git -C "$src" clean -fdq -- internal/webui/dist 2>/dev/null || true
+restore_console_bundle "$src" as_user
 as_user git -C "$src" pull --ff-only origin "$branch"
 cd "$src"
 new_version="$(cat VERSION)"
@@ -148,8 +155,7 @@ if as_user sh -c 'command -v npm >/dev/null'; then
     echo "self-update: the console build failed; using the bundle committed in the checkout" >&2
     # vite empties dist before it writes, so a failed build would otherwise be
     # embedded: put the committed bundle back before the Go build reads it.
-    as_user git -C "$src" checkout -- internal/webui/dist 2>/dev/null || true
-    as_user git -C "$src" clean -fdq -- internal/webui/dist 2>/dev/null || true
+    restore_console_bundle "$src" as_user
   }
 fi
 as_user make -C "$src" build
@@ -348,6 +354,7 @@ install_native() {
   ln -sfn "$app_dir/lib" /usr/local/lib/wafproxy || return 1
   install_file "$src/deploy/wafproxy-self-update.sh" "$app_dir/lib/self-update" 0755 || return 1
   install_file "$src/deploy/wafproxy-self-update-check.sh" "$app_dir/lib/self-update-check" 0755 || return 1
+  install_file "$src/deploy/wafproxy-update-lib.sh" "$app_dir/lib/wafproxy-update-lib.sh" 0755 || return 1
   if [[ -f "$src/deploy/crowdsec-install.sh" ]]; then
     install_file "$src/deploy/crowdsec-install.sh" "$app_dir/lib/crowdsec-install" 0755 || return 1
   fi

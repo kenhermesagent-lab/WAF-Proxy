@@ -11,6 +11,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.18.0] — 2026-11-22
+
+### Added
+
+- **Named blocklists and whitelists.** **Policies → Blocklist profiles** and **Whitelist profiles** hold
+  reusable lists: IPs and CIDRs pasted one per line, plus countries chosen from a searchable picker that
+  moves them into the list. An **Access profile** attaches any number of them. A blocklist refuses its
+  addresses and countries on every host that profile serves, and a whitelist makes those hosts reachable
+  only from what it names; a blocklist attached to the same profile still wins. Entries are validated on
+  save and stored canonically, the name and kind are fixed once created, and a list that a profile
+  attaches cannot be deleted until it is detached. `GET/POST /api/lists` and `PUT/DELETE /api/lists/{id}`
+  are the endpoints; the engine compiles each list once per reload, so a request merges prefixes instead
+  of parsing them.
+- **CI fails when the committed console bundle is stale.** The frontend job rebuilds `internal/webui/dist`
+  and then fails on any difference from the checkout, so a release cannot ship an old console — which
+  also stopped the updater from pulling cleanly.
+- **A scripted test for the update restore step.** `deploy/test-self-update-restore.sh` builds a
+  throwaway pair of repositories, dirties the checkout exactly the way `npm run build` does (an edited
+  tracked bundle plus a new asset name), asserts `git pull --ff-only` refuses, then runs the updater's
+  restore step and asserts the pull lands on the new release. The restore now lives in
+  `deploy/wafproxy-update-lib.sh`, which both the updater and the test source, and a new CI job runs it.
+
+### Changed
+
+- `deploy/install.sh` and the updater install `wafproxy-update-lib.sh` next to the update scripts.
+
 ## [1.17.2] — 2026-11-22
 
 ### Fixed

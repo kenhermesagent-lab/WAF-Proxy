@@ -327,6 +327,7 @@ fi
 if [[ -n "$update_remote" && -d "$update_source/.git" && -f deploy/wafproxy-self-update.sh ]]; then
   install -m 0755 deploy/wafproxy-self-update.sh "$app_dir/lib/self-update"
   install -m 0755 deploy/wafproxy-self-update-check.sh "$app_dir/lib/self-update-check"
+  install -m 0755 deploy/wafproxy-update-lib.sh "$app_dir/lib/wafproxy-update-lib.sh"
   {
     printf 'WAFPROXY_UPDATE_SOURCE_DIR=%q\n' "$update_source"
     printf 'WAFPROXY_UPDATE_USER=%q\n' "$update_user"

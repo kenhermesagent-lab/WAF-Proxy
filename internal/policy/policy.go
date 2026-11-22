@@ -100,7 +100,19 @@ type Engine struct {
 	// policy updates every profile, and therefore every proxy, that uses it.
 	accessProfiles map[int64]model.AccessProfile
 	policiesByID   map[int64]model.Policy
-	now            func() time.Time
+
+	// Named block/allow lists, compiled at reload so a request merges prefixes
+	// instead of parsing them.
+	lists map[int64]compiledList
+	now   func() time.Time
+}
+
+// compiledList is one named blocklist or whitelist: a blocklist denies every
+// entry it holds, a whitelist makes the site reachable only from them.
+type compiledList struct {
+	block     bool
+	ips       []netip.Prefix
+	countries map[string]bool
 }
 
 // New builds an engine and loads the current configuration.
@@ -117,6 +129,7 @@ func New(st *store.Store, bans *ban.Engine, feeds *intel.Manager, geo *geoip.Geo
 		profiles:       map[int64]model.Profile{},
 		accessProfiles: map[int64]model.AccessProfile{},
 		policiesByID:   map[int64]model.Policy{},
+		lists:          map[int64]compiledList{},
 		now:            time.Now,
 	}
 	if err := e.Reload(); err != nil {
@@ -183,6 +196,18 @@ func (e *Engine) Reload() error {
 	if err != nil {
 		return err
 	}
+	lists, err := e.st.ListAccessLists()
+	if err != nil {
+		return err
+	}
+	compiled := map[int64]compiledList{}
+	for _, l := range lists {
+		cl := compiledList{block: l.Kind == model.ListKindBlock, ips: prefixes(l.IPs), countries: map[string]bool{}}
+		for _, c := range splitUpper(l.Countries) {
+			cl.countries[c] = true
+		}
+		compiled[l.ID] = cl
+	}
 
 	global := newRuleSet()
 	perProxy := map[int64]ruleSet{}
@@ -222,6 +247,7 @@ func (e *Engine) Reload() error {
 	}
 	e.accessProfiles = bundles
 	e.policiesByID = byID
+	e.lists = compiled
 	e.settings = parseSettings(kv)
 	e.mu.Unlock()
 	return nil
@@ -503,6 +529,26 @@ func (e *Engine) rulesFor(p *model.Proxy) ruleSet {
 				for _, rule := range prof.Rules {
 					if pol, ok := e.policiesByID[rule.PolicyID]; ok && pol.Enabled {
 						applyPolicyRole(&merged, pol, rule.Role)
+					}
+				}
+				// A named blocklist is the operator's block for this host, and a
+				// whitelist narrows it to what it names, exactly as a deny/allow
+				// rule on a policy does.
+				for _, id := range prof.ListIDs {
+					l, ok := e.lists[id]
+					if !ok {
+						continue
+					}
+					if l.block {
+						merged.profIPDeny = append(merged.profIPDeny, l.ips...)
+						for c := range l.countries {
+							merged.profCountryDeny[c] = true
+						}
+						continue
+					}
+					merged.profIPAllow = append(merged.profIPAllow, l.ips...)
+					for c := range l.countries {
+						merged.profCountryAllow[c] = true
 					}
 				}
 			}

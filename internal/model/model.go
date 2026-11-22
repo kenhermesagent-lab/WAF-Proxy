@@ -132,14 +132,35 @@ type AccessRule struct {
 	Role     string `json:"role"` // allow | deny | inherit
 }
 
+// Named access lists. A blocklist denies the addresses and countries it holds
+// for every host whose access profile attaches it; a whitelist makes that host
+// reachable only from them.
+const (
+	ListKindBlock = "blocklist"
+	ListKindAllow = "whitelist"
+)
+
+// AccessList is a named set of IP/CIDR and country entries that an access
+// profile attaches as a whole.
+type AccessList struct {
+	ID        int64     `json:"id"`
+	Kind      string    `json:"kind"` // blocklist | whitelist
+	Name      string    `json:"name"`
+	IPs       string    `json:"ips"`       // comma separated IPs and CIDRs
+	Countries string    `json:"countries"` // comma separated ISO 3166-1 alpha-2
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // AccessProfile is a complete per-site policy: the lists it applies (each as
-// an allow or deny list), and the protection profiles that go with them. A
-// proxy selects one, so an operator chooses a single thing when creating a
-// host instead of matching three lists by hand.
+// an allow or deny list), the named block/allow lists it attaches, and the
+// protection profiles that go with them. A proxy selects one, so an operator
+// chooses a single thing when creating a host instead of matching three lists
+// by hand.
 type AccessProfile struct {
 	ID                  int64        `json:"id"`
 	Name                string       `json:"name"`
 	Rules               []AccessRule `json:"rules"`
+	ListIDs             []int64      `json:"list_ids"`
 	WAFProfileID        *int64       `json:"waf_profile_id,omitempty"`
 	ProtectionProfileID *int64       `json:"protection_profile_id,omitempty"`
 }

@@ -183,6 +183,14 @@ CREATE TABLE IF NOT EXISTS access_profiles (
   name TEXT NOT NULL UNIQUE,
   policy_ids TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS access_lists (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL UNIQUE,
+  ips TEXT NOT NULL DEFAULT '',
+  countries TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS upstreams (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   proxy_id INTEGER NOT NULL REFERENCES proxies(id) ON DELETE CASCADE,
@@ -434,6 +442,8 @@ func (s *Store) migrateAddColumns() error {
 		{"access_profiles", "rule_roles", `ALTER TABLE access_profiles ADD COLUMN rule_roles TEXT NOT NULL DEFAULT ''`},
 		{"access_profiles", "waf_profile_id", `ALTER TABLE access_profiles ADD COLUMN waf_profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL`},
 		{"access_profiles", "protection_profile_id", `ALTER TABLE access_profiles ADD COLUMN protection_profile_id INTEGER REFERENCES protection_profiles(id) ON DELETE SET NULL`},
+		// Named blocklist/whitelist bundles a profile attaches as a whole.
+		{"access_profiles", "list_ids", `ALTER TABLE access_profiles ADD COLUMN list_ids TEXT NOT NULL DEFAULT ''`},
 		// A rolled-up permanent-ban list is enforced even for allowlisted
 		// addresses, matching the ban it replaced.
 		{"feeds", "always_block", `ALTER TABLE feeds ADD COLUMN always_block INTEGER NOT NULL DEFAULT 0`},

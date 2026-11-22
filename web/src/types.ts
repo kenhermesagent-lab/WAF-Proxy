@@ -115,8 +115,19 @@ export interface AccessProfile {
   id: number;
   name: string;
   rules: AccessRule[];
+  list_ids: number[];
   waf_profile_id: number | null;
   protection_profile_id: number | null;
+}
+
+// A named blocklist or whitelist an access profile attaches as a whole.
+export interface AccessList {
+  id: number;
+  kind: "blocklist" | "whitelist";
+  name: string;
+  ips: string;
+  countries: string;
+  created_at?: string;
 }
 
 export interface AuthProvider {

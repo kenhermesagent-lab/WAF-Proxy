@@ -3,6 +3,7 @@ import { api } from "../api";
 import { COUNTRIES, countryFlag, countryName } from "../countries";
 import { Badge, Card, Empty, Field, Modal, errText, fmtAgo } from "../ui";
 import { Ban, Policy, Profile, Proxy } from "../types";
+import AccessLists from "../components/AccessLists";
 import AccessProfiles from "../components/AccessProfiles";
 import AuthProviders from "../components/AuthProviders";
 import ProtectionProfiles from "../components/ProtectionProfiles";
@@ -237,6 +238,8 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           <button className={`tab ${tab === "rules" ? "active" : ""}`} onClick={() => setTab("rules")}>Countries, IPs, ASN</button>
           <button className={`tab ${tab === "profiles" ? "active" : ""}`} onClick={() => setTab("profiles")}>WAF profiles</button>
           <button className={`tab ${tab === "protection" ? "active" : ""}`} onClick={() => setTab("protection")}>Protection profiles</button>
+          <button className={`tab ${tab === "blocklists" ? "active" : ""}`} onClick={() => setTab("blocklists")}>Blocklist profiles</button>
+          <button className={`tab ${tab === "whitelists" ? "active" : ""}`} onClick={() => setTab("whitelists")}>Whitelist profiles</button>
           <button className={`tab ${tab === "access" ? "active" : ""}`} onClick={() => setTab("access")}>Access profiles</button>
           <button className={`tab ${tab === "providers" ? "active" : ""}`} onClick={() => setTab("providers")}>Identity providers</button>
         </div>
@@ -419,6 +422,8 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
 
       {tab === "protection" && <ProtectionProfiles onError={onError} onOK={onOK} />}
 
+      {tab === "blocklists" && <AccessLists kind="blocklist" onError={onError} onOK={onOK} />}
+      {tab === "whitelists" && <AccessLists kind="whitelist" onError={onError} onOK={onOK} />}
       {tab === "access" && <AccessProfiles policies={policies} onError={onError} onOK={onOK} />}
       {tab === "providers" && <AuthProviders onError={onError} onOK={onOK} />}
 

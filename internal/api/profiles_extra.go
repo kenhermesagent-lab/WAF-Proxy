@@ -244,6 +244,7 @@ func (s *Server) updateAccessProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current.Rules = in.Rules
+	current.ListIDs = in.ListIDs
 	current.WAFProfileID = in.WAFProfileID
 	current.ProtectionProfileID = in.ProtectionProfileID
 	if err := s.st.UpdateAccessProfile(current); err != nil {
@@ -303,6 +304,11 @@ func (s *Server) validateAccessProfile(a *model.AccessProfile) string {
 	ids := a.PolicyIDs()
 	if msg := s.validateAccessPolicies(ids); msg != "" {
 		return msg
+	}
+	for _, id := range a.ListIDs {
+		if _, err := s.st.GetAccessList(id); err != nil {
+			return "list " + strconv.FormatInt(id, 10) + " does not exist"
+		}
 	}
 	if a.WAFProfileID != nil {
 		if _, err := s.st.GetProfile(*a.WAFProfileID); err != nil {

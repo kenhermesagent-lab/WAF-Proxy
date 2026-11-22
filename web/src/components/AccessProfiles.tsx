@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, Modal, errText } from "../ui";
-import type { AccessProfile, AccessRule, Policy, Profile, ProtectionProfile } from "../types";
+import type { AccessList, AccessProfile, AccessRule, Policy, Profile, ProtectionProfile } from "../types";
+
+const entries = (v: string) => (v ? v.split(",").filter(Boolean).length : 0);
+const countLabel = (n: number) => (n === 1 ? "1 entry" : `${n} entries`);
 
 const KIND_LABELS: Record<string, string> = {
   ip_whitelist: "IP / CIDR list",
@@ -30,6 +33,7 @@ export default function AccessProfiles({
 }) {
   const [list, setList] = useState<AccessProfile[]>([]);
   const [wafProfiles, setWafProfiles] = useState<Profile[]>([]);
+  const [lists, setLists] = useState<AccessList[]>([]);
   const [protections, setProtections] = useState<ProtectionProfile[]>([]);
   const [draft, setDraft] = useState<AccessProfile | null>(null);
   const [saving, setSaving] = useState(false);
@@ -39,11 +43,13 @@ export default function AccessProfiles({
       api.get<AccessProfile[]>("/api/access-profiles"),
       api.get<Profile[]>("/api/profiles"),
       api.get<ProtectionProfile[]>("/api/protection-profiles"),
+      api.get<AccessList[]>("/api/lists"),
     ])
-      .then(([a, w, p]) => {
+      .then(([a, w, p, l]) => {
         setList(a);
         setWafProfiles(w);
         setProtections(p);
+        setLists(l);
       })
       .catch((e) => onError(errText(e)));
 
@@ -110,6 +116,19 @@ export default function AccessProfiles({
       .filter(Boolean)
       .join(" · ");
 
+  const namesOf = (a: AccessProfile) =>
+    (a.list_ids ?? [])
+      .map((id) => lists.find((l) => l.id === id))
+      .filter(Boolean)
+      .map((l) => `${l!.kind === "blocklist" ? "block" : "allow"}: ${l!.name}`)
+      .join(" · ");
+
+  const toggleList = (id: number) => {
+    if (!draft) return;
+    const ids = draft.list_ids ?? [];
+    setDraft({ ...draft, list_ids: ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id] });
+  };
+
   const wafName = (id: number | null) => wafProfiles.find((p) => p.id === id)?.name;
   const protectionName = (id: number | null) => protections.find((p) => p.id === id)?.name;
 
@@ -119,7 +138,7 @@ export default function AccessProfiles({
       actions={
         <button
           className="small primary"
-          onClick={() => setDraft({ id: 0, name: "", rules: [], waf_profile_id: null, protection_profile_id: null })}
+          onClick={() => setDraft({ id: 0, name: "", rules: [], list_ids: [], waf_profile_id: null, protection_profile_id: null })}
         >
           New profile
         </button>
@@ -134,7 +153,7 @@ export default function AccessProfiles({
         <div style={{ overflowX: "auto" }}>
           <table>
             <thead>
-              <tr><th>Profile</th><th>Lists</th><th>Protection</th><th /></tr>
+              <tr><th>Profile</th><th>Lists</th><th>Block/allow lists</th><th>Protection</th><th /></tr>
             </thead>
             <tbody>
               {list.map((a) => {
@@ -145,6 +164,9 @@ export default function AccessProfiles({
                     <td className="muted" style={{ fontSize: 12 }}>
                       {describe(a) || "no lists"}
                       {missing > 0 && <> <Badge tone="warn">{missing} deleted list(s)</Badge></>}
+                    </td>
+                    <td className="muted" style={{ fontSize: 12 }}>
+                      {namesOf(a)}
                     </td>
                     <td className="muted" style={{ fontSize: 12 }}>
                       {[wafName(a.waf_profile_id), protectionName(a.protection_profile_id)].filter(Boolean).join(" · ") || "none"}
@@ -209,6 +231,35 @@ export default function AccessProfiles({
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </Field>
+
+          <Field label="Blocklists and whitelists">
+            {lists.length === 0 ? (
+              <p className="muted" style={{ fontSize: 12 }}>
+                No named lists yet. Create them on the Blocklist profiles or Whitelist profiles tab first.
+              </p>
+            ) : (
+              <div style={{ maxHeight: 220, overflowY: "auto", display: "grid", gap: 4 }}>
+                {lists.map((l) => (
+                  <label
+                    key={l.id}
+                    style={{ margin: 0, display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}
+                  >
+                    <input
+                      type="checkbox"
+                      style={{ width: "auto" }}
+                      checked={(draft.list_ids ?? []).includes(l.id)}
+                      onChange={() => toggleList(l.id)}
+                    />
+                    <Badge tone={l.kind === "blocklist" ? "bad" : "ok"}>{l.kind === "blocklist" ? "block" : "allow"}</Badge>
+                    <span>{l.name}</span>
+                    <span className="muted" style={{ fontSize: 11 }}>
+                      {countLabel(entries(l.ips) + entries(l.countries))}
+                    </span>
+                  </label>
+                ))}
               </div>
             )}
           </Field>
