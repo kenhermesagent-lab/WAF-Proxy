@@ -192,6 +192,7 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/policies", s.authed(s.listPolicies))
 	m.HandleFunc("POST /api/policies", s.authed(s.createPolicy))
+	m.HandleFunc("POST /api/policies/preflight", s.authed(s.preflightPolicy))
 	m.HandleFunc("PUT /api/policies/{id}", s.authed(s.updatePolicy))
 	m.HandleFunc("DELETE /api/policies/{id}", s.authed(s.deletePolicy))
 	m.HandleFunc("GET /api/global-lists", s.authed(s.getGlobalLists))

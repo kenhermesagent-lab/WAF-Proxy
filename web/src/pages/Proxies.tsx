@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
+import ProxyDetail from "../components/ProxyDetail";
 import { AccessProfile, AuthProvider, Cert, Preset, Profile, ProtectionProfile, Proxy, Route, Upstream } from "../types";
 import { Badge, ConfirmDialog, Drawer, Empty, Field, PageHead, Switch, TableWrap, errText } from "../ui";
 
@@ -76,6 +77,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
   const [sort, setSort] = useState<{ key: "hostname" | "requests" | "blocked"; dir: 1 | -1 }>({ key: "hostname", dir: 1 });
   const [confirm, setConfirm] = useState<null | { kind: "delete" | "revoke"; proxy: Proxy }>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [inspect, setInspect] = useState<Proxy | null>(null);
 
   const load = () =>
     Promise.all([
@@ -279,7 +281,8 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
                         {p.maintenance ? "Maintenance" : p.enabled ? "Enabled" : "Disabled"}
                       </Badge>
                     </td>
-                    <td className="right" onClick={(e) => e.stopPropagation()}>
+                    <td className="right" onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
+                      <button className="xsmall" title="Configuration, traffic and upstream health" onClick={() => setInspect(p)}>360</button>{" "}
                       <button className="xsmall" onClick={() => openEdit(p)}>Edit</button>
                     </td>
                   </tr>
@@ -498,6 +501,19 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
             </>
           )}
         </Drawer>
+      )}
+
+      {inspect && (
+        <ProxyDetail
+          proxy={inspect}
+          protection={protections.find((p) => p.id === inspect.protection_profile_id)}
+          cert={certs.find((c) => c.id === inspect.cert_id)}
+          onEdit={() => {
+            setInspect(null);
+            openEdit(inspect);
+          }}
+          onClose={() => setInspect(null)}
+        />
       )}
 
       {confirm && (

@@ -313,6 +313,20 @@ export interface Policy {
   note: string;
 }
 
+export interface PolicyPreflight {
+  kind: string;
+  value: string;
+  hours: number;
+  scanned: number;
+  matched: number;
+  allowed: number;
+  blocked: number;
+  addresses: number;
+  hosts: string[];
+  samples: { ts: string; src_ip: string; host: string; method: string; path: string; stage: string; action: string }[];
+  notes: string[];
+}
+
 export interface Ban {
   id: number;
   cidr: string;

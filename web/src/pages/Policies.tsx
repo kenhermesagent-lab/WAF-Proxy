@@ -3,7 +3,7 @@ import type { DragEvent, MouseEvent as ReactMouseEvent } from "react";
 import { api } from "../api";
 import { COUNTRIES, countryFlag, countryName } from "../countries";
 import { confirmDialog, Badge, Card, Empty, Field, Modal, PageHead, errText, fmtAgo } from "../ui";
-import { ASNRecommendations, ASNSuggestion, Ban, GlobalLists, Policy, Profile, Proxy } from "../types";
+import { ASNRecommendations, ASNSuggestion, Ban, GlobalLists, Policy, PolicyPreflight, Profile, Proxy } from "../types";
 import AccessLists from "../components/AccessLists";
 import AccessProfiles from "../components/AccessProfiles";
 import AuthProviders from "../components/AuthProviders";
@@ -223,6 +223,8 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
   const [globals, setGlobals] = useState<GlobalLists | null>(null);
   const [asnRecs, setAsnRecs] = useState<ASNRecommendations | null>(null);
   const [addingASN, setAddingASN] = useState("");
+  const [check, setCheck] = useState<PolicyPreflight | null>(null);
+  const [checking, setChecking] = useState(false);
 
   const [ban, setBan] = useState({ cidr: "", reason: "", permanent: false, ttl_seconds: 86400 });
   const [pol, setPol] = useState({
@@ -325,6 +327,28 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
     }
   };
 
+  // Preflight answers "what would this rule have done to the traffic we already
+  // have?" before anything is saved, using the server's own matchers.
+  const preflight = async () => {
+    setChecking(true);
+    try {
+      setCheck(
+        await api.post<PolicyPreflight>("/api/policies/preflight", {
+          kind: policyKind(pol.type, pol.action),
+          value: pol.value,
+          scope: pol.scope,
+          proxy_id: pol.scope === "proxy" && pol.proxy_id ? Number(pol.proxy_id) : null,
+          hours: 24,
+        }),
+      );
+    } catch (e) {
+      setCheck(null);
+      onError(errText(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
   const addPolicy = async () => {
     try {
       await api.post("/api/policies", {
@@ -337,6 +361,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
         enabled: true,
       });
       setPol({ ...pol, value: "", note: "" });
+      setCheck(null);
       onOK("Policy added");
       load();
     } catch (e) {
@@ -744,8 +769,46 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                   </select>
                 </Field>
               )}
+              <button style={{ marginTop: 18 }} onClick={preflight} disabled={checking || !pol.value.trim() || (pol.scope === "proxy" && !pol.proxy_id)}>
+                {checking ? "Checking…" : "Preflight"}
+              </button>
               <button className="primary" style={{ marginTop: 18 }} onClick={addPolicy}>Add</button>
             </div>
+            {check && check.kind === policyKind(pol.type, pol.action) && check.value === pol.value && (
+              <div className="grid" style={{ gap: 8, marginTop: 4 }}>
+                <div className={`banner ${check.matched === 0 ? "" : pol.action === "allow" ? "warn" : "bad"}`.trim()} role="status">
+                  <span>
+                    {check.matched === 0
+                      ? `No requests in the last ${check.hours}h match this rule. It would change nothing on this traffic.`
+                      : pol.action === "allow"
+                        ? `${check.matched.toLocaleString()} requests from ${check.addresses} address${check.addresses === 1 ? "" : "es"} match; ${check.blocked.toLocaleString()} are refused today and would be allowed.`
+                        : `${check.matched.toLocaleString()} requests from ${check.addresses} address${check.addresses === 1 ? "" : "es"} match; ${check.allowed.toLocaleString()} are served today and would be refused.`}
+                  </span>
+                </div>
+                {check.notes.map((n) => (
+                  <div className="faint small-text" key={n}>{n}</div>
+                ))}
+                {check.samples.length > 0 && (
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>When</th><th>Source</th><th>Host</th><th>Request</th><th>Stage</th><th>Now</th></tr></thead>
+                      <tbody>
+                        {check.samples.map((s, i) => (
+                          <tr key={`${s.ts}-${i}`}>
+                            <td className="muted" style={{ whiteSpace: "nowrap" }}>{fmtAgo(s.ts)}</td>
+                            <td className="mono">{s.src_ip}</td>
+                            <td className="muted">{s.host}</td>
+                            <td className="mono" title={`${s.method} ${s.path}`} style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.method} {s.path}</td>
+                            <td><Badge tone={s.action === "allow" ? "" : "bad"}>{s.stage || "—"}</Badge></td>
+                            <td className="muted">{s.action}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
             <p className="muted" style={{ fontSize: 12 }}>
               <strong>IP / Subnet</strong> takes one address or a whole CIDR and allows or blocks it on every proxy
               unless one proxy is chosen. Country lists are ISO-3166 alpha-2; a country allow list is exclusive, so

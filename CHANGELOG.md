@@ -11,6 +11,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.32.0] — 2026-11-22
+
+### Added
+
+- **Proxy 360.** A **360** button on every proxy opens one panel with that site's measured traffic
+  (requests, block share, bytes in and out), upstream health and 24-hour availability, the assigned
+  protection profile and certificate, the gate mode, every upstream with its weight and state, and
+  the redirects and aliases. It links straight to the hostname's log and to the editor.
+- **Policy preflight.** Before adding a country, IP/subnet, ASN or decoy policy, **Preflight** replays
+  it against the last 24 hours of logged requests using the server's own matchers: how many requests
+  and addresses it would affect, how many of those are served today (or refused, for an allow rule),
+  and samples. Rate limits are explained rather than guessed. Nothing is saved and no state changes.
+
+### Changed
+
+- The preview is `POST /api/policies/preflight`, needs `policies.write` and only reads events.
+
 ## [1.29.0] — 2026-11-22
 
 ### Added
