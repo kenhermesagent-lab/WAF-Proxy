@@ -287,6 +287,23 @@ CREATE TABLE IF NOT EXISTS gate_acl (
   username TEXT NOT NULL,
   PRIMARY KEY (proxy_id, username)
 );
+CREATE TABLE IF NOT EXISTS anomaly_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  proxy_id INTEGER NOT NULL DEFAULT 0,
+  proxy_host TEXT NOT NULL DEFAULT '',
+  window_start TEXT NOT NULL,
+  window_seconds INTEGER NOT NULL DEFAULT 60,
+  value REAL NOT NULL DEFAULT 0,
+  baseline REAL NOT NULL DEFAULT 0,
+  detail TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'open',
+  created_at TEXT NOT NULL,
+  last_seen TEXT NOT NULL,
+  acknowledged_by TEXT NOT NULL DEFAULT '',
+  acknowledged_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_anomaly_kind ON anomaly_events(kind, proxy_id, state, last_seen);
 CREATE TABLE IF NOT EXISTS gate_failures (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ip TEXT NOT NULL,
@@ -329,7 +346,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "7"
+const schemaVersion = "8"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {

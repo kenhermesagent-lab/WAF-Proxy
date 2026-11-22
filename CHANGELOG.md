@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.9.0] — 2026-11-22
+
+### Added
+
+- **Anomaly detection.** A new **Anomaly events** page evaluates the proxy counters once a minute and raises
+  three detections, each with its own notification class so one can be muted without losing the others:
+  *outbound traffic spike* (per-proxy response bytes above the floor and a multiple of that proxy's
+  median over the last hour), *request-rate spike* (rps above the threshold and the baseline), and
+  *authentication failure burst* (failed gate logins per proxy). A condition that lasts stays one open
+  event, refreshed in place, instead of a new row every minute. Thresholds ship at the values in the
+  design — 5 MB/min over 4×, 200 rps over 3×, 20 failures/min — and are editable on the page. Events can
+  be acknowledged, and the list shows value against baseline so a false positive is easy to recognise.
+
 ## [1.8.1] — 2026-11-22
 
 ### Added

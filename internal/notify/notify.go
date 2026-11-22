@@ -38,6 +38,9 @@ var EventKinds = []EventKind{
 	{Kind: "uptime", Label: "Backend up/down"},
 	{Kind: "update", Label: "Application update"},
 	{Kind: "crowdsec", Label: "CrowdSec ban"},
+	{Kind: "egress_spike", Label: "Outbound traffic spike"},
+	{Kind: "rate_spike", Label: "Request-rate spike"},
+	{Kind: "auth_burst", Label: "Authentication failure burst"},
 }
 
 // Manager owns channel configuration and delivery.

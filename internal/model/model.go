@@ -23,6 +23,25 @@ type Proxy struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
+// AnomalyEvent is one detection: a traffic, egress or login-failure condition
+// that crossed its threshold for a proxy.
+type AnomalyEvent struct {
+	ID             int64      `json:"id"`
+	Kind           string     `json:"kind"` // egress_spike | rate_spike | auth_burst
+	ProxyID        int64      `json:"proxy_id"`
+	ProxyHost      string     `json:"proxy_host"`
+	WindowStart    time.Time  `json:"window_start"`
+	WindowSeconds  int        `json:"window_seconds"`
+	Value          float64    `json:"value"`
+	Baseline       float64    `json:"baseline"`
+	Detail         string     `json:"detail"`
+	State          string     `json:"state"` // open | acknowledged
+	CreatedAt      time.Time  `json:"created_at"`
+	LastSeen       time.Time  `json:"last_seen"`
+	AcknowledgedBy string     `json:"acknowledged_by,omitempty"`
+	AcknowledgedAt *time.Time `json:"acknowledged_at,omitempty"`
+}
+
 // AuthProvider is an external forward-auth endpoint — Authelia, authentik or any
 // server that answers 2xx for an authenticated session — that a proxy can hand
 // its access gate to.

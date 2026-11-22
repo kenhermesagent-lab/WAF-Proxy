@@ -121,6 +121,32 @@ export interface AuthProvider {
   has_secret: boolean;
 }
 
+export interface AnomalyEvent {
+  id: number;
+  kind: string;
+  proxy_id: number;
+  proxy_host: string;
+  window_start: string;
+  window_seconds: number;
+  value: number;
+  baseline: number;
+  detail: string;
+  state: string;
+  created_at: string;
+  last_seen: string;
+  acknowledged_by?: string;
+  acknowledged_at?: string;
+}
+
+export interface AnomalyConfig {
+  enabled: boolean;
+  egress_mb: number;
+  egress_factor: number;
+  rate_rps: number;
+  rate_factor: number;
+  auth_burst: number;
+}
+
 export interface IntelLookup {
   ip: string;
   feed: { id: number; name: string; action: string } | null;

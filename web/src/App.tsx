@@ -14,6 +14,7 @@ import TailscalePage from "./pages/Tailscale";
 import Policies from "./pages/Policies";
 import Sources from "./pages/Sources";
 import Intel from "./pages/Intel";
+import Anomalies from "./pages/Anomalies";
 import Certs from "./pages/Certs";
 import Access from "./pages/Access";
 import Notifications from "./pages/Notifications";
@@ -213,6 +214,7 @@ export default function App() {
           {page === "policies" && <Policies onError={notify} onOK={notify} />}
           {page === "sources" && <Sources onError={notify} onOK={notify} />}
           {page === "intel" && <Intel onError={notify} onOK={notify} />}
+          {page === "anomalies" && <Anomalies onError={notify} onOK={notify} />}
           {page === "crowdsec" && <CrowdSecPage onError={notify} onOK={notify} />}
           {page === "certs" && <Certs onError={notify} onOK={notify} base={me?.base_domain ?? ""} />}
           {page === "access" && <Access onError={notify} onOK={notify} />}

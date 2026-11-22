@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/anomaly"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/api"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
@@ -379,6 +380,9 @@ func run() error {
 	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
 	apiServer.StartBackup(ctx)
 	apiServer.StartAutoUpdate(ctx)
+	anomalyMon := anomaly.New(st, met, notifier, log)
+	apiServer.SetAnomaly(anomalyMon)
+	go anomalyMon.Start(ctx)
 	apiServer.SetStreaming(streams)
 	apiServer.SetUpdates(updateManager)
 	apiServer.SetUptime(uptimeMon)

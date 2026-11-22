@@ -23,6 +23,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "Security",
     items: [
+      { id: "anomalies", label: "Anomaly events", icon: "⚠" },
       { id: "access", label: "Access gate", icon: "⚿" },
       { id: "intel", label: "Threat intel", icon: "☣" },
       { id: "crowdsec", label: "CrowdSec", icon: "◈" },

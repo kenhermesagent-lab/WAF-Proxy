@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/anomaly"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
@@ -62,6 +63,7 @@ type Server struct {
 	started   time.Time
 	streams   *streaming.Manager
 	backup    *backup.Manager
+	anomaly   *anomaly.Manager
 	updates   *updatepkg.Manager
 	uptime    *uptime.Manager
 	restartFn func()
@@ -167,6 +169,10 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/bans/{id}", s.authed(s.deleteBan))
 	m.HandleFunc("POST /api/bans/{id}/promote", s.authed(s.promoteBan))
 	m.HandleFunc("POST /api/bans/bulk", s.authed(s.bulkBans))
+
+	m.HandleFunc("GET /api/anomaly", s.authed(s.getAnomaly))
+	m.HandleFunc("PUT /api/anomaly/settings", s.authed(s.putAnomalySettings))
+	m.HandleFunc("POST /api/anomaly/events/{id}/ack", s.authed(s.acknowledgeAnomaly))
 
 	m.HandleFunc("GET /api/intel/lookup", s.authed(s.lookupIP))
 
