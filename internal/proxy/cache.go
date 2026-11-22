@@ -24,14 +24,29 @@ type responseCache struct {
 	entries map[string]*cacheEntry
 	bytes   int64
 	maxSize int64
-	now     func() time.Time
+	// perHost caps one hostname so a single site cannot fill the cache.
+	perHost   int64
+	hostBytes map[string]int64
+	now       func() time.Time
 }
 
-func newResponseCache(maxSize int64) *responseCache {
+func newResponseCache(maxSize int64, perHost ...int64) *responseCache {
 	if maxSize <= 0 {
 		maxSize = 32 << 20
 	}
-	return &responseCache{entries: map[string]*cacheEntry{}, maxSize: maxSize, now: time.Now}
+	quota := maxSize
+	if len(perHost) > 0 && perHost[0] > 0 {
+		quota = perHost[0]
+	}
+	return &responseCache{entries: map[string]*cacheEntry{}, maxSize: maxSize,
+		perHost: quota, hostBytes: map[string]int64{}, now: time.Now}
+}
+
+func cacheHost(key string) string {
+	if i := strings.IndexByte(key, '|'); i >= 0 {
+		return key[:i]
+	}
+	return key
 }
 
 func cacheKey(r *http.Request) string {
@@ -75,8 +90,7 @@ func (c *responseCache) get(key string) (*cacheEntry, bool) {
 		return nil, false
 	}
 	if c.now().After(e.expires) {
-		c.bytes -= int64(len(e.body))
-		delete(c.entries, key)
+		c.removeLocked(key, e)
 		return nil, false
 	}
 	return e, true
@@ -112,14 +126,74 @@ func (c *responseCache) put(key string, status int, header http.Header, body []b
 		cp.Del(k)
 	}
 	cp.Del("Content-Length")
+	size := int64(len(body))
+	host := cacheHost(key)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.bytes+int64(len(body)) > c.maxSize {
+	if c.hostBytes[host]+size > c.perHost {
+		return
+	}
+	if old, ok := c.entries[key]; ok {
+		c.removeLocked(key, old)
+	}
+	c.evictExpiredLocked()
+	for c.bytes+size > c.maxSize && len(c.entries) > 0 {
+		c.evictOldestLocked()
+	}
+	if c.bytes+size > c.maxSize {
 		return
 	}
 	c.entries[key] = &cacheEntry{status: status, header: cp, body: body,
 		expires: c.now().Add(time.Duration(maxAge) * time.Second)}
-	c.bytes += int64(len(body))
+	c.bytes += size
+	c.hostBytes[host] += size
+}
+
+func (c *responseCache) removeLocked(key string, e *cacheEntry) {
+	host := cacheHost(key)
+	c.bytes -= int64(len(e.body))
+	c.hostBytes[host] -= int64(len(e.body))
+	if c.hostBytes[host] <= 0 {
+		delete(c.hostBytes, host)
+	}
+	delete(c.entries, key)
+}
+
+func (c *responseCache) evictExpiredLocked() {
+	now := c.now()
+	for key, e := range c.entries {
+		if now.After(e.expires) {
+			c.removeLocked(key, e)
+		}
+	}
+}
+
+func (c *responseCache) evictOldestLocked() {
+	var oldestKey string
+	var oldest time.Time
+	for key, e := range c.entries {
+		if oldestKey == "" || e.expires.Before(oldest) {
+			oldestKey, oldest = key, e.expires
+		}
+	}
+	if oldestKey != "" {
+		c.removeLocked(oldestKey, c.entries[oldestKey])
+	}
+}
+
+// purge drops every cached response for a host, or everything when host is
+// empty, and returns how many entries were removed.
+func (c *responseCache) purge(host string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	removed := 0
+	for key, e := range c.entries {
+		if host == "" || strings.EqualFold(cacheHost(key), host) {
+			c.removeLocked(key, e)
+			removed++
+		}
+	}
+	return removed
 }
 
 // cacheWriter tees a response into the cache while streaming it to the client.

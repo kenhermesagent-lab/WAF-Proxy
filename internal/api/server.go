@@ -129,6 +129,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/login", s.login)
 
 	m.HandleFunc("POST /api/logout", s.authed(s.logout))
+	m.HandleFunc("POST /api/cache/purge", s.authed(s.purgeCache))
 	m.HandleFunc("GET /api/me", s.authed(s.me))
 	m.HandleFunc("GET /api/search", s.authed(s.globalSearch))
 	m.HandleFunc("POST /api/account/password", s.authed(s.changePassword))
@@ -414,9 +415,31 @@ func clientIP(r *http.Request) string {
 // ---------- public endpoints ----------
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	ready := s.proxy == nil || s.proxy.Ready()
+	status := http.StatusOK
+	if r.URL.Query().Get("ready") == "1" && !ready {
+		status = http.StatusServiceUnavailable
+	}
+	writeJSON(w, status, map[string]any{
 		"status": "ok", "version": version.Version, "uptime_s": int(time.Since(s.started).Seconds()),
+		"ready": ready,
 	})
+}
+
+// purgeCache drops the response cache for one host, or all hosts when the body
+// names none. Operators reach for it after a backend redeploy.
+func (s *Server) purgeCache(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Host string `json:"host"`
+	}
+	_ = decode(r, &in)
+	removed := 0
+	if s.proxy != nil {
+		removed = s.proxy.PurgeCache(in.Host)
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "cache.purge", in.Host, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
 }
 
 func (s *Server) versionInfo(w http.ResponseWriter, r *http.Request) {

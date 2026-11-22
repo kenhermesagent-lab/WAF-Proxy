@@ -97,6 +97,8 @@ type Server struct {
 	alpn       ALPNProvider
 	self       *tls.Certificate
 	transport  *http.Transport
+	cache      *responseCache
+	draining   atomic.Bool
 
 	events  chan model.Event
 	dropped atomic.Int64
@@ -128,6 +130,9 @@ func New(d Deps) (*Server, error) {
 		hardBody: 8 << 20,
 	}
 	s.SetMaxInflight(DefaultMaxInflight)
+	// One cache for the process: 128 MiB total, at most 32 MiB per hostname,
+	// so one site cannot evict every other site's entries.
+	s.cache = newResponseCache(128<<20, 32<<20)
 	// No Proxy field: an HTTP_PROXY in the service environment must never
 	// carry customer traffic through a third party.
 	s.transport = &http.Transport{
@@ -237,12 +242,13 @@ func (s *Server) Reload(ctx context.Context) error {
 	s.edges = next
 	s.mu.Unlock()
 
+	// Warm upstream connections are kept: rebuilding a route must not cost
+	// every other site its pooled connections.
 	for host, prev := range old {
 		if _, keep := next[host]; !keep && prev.cancel != nil {
 			prev.cancel()
 		}
 	}
-	s.transport.CloseIdleConnections()
 	s.d.Log.Info("routes reloaded", "proxies", len(next))
 	return nil
 }
@@ -269,7 +275,7 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 		return nil, err
 	}
 	child, cancel := context.WithCancel(ctx)
-	e := &edge{proxy: p, ups: ups, routes: routes, cache: newResponseCache(32 << 20), cancel: cancel,
+	e := &edge{proxy: p, ups: ups, routes: routes, cache: s.cache, cancel: cancel,
 		waf: s.d.Policy.ProfileFor(&p), health: healthFor(p),
 		site: newCapLimiter(p.MaxInflight), clients: newClientLimiter(p.MaxInflightPerClient),
 		timeout: time.Duration(p.UpstreamTimeout) * time.Second,
@@ -401,6 +407,7 @@ func (s *Server) Run(ctx context.Context, addrs ...string) error {
 	}
 
 	shutdown := func() {
+		s.draining.Store(true)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		for _, srv := range servers {
@@ -547,6 +554,19 @@ func (s *Server) record(e model.Event) {
 
 // Dropped returns how many events were dropped under backpressure.
 func (s *Server) Dropped() int64 { return s.dropped.Load() }
+
+// Ready reports whether the listener is accepting new work. It turns false as
+// soon as shutdown starts, before the port closes.
+func (s *Server) Ready() bool { return !s.draining.Load() }
+
+// PurgeCache drops cached responses for one host, or all of them when host is
+// empty, and returns how many entries were removed.
+func (s *Server) PurgeCache(host string) int {
+	if s.cache == nil {
+		return 0
+	}
+	return s.cache.purge(strings.ToLower(strings.TrimSpace(host)))
+}
 
 func selfSigned() (*tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

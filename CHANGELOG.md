@@ -11,6 +11,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.32.0] — 2026-11-22
+
+### Added
+
+- **Shared response cache with quotas.** One 128 MiB process-wide cache replaces the 32 MiB
+  per-site budgets, with a 32 MiB per-hostname quota and oldest-entry eviction, so one site can no
+  longer crowd out every other site. `POST /api/cache/purge` drops one host or the whole cache.
+- **Drain readiness.** `GET /api/health?ready=1` answers `503` while the listener is shutting down,
+  and the readiness flag flips before the port closes.
+
+### Changed
+
+- A configuration reload keeps warm upstream connections instead of closing every pooled
+  connection on the box.
+
 ## [1.31.0] — 2026-11-22
 
 ### Added
