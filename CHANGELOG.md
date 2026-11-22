@@ -11,6 +11,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.23.0] — 2026-11-22
+
+### Added
+
+- **Request simulator.** **Logs → Why?** replays a logged request through the ban, screening and WAF
+  stages without reaching the upstream, spending a rate limit or writing a ban. It lists every rule
+  that matched, names the upstream or route that would serve the request, and offers to except a
+  blocking CRS rule after naming every other site that shares the profile. `POST /api/simulate`
+  needs `policies.read`; nothing is audited or persisted.
+- **Release-check regression test.** `make test-release` (and CI) proves `deploy/check-version.sh`
+  still refuses a `VERSION` that is not SemVer, a CHANGELOG mismatch, a stale `version.go` default
+  and a release tag that disagrees with `VERSION`.
+
+### Fixed
+
+- A logged verdict keeps the stage that produced it (`waf`) instead of being relabelled `route` by
+  the forward that follows the log.
+- A clean request under a `block` profile no longer counts CRS setup actions as a match, which had
+  logged every such request as a WAF event.
+
 ## [1.22.0] — 2026-11-22
 
 ### Added

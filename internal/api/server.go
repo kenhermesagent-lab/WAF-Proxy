@@ -234,6 +234,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/analytics", s.authed(s.getAnalytics))
 	m.HandleFunc("GET /api/uptime", s.authed(s.getUptime))
 	m.HandleFunc("GET /api/events", s.authed(s.listEvents))
+	m.HandleFunc("POST /api/simulate", s.authed(s.simulate))
 	m.HandleFunc("GET /api/gate-failures", s.authed(s.listGateFailures))
 	m.HandleFunc("GET /api/events/export.csv", s.authed(s.exportEventsCSV))
 	m.HandleFunc("GET /api/ips", s.authed(s.listIPs))

@@ -90,6 +90,8 @@ jobs:
           cache: true
       - name: VERSION, newest CHANGELOG section and tag agree
         run: bash deploy/check-version.sh
+      - name: The release check still rejects every mismatch
+        run: bash deploy/check-version_test.sh
       - name: Module SBOM
         run: make sbom
       - uses: actions/upload-artifact@v4

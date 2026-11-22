@@ -250,7 +250,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		uniformError(rw, http.StatusBadGateway)
 		return
 	}
-	event.Stage = "route"
+	// A logged verdict already names the stage that produced it; only a plain
+	// forward is a route event.
+	if event.Stage == "" {
+		event.Stage = "route"
+	}
 
 	cleanInboundHeaders(r)
 	up.inFlight.Add(1)
@@ -333,24 +337,39 @@ func (s *Server) blackhole(w http.ResponseWriter, r *http.Request, host string, 
 }
 
 func (s *Server) applyRoutes(w http.ResponseWriter, r *http.Request, e *edge) bool {
-	for _, rt := range e.routes {
-		if !pathMatches(rt.Match, r.URL.Path) {
+	rt, target, ok := RouteFor(e.routes, r.URL.Path)
+	if !ok {
+		return false
+	}
+	switch rt.Kind {
+	case model.RouteRedirect:
+		http.Redirect(w, r, strings.ReplaceAll(rt.Target, "$path", r.URL.Path), http.StatusFound)
+		return true
+	case model.RouteAlias:
+		r.URL.Path = target
+		r.URL.RawPath = ""
+	}
+	return false
+}
+
+// RouteFor returns the first route that would serve a path, with an alias
+// target resolved. It lets the request simulator name the same route the
+// request path would reach.
+func RouteFor(routes []model.Route, path string) (model.Route, string, bool) {
+	for _, rt := range routes {
+		if !pathMatches(rt.Match, path) {
 			continue
 		}
 		switch rt.Kind {
 		case model.RouteRedirect:
-			target := strings.ReplaceAll(rt.Target, "$path", r.URL.Path)
-			http.Redirect(w, r, target, http.StatusFound)
-			return true
+			return rt, path, true
 		case model.RouteAlias:
-			rest := strings.TrimPrefix(r.URL.Path, rt.Match)
+			rest := strings.TrimPrefix(path, rt.Match)
 			base := strings.TrimSuffix(rt.Target, "/")
-			r.URL.Path = base + "/" + strings.TrimPrefix(rest, "/")
-			r.URL.RawPath = ""
-			return false
+			return rt, base + "/" + strings.TrimPrefix(rest, "/"), true
 		}
 	}
-	return false
+	return model.Route{}, path, false
 }
 
 func pathMatches(match, path string) bool {

@@ -11,7 +11,7 @@ LDFLAGS := -s -w \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.BuildDate=$(BUILD_DATE) \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates.AppRepo=$(REPO)
 
-.PHONY: all ui build run test vet fmt docker install clean verify-release sbom perf perf-gate perf-record
+.PHONY: all ui build run test test-release vet fmt docker install clean verify-release sbom perf perf-gate perf-record
 
 all: ui build
 
@@ -27,6 +27,9 @@ run: build
 
 test:
 	go test ./...
+
+test-release:
+	bash deploy/check-version_test.sh
 
 vet:
 	go vet ./...

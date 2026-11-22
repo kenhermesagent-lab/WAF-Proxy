@@ -26,6 +26,7 @@ func TestPermissionForMapsRoutes(t *testing.T) {
 		{http.MethodPut, "/api/settings", "settings.write"},
 		{http.MethodPost, "/api/updates/apply", "system.write"},
 		{http.MethodGet, "/api/protection-profiles/audit", "policies.read"},
+		{http.MethodPost, "/api/simulate", "policies.read"},
 		{http.MethodGet, "/api/me", ""},
 		{http.MethodPost, "/api/account/password", ""},
 	}

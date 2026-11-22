@@ -685,3 +685,36 @@ export interface AuditEntry {
   detail: string;
   ip: string;
 }
+
+export interface SimStage {
+  stage: string;
+  verdict: string;
+  reason?: string;
+  rule_ids?: string[];
+  skipped?: string;
+}
+
+export interface SimMatch {
+  rule_id: number;
+  message: string;
+  severity: number;
+  disruptive: boolean;
+}
+
+export interface SimException {
+  profile_id: number;
+  profile: string;
+  rule_id: number;
+  other_hosts: string[];
+}
+
+export interface SimResult {
+  verdict: { action: string; stage: string; rule: string; reason: string; status: number };
+  stages: SimStage[];
+  matches: SimMatch[];
+  upstream?: string;
+  route?: string;
+  truncated: boolean;
+  notes: string[];
+  exception?: SimException;
+}

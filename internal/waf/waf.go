@@ -195,11 +195,26 @@ func (e *Engine) Name() string {
 	return e.name
 }
 
+// Match is one rule that fired during inspection.
+type Match struct {
+	RuleID     int    `json:"rule_id"`
+	Message    string `json:"message"`
+	Severity   int    `json:"severity"`
+	Disruptive bool   `json:"disruptive"`
+}
+
 // Inspect evaluates a request. The body must already be read and limited by the
 // caller; nil means no body. It never panics on malformed input.
-func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res Result) {
+func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) Result {
+	res, _ := e.InspectAll(r, body, clientIP)
+	return res
+}
+
+// InspectAll is Inspect plus every attack rule that matched, so the request
+// simulator can list them instead of only the one the log would name.
+func (e *Engine) InspectAll(r *http.Request, body []byte, clientIP netip.Addr) (res Result, matches []Match) {
 	if e == nil || e.waf == nil {
-		return res
+		return res, nil
 	}
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -208,6 +223,7 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res
 			// enforcing it, because the mode is applied by the policy layer.
 			res = Result{Matched: true, Blocked: true, RuleID: 200006,
 				Message: "request inspection failed", Label: "protocol-violation"}
+			matches = nil
 		}
 	}()
 
@@ -240,7 +256,7 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res
 			res.RuleID = 200004
 			res.Message = "request body rejected by the WAF body limit"
 			res.Label = "protocol-violation"
-			return res
+			return res, nil
 		}
 	}
 	if _, err := tx.ProcessRequestBody(); err != nil {
@@ -249,13 +265,14 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res
 		res.RuleID = 200005
 		res.Message = "request body could not be inspected"
 		res.Label = "protocol-violation"
-		return res
+		return res, nil
 	}
 
 	matched := tx.MatchedRules()
 	bestID, bestMsg, bestSeverity := 0, "", 999
 	excepted := 0
 	blockedByRule := false
+	found := []Match{}
 	for _, mr := range matched {
 		id := mr.Rule().ID()
 		if id == 0 {
@@ -273,6 +290,9 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res
 		// without a severity and would otherwise win every report, so only rules
 		// that classify an attack are candidates for the logged rule.
 		sev := int(mr.Rule().Severity())
+		if sev >= 0 {
+			found = append(found, Match{RuleID: id, Message: mr.Message(), Severity: sev, Disruptive: mr.Disruptive()})
+		}
 		if sev >= 0 && sev < bestSeverity {
 			bestSeverity = sev
 			bestID = id
@@ -285,7 +305,10 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res
 	interrupted := tx.IsInterrupted()
 	interruption := tx.Interruption()
 
-	res.Matched = len(matched) > 0
+	// Setup actions (the paranoia and threshold SecActions) match on every
+	// request. Counting them would make every clean request look like a hit and
+	// the policy layer would log it as a WAF event.
+	res.Matched = len(found) > 0
 	res.ProfileID = e.id
 	res.Paranoia = e.paranoia
 	if bestID == 0 && interruption != nil {
@@ -300,14 +323,14 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res
 	if len(matched) > 0 && excepted == len(matched) {
 		res.Matched = false
 		res.Blocked = false
-		return res
+		return res, nil
 	}
 	if interrupted {
 		res.Blocked = true
 	} else if blockedByRule {
 		res.Blocked = false // detection-only: remember the match, do not block
 	}
-	return res
+	return res, found
 }
 
 // Label maps a CRS rule ID to a short attack category.

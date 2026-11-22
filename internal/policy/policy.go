@@ -675,6 +675,12 @@ func (e *Engine) rulesFor(p *model.Proxy) ruleSet {
 
 // Screen runs every stage before the access gate and WAF.
 func (e *Engine) Screen(req *Request) model.Verdict {
+	return e.screen(req, true)
+}
+
+// screen is Screen with its stateful stages switchable off: a simulation must
+// not spend a client's rate budget or write a ban for a request nobody sent.
+func (e *Engine) screen(req *Request, live bool) model.Verdict {
 	p := req.Proxy
 	rules := e.rulesFor(p)
 	country := ""
@@ -820,11 +826,13 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 	lowerPath := canonicalPath(req.Path)
 	for _, decoy := range rules.decoys {
 		if lowerPath == decoy || strings.HasPrefix(lowerPath, decoy+"/") {
-			rawPath := req.Path
-			addr := req.Addr.String()
-			go func() {
-				_, _ = e.bans.Add(addr, "decoy path requested: "+rawPath, "decoy", "policy", 0)
-			}()
+			if live {
+				rawPath := req.Path
+				addr := req.Addr.String()
+				go func() {
+					_, _ = e.bans.Add(addr, "decoy path requested: "+rawPath, "decoy", "policy", 0)
+				}()
+			}
 			return model.Verdict{Action: "ban", Stage: "decoy", Rule: decoy,
 				Reason: "decoy path", Status: http.StatusForbidden, BanSource: "decoy"}
 		}
@@ -885,28 +893,30 @@ func (e *Engine) Screen(req *Request) model.Verdict {
 	if rules.rateBurst > 0 {
 		dosBurst = rules.rateBurst
 	}
-	if allowed, strikeOut := e.rl.Allow(rateKey(req), dosRPS, dosBurst, e.now()); !allowed {
-		if strikeOut {
-			addr := req.Addr.String()
-			go func() {
-				_, _ = e.bans.Add(addr, "request rate exceeded", "scan", "ratelimit", 60*time.Second)
-			}()
+	if live {
+		if allowed, strikeOut := e.rl.Allow(rateKey(req), dosRPS, dosBurst, e.now()); !allowed {
+			if strikeOut {
+				addr := req.Addr.String()
+				go func() {
+					_, _ = e.bans.Add(addr, "request rate exceeded", "scan", "ratelimit", 60*time.Second)
+				}()
+			}
+			return model.Verdict{Action: "block", Stage: "dos", Rule: "rate-limit",
+				Reason: "request rate exceeded", Status: http.StatusTooManyRequests}
 		}
-		return model.Verdict{Action: "block", Stage: "dos", Rule: "rate-limit",
-			Reason: "request rate exceeded", Status: http.StatusTooManyRequests}
-	}
 
-	// Credential stuffing is throttled per client and per login path before the
-	// request reaches an application that may have no limit of its own.
-	if prof != nil && prof.LoginRPS > 0 && pathUnderAny(req.Path, prof.LoginPaths) {
-		burst := prof.LoginBurst
-		if burst <= 0 {
-			burst = prof.LoginRPS
-		}
-		key := "login|" + rateKey(req) + "|" + canonicalPath(req.Path)
-		if allowed, _ := e.rl.Allow(key, prof.LoginRPS, burst, e.now()); !allowed {
-			return model.Verdict{Action: "block", Stage: "login-limit", Rule: "rate-limit",
-				Reason: "login attempts exceeded", Status: http.StatusTooManyRequests}
+		// Credential stuffing is throttled per client and per login path before
+		// the request reaches an application that may have no limit of its own.
+		if prof != nil && prof.LoginRPS > 0 && pathUnderAny(req.Path, prof.LoginPaths) {
+			burst := prof.LoginBurst
+			if burst <= 0 {
+				burst = prof.LoginRPS
+			}
+			key := "login|" + rateKey(req) + "|" + canonicalPath(req.Path)
+			if allowed, _ := e.rl.Allow(key, prof.LoginRPS, burst, e.now()); !allowed {
+				return model.Verdict{Action: "block", Stage: "login-limit", Rule: "rate-limit",
+					Reason: "login attempts exceeded", Status: http.StatusTooManyRequests}
+			}
 		}
 	}
 
@@ -1092,9 +1102,15 @@ var hostingASN = func() map[int]bool {
 
 // Inspect runs the WAF stage for a request whose body has already been read.
 func (e *Engine) Inspect(req *Request) (model.Verdict, WAFInfo) {
+	verdict, info, _ := e.inspect(req)
+	return verdict, info
+}
+
+// inspect is Inspect with the full rule list the simulator reports.
+func (e *Engine) inspect(req *Request) (model.Verdict, WAFInfo, []waf.Match) {
 	p := req.Proxy
 	if p == nil {
-		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}
+		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}, nil
 	}
 	mode := p.WAFMode
 	if mode == "" || mode == "inherit" {
@@ -1108,13 +1124,13 @@ func (e *Engine) Inspect(req *Request) (model.Verdict, WAFInfo) {
 		e.mu.RUnlock()
 	}
 	if mode == "off" {
-		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}
+		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}, nil
 	}
 	engine := e.wafs.For(p.ProfileID)
 	if engine == nil {
-		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}
+		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}, nil
 	}
-	res := engine.Inspect(req.HTTP, req.Body, req.Addr)
+	res, matches := engine.InspectAll(req.HTTP, req.Body, req.Addr)
 	info := WAFInfo{Matched: res.Matched, RuleID: res.RuleID, Label: res.Label, Message: res.Message, Profile: engine.Name()}
 	// RuleID 0 means the only matches were setup actions, so the rule set has
 	// no verdict of its own. Normalization only speaks in that case, which also
@@ -1123,18 +1139,18 @@ func (e *Engine) Inspect(req *Request) (model.Verdict, WAFInfo) {
 		if v, ok := e.normVerdict(res.Norm); ok {
 			info.Matched, info.Label, info.Message = true, "normalization", v.Reason
 			info.RuleID, _ = strconv.Atoi(v.Rule)
-			return v, info
+			return v, info, matches
 		}
 		if !res.Matched {
-			return model.Verdict{Action: "allow", Stage: "waf"}, info
+			return model.Verdict{Action: "allow", Stage: "waf"}, info, matches
 		}
 	}
 	if mode == "detect" || !res.Blocked {
 		return model.Verdict{Action: "log", Stage: "waf", Rule: strconv.Itoa(res.RuleID),
-			Reason: res.Message, Status: http.StatusOK}, info
+			Reason: res.Message, Status: http.StatusOK}, info, matches
 	}
 	return model.Verdict{Action: "block", Stage: "waf", Rule: strconv.Itoa(res.RuleID),
-		Reason: res.Label + ": " + res.Message, Status: http.StatusForbidden}, info
+		Reason: res.Label + ": " + res.Message, Status: http.StatusForbidden}, info, matches
 }
 
 // normVerdict turns a normalization finding into a verdict according to the

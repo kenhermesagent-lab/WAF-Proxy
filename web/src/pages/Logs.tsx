@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import Simulator from "../components/Simulator";
 import { Badge, Card, Empty, errText, fmtTime } from "../ui";
 import { Event } from "../types";
 
@@ -11,6 +12,7 @@ export default function Logs({ onError }: { onError: (m: string) => void }) {
   const [offset, setOffset] = useState(0);
   const [filters, setFilters] = useState({ ip: "", host: "", stage: "", action: "", blocked: false });
   const [loading, setLoading] = useState(false);
+  const [picked, setPicked] = useState<Event | null>(null);
 
   const load = async (nextOffset = offset) => {
     setLoading(true);
@@ -109,7 +111,7 @@ export default function Logs({ onError }: { onError: (m: string) => void }) {
           <div style={{ overflowX: "auto" }}>
             <table>
               <thead>
-                <tr><th>Time</th><th>Source</th><th>Host</th><th>Request</th><th>Stage</th><th>Rule</th><th className="num">Status</th><th className="num">Latency</th><th className="num">Out</th></tr>
+                <tr><th>Time</th><th>Source</th><th>Host</th><th>Request</th><th>Stage</th><th>Rule</th><th className="num">Status</th><th className="num">Latency</th><th className="num">Out</th><th /></tr>
               </thead>
               <tbody>
                 {events.map((e) => (
@@ -126,6 +128,7 @@ export default function Logs({ onError }: { onError: (m: string) => void }) {
                     <td className="num">{e.status}</td>
                     <td className="num">{e.latency_ms} ms</td>
                     <td className="num">{e.bytes_out}</td>
+                    <td><button className="small" onClick={() => setPicked(e)}>Why?</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -133,6 +136,10 @@ export default function Logs({ onError }: { onError: (m: string) => void }) {
           </div>
         )}
       </Card>
+
+      {picked && (
+        <Simulator event={picked} onClose={() => setPicked(null)} onError={onError} />
+      )}
     </div>
   );
 }

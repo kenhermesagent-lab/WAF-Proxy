@@ -430,3 +430,42 @@ func TestPipelineWAFBlocksSQLi(t *testing.T) {
 		t.Fatal("SQLi request reached the upstream")
 	}
 }
+
+// A detect-only verdict is logged and the request is forwarded. The event must
+// keep the stage that produced the verdict instead of the forward's "route".
+func TestLoggedVerdictKeepsItsStage(t *testing.T) {
+	h := newHarness(t)
+	profiles, err := h.st.ListProfiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generic int64
+	for _, p := range profiles {
+		if p.Name == "Generic Web" {
+			generic = p.ID
+		}
+	}
+	if generic == 0 {
+		t.Fatal("Generic Web profile missing")
+	}
+	p, err := h.st.GetProxy(h.proxy.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.WAFMode = "detect"
+	p.ProfileID = &generic
+	if err := h.st.UpdateProxy(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.px.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rec := h.request(http.MethodGet, testHost, "/search?q=1%27+OR+%271%27%3D%271", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detect-only request = %d, want 200", rec.Code)
+	}
+	e := h.waitEvent(t, func(e model.Event) bool { return e.Action == "log" })
+	if e.Stage != "waf" {
+		t.Fatalf("logged event stage = %q, want waf", e.Stage)
+	}
+}

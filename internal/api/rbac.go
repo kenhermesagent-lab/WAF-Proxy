@@ -24,6 +24,10 @@ func permissionFor(r *http.Request) string {
 	if path == "/api/me" || path == "/api/logout" || strings.HasPrefix(path, "/api/account/") {
 		return ""
 	}
+	// A simulation is read-only despite being a POST.
+	if path == "/api/simulate" {
+		return rbac.Permission("policies", "read")
+	}
 	area := "settings"
 	switch {
 	case strings.HasPrefix(path, "/api/users"), strings.HasPrefix(path, "/api/roles"):
