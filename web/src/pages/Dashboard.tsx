@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import Globe from "../components/Globe";
 import { Badge, Card, Empty, fmtAgo, fmtBps, fmtBytes } from "../ui";
-import { Event, GlobePoint, Metrics, Proxy } from "../types";
+import { Event, GlobeHit, GlobePoint, Metrics, Proxy } from "../types";
 
 type Rate = { requests: number; bytesIn: number; bytesOut: number };
 
@@ -25,6 +25,7 @@ function Spark({ values, color }: { values: number[]; color: string }) {
 export default function Dashboard({ onError, home }: { onError: (m: string) => void; home: { lat: number; lon: number } }) {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [points, setPoints] = useState<GlobePoint[]>([]);
+  const [hits, setHits] = useState<GlobeHit[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [rates, setRates] = useState<Record<string, Rate>>({});
@@ -106,6 +107,39 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
     load();
     if (hours === 1) return () => { alive = false; };
     const t = setInterval(load, 15000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [hours]);
+
+  // Individual hits feed the globe's live arcs. The first request asks for the
+  // last minute; later ones use the newest timestamp as a cursor and dedupe by
+  // id, so a burst that shares one second is not lost between polls.
+  useEffect(() => {
+    if (hours !== 1) {
+      setHits([]);
+      return;
+    }
+    let alive = true;
+    let since = new Date(Date.now() - 60000).toISOString();
+    const load = () =>
+      api
+        .get<GlobeHit[]>(`/api/globe/hits?since=${encodeURIComponent(since)}`)
+        .then((rows) => {
+          if (!alive || !rows || rows.length === 0) return;
+          since = rows[0].ts;
+          setHits((prev) => {
+            const known = new Set(prev.map((h) => h.id));
+            const add = rows.filter((h) => !known.has(h.id));
+            if (add.length === 0) return prev;
+            const cutoff = Date.now() - 60000;
+            return [...add, ...prev].filter((h) => Date.parse(h.ts) >= cutoff).slice(0, 240);
+          });
+        })
+        .catch(() => undefined);
+    load();
+    const t = setInterval(load, 2000);
     return () => {
       alive = false;
       clearInterval(t);
@@ -311,7 +345,7 @@ export default function Dashboard({ onError, home }: { onError: (m: string) => v
             </div>
           }
         >
-          <Globe points={points} home={home} />
+          <Globe points={points} hits={hits} home={home} hours={hours} />
           <div className="grid cols-2 mt">
             <div>
               <div className="k muted" style={{ fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase" }}>LAN</div>

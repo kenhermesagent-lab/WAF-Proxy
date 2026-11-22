@@ -220,6 +220,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/crowdsec/console", s.authed(s.enrollCrowdSecConsole))
 	m.HandleFunc("POST /api/crowdsec/restart", s.authed(s.restartCrowdSec))
 	m.HandleFunc("GET /api/globe", s.authed(s.getGlobe))
+	m.HandleFunc("GET /api/globe/hits", s.authed(s.getGlobeHits))
 	m.HandleFunc("GET /api/audit", s.authed(s.listAudit))
 
 	m.HandleFunc("GET /api/notifications", s.authed(s.getNotifications))

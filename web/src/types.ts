@@ -377,6 +377,17 @@ export interface GlobePoint {
   lon: number;
 }
 
+export interface GlobeHit {
+  id: number;
+  ts: string;
+  country: string;
+  host: string;
+  category: string;
+  status: number;
+  lat: number;
+  lon: number;
+}
+
 export interface Iface {
   name: string;
   rx_bps: number;

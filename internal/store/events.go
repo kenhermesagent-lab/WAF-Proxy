@@ -336,6 +336,43 @@ func (s *Store) Globe(since time.Time) ([]GlobePoint, error) {
 	return out, rows.Err()
 }
 
+// GlobeHit is a single blocked request on the globe, newest first, so the
+// console can draw each hit as it lands instead of only the window aggregate.
+type GlobeHit struct {
+	ID       int64   `json:"id"`
+	TS       string  `json:"ts"`
+	Country  string  `json:"country"`
+	Host     string  `json:"host"`
+	Category string  `json:"category"`
+	Status   int     `json:"status"`
+	Lat      float64 `json:"lat"`
+	Lon      float64 `json:"lon"`
+}
+
+// RecentHits returns individual blocked events since a time. The same filter
+// as Globe applies, so the live arcs and the aggregate dots agree.
+func (s *Store) RecentHits(since time.Time, limit int) ([]GlobeHit, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 60
+	}
+	rows, err := s.db.Query(`SELECT id, ts, country, host, stage, status, lat, lon
+		FROM events WHERE ts >= ? AND action IN ('block','ban','challenge') AND country <> ''
+		ORDER BY ts DESC, id DESC LIMIT ?`, stamp(since), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []GlobeHit{}
+	for rows.Next() {
+		var h GlobeHit
+		if err := rows.Scan(&h.ID, &h.TS, &h.Country, &h.Host, &h.Category, &h.Status, &h.Lat, &h.Lon); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
 // RollupFlows aggregates the previous hour into the flows table.
 func (s *Store) RollupFlows(hour time.Time) error {
 	h := hour.UTC().Truncate(time.Hour)
