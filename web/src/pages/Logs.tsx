@@ -135,7 +135,7 @@ export default function Logs({ onError, query }: { onError: (m: string) => void;
         {events.length === 0 ? <Empty>No events match these filters.</Empty> : (
           <div className="table-wrap"><table>
               <thead>
-                <tr><th>Time</th><th>Source</th><th className="hide-tablet">Host</th><th>Request</th><th className="hide-tablet">Stage</th><th className="hide-tablet">Rule</th><th className="num">Status</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">Out</th><th className="hide-tablet" /></tr>
+                <tr><th>Time</th><th>Source</th><th className="hide-tablet">Host</th><th>Request</th><th className="hide-tablet">Stage</th><th className="hide-tablet">Rule</th><th className="num">Status</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">Out</th><th /></tr>
               </thead>
               <tbody>
                 {events.map((e) => (
@@ -155,7 +155,7 @@ export default function Logs({ onError, query }: { onError: (m: string) => void;
                     <td className="num">{e.status}</td>
                     <td className="num hide-tablet">{e.latency_ms} ms</td>
                     <td className="num hide-tablet">{e.bytes_out}</td>
-                    <td className="hide-tablet"><button className="small" onClick={() => setPicked(e)}>Why?</button></td>
+                    <td><button className="small" onClick={() => setPicked(e)}>Why?</button></td>
                   </tr>
                 ))}
               </tbody>

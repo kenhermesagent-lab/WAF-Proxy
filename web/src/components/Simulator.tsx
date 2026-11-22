@@ -119,6 +119,7 @@ export default function Simulator({ event, onClose, onError }: {
               <Badge tone={result.verdict.action === "allow" ? "ok" : "bad"}>{result.verdict.action}</Badge>
               <span className="muted">{result.verdict.reason || result.verdict.stage}</span>
             </div>
+            <div className="table-wrap">
             <table>
               <thead>
                 <tr><th>Stage</th><th>Verdict</th><th>Reason</th><th>Rules</th></tr>
@@ -134,6 +135,7 @@ export default function Simulator({ event, onClose, onError }: {
                 ))}
               </tbody>
             </table>
+            </div>
             {result.matches.length > 0 && (
               <div>
                 <div className="muted">Matched rules</div>
