@@ -72,6 +72,14 @@ func (s *Store) MarkDelivered(id int64, status int) error {
 	return err
 }
 
+// MarkDeliverySuppressed marks a queued payload whose event class is muted. It
+// is not retried while the mute stands, but the row stays for inspection.
+func (s *Store) MarkDeliverySuppressed(id int64, reason string) error {
+	_, err := s.db.Exec(`UPDATE agent_deliveries SET state = 'suppressed', last_error = ?
+		WHERE id = ?`, reason, id)
+	return err
+}
+
 // MarkDeliveryAttempt records a failed attempt with its next try time. When
 // next is nil the delivery is final and marked failed.
 func (s *Store) MarkDeliveryAttempt(id int64, status int, errText string, next *time.Time) error {
@@ -137,15 +145,15 @@ func (s *Store) DeliveriesForLink(linkID int64, limit int) ([]model.Delivery, er
 	return out, rows.Err()
 }
 
-// PruneDeliveries drops delivery rows that are delivered and older than a day,
+// PruneDeliveries drops delivery rows that are delivered or suppressed and older than a day,
 // and caps the history so a chatty detector cannot grow the table forever.
 func (s *Store) PruneDeliveries() error {
 	cutoff := stamp(time.Now().Add(-24 * time.Hour))
-	if _, err := s.db.Exec(`DELETE FROM agent_deliveries WHERE state = 'delivered' AND created_at < ?`, cutoff); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM agent_deliveries WHERE state IN ('delivered','suppressed') AND created_at < ?`, cutoff); err != nil {
 		return err
 	}
-	if _, err := s.db.Exec(`DELETE FROM agent_deliveries WHERE state = 'delivered' AND id NOT IN
-		(SELECT id FROM agent_deliveries WHERE state = 'delivered' ORDER BY id DESC LIMIT 200)`); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM agent_deliveries WHERE state IN ('delivered','suppressed') AND id NOT IN
+		(SELECT id FROM agent_deliveries WHERE state IN ('delivered','suppressed') ORDER BY id DESC LIMIT 200)`); err != nil {
 		return err
 	}
 	// Abandoned deliveries are kept longer for diagnosis, then dropped so a

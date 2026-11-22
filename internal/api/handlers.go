@@ -1324,8 +1324,21 @@ func (s *Server) getNotifications(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recent, _ := s.st.RecentAlerts(50)
+	// A row keeps the kind it was queued with, which may predate the class it
+	// now routes as (CrowdSec bans were once stored as a plain ban), so show
+	// both and whether that class is currently muted.
+	type recentRow struct {
+		model.Alert
+		Class string `json:"class"`
+		Muted bool   `json:"muted"`
+	}
+	rows := make([]recentRow, 0, len(recent))
+	for _, a := range recent {
+		class := notify.RouteClass(a)
+		rows = append(rows, recentRow{Alert: a, Class: class, Muted: !s.notify.EventEnabled(class)})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"settings": settings, "channels": s.notify.Channels(), "recent": recent,
+		"settings": settings, "channels": s.notify.Channels(), "recent": rows,
 		"event_kinds": notify.EventKinds,
 	})
 }

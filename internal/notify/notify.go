@@ -138,10 +138,10 @@ func isCrowdSec(source string) bool {
 	return s == "crowdsec" || strings.HasPrefix(s, "crowdsec:") || strings.HasPrefix(s, "crowdsec/")
 }
 
-// alertClass returns the routing class of a stored alert. Rows queued before
+// RouteClass returns the routing class of a stored alert. Rows queued before
 // CrowdSec bans had their own class were stored as a plain ban and carry the
 // original source only in the message, so the message is inspected as well.
-func alertClass(a model.Alert) string {
+func RouteClass(a model.Alert) string {
 	if source, ok := banSourceInPayload(a.Payload); ok {
 		return BanClass(source, a.Kind == KindPermanentBan)
 	}
@@ -217,7 +217,7 @@ func (m *Manager) process(immediateOnly bool) {
 		// Routing is checked again here, not only when the alert was queued: a
 		// class muted while its alerts are still pending must stop them, and a
 		// backlog queued by an older build must not outlive the mute.
-		if !m.EventEnabled(alertClass(a)) {
+		if !m.EventEnabled(RouteClass(a)) {
 			_ = m.st.MarkAlert(a.ID, "suppressed", a.Attempts)
 			continue
 		}

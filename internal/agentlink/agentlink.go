@@ -46,10 +46,11 @@ func Backoff(attempt int) time.Duration {
 
 // Dispatcher queues and delivers events to every enabled link.
 type Dispatcher struct {
-	st  *store.Store
-	box *crypto.Box
-	log *slog.Logger
-	now func() time.Time
+	st    *store.Store
+	box   *crypto.Box
+	log   *slog.Logger
+	now   func() time.Time
+	allow func(kind string) bool
 }
 
 // New returns a dispatcher.
@@ -62,6 +63,11 @@ type envelope struct {
 	SentAt time.Time          `json:"sent_at"`
 	Event  model.AnomalyEvent `json:"event"`
 }
+
+// SetRouting attaches the event-routing lookup. When a class is muted in the
+// notification settings its payloads are still queued (so an operator can see
+// them) but suppressed instead of posted.
+func (d *Dispatcher) SetRouting(allow func(kind string) bool) { d.allow = allow }
 
 // Publish queues one anomaly event for every enabled link. It never touches the
 // network, so a slow or dead agent cannot stall detection.
@@ -163,6 +169,13 @@ func (d *Dispatcher) deliverOne(ctx context.Context, del model.Delivery) error {
 		// The link was deleted while the payload was queued.
 		_ = d.st.MarkDeliveryAttempt(del.ID, 0, "agent link no longer exists", nil)
 		return err
+	}
+	// Routing is checked at delivery, not only when the event was queued: a
+	// class muted while a payload is still waiting must stop it, and a backlog
+	// queued by an older build must not outlive the mute. A test payload is a
+	// deliberate admin action and always goes.
+	if del.Kind != "test" && d.allow != nil && !d.allow(del.Kind) {
+		return d.st.MarkDeliverySuppressed(del.ID, "event class is muted")
 	}
 	status, err := d.post(ctx, *link, []byte(del.Body))
 	if err == nil {

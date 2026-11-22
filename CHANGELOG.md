@@ -11,6 +11,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.13.0] — 2026-11-22
+
+### Added
+
+- **MIT license** (`LICENSE`), linked from the README.
+
+### Changed
+
+- **Agent webhooks follow event routing.** Agent links now honour the same per-class switches as
+  Telegram, email and the webhook channel, so muting a detector stops it reaching the agent too.
+  Payloads are still queued before any network call and retried with the same backoff; a muted
+  class is marked `suppressed` on the delivery row (pruned with delivered rows) instead of being
+  posted, and an admin **Test** payload always goes through.
+- **Recent deliveries shows the routing class.** Each row displays the class it routes under next
+  to the kind it was stored with, and marks rows whose class is currently muted — so a legacy
+  CrowdSec ban stored as `ban` no longer looks like an ordinary ban.
+
 ## [1.12.0] — 2026-11-22
 
 ### Changed

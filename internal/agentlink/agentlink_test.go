@@ -170,3 +170,34 @@ func TestPausedLinkReceivesNothing(t *testing.T) {
 		t.Fatalf("a paused link was called %d times", n)
 	}
 }
+
+// A muted class is queued but never posted, so the agent receives only the
+// event classes that are still enabled under Notifications -> Event routing.
+func TestMutedClassIsQueuedButNotPosted(t *testing.T) {
+	d, st, _ := newDispatcher(t)
+	var hits int32
+	srv, _ := receiver(t, &hits, func(int32) int { return http.StatusOK })
+	if _, err := st.CreateAgentLink(&model.AgentLink{Name: "hermes", Endpoint: srv.URL, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	d.SetRouting(func(kind string) bool { return kind == "rate_spike" })
+
+	d.Publish(model.AnomalyEvent{Kind: "egress_spike", ProxyHost: "app.example.com"})
+	d.Publish(model.AnomalyEvent{Kind: "rate_spike", ProxyHost: "app.example.com"})
+	d.drain(context.Background())
+
+	if n := atomic.LoadInt32(&hits); n != 1 {
+		t.Fatalf("posted %d payloads, want only the enabled class", n)
+	}
+	list, err := st.DeliveriesForLink(1, 10)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("deliveries = %v, err %v", list, err)
+	}
+	states := map[string]string{}
+	for _, del := range list {
+		states[del.Kind] = del.State
+	}
+	if states["egress_spike"] != "suppressed" || states["rate_spike"] != "delivered" {
+		t.Fatalf("delivery states = %v", states)
+	}
+}

@@ -6,7 +6,7 @@ live observability. One Go binary and one React console, deployed either as a Do
 stack or as a systemd service on a two-NIC Linux host. Built to run on a home server, a lab box
 or a small office network without a cloud dependency.
 
-**Version 1.12.0** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
+**Version 1.13.0** · Linux only · `443/tcp` only on the WAN · admin console on the LAN
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -321,7 +321,9 @@ check-only. See
 The **AI Agent Access** page lets an external agent — a Hermes agent, an automation, or your own
 service — both *pull* the state and *receive* events. Two independent mechanisms live there:
 
-- **Agent links** push every anomaly event to a webhook you control. Delivery is durable: the
+- **Agent links** push every anomaly event to a webhook you control, subject to the same
+  per-class **Event routing** switches as the notification channels: a muted class is queued and
+  marked `suppressed` instead of posted, while a test payload always goes through. Delivery is durable: the
   payload is queued before any network call, retried with exponential backoff (30 s doubling,
   capped at one hour, eight attempts) and the page shows the last delivery's state, attempt count
   and the error the agent returned, with **Retry** and **Test** buttons. Each POST is signed with
@@ -378,7 +380,9 @@ model and a containment playbook for an agent.
 ## Notifications and event routing
 
 **Notifications** configures Telegram, SMTP/Gmail and a generic webhook, sends a test message, and
-lists recent deliveries with their state. Bans are batched into a five-minute digest; permanent
+lists recent deliveries with their state and the routing class each row was delivered under — a
+legacy row stored as `ban` still shows that it routes as `crowdsec`, and a row whose class is
+now muted is marked as such. Bans are batched into a five-minute digest; permanent
 bans, certificate problems, feed freezes, backend up/down transitions and anomalies are sent
 immediately.
 
@@ -628,3 +632,8 @@ container image build.
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology
 - [PLAN.md](PLAN.md) — architecture, pipeline, data model, phases, risks
 - [CHANGELOG.md](CHANGELOG.md) — release history
+
+## License
+
+[MIT](LICENSE) © 2026 kenhermesagent-lab. Use it, modify it and redistribute it; keep the
+copyright notice and take it as-is, with no warranty.

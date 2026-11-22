@@ -377,6 +377,7 @@ func run() error {
 	apiServer.StartBackup(ctx)
 	apiServer.StartAutoUpdate(ctx)
 	agentLinks := agentlink.New(st, box, log)
+	agentLinks.SetRouting(notifier.EventEnabled)
 	apiServer.SetAgentLinks(agentLinks)
 	go agentLinks.Start(ctx)
 	anomalyMon := anomaly.New(st, met, notifier, log)

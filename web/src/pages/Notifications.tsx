@@ -3,7 +3,7 @@ import { api } from "../api";
 import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
 
 type Settings = Record<string, string>;
-type Alert = { id: number; channel: string; kind: string; payload: string; state: string; created_at: string; sent_at?: string | null };
+type Alert = { id: number; channel: string; kind: string; payload: string; state: string; created_at: string; sent_at?: string | null; class?: string; muted?: boolean };
 type EventKind = { kind: string; label: string };
 
 const FALLBACK_KINDS: EventKind[] = [
@@ -151,8 +151,8 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
           ))}
         </div>
         <p className="muted" style={{ fontSize: 12 }}>
-          Every event is delivered by default. Untick a class to suppress it on all channels;
-          explicit channel test messages are always sent.
+          Every event is delivered by default. Untick a class to suppress it on all channels and on
+          agent webhooks; explicit channel test messages are always sent.
         </p>
       </Card>
 
@@ -173,7 +173,13 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
                 <tr key={a.id}>
                   <td className="muted">{fmtAgo(a.created_at)}</td>
                   <td>{a.channel}</td>
-                  <td className="muted">{a.kind}</td>
+                  <td className="muted">
+                    <div>{a.kind}</div>
+                    <div style={{ fontSize: 11 }}>
+                      class {a.class ?? a.kind}
+                      {a.muted && <> <Badge tone="warn">muted</Badge></>}
+                    </div>
+                  </td>
                   <td style={{ maxWidth: 520 }}>{a.payload}</td>
                   <td>
                     <Badge tone={a.state === "sent" ? "ok" : a.state === "failed" ? "bad" : a.state === "suppressed" ? "warn" : "info"}>
