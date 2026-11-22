@@ -176,6 +176,13 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
             <Field label="Max inspected body (bytes)"><input value={s.max_body ?? "131072"} onChange={(e) => set("max_body", e.target.value)} /></Field>
             <Field label="Sample allowed above (rps)"><input value={s.sample_above_rps ?? "500"} onChange={(e) => set("sample_above_rps", e.target.value)} /></Field>
           </div>
+          <Field label="Request normalization (duplicate parameters, double encoding)">
+            <select value={s.normalization_mode ?? "flag"} onChange={(e) => set("normalization_mode", e.target.value)}>
+              <option value="off">Off</option>
+              <option value="flag">Flag in the event log</option>
+              <option value="block">Block</option>
+            </select>
+          </Field>
           <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, textTransform: "none", letterSpacing: 0 }}>
             <input type="checkbox" style={{ width: "auto" }} checked={s.protection_enabled !== "0"} onChange={(e) => set("protection_enabled", e.target.checked ? "1" : "0")} />
             Protection pipeline enabled

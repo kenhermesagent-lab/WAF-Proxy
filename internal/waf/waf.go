@@ -14,6 +14,7 @@ import (
 	coreruleset "github.com/corazawaf/coraza-coreruleset/v4"
 	"github.com/corazawaf/coraza/v3"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/norm"
 )
 
 // Result describes what the WAF decided about one request.
@@ -25,6 +26,9 @@ type Result struct {
 	Label     string `json:"label"`
 	Paranoia  int    `json:"paranoia"`
 	ProfileID int64  `json:"profile_id"`
+	// Norm lists request encodings to flag. The policy layer decides whether
+	// the configured normalization mode logs or blocks them.
+	Norm []norm.Finding `json:"-"`
 }
 
 // Engine is a compiled WAF for one protection profile.
@@ -207,6 +211,8 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) (res
 		}
 	}()
 
+	res.Norm = norm.Inspect(r, body)
+
 	tx := e.waf.NewTransaction()
 	defer tx.Close()
 
@@ -309,6 +315,8 @@ func Label(ruleID int) string {
 	switch ruleID {
 	case 900110:
 		return "lfi"
+	case norm.RuleDuplicate, norm.RuleDoubleEncoded:
+		return "normalization"
 	}
 	switch ruleID / 1000 {
 	case 913:

@@ -221,9 +221,13 @@ func (m *Manager) fetch(ctx context.Context, id int64, f *storeFeed) (int, error
 		return 0, fmt.Errorf("http %d", resp.StatusCode)
 	}
 
-	prefixes, err := Parse(io.LimitReader(resp.Body, m.maxBytes))
+	parsed, err := Parse(io.LimitReader(resp.Body, m.maxBytes))
 	if err != nil {
 		return 0, err
+	}
+	prefixes, skipped := filterPublic(parsed)
+	if skipped > 0 {
+		m.log.Warn("feed entries skipped as non-public", "feed", f.name, "skipped", skipped)
 	}
 	count, err := m.applyPrefixes(id, f, prefixes)
 	if err != nil {
@@ -419,6 +423,25 @@ func (m *Manager) Total() int {
 func (m *Manager) Refresh(ctx context.Context, id int64) {
 	m.refreshOne(ctx, id)
 	m.rebuild()
+}
+
+// filterPublic drops loopback, private, link-local, multicast and unspecified
+// prefixes from a remote feed: one that lists 10.0.0.0/8 or 169.254.169.254
+// would otherwise block the operator's own network or the metadata endpoint.
+// Uploaded lists are not filtered here, because blocking a private range on
+// purpose is a legitimate choice for a local list.
+func filterPublic(prefixes []netip.Prefix) (kept []netip.Prefix, skipped int) {
+	kept = make([]netip.Prefix, 0, len(prefixes))
+	for _, p := range prefixes {
+		a := p.Addr()
+		if a.IsUnspecified() || a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() ||
+			a.IsLinkLocalMulticast() || a.IsMulticast() {
+			skipped++
+			continue
+		}
+		kept = append(kept, p)
+	}
+	return kept, skipped
 }
 
 // Parse extracts prefixes from common text feed formats.

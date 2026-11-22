@@ -586,6 +586,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		"acme_email":         strings.TrimSpace(req.Email),
 		"admin_allow_cidrs":  "",
 		"bot_filter":         "off",
+		"normalization_mode": "flag",
 		"bot_filter_allow":   "Googlebot, Bingbot, DuckDuckBot, Applebot",
 		"geoip_auto_update":  "1",
 	}
@@ -732,6 +733,7 @@ var publicSettingKeys = []string{
 	"sample_above_rps", "max_body", "protection_enabled", "acme_staging", "acme_email",
 	"gate_ttl_hours", "home_lat", "home_lon", "decoy_hosts",
 	"admin_allow_cidrs", "bot_filter", "bot_filter_allow", "geoip_auto_update",
+	"normalization_mode",
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -816,6 +818,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		case "bot_filter":
 			if v != "off" && v != "scrapers" && v != "all" {
 				writeError(w, http.StatusBadRequest, "bot_filter must be off, scrapers or all")
+				return
+			}
+		case "normalization_mode":
+			if v != "off" && v != "flag" && v != "block" {
+				writeError(w, http.StatusBadRequest, "normalization_mode must be off, flag or block")
 				return
 			}
 		}

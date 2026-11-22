@@ -11,7 +11,7 @@ LDFLAGS := -s -w \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.BuildDate=$(BUILD_DATE) \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates.AppRepo=$(REPO)
 
-.PHONY: all ui build run test vet fmt docker install clean
+.PHONY: all ui build run test vet fmt docker install clean verify-release sbom perf perf-gate perf-record
 
 all: ui build
 
@@ -33,6 +33,25 @@ vet:
 
 fmt:
 	gofmt -w cmd internal
+
+verify-release:
+	bash deploy/check-version.sh
+
+# Dist is gitignored: the SBOM is a release artefact, not source.
+sbom:
+	mkdir -p dist
+	go run ./cmd/sbom -version "$(VERSION)" > dist/sbom.cyclonedx.json
+
+# Latency and throughput of the WAF hot path on this machine.
+perf:
+	go run ./cmd/perftool -load 5s
+
+perf-gate:
+	go run ./cmd/perftool
+
+# Re-record after a deliberate change or a new CI runner class.
+perf-record:
+	go run ./cmd/perftool -record
 
 docker:
 	docker compose -f deploy/docker-compose.yml build

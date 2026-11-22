@@ -1,0 +1,20 @@
+{
+  "recorded": "2026-11-22",
+  "go": "go1.27.4",
+  "allocs_tolerance": 0.25,
+  "time_tolerance": 2,
+  "benchmarks": {
+    "BenchmarkInspectBenign": {
+      "ns_op": 803571,
+      "allocs_op": 2691
+    },
+    "BenchmarkInspectSQLi": {
+      "ns_op": 690996,
+      "allocs_op": 2567
+    },
+    "BenchmarkMix": {
+      "ns_op": 844576,
+      "allocs_op": 2510
+    }
+  }
+}

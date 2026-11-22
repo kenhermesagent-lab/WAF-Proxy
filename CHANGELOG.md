@@ -11,6 +11,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.22.0] — 2026-11-22
+
+### Added
+
+- **Release checks.** `make verify-release` refuses a `VERSION` that is not SemVer or that disagrees
+  with the newest `CHANGELOG.md` section; in GitHub Actions a `v*` tag must match `VERSION` too. CI
+  runs it in a new release job.
+- **SBOM.** `make sbom` writes CycloneDX 1.5 JSON for every module in the build graph and CI attaches
+  it to the run. It reads `go list -m -json all`, so there is no extra build tool to install.
+- **Upgrade test from the previous release.** `internal/store/testdata/db-v1.21.sqlite` is a database
+  written by 1.21 and committed frozen; a test opens it through the current migrations and asserts
+  the administrator, proxy, policy, list and setting survive. Regenerate deliberately with
+  `WAFPROXY_WRITE_FIXTURE=1 go test -run TestWriteUpgradeFixture ./internal/store`.
+- **Performance gate.** `internal/perf` builds the same 224 requests every run — benign pages, forms
+  and API calls plus six attack classes, each checked against the rule set. `make perf` prints
+  throughput and p50/p95/p99 for the hot path, while `make perf-gate` compares three benchmarks with
+  `perf/baseline.json`: CI fails past a 25% rise in allocations, and past a 3× rise in time, which
+  is as tight as a shared runner allows (identical runs there varied by 40% in wall time while
+  allocations moved by under 0.5%). `make perf-record` re-records the baseline.
+- **Request normalization.** Duplicate parameter names carrying different values, and values that
+  change on a second decode (`%253Cscript%253E`), are reported by rule 900120/900121 before the rule
+  set runs. A new **Request normalization** setting chooses off, flag (the default) or block.
+
+### Fixed
+
+- **A remote feed can no longer ban private space.** `127.0.0.0/8`, `10.0.0.0/8`, link-local,
+  multicast, unspecified and IPv6 private or link-local prefixes are dropped when a feed is fetched,
+  and the skipped count is logged. Locally uploaded lists keep them: blocking a private range on
+  purpose is a legitimate choice for an operator's own list.
+
 ## [1.21.0] — 2026-11-22
 
 ### Added

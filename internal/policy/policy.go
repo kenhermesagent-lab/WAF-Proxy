@@ -17,6 +17,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/norm"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
 )
@@ -39,6 +40,9 @@ type Settings struct {
 	BotFilter      string
 	BotFilterAllow string
 	DecoyHosts     map[string]bool
+	// NormalizationMode is off, flag or block. It only applies while the WAF
+	// stage itself is running.
+	NormalizationMode string
 }
 
 // Request is everything the pipeline needs about an incoming request.
@@ -440,8 +444,9 @@ func parseSettings(kv map[string]string) Settings {
 	s := Settings{
 		RPS: 100, Burst: 200, ASNBlock: true, StealthDrop: true, StealthPing: false,
 		RetentionDays: 7, SampleAboveRPS: 500, MaxBody: 131072, Enabled: true,
-		WANIface: kv["wan_iface"],
-		LANIface: kv["lan_iface"],
+		WANIface:          kv["wan_iface"],
+		LANIface:          kv["lan_iface"],
+		NormalizationMode: normalizationMode(kv["normalization_mode"]),
 	}
 	if v, err := strconv.Atoi(kv["dos_rps"]); err == nil && v > 0 {
 		s.RPS = v
@@ -466,6 +471,16 @@ func parseSettings(kv map[string]string) Settings {
 		s.MaxBody = v
 	}
 	return s
+}
+
+// normalizationMode defaults to flag: a new check must be visible in the event
+// log before an operator turns it into a block.
+func normalizationMode(mode string) string {
+	switch mode {
+	case "off", "flag", "block":
+		return mode
+	}
+	return "flag"
 }
 
 func defaultBotMode(mode string) string {
@@ -1101,8 +1116,18 @@ func (e *Engine) Inspect(req *Request) (model.Verdict, WAFInfo) {
 	}
 	res := engine.Inspect(req.HTTP, req.Body, req.Addr)
 	info := WAFInfo{Matched: res.Matched, RuleID: res.RuleID, Label: res.Label, Message: res.Message, Profile: engine.Name()}
-	if !res.Matched {
-		return model.Verdict{Action: "allow", Stage: "waf"}, info
+	// RuleID 0 means the only matches were setup actions, so the rule set has
+	// no verdict of its own. Normalization only speaks in that case, which also
+	// keeps it from ever downgrading a real CRS block.
+	if !res.Matched || res.RuleID == 0 {
+		if v, ok := e.normVerdict(res.Norm); ok {
+			info.Matched, info.Label, info.Message = true, "normalization", v.Reason
+			info.RuleID, _ = strconv.Atoi(v.Rule)
+			return v, info
+		}
+		if !res.Matched {
+			return model.Verdict{Action: "allow", Stage: "waf"}, info
+		}
 	}
 	if mode == "detect" || !res.Blocked {
 		return model.Verdict{Action: "log", Stage: "waf", Rule: strconv.Itoa(res.RuleID),
@@ -1110,6 +1135,34 @@ func (e *Engine) Inspect(req *Request) (model.Verdict, WAFInfo) {
 	}
 	return model.Verdict{Action: "block", Stage: "waf", Rule: strconv.Itoa(res.RuleID),
 		Reason: res.Label + ": " + res.Message, Status: http.StatusForbidden}, info
+}
+
+// normVerdict turns a normalization finding into a verdict according to the
+// configured mode: log it, or refuse the request.
+func (e *Engine) normVerdict(findings []norm.Finding) (model.Verdict, bool) {
+	if len(findings) == 0 {
+		return model.Verdict{}, false
+	}
+	e.mu.RLock()
+	mode := e.settings.NormalizationMode
+	e.mu.RUnlock()
+	if mode == "off" {
+		return model.Verdict{}, false
+	}
+	f := findings[0]
+	id := norm.RuleDuplicate
+	reason := "duplicate parameter " + strconv.Quote(f.Parameter) + " in the " + f.Source
+	if f.Kind == "double-encoded" {
+		id = norm.RuleDoubleEncoded
+		reason = "parameter " + strconv.Quote(f.Parameter) + " in the " + f.Source +
+			" decodes twice: " + strconv.Quote(f.First) + " then " + strconv.Quote(f.Second)
+	}
+	v := model.Verdict{Action: "log", Stage: "waf", Rule: strconv.Itoa(id),
+		Reason: reason, Status: http.StatusOK}
+	if mode == "block" {
+		v.Action, v.Status = "block", http.StatusForbidden
+	}
+	return v, true
 }
 
 // NoteTraffic records request volume for sampling decisions.

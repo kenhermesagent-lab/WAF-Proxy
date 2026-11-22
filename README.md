@@ -747,12 +747,17 @@ make build     # static Go binary with version ldflags
 make test      # go test ./...
 make vet       # go vet ./...
 make run       # run from source against ./data
+make perf      # WAF hot-path throughput and p50/p95/p99
+make perf-gate # compare the benchmarks with perf/baseline.json
+make sbom      # CycloneDX document for the build graph into dist/
+make verify-release # VERSION and the newest CHANGELOG section agree
 ```
 
 Go 1.27 and Node 22 are what CI uses. The Docker build compiles the console first and embeds
 it in the binary. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs gofmt, `go vet`,
-race tests, the Go build, the console typecheck/build, a production dependency audit and a
-container image build.
+race tests, the Go build, the console typecheck/build, a production dependency audit, the release
+metadata and SBOM checks, the performance gate and a container image build. `make perf-record`
+re-records the performance baseline after a deliberate change.
 
 ## Documentation
 

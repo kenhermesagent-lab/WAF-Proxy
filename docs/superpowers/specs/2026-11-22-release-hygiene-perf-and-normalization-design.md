@@ -59,14 +59,16 @@ decision the operator owns, and no useful intermediate exists.
 - **Two measurements.** `go test -bench` over the existing benchmarks for per-request cost, and
   `make perf` which replays the mix through the in-process pipeline at a target rate and prints
   p50/p95/p99, request rate and allocation totals.
-- **Gate.** `perf/baseline.json` pins ns/op and allocs/op per benchmark, recorded on the CI runner
-  class. CI fails when a benchmark is more than 25% slower or allocates more than 25% more than the
-  baseline, and prints the delta plus the exact command to re-record.
+- **Gate.** `perf/baseline.json` pins allocs/op and ns/op per benchmark. CI fails when a benchmark
+  allocates more than 25% more than the baseline, and when wall time passes a 3× sanity bound.
 
-  25% is deliberately loose. Absolute latency thresholds on shared CI runners flap; a relative
-  baseline catches the regressions that matter (an extra allocation per request, a regex compiled
-  in the handler) while tolerating runner noise. When the runner image changes, the gate fails once
-   with a clear "re-record the baseline" message rather than silently.
+  Measured before choosing the thresholds: three consecutive runs of the same binary moved
+  allocations by under 0.5% but wall time by up to 40% (the first gate version failed its own
+  freshly recorded baseline on a 25% time tolerance). Allocations are therefore the tight gate —
+  they catch the regressions that matter, an extra allocation per request or a regex compiled in the
+  handler — and time only catches an order-of-magnitude change. `make perf` is the figure to quote
+  for throughput. When the runner image changes, the gate fails once with a clear "re-record the
+  baseline" message rather than silently.
 
 - **Not in this batch:** an external load generator (k6, vegeta) and multi-core scaling curves.
   They answer "what does this box do", which `make perf` already answers; the gate needs only
@@ -99,9 +101,11 @@ asks; the global setting matches how WAF mode already works.
 
 **Tests.** Table tests for the duplicate and double-encode cases across query and form bodies; a
 feed-parse test asserting `127.0.0.1/32`, `10.0.0.0/8`, `169.254.1.1/32` and `fd00::/8` are dropped
-while `203.0.113.0/24` is kept; an API test that `normalization_mode` round-trips and an invalid
-value is refused; one pipeline test that a double-encoded XSS payload in `flag` mode is allowed but
-recorded with the new anomaly, and in `block` mode is refused.
+while `203.0.113.0/24` is kept; unit tests for the mode parser (unset and unknown both mean `flag`)
+and for each mode's verdict; one pipeline test that a repeated parameter in `block` mode is refused
+by rule 900120. The API's settings write path is not exercised by a test: the lightweight server
+fixture has no policy engine to reload, and the mode is validated in the same switch as every other
+enumerated setting.
 
 ## Order and size
 

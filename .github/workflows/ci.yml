@@ -79,6 +79,36 @@ jobs:
       - name: Guard the updater against restarting its own unit
         run: bash deploy/test-self-update-no-self-restart.sh
 
+  release:
+    name: Release metadata and SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: VERSION, newest CHANGELOG section and tag agree
+        run: bash deploy/check-version.sh
+      - name: Module SBOM
+        run: make sbom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: dist/sbom.cyclonedx.json
+
+  perf:
+    name: Performance gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Benchmarks against perf/baseline.json
+        run: make perf-gate
+
   docker:
     name: Container image build
     runs-on: ubuntu-latest
