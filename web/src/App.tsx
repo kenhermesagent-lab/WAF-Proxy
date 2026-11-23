@@ -455,7 +455,7 @@ export default function App() {
               {page === "proxies" && <Proxies onError={onError} onOK={onOK} base={me?.base_domain ?? ""} {...tabProps("proxies")} />}
               {page === "agent" && <AgentPage onError={onError} onOK={onOK} />}
               {page === "tailscale" && <TailscalePage onError={onError} onOK={onOK} />}
-              {page === "cloudflare" && <CloudflarePage onError={onError} onOK={onOK} />}
+              {page === "cloudflare" && <CloudflarePage onError={onError} onOK={onOK} {...tabProps("cloudflare")} />}
               {page === "policies" && <Policies onError={onError} onOK={onOK} {...tabProps("policies")} />}
               {page === "intel" && (
                 <Intel

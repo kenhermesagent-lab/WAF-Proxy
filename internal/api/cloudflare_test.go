@@ -83,6 +83,37 @@ func TestCloudflareTokenIsSealedAndShownOnlyByTail(t *testing.T) {
 	}
 }
 
+// The connector serves every site, so its token is a host setting. A console
+// opened on a tenant site must not see an empty token because it reads its own
+// site's settings table.
+func TestCloudflareSettingsAreHostScoped(t *testing.T) {
+	h := newAccountHarness(t)
+	if rec := h.send(t, http.MethodPut, "/api/cloudflare", map[string]any{"token": testTunnelToken}); rec.Code != http.StatusOK {
+		t.Fatalf("save token = %d: %s", rec.Code, rec.Body.String())
+	}
+	host, err := h.st.Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host["cloudflare_tunnel_token"] == "" {
+		t.Fatal("token was not written to the host settings")
+	}
+	site, err := h.st.SettingsFor(42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if site["cloudflare_tunnel_token"] != host["cloudflare_tunnel_token"] {
+		t.Fatal("a tenant site does not read the host's connector token")
+	}
+	scoped, err := h.st.InSite(42).Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scoped["cloudflare_tunnel_token"] == "" {
+		t.Fatal("a tenant site's console sees no connector token")
+	}
+}
+
 func TestCloudflareEnableRequiresToken(t *testing.T) {
 	h := newAccountHarness(t)
 	rec := h.send(t, http.MethodPut, "/api/cloudflare", map[string]any{"enabled": true})

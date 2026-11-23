@@ -105,7 +105,35 @@ upstream, and it is only trusted from the connector's loopback peer. Turn the
 switch off if another proxy in front of the tunnel sets its own
 `X-Forwarded-For` and should win instead.
 
-### 13.7 Troubleshooting
+### 13.7 Publishing app hostnames
+
+The **Apps** tab lists every hostname configured on the site you are signed in
+to. Switch one on to publish it through the tunnel, then save. The page shows
+the values Cloudflare's dashboard expects under **Public Hostnames**:
+
+| Field | Value |
+| --- | --- |
+| Subdomain / Domain | the hostname shown on the row |
+| Service | `https://127.0.0.1:<wan-port>` (443 unless the WAN listener was moved) |
+| Origin Server Name | the hostname itself |
+| No TLS Verify | on, because the upstream presents this node's own certificate |
+
+Add that rule in the Cloudflare dashboard; in token mode the tunnel's ingress
+lives there, not in the console. The request then arrives at the WAN listener
+with every WAF rule, profile and Access policy still in front of it.
+
+A published hostname is served by Cloudflare's edge certificate. The console
+refuses HTTP-01 and TLS-ALPN-01 orders for it (the edge answers the challenge
+itself) and stops renewing existing certificates of those types, so removing the
+hostname from the tunnel does not leave a certificate that can never renew.
+DNS-01 orders still work and keep a local certificate for the direct path.
+
+**Check published** resolves the hostname, looks for a direct-origin record,
+confirms a Cloudflare edge answered (`CF-Ray`) and reports whether Access prompts
+before the app loads. A tenant console can publish its own hostnames but cannot
+change the connector, its token or the install; those stay on the host console.
+
+### 13.8 Troubleshooting
 
 | Symptom | Cause |
 | --- | --- |

@@ -46,6 +46,11 @@ var hostSettingKeys = map[string]bool{
 	"tailscale_proxy_enabled": true,
 	// Ha is one role machine for the host, not one per site.
 	"ha_enabled": true,
+	// One connector and one token serve the host; only the published hostname
+	// list is per site.
+	"cloudflare_enabled": true, "cloudflare_tunnel_token": true,
+	"cloudflare_tunnel_id": true, "cloudflare_strict_origin": true,
+	"cloudflare_check_nonce": true,
 }
 
 // HostSettingKeys returns the host-wide keys for the console, so the settings

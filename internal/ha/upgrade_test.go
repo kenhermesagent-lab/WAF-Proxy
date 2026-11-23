@@ -7,7 +7,7 @@ import (
 )
 
 func nodeVersion(over NodeVersion) NodeVersion {
-	out := NodeVersion{Node: "node-a", Role: "active", Version: "1.59.0", Schema: "25", Protocol: 1}
+	out := NodeVersion{Node: "node-a", Role: "active", Version: "1.60.0", Schema: "25", Protocol: 1}
 	if over.Node != "" {
 		out.Node = over.Node
 	}
@@ -60,12 +60,12 @@ func TestCheckUpgradeRefusesAProtocolMismatch(t *testing.T) {
 }
 
 func TestCheckUpgradeAllowsAReleaseDifferenceMidUpgrade(t *testing.T) {
-	peer := nodeVersion(NodeVersion{Node: "node-b", Version: "1.60.0"})
+	peer := nodeVersion(NodeVersion{Node: "node-b", Version: "1.61.0"})
 	got := CheckUpgrade(nodeVersion(NodeVersion{}), &peer, nil)
 	if !got.Compatible || got.SameVersion {
 		t.Fatalf("release difference = %+v", got)
 	}
-	if len(got.Problems) != 1 || !strings.Contains(got.Problems[0], "1.60.0") {
+	if len(got.Problems) != 1 || !strings.Contains(got.Problems[0], "1.61.0") {
 		t.Fatalf("problems = %v", got.Problems)
 	}
 }

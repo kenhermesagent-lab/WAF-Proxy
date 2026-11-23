@@ -93,7 +93,9 @@ func (s *Server) setCloudflareNonce(nonce string) {
 }
 
 func (s *Server) getCloudflare(w http.ResponseWriter, r *http.Request) {
-	kv, err := s.db(r).Settings()
+	// The tunnel belongs to the host, not to a site: one connector serves every
+	// hostname, so the settings stay in the unscoped store.
+	kv, err := s.st.Settings()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -235,13 +237,26 @@ func (s *Server) consoleHost(r *http.Request) string {
 	return store.NormalizeHost(r.Host)
 }
 
+// requireHostConsole refuses a write to the connector from a tenant console:
+// one connector and one token serve every site.
+func (s *Server) requireHostConsole(w http.ResponseWriter, r *http.Request) bool {
+	if s.consoleSite(r) != s.st.SiteID() {
+		writeError(w, http.StatusForbidden, "the tunnel connector is host-wide; change it from the host console")
+		return false
+	}
+	return true
+}
+
 func (s *Server) putCloudflare(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r) {
+		return
+	}
 	var req cloudflareRequest
 	if err := decode(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	kv, err := s.db(r).Settings()
+	kv, err := s.st.Settings()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -289,7 +304,7 @@ func (s *Server) putCloudflare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot seal the tunnel token")
 		return
 	}
-	if err := s.db(r).SetSettings(next); err != nil {
+	if err := s.st.SetSettings(next); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
 		return
 	}
@@ -388,7 +403,7 @@ func (s *Server) cloudflareConnector(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	kv, err := s.db(r).Settings()
+	kv, err := s.st.Settings()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -430,7 +445,7 @@ func (s *Server) cloudflareCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	kv, err := s.db(r).Settings()
+	kv, err := s.st.Settings()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -488,50 +503,12 @@ func (s *Server) runCloudflareChecks(ctx context.Context, host string, cfg cf.Se
 	}
 	checks = append(checks, cloudflareCheck{ID: "connector", Label: "Connector connected to Cloudflare", OK: connectorOK, Detail: connectorDetail})
 
-	ips, dnsErr := lookupHost(ctx, host)
-	cfHost := strings.HasSuffix(host, ".cfargotunnel.com")
-	dnsOK, dnsDetail := false, "no address found for "+host
-	switch {
-	case cfHost:
-		dnsOK, dnsDetail = true, "the connector's own hostname needs no public record"
-	case dnsErr != nil:
-		dnsDetail = "DNS lookup failed: " + dnsErr.Error()
-	case len(ips) > 0:
-		proxied := 0
-		for _, ip := range ips {
-			if isCloudflareIP(ip) {
-				proxied++
-			}
-		}
-		dnsOK = proxied == len(ips)
-		switch {
-		case dnsOK:
-			dnsDetail = fmt.Sprintf("%d address(es), all Cloudflare", len(ips))
-		case proxied > 0:
-			dnsDetail = "some addresses are not Cloudflare: the origin may still answer directly"
-		default:
-			dnsDetail = "the hostname does not point at Cloudflare yet"
-		}
+	dnsCheck, directCheck := hostDnsChecks(ctx, host)
+	if strings.HasSuffix(host, ".cfargotunnel.com") {
+		dnsCheck = cloudflareCheck{ID: "dns", Label: "Hostname points at Cloudflare", OK: true,
+			Detail: "the connector's own hostname needs no public record"}
 	}
-	checks = append(checks, cloudflareCheck{ID: "dns", Label: "Hostname points at Cloudflare", OK: dnsOK, Detail: dnsDetail})
-
-	exposed := false
-	for _, ip := range ips {
-		if !isCloudflareIP(ip) {
-			exposed = true
-		}
-	}
-	exposureOK := !exposed && dnsErr == nil && len(ips) > 0
-	exposureDetail := "only Cloudflare addresses answer for the hostname"
-	switch {
-	case exposed:
-		exposureDetail = "a non-Cloudflare address answers for this hostname; a port forward would bypass Access"
-	case dnsErr != nil:
-		exposureDetail = "cannot tell without a DNS answer"
-	case len(ips) == 0:
-		exposureDetail = "cannot tell: the hostname has no address"
-	}
-	checks = append(checks, cloudflareCheck{ID: "direct", Label: "No direct origin record", OK: exposureOK, Detail: exposureDetail})
+	checks = append(checks, dnsCheck, directCheck)
 
 	probe := s.probeEdge(ctx, host, "/api/health")
 	edgeOK, edgeDetail := probe.cfRay != "", probe.detail

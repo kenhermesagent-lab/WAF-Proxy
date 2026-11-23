@@ -22,7 +22,7 @@
 > and toggle tests (P7-06), and the docs, CHANGELOG, README entry and
 > `ha upgrade --check` are written (P7-07). The two-VM hardware lab gates and the P8 chaos/soak gate have not been
 > run, and the page still lacks the VIP, sessions, bans and witness cards, so
-> those parts remain the intended end state. It ships in 1.59.0, off by default; the
+> those parts remain the intended end state. It ships in 1.60.0, off by default; the
 > two-VM hardware lab gates and the P8 chaos/soak gate have not been run, so the
 > checklist below is still required before a pair carries production traffic.
 > `docs/HA-BUILD.md` carries the per-task status and the known gaps.

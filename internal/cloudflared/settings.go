@@ -3,6 +3,8 @@
 package cloudflared
 
 import (
+	"encoding/json"
+	"sort"
 	"strings"
 
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
@@ -29,7 +31,59 @@ const (
 	keyTunnelID     = "cloudflare_tunnel_id"
 	keyStrictOrigin = "cloudflare_strict_origin"
 	keyNonce        = "cloudflare_check_nonce"
+	// KeyPublished is per site: the hostnames that site serves through the one
+	// host-wide tunnel.
+	KeyPublished = "cloudflare_published_hosts"
 )
+
+// Published reads the hostnames a site publishes through the tunnel.
+func Published(kv map[string]string) []string {
+	raw := strings.TrimSpace(kv[KeyPublished])
+	if raw == "" {
+		return nil
+	}
+	var hosts []string
+	if err := json.Unmarshal([]byte(raw), &hosts); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		if h = strings.TrimSpace(h); h != "" {
+			out = append(out, h)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// EncodePublished stores a hostname list, sorted so the page and the audit log
+// show the same order on every save.
+func EncodePublished(hosts []string) string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		h = strings.TrimSpace(h)
+		if h == "" || seen[h] {
+			continue
+		}
+		seen[h] = true
+		out = append(out, h)
+	}
+	sort.Strings(out)
+	blob, _ := json.Marshal(out)
+	return string(blob)
+}
+
+// IsPublished reports whether hostname is served through the tunnel.
+func IsPublished(kv map[string]string, hostname string) bool {
+	hostname = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hostname), "."))
+	for _, h := range Published(kv) {
+		if strings.EqualFold(h, hostname) {
+			return true
+		}
+	}
+	return false
+}
 
 // Load reads the settings, decrypting the token. A token that cannot be
 // decrypted is reported as missing rather than crashing the console; the page

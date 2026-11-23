@@ -25,6 +25,7 @@ import (
 	"github.com/go-acme/lego/v4/challenge"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/cloudflared"
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
@@ -126,6 +127,27 @@ func (m *Manager) Load() error {
 	m.mu.Unlock()
 	m.log.Info("certificates loaded", "count", len(out))
 	return nil
+}
+
+// Tunnelled reports the first domain the site publishes through Cloudflare
+// Tunnel, for challenges that need to reach this host. The edge terminates TLS
+// and answers the challenge on its own, so HTTP-01 and TLS-ALPN-01 cannot
+// succeed for that name; DNS-01 still can.
+func (m *Manager) Tunnelled(domains string, challenge string) string {
+	if challenge == model.CertChallengeDNS {
+		return ""
+	}
+	kv, err := m.st.Settings()
+	if err != nil {
+		return ""
+	}
+	for _, d := range splitDomains(domains) {
+		host := strings.TrimPrefix(d, "*.")
+		if cloudflared.IsPublished(kv, host) {
+			return host
+		}
+	}
+	return ""
 }
 
 func splitDomains(s string) []string {
@@ -301,6 +323,11 @@ func (m *Manager) Issue(id int64) error {
 	if len(domains) == 0 {
 		return errors.New("certificate has no domains")
 	}
+	if host := m.Tunnelled(row.Domains, row.Challenge); host != "" {
+		err := fmt.Errorf("%s is published through Cloudflare Tunnel, so the edge serves its certificate; request a DNS-01 certificate for a local one", host)
+		m.fail(id, err)
+		return err
+	}
 
 	challengeType := row.Challenge
 	if !model.ValidCertChallenge(challengeType) {
@@ -453,6 +480,11 @@ func (m *Manager) renewDue() {
 	}
 	for _, c := range certs {
 		if c.Status != "issued" || c.ExpiresAt == nil {
+			continue
+		}
+		// A hostname moved behind the tunnel is served by the edge now; keep the
+		// existing certificate but stop renewing a challenge that cannot pass.
+		if m.Tunnelled(c.Domains, c.Challenge) != "" {
 			continue
 		}
 		if !renewalDue(c, m.now()) || !m.renewalAllowed(c.ID, m.now()) {

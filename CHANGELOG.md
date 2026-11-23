@@ -12,7 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.59.0] — 2026-11-23
+## [1.60.0] — 2026-11-23
 
 > **High availability, off by default.** The two-node hardware lab gates in
 > [docs/HA.md](docs/HA.md) and the P8 chaos/soak gate have not been run, so HA ships
@@ -72,6 +72,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - [docs/HA.md](docs/HA.md) carries the design, the state machine, the console specification and
   the lab checklist; [docs/openapi.yaml](docs/openapi.yaml) was regenerated (no route changes).
 
+## [1.59.0] — 2026-11-23
+
+### Added
+
+- **Apps tab: publish a site's hostnames through the tunnel.** The Cloudflare page now has Admin
+  and Apps tabs. Apps lists the site's proxies with a publish switch, saves the list per site, and
+  shows the exact Public Hostname values to paste into the Cloudflare dashboard: the loopback
+  service on the WAN port, the hostname as origin server name, and no-TLS-verify on. Each published
+  row can be checked, and "Check published" runs them all; results cover DNS, a direct-origin
+  record, the edge `CF-Ray` and whether Access prompts before the app loads.
+- **Cloudflare edge certificates.** A published hostname gets its TLS from Cloudflare's edge, so
+  the console refuses HTTP-01 and TLS-ALPN-01 certificate orders for it with a clear message and
+  stops renewing such existing certificates; DNS-01 still works. The apps row says which
+  certificate is in use.
+
+### Changed
+
+- The Cloudflare tunnel connector is host-wide: a tenant console can publish its own hostnames but
+  cannot change the shared token, install or run the connector.
+
+### Fixed
+
+- **Cloudflare settings are read where they are stored.** The connector token, tunnel id and
+  strict-origin switch live in the host settings, so a console opened on a tenant site no longer
+  shows an unconfigured tunnel. Published hostnames are the per-site part of the same page.
 
 ## [1.58.0] — 2026-11-23
 
