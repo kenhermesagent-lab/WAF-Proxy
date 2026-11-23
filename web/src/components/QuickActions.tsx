@@ -19,6 +19,14 @@ const TITLES: Record<CommandId, string> = {
   preflight: "Run a policy preflight",
 };
 
+// The preflight summary names the subject the rule is about, not the rule kind.
+function fromLabel(kind: string, value: string) {
+  const parts = value.split(",").map((v) => v.trim()).filter(Boolean);
+  if (kind === "asn_block") return parts.map((v) => `AS${v}`).join(", ");
+  if (kind === "country_blacklist") return parts.map((v) => v.toUpperCase()).join(", ");
+  return parts.join(", ");
+}
+
 const KINDS = [
   { value: "ip_blacklist", label: "IP or subnet", placeholder: "203.0.113.7" },
   { value: "country_blacklist", label: "Country (ISO code)", placeholder: "RU" },
@@ -259,7 +267,7 @@ export default function QuickActions({
               <div className={`banner ${check.matched === 0 ? "" : "warn"}`.trim()} role="status">
                 <span>
                   {check.matched === 0
-                    ? `No requests in the last ${check.hours}h match ${KINDS.find((k) => k.value === kind)?.label.toLowerCase()} ${check.value}.`
+                    ? `No requests in the last ${check.hours}h came from ${fromLabel(kind, check.value)}.`
                     : `${check.matched.toLocaleString()} request${check.matched === 1 ? "" : "s"} from ${check.addresses} address${check.addresses === 1 ? "" : "es"} match; ${check.allowed.toLocaleString()} ${check.allowed === 1 ? "is" : "are"} served and ${check.blocked.toLocaleString()} refused today.`}
                 </span>
               </div>

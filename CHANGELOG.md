@@ -11,6 +11,87 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.4] — 2026-11-23
+
+### Fixed
+
+- **Navigating away closes an open drawer.** A source drawer opened from the log stayed on screen, with
+  its backdrop dimming whatever page you moved to; navigation now closes the drawer and any command
+  dialog.
+- **The palette's empty preflight names the subject** — "No requests in the last 24h came from
+  AS64500." rather than "match asn (number) 64500".
+- **The Readiness kernel row reads as one sentence**: "Bans apply in user space only — <reason>".
+
+## [1.47.3] — 2026-11-23
+
+### Fixed
+
+- The API reference described `GET /api/notifications` as bare settings and the internal
+  CA root as JSON; it now documents the settings/channels/recent wrapper and a
+  `text/plain` PEM response.
+- The canary monitor carried an unused logger and notification marker; both were
+  removed rather than left as future placeholders.
+
+## [1.47.2] — 2026-11-23
+
+### Fixed
+
+- A canary recovery used the outage dedupe key, so the notice was dropped as a duplicate
+  for 24 hours; recovery now has its own key.
+- `wafproxy recover --reset-totp` cleared the second factor but left existing sessions
+  alive and claimed they were invalidated; both credential resets now delete sessions.
+
+## [1.47.1] — 2026-11-23
+
+### Changed
+
+- `make test` runs `go run ./tools/openapi -check` first, and CI has the same step, so a
+  route change without a regenerated `docs/openapi.yaml` fails the build instead of
+  waiting for someone to read the diff.
+
+## [1.47.0] — 2026-11-23
+
+### Added
+
+- The generated OpenAPI reference now carries request and response schemas for the main
+  groups — sites/proxies, bans, certificates, notifications and anomaly — including the
+  upload, internal-certificate, test and settings bodies plus 400/401 responses.
+
+## [1.46.0] — 2026-11-23
+
+### Added
+
+- **TLS is its own canary stage.** The probe dials, then handshakes with SNI and checks
+  the presented certificate, so an expired certificate, a wrong-host certificate and a
+  plain connect failure are reported separately. The leaf expiry is returned as
+  `cert_expires_at`, including in the scheduled canary's health snapshot.
+
+## [1.45.1] — 2026-11-23
+
+### Changed
+
+- The OpenAPI generator lives in `internal/openapi`, and its test renders the document
+  from `internal/api/server.go` and fails when `docs/openapi.yaml` is stale, so the
+  reference cannot drift silently.
+
+## [1.45.0] — 2026-11-23
+
+### Added
+
+- **Scheduled canary.** A timer probes one site through the proxy, retries failures,
+  reports whether it answered (`POST /api/canary`), and exposes the last result under
+  `canary` in `GET /api/health` with latency, failing stage and consecutive failures.
+  Failures notify once per outage after retries and recovery notifies once.
+- Settings `canary_enabled`, `canary_host`, `canary_interval_s` and `canary_retries`.
+
+## [1.44.0] — 2026-11-23
+
+### Added
+
+- **Diagnostics bundle download.** `GET /api/diagnostics/bundle` returns a zip with
+  version, redacted settings, listener and certificate status, recent errors
+  (certificates, failed alerts, anomalies, 5xx) and a sanitized access-log tail.
+
 ## [1.43.4] — 2026-11-23
 
 ### Fixed
@@ -22,7 +103,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   a real change still shows.
 - **A long kernel-status badge no longer widens the Policies page on a phone.** The badge wraps
   instead, and the tab strip wraps with it.
-
 ## [1.43.3] — 2026-11-23
 
 ### Fixed

@@ -130,4 +130,15 @@ describe("palette command actions", () => {
       hours: 24,
     });
   });
+
+  it("names the subject, not the rule kind, when nothing matches", async () => {
+    post.mockResolvedValue({ kind: "asn_block", value: "64500", hours: 24, scanned: 10, matched: 0, allowed: 0, blocked: 0, addresses: 0, hosts: [], samples: [], notes: [] });
+    render(<QuickActions command="preflight" canWrite onClose={vi.fn()} onError={vi.fn()} onOK={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "asn_block" } });
+    fireEvent.change(screen.getByPlaceholderText("64500"), { target: { value: "64500" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preflight" }));
+
+    expect(await screen.findByText("No requests in the last 24h came from AS64500.")).toBeTruthy();
+  });
 });

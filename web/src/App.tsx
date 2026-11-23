@@ -69,6 +69,10 @@ export default function App() {
     const nextHash = `#/${id}${query ? `?${query}` : ""}`;
     setPage(id);
     setPageQuery(query ?? "");
+    // A drawer or a command belongs to the page that opened it, and its
+    // backdrop would otherwise block the page the operator just asked for.
+    setSourceIp(null);
+    setCommand(null);
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
   };
 
@@ -98,6 +102,8 @@ export default function App() {
     const onHash = () => {
       setPage(pageFromHash(window.location.hash));
       setPageQuery(window.location.hash.split("?")[1] ?? "");
+      setSourceIp(null);
+      setCommand(null);
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);

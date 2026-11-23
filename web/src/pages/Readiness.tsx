@@ -91,7 +91,7 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
         settings?.kernel === "active"
           ? "Bans are enforced in the kernel."
           : settings?.kernel
-            ? `Bans apply in user space only. ${settings.kernel}.`
+            ? `Bans apply in user space only — ${settings.kernel}.`
             : "Kernel enforcement status is unknown; bans apply in user space.",
       ready: has("settings") && settings ? settings.kernel === "active" : null,
       fix: "Open Settings",
