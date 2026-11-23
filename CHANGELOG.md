@@ -11,6 +11,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.48.6] — 2026-11-23
+
+### Added
+
+- **An end-to-end bundle channel test.** It serves a real signed manifest over `httptest`, then
+  covers the first install, a `304` on the next check, a version bump that replaces the pack, and a
+  profile switched to `block` refusing a matching request with a 403 — the whole path from
+  publisher to verdict in one test instead of a unit test per step.
+
+### Fixed
+
+- **The previous bundle version survives an install.** `prune` counted the installed version against
+  its own budget, so the first install after a bump deleted the pack it is supposed to keep,
+  leaving nothing to roll back to. It now keeps the installed pack plus the one before it, which
+  the new end-to-end test asserts.
+
 ## [1.48.5] — 2026-11-23
 
 ### Fixed
