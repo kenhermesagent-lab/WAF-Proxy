@@ -38,6 +38,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   workflow identity instead of a stored key; the commands are in
   [docs/OPERATIONS.md](docs/OPERATIONS.md#verifying-a-download). Its actions are pinned to commit
   SHAs, so a moved tag cannot change what a verified run executed.
+- **Base images are pinned by digest.** The `Dockerfile` names `node:22-alpine`, `golang:1.27-alpine`
+  and `alpine:3.21` by their multi-arch index digests, so a moved tag cannot change what a reviewed
+  image build compiles against while arm64 hosts keep working. `deploy/check-image-pins.sh` fails CI
+  when a `FROM` carries a tag without a full digest.
+- **CI starts the image and checks the console.** The container job now runs the built image on host
+  networking, waits for `/api/health`, fetches `/` and the bundle asset the shell names, and compares
+  the reported version with the build arg. An empty `internal/webui/dist` or a console that never
+  binds fails the run instead of shipping.
 - **Workflow actions cannot drift back to tags.** `deploy/check-workflow-pins.sh` fails CI when any
   workflow references an action by tag, branch or abbreviated commit; a local `./action` and a
   `docker://image@sha256:` digest still pass. `make verify-release` and `make test-release` run it

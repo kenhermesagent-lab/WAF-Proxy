@@ -107,6 +107,10 @@ jobs:
         run: bash deploy/check-workflow-pins.sh
       - name: The pin check rejects tags, branches and short SHAs
         run: bash deploy/check-workflow-pins_test.sh
+      - name: Dockerfile base images are pinned by digest
+        run: bash deploy/check-image-pins.sh
+      - name: The image pin check rejects tags and short digests
+        run: bash deploy/check-image-pins_test.sh
       - name: Module SBOM
         run: make sbom
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -147,3 +151,5 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp || github.run_id }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Start the image and check the console answers
+        run: bash deploy/docker-smoke-test.sh wafproxy:ci 0.0.0-ci

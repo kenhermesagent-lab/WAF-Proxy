@@ -34,6 +34,7 @@ test: docs-check
 test-release:
 	bash deploy/check-version_test.sh
 	bash deploy/check-workflow-pins_test.sh
+	bash deploy/check-image-pins_test.sh
 
 vet:
 	go vet ./...
@@ -44,6 +45,7 @@ fmt:
 verify-release:
 	bash deploy/check-version.sh
 	bash deploy/check-workflow-pins.sh
+	bash deploy/check-image-pins.sh
 
 # Dist is gitignored: the SBOM is a release artefact, not source.
 sbom:
@@ -63,6 +65,10 @@ perf-record:
 
 docker:
 	docker compose -f deploy/docker-compose.yml build
+
+docker-smoke:
+	docker build -t wafproxy:smoke .
+	bash deploy/docker-smoke-test.sh wafproxy:smoke
 
 install: build
 	sudo ./deploy/install.sh

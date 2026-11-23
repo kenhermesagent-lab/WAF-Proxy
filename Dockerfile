@@ -1,17 +1,22 @@
 # syntax=docker/dockerfile:1
 
+# Base images are pinned by the digest of their multi-arch index, not by tag: a
+# moved tag would change what a reviewed image build compiles against, and the
+# index digest keeps arm64 hosts working. Bump a digest deliberately, together
+# with the tag in the comment, or `deploy/check-image-pins.sh` fails CI.
+
 # The console's Vite config writes to "../internal/webui/dist", relative to the
 # package root. Keep the package at /src/web so that lands in /src/internal,
 # where the Go stage copies it from: flattening web/ into /src would write the
 # bundle to /internal instead and leave //go:embed dist with an empty directory.
-FROM node:22-alpine AS ui
+FROM node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS ui # 22-alpine
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.27-alpine AS build
+FROM golang:1.27-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS build # 1.27-alpine
 RUN apk add --no-cache ca-certificates git
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -31,7 +36,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
     -o /out/wafproxy ./cmd/wafproxy \
     && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/wafproxy-updated ./cmd/wafproxy-updated
 
-FROM alpine:3.21
+FROM alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab # 3.21
 RUN apk add --no-cache ca-certificates tzdata nftables libcap \
     && addgroup -g 10001 wafproxy \
     && adduser -D -H -u 10001 -G wafproxy -s /sbin/nologin wafproxy \
