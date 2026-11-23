@@ -190,7 +190,10 @@ WAFPROXY_GUI_HOST=console.home.arpa
 ```
 
 The listener refuses to start when no valid certificate matches the host, so a typo
-cannot silently leave the console on plain HTTP. Browsers need the internal root
+cannot silently leave the console on plain HTTP. The certificate is resolved on every
+handshake, not captured at boot: a renewal or a replacement upload reaches the console
+without restarting the process. The boot check still runs once so a missing
+certificate fails early. Browsers need the internal root
 (`GET /api/certs/internal/root`) or a public CA for that name.
 
 ## Revoking a certificate

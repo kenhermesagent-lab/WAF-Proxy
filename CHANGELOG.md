@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.43.1] — 2026-11-23
+
+### Fixed
+
+- **The console kept serving the certificate it saw at startup.** The TLS listener
+  captured one certificate and returned it for the console host forever, so a renewal
+  or a replacement upload needed a restart. The handshake callback now resolves through
+  the certificate manager every time; the fail-fast check at boot remains.
+
 ## [1.43.0] — 2026-11-23
 
 ### Added
