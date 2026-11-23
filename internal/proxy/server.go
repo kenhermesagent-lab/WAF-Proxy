@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -505,6 +506,7 @@ func (s *Server) eventWriter(ctx context.Context) {
 			defer access.Close()
 		}
 	}
+	accessJSON := strings.EqualFold(os.Getenv("WAFPROXY_ACCESS_LOG_FORMAT"), "json")
 	batch := make([]model.Event, 0, 256)
 	timer := time.NewTimer(250 * time.Millisecond)
 	defer timer.Stop()
@@ -516,6 +518,12 @@ func (s *Server) eventWriter(ctx context.Context) {
 		batch = batch[:0]
 		if access != nil {
 			for _, e := range out {
+				if accessJSON {
+					if line, err := json.Marshal(e); err == nil {
+						_, _ = access.Write(append(line, '\n'))
+					}
+					continue
+				}
 				// nginx combined format so the stock CrowdSec nginx parser can read it.
 				fmt.Fprintf(access, "%s - - [%s] %s %d %d %q %q\n",
 					e.SrcIP, e.TS.Format("02/Jan/2006:15:04:05 -0700"),

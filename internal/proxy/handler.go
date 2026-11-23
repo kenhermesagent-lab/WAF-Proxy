@@ -38,7 +38,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := normalizeHost(r.Host)
 	e := s.lookup(host)
 
-	rw := &responseWriter{ResponseWriter: w, strict: true, requestID: newRequestID(), secure: r.TLS != nil}
+	rw := &responseWriter{ResponseWriter: w, strict: true, requestID: requestIDFor(r), secure: r.TLS != nil}
 	if e == nil {
 		// A configured decoy hostname is a deliberate scan target: ban the source
 		// before falling back to the silent unknown-host blackhole.
@@ -92,7 +92,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	loc := s.d.Geo.Lookup(ip)
 	event := model.Event{
-		TS: start, ProxyID: &e.proxy.ID, Host: host, SrcIP: ip.String(),
+		TS: start, ProxyID: &e.proxy.ID, Host: host, SrcIP: ip.String(), RequestID: rw.requestID,
 		Country: loc.Country, ASN: loc.ASN, Lat: loc.Lat, Lon: loc.Lon,
 		Method: r.Method, Path: r.URL.Path, UA: r.UserAgent(), Sample: 1,
 	}
