@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.48.3] — 2026-11-23
+
+### Fixed
+
+- **The configuration reference matches the code.** Corrected health probes (HTTP `GET` every 10
+  seconds, not `HEAD` every 30), body-limit behaviour (413 at the global limit and WAF rule 200004
+  at the profile limit, never truncation), the admin session lifetime (12-hour idle, 7-day
+  absolute), gate sessions (site- and account-bound, not client-network-bound), the temporary-ban
+  cap, notification batching, and the scope of event retention and of the protection switch.
+- **Missing defaults and ranges are documented**: per-site advanced fields, WAF profile limits,
+  anomaly thresholds, streaming connection caps, the seeded feeds that start enabled and the ban
+  list caps. Host package updates are marked as native-install-only.
+
 ## [1.48.2] — 2026-11-23
 
 ### Added

@@ -90,7 +90,7 @@ effect after a restart.
 | WAN interface | Interface sampled for WAN throughput and used for stealth ICMP rules. Leave empty to auto-detect. | Interface name |
 | LAN interface | Interface sampled for LAN throughput. Leave empty to auto-detect. | Interface name |
 | Home latitude / longitude | Centre of the attack globe. | Decimal degrees, **51.5 / -0.12** |
-| Admin allowlist (IPs / CIDRs) | When set, only these addresses may open the sign-in form or call the admin API. Empty allows any address. A save that would exclude your current address is refused. | Comma-separated IPs/CIDRs |
+| Admin allowlist (IPs / CIDRs) | When set, only these addresses may sign in or call the admin API; the console page itself still loads unless `WAFPROXY_GUI_PRIVATE_ONLY` blocks the listener. Empty allows any address. A save that would exclude your current address is refused. | Comma-separated IPs/CIDRs |
 
 A single-NIC host enters the same address for WAN and LAN and firewalls the GUI port from the WAN
 side. Both addresses are required — an empty bind address would put the console on every
@@ -102,10 +102,10 @@ Applied before per-site profiles.
 
 | Field | What it does | Value |
 |---|---|---|
-| Protection pipeline enabled | Master switch for the pre-WAF stages (lists, country/ASN, decoy, feeds, rate limit, method, bot filter, access gate). Turning it off leaves TLS termination and proxying only. | On |
+| Protection pipeline enabled | Gates the global bot-filter check in the request pipeline. Bans, lists, country/ASN rules, decoy names, feeds, rate limits, the access gate and the WAF keep running while it is off. | On |
 | Global rate limit (rps/IP) | Per-address request rate allowed before the rate-limit stage refuses. | **100**, positive |
 | Burst | Burst allowance above the rate. | **200**, positive |
-| Max inspected body (bytes) | Largest request body buffered for WAF inspection. Larger bodies are not inspected past this point. | **131072** (128 KiB), 1 KiB–8 MiB |
+| Max inspected body (bytes) | Hard ceiling on a request body. A larger body is refused with 413 before the WAF runs and logged with the `body-limit` stage; it is never forwarded uninspected. | **131072** (128 KiB), 1 KiB–8 MiB |
 | Sample allowed above (rps) | Above this global request rate, allowed requests are sampled rather than each written as an event, so the event table stays small. | **500**, positive |
 | Request normalization | Action on malformed encodings (duplicate parameters, double encoding): **off**, **flag** (log only), or **block**. Only applies while the WAF stage runs. | **flag** |
 | Block hosting / VPS / cloud ASNs | Blocks traffic from hosting-provider ASNs by default. Needs the ASN database; reported as unavailable and skipped without it. | On |
@@ -117,7 +117,7 @@ Applied before per-site profiles.
 
 | Field | What it does | Value |
 |---|---|---|
-| Event retention (days) | How long request events, anomalies and hourly rollups are kept. Older rows are pruned. | **7**, 1–30 |
+| Event retention (days) | How long request events are kept: the hourly maintenance pass deletes older rows, and the analytics window follows it. Anomaly events and the audit log are not pruned by this setting. | **7**, 1–30 |
 | ACME account email | Let's Encrypt account contact. | Email |
 | Use the Let's Encrypt staging directory | Issues untrusted certificates for testing. Switch off before going live. | Off |
 
@@ -130,12 +130,12 @@ no secrets, certificates or bans) to a destination, then prunes older files.
 |---|---|---|
 | scheduled | Enables the schedule. | Off |
 | Destination | **Local directory**, **Git repository**, **SFTP (over SSH)** or **FTP (unencrypted)**. | local |
-| Schedule / Day / Time | Daily or weekly, weekday when weekly, and the hour to run. | daily, **03:00** |
+| Schedule / Day / Time | Daily or weekly, weekday when weekly, and the run time in 24-hour `HH:MM`. | daily, **03:00** |
 | Keep | Number of archives retained. | 1–365 |
 | Directory | Absolute path on this host (local transport). | — |
 | Git working directory, remote, branch | Repository to commit into and optionally push from. | — |
 | Host / Port / User / Password / Remote directory | Remote target for SFTP and FTP. FTP sends credentials in clear text. | — |
-| SSH host key fingerprint | SHA-256 fingerprint of the SFTP host key, pinned. | — |
+| SSH host key fingerprint | SHA-256 fingerprint of the SFTP host key, pinned. Required for SFTP. | — |
 | Encrypt backups | Seals the archive with AES-256-GCM; restoring needs the same passphrase. | Off |
 | Passphrase | 16+ characters. Losing it makes the files unrecoverable. | — |
 
@@ -191,21 +191,22 @@ summary.
 |---|---|
 | Application preset | Only when creating. Fills in a WAF profile tailored to the application; it creates an editable profile, it is not a locked mode. |
 | Hostname | The SNI name clients request. Must be covered by the certificate. |
-| Access profile | One choice that carries the site's lists, WAF profile and protection profile. Selecting one clears the two overrides below. |
+| Access profile | One choice that carries the site's lists, WAF profile and protection profile. Selecting one clears both per-site overrides; the protection override has no field here and is API-only. |
 | WAF profile | Per-site override of the access profile's WAF profile. |
 | Certificate | Auto/default, or a specific certificate from the inventory. |
-| Proxy enabled | Disabled proxies refuse requests but keep their configuration. |
-| Maintenance mode | Serves a maintenance page while the upstream is worked on. |
+| Proxy enabled | Disabled proxies answer 503 and keep their configuration. |
+| Maintenance mode | Answers 503 with a maintenance page and `Retry-After: 300` while the upstream is worked on. |
 
 ### Upstreams tab
 
 | Field | What it does | Value |
 |---|---|---|
 | Upstream URL | Backend origin, e.g. `http://10.0.0.10:8080`. | scheme://host:port |
-| Weight | Relative share when balancing by weight. | 1+ |
+| Weight | Relative share when balancing by weight; 0 or negative becomes 1. | 1+ |
 | Add / remove upstream | One or more backends; healthy ones are chosen per request. | — |
 
-Health probes default to an HTTP HEAD of `/` every 30 seconds, three failures before ejection.
+Health probes send an HTTP `GET` to `/` every 10 seconds by default. An upstream is ejected after
+three consecutive failures and gets a single half-open probe once 1.5× the interval has passed.
 These per-site values are editable through the API/YAML (see
 [Advanced per-site settings](#advanced-per-site-settings-api-and-yaml)).
 
@@ -228,8 +229,9 @@ These per-site values are editable through the API/YAML (see
 | Sign out visitors | Revokes every live gate session for this hostname (shown for existing proxies). |
 
 The login page is served by the proxy on the site's own hostname, so nothing reaches the backend
-before sign-in. A gate session is bound to the client network and lasts `gate_ttl_hours` (**12 h**)
-by default.
+before sign-in except health-check paths (`/healthz`, `/health`, `__health`) and ACME challenges.
+A session is tied to the site and the account: it ends at `gate_ttl_hours` (**12 h**), when the
+account is blocked, when its password is changed, or when visitors are signed out for the site.
 
 ### Routes tab
 
@@ -254,16 +256,16 @@ site unless the upstream overrides them. They are not all exposed in the drawer.
 |---|---|---|
 | `lb_policy` | `weighted_rr`, `least_conn`, `least_latency`, `ip_hash`, `sticky_cookie`. | weighted_rr |
 | `health_path` | Path probed for health. | `/` |
-| `health_expect` | Accepted status or range for a healthy probe. | 200–399 |
-| `health_interval` | Seconds between probes. | 10 |
-| `health_fail_after` | Consecutive failures before passive ejection. | 3 |
-| `max_inflight` | Concurrent requests served for this site; 0 inherits the process budget. | 0 |
-| `max_inflight_per_client` | Concurrent requests per client address; 0 inherits. | 0 |
-| `upstream_timeout` | Whole upstream exchange in seconds; 0 keeps the transport default. | 0 |
-| `retries` | Retries for idempotent requests only. | 0 |
+| `health_expect` | Accepted status: `200`, a range like `200-399`, or a comma-separated list; each value 100–599. | `200-399` |
+| `health_interval` | Seconds between probes, 0–3600; 0 uses 10. | 10 |
+| `health_fail_after` | Consecutive failures before passive ejection, 0–20; 0 uses 3. | 3 |
+| `max_inflight` | Concurrent requests served for this site, 0–100000; 0 inherits the process budget. | 0 |
+| `max_inflight_per_client` | Concurrent requests per client address, 0–10000; 0 inherits. | 0 |
+| `upstream_timeout` | Whole upstream exchange in seconds, 0–3600; 0 keeps the transport default. | 0 |
+| `retries` | Retries for idempotent requests only, 0–5. | 0 |
 | `tls_min_version` | **1.2** or 1.3 for this site. | 1.2 |
 | `request_headers` / `response_headers` | Ordered header rewrites: `{action: set|add|remove, name, value}`. | empty |
-| upstream `max_conns` | Concurrent requests to one upstream; 0 is uncapped. | 0 |
+| upstream `max_conns` | Concurrent requests to one upstream; 0 or negative is uncapped. | 0 |
 | upstream `enabled` | Takes an upstream out of rotation without deleting it. | true |
 
 ### Application presets
@@ -282,11 +284,11 @@ cap and ban engine still apply, and a running stream is cut when a ban lands.
 | Field | What it does | Value |
 |---|---|---|
 | Forward … through this gateway | Enables the listener. | Off |
-| Listen address (this host) | IP on this host the listener binds. | IP |
-| Listen port | Port the router forwards. | Plex **32400**, Jellyfin **8096**, Custom TCP chosen |
-| Server | The application's address (`host` or `host:port`). | — |
+| Listen address (this host) | IP on this host the listener binds; required when the forwarder is enabled. | IP |
+| Listen port | Port the router forwards. | Plex **32400**, Jellyfin **8096**, Custom TCP has none and must be set |
+| Server | The application's address (`host`, `host:port` or a URL); required. | — |
 | Allowed sources | IPs/CIDRs allowed to connect; empty allows any. | Empty |
-| Max connections | Concurrent connection cap for this listener. | 1–4096 |
+| Max connections | Concurrent connection cap for this listener, 1–4096; 0 uses **256**. | 256 |
 | Blocklists and whitelists | Named lists attached to this forwarder. A whitelist restricts the port to its entries plus the allow list; a blocklist wins when both name an address. Country entries need GeoIP. | none |
 
 Status reports the bound address, upstream, active and total connections, refused counts (lists,
@@ -303,8 +305,8 @@ Policies decide what happens before traffic reaches a proxy. The page is tabbed.
 | Control | What it does |
 |---|---|
 | Search bans | Matches temporary and permanent bans by IP, subnet or reason. |
-| New ban | IP or CIDR, **reason (required)**, temporary (**24 hours**) or permanent. |
-| Temp bans | Newest 10. Expired rows are deleted; the API caps the list at 1000. |
+| New ban | IP or CIDR, **reason (required)**, temporary (**24 hours**) or permanent. A temporary ban is capped at 24 hours; the API refuses a longer TTL. |
+| Temp bans | Newest 10. Expired rows are deleted. The API returns at most 1000 rows and 200 when no limit is asked for. |
 | Permanent bans | Newest 10. Lasts until removed. |
 | Make permanent / Move to temp | Moves a ban between tables; moving to temporary gives it 24 hours from now. |
 | View all / move | Two-panel bulk editor: tick rows (Ctrl-click, drag a range) or drag an address across, then apply. |
@@ -341,17 +343,17 @@ OWASP CRS settings through Coraza. Changes reload the WAF without dropping conne
 
 | Field | What it does | Default |
 |---|---|---|
-| Profile name | Label; fixed after creation. | — |
-| Mode | **block** or **detect**. | block |
+| Profile name | 1–64 characters, unique; fixed after creation. | — |
+| Mode | **Block**, **Detect only** or **Off**; a site set to `inherit` adopts this mode. | block |
 | Upstream responses | Inspect responses: **off**, **flag** or **block**. Off by default because it delays the first byte by up to one buffer. | off |
-| Paranoia level (1–4) | CRS paranoia. 1 is the CRS default; 3–4 is strict enough to block some legitimate apps. | 1 |
-| Anomaly threshold | Score at which a request is refused (or flagged in detect mode). | 5 |
+| Paranoia level (1–4) | CRS paranoia, 1–4; an out-of-range value keeps 1. 3–4 is strict enough to block some legitimate apps. | 1 |
+| Anomaly threshold | Score at which a request is refused (or flagged in detect mode), 1–100. | 5 |
 | Allowed HTTP methods | Method allowlist, comma separated. | GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS |
-| Maximum inspected body (bytes) | Per-profile body limit. | 131072 |
+| Maximum inspected body (bytes) | Per-profile body limit, 1 KiB–8 MiB. A body above it is rejected by the WAF transaction (rule 200004), never forwarded uninspected. | 131072 |
 | Disabled CRS rule IDs | Removes specific CRS rules for this profile only, comma separated. | empty |
 | Signature bundle rules | Per installed bundle: **Off**, **Log only** or **Block** on this profile. No choice means log only; CRS rules keep following Mode above. | log |
-| Upstream response ceiling (bytes) | Cuts an oversized response instead of streaming it unbounded; 0 is unlimited. | 0 |
-| Login paths / rate / burst | Path prefixes that take credentials, with their own token bucket so credential stuffing is throttled before it reaches the app. | empty / 0 / 0 |
+| Upstream response ceiling (bytes) | Cuts an oversized response instead of streaming it unbounded; 0–4 GiB, 0 is unlimited. | 0 |
+| Login paths / rate / burst | Path prefixes that take credentials, with their own token bucket so credential stuffing is throttled before it reaches the app. Listing paths requires a non-zero rate; rate 0–1000 and burst 0–10000. | empty / 0 / 0 |
 | Admin paths / admin allowlist | Path prefixes only the listed CIDRs may reach. An empty allowlist leaves the rule off. | empty |
 
 Built-in profiles: **Generic Web** (P1/A5), **WordPress** (P2/A5), **API-only** (P2/A3),
@@ -451,11 +453,13 @@ reason or release a ban; the drawer is read-only for other roles.
 | Feeds table | State (`ok`, `frozen`, `error`, `pending`), entry count, last fetch, action selector, enable toggle, refresh, delete. |
 | CrowdSec console blocklists | Blocklists delivered by a CrowdSec console enrolment. |
 
-Built-in keyless feeds (for example Tor exit nodes, FireHOL level 2, Feodo Tracker C2, ET
-compromised, DShield scanners, Blocklist.de, GreenSnow, Binary Defense, CINS Army,
-BruteForceBlocker, IPSum level 3, Spamhaus DROP IPv6, ET firewall block list) ship seeded but
-disabled, so an upgrade never starts blocking new ranges on its own. A feed that suddenly grows
-more than fivefold is frozen instead of applied. Feeds marked `always_block` are enforced before
+Built-in keyless feeds (FireHOL levels 1–2, Spamhaus DROP and DROP IPv6, Tor exit nodes, Feodo
+Tracker C2, ET compromised, ET firewall block list, DShield scanners, Blocklist.de, GreenSnow,
+Binary Defense, CINS Army, BruteForceBlocker, IPSum level 3) are seeded once. FireHOL level 1,
+Spamhaus DROP and Tor exit nodes (challenge) start enabled; the rest start disabled, so an upgrade
+never starts blocking new ranges on its own. A feed with over 1000 entries that suddenly grows more
+than fivefold is frozen instead of applied; this raises no notification and appears as `frozen` on
+the Dashboard and the Intel page. Feeds marked `always_block` are enforced before
 allow lists and no whitelist overrides them; the permanent-ban rollup writes one.
 
 ## Signature bundles
@@ -528,11 +532,11 @@ Behavioural detections, compared once a minute against the same proxy's median o
 | Field | What it does | Default |
 |---|---|---|
 | detect anomalies | Enables detection and notifications. | On |
-| Egress floor (MB / min) | Minimum outbound volume before an outbound spike can fire. | 5 |
-| Egress factor (× baseline) | Multiple of the hour's median that counts as a spike. | 4 |
-| Request-rate threshold (rps) | Minimum request rate before a rate spike can fire. | 200 |
-| Rate factor (× baseline) | Multiple of the median rate that counts as a spike. | 3 |
-| Login-failure burst (/ min) | Access-gate failures per minute that count as a burst. | 20 |
+| Egress floor (MB / min) | Minimum outbound volume before an outbound spike can fire. | 5, 1–102400 |
+| Egress factor (× baseline) | Multiple of the hour's median that counts as a spike. | 4, 1.1–100 |
+| Request-rate threshold (rps) | Minimum request rate before a rate spike can fire. | 200, 1–100000 |
+| Rate factor (× baseline) | Multiple of the median rate that counts as a spike. | 3, 1.1–1000 |
+| Login-failure burst (/ min) | Access-gate failures per minute that count as a burst. | 20, 1–10000 |
 
 One event is opened per condition per proxy and refreshed while it lasts. **Acknowledge** closes
 it. Each class can be muted under Notifications. Baselines are in memory, so the first minute after
@@ -566,13 +570,13 @@ Accounts used by proxies whose gate mode is **Accounts** or **Accounts + TOTP**.
 
 Lockout behaviour, fixed by the engine and visible on the page:
 
-- Three failures from one IP in ten minutes creates a 15-minute ban; ten in a day extends it to 24
-  hours; failures on three separate days become permanent.
+- Three failures from one IP in ten minutes creates a 15-minute ban; ten in 24 hours extends it to
+  24 hours; three separate days **and** ten failures in the last 24 hours make the ban permanent.
 - An account also locks after five failures in fifteen minutes, which stops credential stuffing
   across changing IPs.
 - Bans appear under Policies, are liftable from the LAN-only console, and are logged with a reason.
-- A session is bound to the client network and lasts `gate_ttl_hours` (**12 h**) unless changed
-  through `PUT /api/settings`.
+- A session lasts `gate_ttl_hours` (**12 h**) unless changed through `PUT /api/settings`; it is
+  tied to one site and one account, not to the visitor's address.
 
 **Sign out visitors** on a proxy revokes its live sessions; gate usernames can also be blocked and
 their sessions killed from the MCP gateway or the API.
@@ -638,9 +642,10 @@ the administrator's browser session. It exposes only the security tools below �
 | Token field | What it does |
 |---|---|
 | Token name | Identifies the agent; appears in the audit log as `mcp:<name>`. |
-| Tools this token may call | Per-tool scopes. An empty scope list means every tool; a token must be created with at least one. |
+| Tools this token may call | Per-tool scopes. An empty list sent to the API means every tool; the console requires at least one. Unknown tool names are refused. |
 | Revoke | Takes effect on the next request. |
 
+The endpoint answers MCP protocol versions 2025-03-26, 2025-06-18, 2025-11-25 and 2026-07-28.
 Tokens are stored as SHA-256 hashes and shown once. `WAFPROXY_MCP_TOKEN` is an optional static
 token for headless installs; it shows as "environment token" and cannot be revoked from the
 console.
@@ -680,8 +685,11 @@ Alerts are queued, retried and recorded. **Send test** proves a channel works.
 | Event routing | Per-class toggles. Every class is delivered by default; unticking one suppresses it on all channels and on agent webhooks. Classes: temporary ban, permanent ban, access gate lockout, certificate expiry, backend up/down, application update, CrowdSec ban, outbound traffic spike, request-rate spike, authentication failure burst. |
 | Recent deliveries | Time, channel, kind and class, message, state (`sent`, `failed`, `suppressed`, `pending`). |
 
-Ban additions are batched into a five-minute digest; permanent bans, feed freezes and certificate
-problems are sent immediately. Muting a class also suppresses what is already queued for it.
+Temporary bans and temporary access-gate lockouts are batched into a five-minute digest; permanent
+bans, gate lockouts that become permanent, certificate-expiry warnings, uptime changes, anomalies
+and application-update events are delivered immediately. A feed frozen by the size guardrail is not
+notified; it shows on the Dashboard and the Intel page. Muting a class also suppresses what is
+already queued for it.
 Explicit channel test messages are always sent. WhatsApp needs a paid Business API provider and is
 not included.
 
@@ -694,7 +702,7 @@ not included.
 | Repository directory | Path to the checkout the update helper builds from, e.g. `/var/lib/waf-proxy/src`. |
 | Update | Pulls the tracked branch, rebuilds, then restarts (systemd) or recreates the container. On failure the previous binary or container keeps running and the helper output is shown. |
 | Automatic updates | Daily at a chosen **HH:MM**: checks the tracked branch and, only when a newer build exists and the host supports it, pulls, rebuilds and restarts. Results go to the **Application update** notification class. Off by default. |
-| Host updates | Lists managed host packages with installed/candidate versions and severity (security, vulnerable, update available, up to date, not installed) and applies selected updates. |
+| Host updates | Lists managed host packages with installed/candidate versions and severity (security, vulnerable, update available, up to date, not installed) and applies selected updates. Only on a native Debian/Ubuntu systemd install with apt; Docker deployments receive these through the image. |
 | Last update output | The helper's output, for diagnosing a failed rebuild. |
 
 Unattended rebuilds run as root with the checkout's code, so enable automatic updates only for a
@@ -746,8 +754,9 @@ counted as met.
 | Recovery codes | Ten single-use codes issued at setup or rotation; each works once. |
 | Sessions | Lists signed-in administrators; **sign out everywhere** ends all sessions for this account. |
 
-Sign-in is password + TOTP (or a recovery code), rate limited per address and per account. Sessions
-last 12 hours, carry a CSRF token, and the cookie is `HttpOnly` and `SameSite=Lax`.
+Sign-in is password + TOTP (or a recovery code), rate limited per address and per account.
+Sessions have a 12-hour sliding idle timeout with an absolute 7-day lifetime, carry a CSRF token,
+and the cookie is `HttpOnly` and `SameSite=Lax`.
 
 ### Administrators
 
@@ -794,10 +803,10 @@ addresses.
 | `WAFPROXY_WAN_IFACE`, `WAFPROXY_LAN_IFACE` | empty | Interface names the installer passes to the wizard. |
 | `WAFPROXY_TRUSTED_PROXIES` | empty | CIDRs whose `X-Forwarded-For` may name the client. Empty means the socket peer always wins. |
 | `WAFPROXY_MAX_INFLIGHT` | `128` | Requests buffered at once; the ceiling on request memory. Past it, requests get 503. |
-| `WAFPROXY_DB_CONNS` | twice the CPU count, 4–32 | SQLite connection pool size. |
+| `WAFPROXY_DB_CONNS` | twice the CPU count, clamped 4–32 | SQLite connection pool size; an explicit value of 1–64 replaces the computed one. |
 | `WAFPROXY_MASTER_KEY` | generated `master.key` | Base64 32-byte master key to seal secrets, instead of the file. |
 | `WAFPROXY_LOG_LEVEL` | `info` | Service log verbosity. |
-| `WAFPROXY_ACCESS_LOG`, `WAFPROXY_ACCESS_LOG_FORMAT` | compose logs `/logs/access.log` | Access log destination and format. |
+| `WAFPROXY_ACCESS_LOG`, `WAFPROXY_ACCESS_LOG_FORMAT` | empty (disabled); compose sets `/logs/access.log` | Access log path; `WAFPROXY_ACCESS_LOG_FORMAT=json` switches to JSON. |
 | `WAFPROXY_ENV_FILE` | empty | Compose env file the Streaming page may mirror settings into. |
 | `WAFPROXY_CROWDSEC_URL`, `WAFPROXY_CROWDSEC_KEY` | empty | CrowdSec LAPI bouncer. |
 | `WAFPROXY_MCP_TOKEN` | empty | Static MCP bearer token (32+ characters). |
