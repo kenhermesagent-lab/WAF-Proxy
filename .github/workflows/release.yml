@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # Lets a tag created elsewhere (for example by a release API) get its assets.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to attach the built binaries to
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  assets:
+    name: Build and attach binaries
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build linux amd64 and arm64 binaries
+        run: |
+          set -euo pipefail
+          version=$(cat VERSION)
+          ldflags="-s -w \
+            -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.Version=${version} \
+            -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.Commit=${GITHUB_SHA::7} \
+            -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+            -X github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates.AppRepo=${GITHUB_REPOSITORY}"
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            for bin in wafproxy wafproxy-updated; do
+              CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$ldflags" \
+                -o "dist/${bin}_${version}_linux_${arch}" "./cmd/${bin}"
+            done
+          done
+          (cd dist && sha256sum *_linux_* > SHA256SUMS)
+      - name: Attach the binaries and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --verify-tag --generate-notes --title "WAF-Proxy ${TAG#v}"
+          fi
