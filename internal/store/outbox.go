@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -52,12 +53,32 @@ type rowDump struct {
 	Key     []string `json:"key"`
 }
 
-// SetNodeID enables change capture under this node's identity. It must be set
-// before the node starts serving; an empty id leaves the outbox inert.
-func (s *Store) SetNodeID(id string) { s.nodeID = strings.TrimSpace(id) }
+// haCapture is the HA toggle state, behind one pointer so every site-scoped
+// copy of a Store shares it. A promotion turns capture on while requests are
+// already in flight, so the fields are atomic.
+type haCapture struct {
+	nodeID   atomic.Value // string
+	auditOff atomic.Bool
+}
+
+// SetNodeID enables change capture under this node's identity. Empty leaves the
+// outbox inert; a promotion sets it before the node starts serving.
+func (s *Store) SetNodeID(id string) {
+	if s.capture != nil {
+		s.capture.nodeID.Store(strings.TrimSpace(id))
+	}
+}
+
+func (s *Store) nodeIdentity() string {
+	if s.capture == nil {
+		return ""
+	}
+	id, _ := s.capture.nodeID.Load().(string)
+	return id
+}
 
 // Capturing reports whether this handle writes an outbox row with each change.
-func (s *Store) Capturing() bool { return s.nodeID != "" }
+func (s *Store) Capturing() bool { return s.nodeIdentity() != "" }
 
 // captureRow records the row identified by key as an upsert.
 func (s *Store) captureRow(tx execer, table string, keyCols []string, key []any) error {
@@ -84,7 +105,7 @@ func (s *Store) enqueue(tx execer, table, op string, dump rowDump) error {
 	}
 	res, err := tx.Exec(`INSERT INTO ha_outbox(origin, origin_seq, kind, op, row_id, payload, created_at)
 		VALUES(?, 0, ?, ?, ?, ?, ?)`,
-		s.nodeID, table, op, rowIDOf(dump), payload, stamp(time.Now()))
+		s.nodeIdentity(), table, op, rowIDOf(dump), payload, stamp(time.Now()))
 	if err != nil {
 		return fmt.Errorf("store: enqueue %s %s: %w", table, op, err)
 	}
@@ -377,7 +398,7 @@ func (s *Store) ApplyOutbox(entries []OutboxEntry) (ApplyResult, error) {
 		if e.Seq > res.LastSeq {
 			res.LastSeq = e.Seq
 		}
-		if e.Origin == s.nodeID && s.nodeID != "" {
+		if own := s.nodeIdentity(); e.Origin == own && own != "" {
 			continue
 		}
 		var seen int

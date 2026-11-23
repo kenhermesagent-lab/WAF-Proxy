@@ -188,6 +188,21 @@ type SyncResult struct {
 	// Snapshot is true when the outbox could not be used and a full snapshot
 	// was applied instead.
 	Snapshot bool `json:"snapshot"`
+	// ConfigHash is the configuration the copy now holds. The loop remembers it
+	// so an unchanged configuration does not trigger another restore.
+	ConfigHash string `json:"config_hash,omitempty"`
+}
+
+// configVersion is the active's cheap answer to "has configuration changed?"
+// and to "does this pair still agree on the basics?".
+type configVersion struct {
+	Hash      string `json:"hash"`
+	OutboxSeq int64  `json:"outbox_seq"`
+	Time      string `json:"time"`
+	ClusterID string `json:"cluster_id"`
+	Epoch     int64  `json:"epoch"`
+	Schema    string `json:"schema"`
+	Protocol  int    `json:"protocol"`
 }
 
 // SyncOnce applies one page from the peer and acknowledges it. A gap or an
@@ -299,6 +314,7 @@ func applySnapshot(ctx context.Context, conn *peerConn, st *store.Store, snap *s
 		return res, err
 	}
 	res.AckedSeq = snap.OutboxSeq
+	res.ConfigHash = snap.ConfigHash
 	return res, nil
 }
 
@@ -372,10 +388,79 @@ func sendAck(ctx context.Context, conn *peerConn, seq int64) error {
 	return nil
 }
 
-// OutboxLoop keeps a standby current in near real time, and replaces the whole
-// copy from a snapshot every snapshotEvery ticks so configuration changes arrive
-// too. A failed pass backs off up to 30 seconds instead of hammering an
-// unreachable peer.
+// ConfigVersion asks the active for a digest of its configuration. It is a few
+// hundred bytes, so a standby can poll it every 30 seconds without moving the
+// database or touching a single session row.
+func ConfigVersion(ctx context.Context, dataDir string) (*configVersion, error) {
+	conn, err := dialPeer(dataDir, 15*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+conn.pair.PeerAddr+"/ha/config", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := conn.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ha: fetch config version: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ha: config version refused with status %d", resp.StatusCode)
+	}
+	var v configVersion
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// configHandler answers the cheap poll. The pinned TLS listener is the
+// authorization, as on the other link endpoints; the answer carries no data.
+func (s *JoinServer) configHandler(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeJoinError(w, http.StatusServiceUnavailable, "this node has no store to describe")
+		return
+	}
+	if pair, err := LoadPair(s.dataDir); err != nil || pair == nil {
+		writeJoinError(w, http.StatusConflict, "this node is not paired")
+		return
+	}
+	hash, err := s.store.ConfigHash()
+	if err != nil {
+		writeJoinError(w, http.StatusInternalServerError, "cannot hash the configuration")
+		return
+	}
+	seq, err := s.store.OutboxSeq()
+	if err != nil {
+		writeJoinError(w, http.StatusInternalServerError, "cannot read the outbox")
+		return
+	}
+	node, err := Load(s.dataDir)
+	if err != nil {
+		writeJoinError(w, http.StatusInternalServerError, "cannot read the node role")
+		return
+	}
+	pair, err := LoadPair(s.dataDir)
+	if err != nil || pair == nil {
+		writeJoinError(w, http.StatusConflict, "this node is not paired")
+		return
+	}
+	writeJoinJSON(w, http.StatusOK, configVersion{
+		Hash: hash, OutboxSeq: seq, Time: time.Now().UTC().Format(time.RFC3339Nano),
+		ClusterID: pair.ClusterID, Epoch: node.Epoch,
+		Schema: store.SchemaVersion(), Protocol: ProtocolVersion,
+	})
+}
+
+// OutboxLoop keeps a standby current in near real time, and takes a full
+// snapshot every snapshotEvery ticks only when the active's configuration hash
+// has actually changed. A failed pass backs off up to 30 seconds instead of
+// hammering an unreachable peer.
 func OutboxLoop(ctx context.Context, dataDir string, st *store.Store, interval time.Duration, snapshotEvery int, onErr func(error)) {
 	if interval <= 0 {
 		interval = time.Second
@@ -385,10 +470,24 @@ func OutboxLoop(ctx context.Context, dataDir string, st *store.Store, interval t
 	}
 	failures := 0
 	ticks := 0
+	// Empty means no snapshot has been applied yet, so the first tick pulls one.
+	configHash := ""
 	for {
 		var err error
 		if ticks%snapshotEvery == 0 {
-			_, err = SyncSnapshotOnce(ctx, dataDir, st)
+			version, verr := ConfigVersion(ctx, dataDir)
+			if verr == nil && version.Hash != "" && version.Hash == configHash {
+				// Configuration is unchanged: keep the copy, leave its session
+				// table and everything else the stream already updated alone.
+			} else {
+				var res SyncResult
+				res, err = SyncSnapshotOnce(ctx, dataDir, st)
+				if err == nil && res.ConfigHash != "" {
+					configHash = res.ConfigHash
+				} else if verr == nil {
+					configHash = version.Hash
+				}
+			}
 		} else {
 			_, err = SyncOnce(ctx, dataDir, st)
 		}

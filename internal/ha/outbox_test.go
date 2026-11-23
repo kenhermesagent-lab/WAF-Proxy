@@ -184,6 +184,62 @@ func TestSnapshotSyncCarriesConfigurationAndNeverRollsBack(t *testing.T) {
 	}
 }
 
+func TestConfigVersionIgnoresStreamedState(t *testing.T) {
+	_, dirB, stA, stB, _, userID := pairForTest(t)
+	hashA, err := stA.ConfigHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := ConfigVersion(context.Background(), dirB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version.Hash != hashA {
+		t.Fatalf("version hash %s != active hash %s", version.Hash, hashA)
+	}
+	if version.Time == "" {
+		t.Fatal("config version carries no peer time; preflight needs it for skew")
+	}
+
+	// A session is streamed state. It must not make the standby take a snapshot.
+	if err := stA.CreateSession("cookie", userID, "csrf", "", "", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	after, err := ConfigVersion(context.Background(), dirB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Hash != version.Hash {
+		t.Fatalf("a session changed the published config hash: %s -> %s", version.Hash, after.Hash)
+	}
+	if after.OutboxSeq <= version.OutboxSeq {
+		t.Fatalf("the outbox position did not advance: %d -> %d", version.OutboxSeq, after.OutboxSeq)
+	}
+
+	// A configuration edit does move it, and the snapshot reports the new hash
+	// so the loop can remember what it just applied.
+	if err := stA.Unscoped().SetSetting("ha.probe", "two"); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := ConfigVersion(context.Background(), dirB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.Hash == version.Hash {
+		t.Fatal("a settings change did not move the config hash")
+	}
+	res, err := SyncSnapshotOnce(context.Background(), dirB, stB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Snapshot || res.ConfigHash != changed.Hash {
+		t.Fatalf("snapshot result = %+v, want hash %s", res, changed.Hash)
+	}
+	if got, err := stB.ConfigHash(); err != nil || got != changed.Hash {
+		t.Fatalf("standby config hash = %s, %v; want %s", got, err, changed.Hash)
+	}
+}
+
 func TestOutboxOverflowFallsBackToSnapshot(t *testing.T) {
 	_, dirB, stA, stB, _, userID := pairForTest(t)
 	if err := stA.CreateSession("during-overflow", userID, "", "", "", time.Now().Add(time.Hour)); err != nil {

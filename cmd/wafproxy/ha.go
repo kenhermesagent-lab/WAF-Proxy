@@ -20,7 +20,7 @@ import (
 // data plane uses, so it cannot disagree with what the node is doing.
 func haCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: wafproxy ha status|pair|join|unpair|sync")
+		return errors.New("usage: wafproxy ha status|pair|join|unpair|sync|failover|failback|abort|notify")
 	}
 	switch args[0] {
 	case "status":
@@ -33,8 +33,14 @@ func haCLI(args []string) error {
 		return haUnpairCLI(args[1:])
 	case "sync":
 		return haSyncCLI(args[1:])
+	case "failover", "failback":
+		return haMoveCLI(args[0], args[1:])
+	case "abort":
+		return haAbortCLI(args[1:])
+	case "notify":
+		return haNotifyCLI(args[1:])
 	default:
-		return fmt.Errorf("unknown ha command %q (want status, pair, join, unpair or sync)", args[0])
+		return fmt.Errorf("unknown ha command %q (want status, pair, join, unpair, sync, failover, failback, abort or notify)", args[0])
 	}
 }
 
@@ -116,20 +122,9 @@ func readHAStatus(enabled bool, dataDir string) haStatus {
 		st.Peer = pair.PeerAddr
 		st.PeerFingerprint = pair.PeerFingerprint
 	}
-	st.State = stateForRole(node.Role)
+	st.State = node.EffectiveState()
 	st.Serving = !enabled || node.Active()
 	return st
-}
-
-func stateForRole(r ha.Role) ha.State {
-	switch r {
-	case ha.RoleActive:
-		return ha.StateActive
-	case ha.RoleStandby:
-		return ha.StateStandby
-	default:
-		return ha.StateStandalone
-	}
 }
 
 func haStatusCLI(args []string) error {

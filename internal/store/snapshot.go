@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -21,6 +24,10 @@ type Snapshot struct {
 	// that takes a snapshot acknowledges this position instead of replaying
 	// the changes it replaced.
 	OutboxSeq int64 `json:"outbox_seq"`
+	// ConfigHash is a canonical digest of the configuration tables alone. A
+	// standby compares it with the active's and only restores when it differs,
+	// so an unchanged configuration never rewrites live sessions.
+	ConfigHash string `json:"config_hash,omitempty"`
 }
 
 // TableDump keeps column names with the rows, so a standby with the same schema
@@ -91,7 +98,72 @@ func (s *Store) Snapshot() (*Snapshot, error) {
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	snap.ConfigHash = hashConfigTables(snap.Tables)
 	return snap, nil
+}
+
+// ConfigHash digests the replicated configuration without reading the streamed
+// tables. A standby polls it to decide whether a full snapshot is worth taking.
+func (s *Store) ConfigHash() (string, error) {
+	tx, err := s.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+	existing, err := existingTables(tx)
+	if err != nil {
+		return "", err
+	}
+	tables := map[string]TableDump{}
+	for _, table := range ReplicatedTables() {
+		if TableClasses[table] != ClassReplicated || !existing[table] {
+			continue
+		}
+		dump, err := readTable(tx, table)
+		if err != nil {
+			return "", fmt.Errorf("config hash %s: %w", table, err)
+		}
+		tables[table] = dump
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return hashConfigTables(tables), nil
+}
+
+// hashConfigTables is canonical: tables by name, columns in schema order and
+// rows sorted by their encoded value, so two nodes with the same configuration
+// agree no matter what order the rows were written in.
+func hashConfigTables(tables map[string]TableDump) string {
+	names := make([]string, 0, len(tables))
+	for name := range tables {
+		if class, ok := ClassOf(name); ok && class == ClassReplicated {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	h := sha256.New()
+	for _, name := range names {
+		dump := tables[name]
+		io.WriteString(h, name)
+		h.Write([]byte{0})
+		io.WriteString(h, strings.Join(dump.Columns, ","))
+		h.Write([]byte{0})
+		rows := make([]string, 0, len(dump.Rows))
+		for _, row := range dump.Rows {
+			raw, err := json.Marshal(row)
+			if err != nil {
+				continue
+			}
+			rows = append(rows, string(raw))
+		}
+		sort.Strings(rows)
+		for _, row := range rows {
+			io.WriteString(h, row)
+			h.Write([]byte{0})
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func existingTables(tx *sql.Tx) (map[string]bool, error) {

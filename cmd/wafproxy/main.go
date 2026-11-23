@@ -390,9 +390,9 @@ func run() error {
 	if roleErr != nil {
 		log.Error("reading the node role; refusing to run active-only work", "err", roleErr)
 	}
-	roleGate := ha.NewGate(!cfg.HAEnabled || node.Active())
+	startActive := !cfg.HAEnabled || node.Active()
 	if cfg.HAEnabled {
-		log.Info("high availability enabled", "role", node.Role, "active_work", roleGate.Active())
+		log.Info("high availability enabled", "role", node.Role, "active_work", startActive)
 	}
 	trusted, err := clientip.New(cfg.TrustedProxies)
 	if err != nil {
@@ -432,6 +432,9 @@ func run() error {
 	// captures every streamed change into the outbox; a standby writes none and
 	// pays nothing for the machinery.
 	var haIdent *ha.Identity
+	// haQuiesce pauses configuration writes while a planned move drains this
+	// node. It is in memory: a crash releases it.
+	haQuiesce := ha.NewQuiesce()
 	if cfg.HAEnabled {
 		haIdent, err = ha.LoadOrCreateIdentity(cfg.DataDir)
 		if err != nil {
@@ -479,9 +482,17 @@ func run() error {
 	// the first-boot address and log why. A single-NIC host stores the same
 	// address for both, which is valid here.
 	if !config.IsLocalAddress(cfg.ListenWAN) {
-		log.Error("stored WAN address is not configured on this host; using the first-boot address",
-			"configured", cfg.ListenWAN, "fallback", fallbackWAN)
-		cfg.ListenWAN = fallbackWAN
+		if cfg.HAEnabled {
+			// In HA mode the WAN address is the floating service address. It
+			// belongs to the other node until a move, so it must not be replaced
+			// by a boot fallback: the standby holds it with IP_FREEBIND.
+			log.Info("ha: keeping the floating service address, which this node does not own yet",
+				"configured", cfg.ListenWAN)
+		} else {
+			log.Error("stored WAN address is not configured on this host; using the first-boot address",
+				"configured", cfg.ListenWAN, "fallback", fallbackWAN)
+			cfg.ListenWAN = fallbackWAN
+		}
 	}
 	if !config.IsLocalAddress(cfg.ListenGUI) {
 		log.Error("stored GUI address is not configured on this host; using the first-boot address",
@@ -694,6 +705,9 @@ func run() error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// Loops that only an active node may run. A standby starts none of them;
+	// a promotion starts them, and a demotion stops them.
+	active := newActiveSupervisor(ctx)
 
 	if err := px.Reload(ctx); err != nil {
 		return err
@@ -743,9 +757,8 @@ func run() error {
 	for _, def := range streaming.Catalog {
 		cfgs[def.ID] = streaming.ConfigFromSettings(def, kv)
 	}
-	if err := streams.ApplyAll(cfgs); err != nil {
-		log.Warn("streaming forwarder not started", "err", err)
-	}
+	// Forwarders start with the data plane, not at boot: a standby must not
+	// hold a media port, and a promoted node rebinds them.
 	defer streams.Close()
 
 	var dnsSrv *tailnet.DNS
@@ -800,7 +813,7 @@ func run() error {
 	apiServer.SetBundles(bundles)
 	apiServer.SetHAStatus(func() api.HAStatus {
 		n, _ := ha.Load(cfg.DataDir)
-		state := stateForRole(n.Role)
+		state := n.EffectiveState()
 		pair, _ := ha.LoadPair(cfg.DataDir)
 		fingerprint := ""
 		if pair != nil {
@@ -812,12 +825,14 @@ func run() error {
 			PeerFingerprint: fingerprint,
 		}
 	})
-	apiServer.StartBackup(ctx)
-	apiServer.StartAutoUpdate(ctx)
+	// A standby must not run backups or apply updates: those belong to the
+	// active, and they start again after a promotion.
+	active.Add(func(ctx context.Context) { apiServer.StartBackup(ctx) })
+	active.Add(func(ctx context.Context) { apiServer.StartAutoUpdate(ctx) })
 	agentLinks := agentlink.New(st, box, log)
 	agentLinks.SetRouting(notifier.EventEnabled)
 	apiServer.SetAgentLinks(agentLinks)
-	roleGate.Go(func() { agentLinks.Start(ctx) })
+	active.Add(func(ctx context.Context) { agentLinks.Start(ctx) })
 	res.Each(func(b *siteres.Bundle) { b.Anomaly.SetSink(agentLinks.Publish) })
 	apiServer.SetStreaming(streams)
 	apiServer.SetUpdates(updateManager)
@@ -898,6 +913,7 @@ func run() error {
 		log.Info("ha identity ready", "node", ident.Node, "fingerprint", ha.Fingerprint(ident.Leaf), "capturing", st.Capturing())
 		if cfg.HALinkListen != "" {
 			join := ha.NewJoinServer(ident, cfg.DataDir, cfg.MasterKey, st, log)
+			join.SetQuiesce(haQuiesce)
 			ln, err := tls.Listen("tcp", cfg.HALinkListen, join.TLSConfig())
 			if err != nil {
 				log.Error("ha link listener failed", "addr", cfg.HALinkListen, "err", err)
@@ -912,18 +928,6 @@ func run() error {
 					}
 				}()
 			}
-		}
-	}
-	// A standby follows the active's outbox, one page per second, and replaces
-	// its copy from a sealed snapshot every 30 seconds so configuration changes
-	// arrive too. A gap, an apply error or an outbox over its size limit forces a
-	// snapshot immediately.
-	if cfg.HAEnabled {
-		if pair, err := ha.LoadPair(cfg.DataDir); err == nil && pair != nil && !node.Active() {
-			log.Info("ha replication started", "peer", pair.PeerAddr, "stream", "1s", "snapshot", "30s")
-			go ha.OutboxLoop(ctx, cfg.DataDir, st, time.Second, 30, func(err error) {
-				log.Warn("ha replication failed", "err", err)
-			})
 		}
 	}
 	tailAdminUp := false
@@ -949,19 +953,26 @@ func run() error {
 	// A standby must not renew certificates, fetch feeds or reconcile the
 	// kernel: the active does that, and two copies of an ACME order or a ban
 	// reconcile is how a pair fights itself.
-	roleGate.Go(func() { gateEngine.Start(ctx) })
-	roleGate.Go(func() { bots.Start(ctx) })
-	roleGate.Go(func() { feeds.Start(ctx) })
-	roleGate.Go(func() { bundles.Start(ctx) })
-	roleGate.Go(func() { res.Start(ctx) })
-	roleGate.Go(func() { bans.Start(ctx) })
-
-	roleGate.Go(func() { geoAutoUpdate(ctx, st, geo, log) })
+	active.Add(func(ctx context.Context) { gateEngine.Start(ctx) })
+	active.Add(func(ctx context.Context) { bots.Start(ctx) })
+	active.Add(func(ctx context.Context) { feeds.Start(ctx) })
+	active.Add(func(ctx context.Context) { bundles.Start(ctx) })
+	active.Add(func(ctx context.Context) {
+		// A second promotion must relaunch the per-site loops, so clear the
+		// started flags the first one set.
+		res.Reset()
+		res.Start(ctx)
+	})
+	active.Add(func(ctx context.Context) { bans.Start(ctx) })
+	active.Add(func(ctx context.Context) { geoAutoUpdate(ctx, st, geo, log) })
 
 	uptimeMon.Start(ctx)
-	roleGate.Do(func() { cs.Start(ctx) })
-	roleGate.Go(func() { retentionLoop(ctx, st, log) })
-	roleGate.Go(func() { certWatch(ctx, res, log) })
+	active.Add(func(ctx context.Context) { cs.Start(ctx) })
+	active.Add(func(ctx context.Context) { retentionLoop(ctx, st, log) })
+	active.Add(func(ctx context.Context) { certWatch(ctx, res, log) })
+	if startActive {
+		active.Start()
+	}
 
 	for _, gl := range guiListeners {
 		go func(gl guiListener) {
@@ -975,13 +986,35 @@ func run() error {
 		}(gl)
 	}
 
-	proxyErr := make(chan error, 1)
-	go func() { proxyErr <- px.Run(ctx, cfg.ListenWAN, tailProxyAddr) }()
-	go func() {
-		if err := px.RunHTTP(ctx, cfg.ListenHTTP); err != nil {
-			log.Warn("http listener failed", "addr", cfg.ListenHTTP, "err", err)
+	plane := newDataPlane(px, streams, cfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
+	defer plane.Close()
+	if cfg.HAEnabled && !node.Active() {
+		// Hold the service address without accepting. IP_FREEBIND lets this
+		// succeed before the address has moved to this node, so a promotion
+		// does not wait for a bind.
+		if err := plane.Prebind(ctx); err != nil {
+			log.Warn("standby could not pre-bind the service address; promotion will bind instead", "err", err)
+		} else {
+			log.Info("standby holds the service address without serving", "addrs", plane.Addrs())
 		}
-	}()
+	} else if err := plane.Serve(ctx); err != nil {
+		return fmt.Errorf("proxy listener: %w", err)
+	}
+	if cfg.HAEnabled {
+		rt := &haRuntime{
+			dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
+			plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
+			ident: haIdent, log: log,
+		}
+		apiServer.SetWriteGate(haQuiesce.Active)
+		if !node.Active() {
+			// Follow the active's stream until a move makes this node the active.
+			rt.repl.Start()
+		}
+		if err := rt.serveControl(ctx); err != nil {
+			log.Error("ha control socket failed", "err", err)
+		}
+	}
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -992,10 +1025,6 @@ func run() error {
 		// The service supervisor (Docker's restart policy or systemd Restart=)
 		// starts the process again with the listeners rebuilt.
 		log.Info("restart requested; exiting for the service supervisor")
-	case err := <-proxyErr:
-		if err != nil {
-			log.Error("proxy listener failed", "err", err)
-		}
 	}
 	cancel()
 	shutdownCtx, done := context.WithTimeout(context.Background(), 8*time.Second)

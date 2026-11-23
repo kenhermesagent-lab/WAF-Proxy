@@ -452,8 +452,18 @@ type Listeners struct {
 // required; extra addresses are optional and a failure to bind one is recorded
 // for the Tailscale page instead of taking the primary listener down.
 func (s *Server) Listen(ctx context.Context, addrs ...string) (*Listeners, error) {
+	return s.ListenWith(ctx, func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }, addrs...)
+}
+
+// ListenWith is Listen with a caller-chosen binder. A standby uses it with
+// netbind.Listen to hold the service address with IP_FREEBIND before the
+// address is moved to it, so a promotion serves without waiting for a bind.
+func (s *Server) ListenWith(ctx context.Context, bind func(addr string) (net.Listener, error), addrs ...string) (*Listeners, error) {
 	if len(addrs) == 0 {
 		return nil, fmt.Errorf("no proxy listen address")
+	}
+	if bind == nil {
+		bind = func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }
 	}
 	seen := map[string]bool{}
 	out := &Listeners{s: s, ctx: ctx}
@@ -462,7 +472,7 @@ func (s *Server) Listen(ctx context.Context, addrs ...string) (*Listeners, error
 		if addr == "" || seen[addr] {
 			continue
 		}
-		ln, err := net.Listen("tcp", addr)
+		ln, err := bind(addr)
 		if err != nil {
 			if i == 0 {
 				out.Close()

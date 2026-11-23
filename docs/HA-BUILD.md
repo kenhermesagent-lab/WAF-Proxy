@@ -12,16 +12,16 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P0-00 lab | not started | VIP mode needs two VMs |
 | P0-01 role file | landed | `internal/ha/role_test.go` |
 | P0-02 listener lifecycle | landed | `internal/proxy/listen_test.go`, 100 bind/close cycles |
-| P0-03 loop gate | partial | `internal/ha/gate_test.go`; backup and auto-update managers still start inside `internal/api` |
+| P0-03 loop gate | landed | `internal/ha/gate_test.go`; backup and auto-update managers moved into the restartable active supervisor in `cmd/wafproxy/plane.go` |
 | P0-04 `IP_FREEBIND` | landed | `internal/netbind` |
 | P0-05 management listener | landed | config validation plus a second console listener |
-| P0-06 `ReloadAll` | not started | |
+| P0-06 `ReloadAll` | landed | `api.ReloadAll` reloads every site's policy and the proxy routes; the promotion calls it |
 | P0-07 sealed certificate keys | landed, schema 23 | `internal/store/cert_seal_test.go` |
 | P0-08 hashed gate tokens | landed, schema 24 | `internal/store/gate_hash_test.go` |
 | P0-09 table classification | landed | `internal/store/classification_test.go` |
 | P0-10 `recover --rotate-master-key` | not started | |
 | P1-01 state machine | landed | `internal/ha/state_test.go` |
-| P1-02 control socket | not started | |
+| P1-02 control socket | landed | `internal/ha/control.go`, 0600 socket inside a 0700 directory, `internal/ha/failover_test.go` |
 | P1-03 `ha status` | landed | `cmd/wafproxy/ha_test.go` |
 | P1-04 readiness and health | landed | `internal/api` handler tests |
 | P1-05 read-only standby | landed | `internal/api/standby_test.go` |
@@ -40,7 +40,13 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P4-06 pull protocol | landed | one page per second, contiguous apply, `(origin, seq)` dedupe, ack watermark, prune |
 | P4-07 overflow | landed | 100 MiB ceiling returns 409, the standby takes a snapshot, the ack resets the stream |
 | P4-08 diagnostics | landed | `ha status --json`, `/api/ha/diagnostics`, `wafproxy_ha_outbox_depth` |
-| P5-P8 | not started | |
+| P5-01 preflight | landed | `internal/ha/preflight.go`, one failure test per check; `ha failover --dry-run --json` |
+| P5-02 quiesce, drain, epoch | landed | `internal/ha/failover.go`, `role.go`; a crash after persisting the epoch restarts as `promoting` |
+| P5-03 promotion sequence | landed | ordered hooks in `Promote`; `api.ReloadAll`, `ban.Reconcile`, `proxy.ListenWith` |
+| P5-04 control socket, keepalived | code landed, lab pending | `cmd/wafproxy/ha_move.go`, `deploy/ha/keepalived.conf`, `deploy/ha/notify.sh` |
+| P5-05 drain and rejoin | code landed, lab pending | standby pre-binds with `IP_FREEBIND` and serves nothing; `dataPlane.Drain` closes listeners and forwarders |
+| P5-06 failback | landed | `Demote`, `ha failback`; an abort is refused once the data plane serves |
+| P6-P8 | not started | |
 
 **Replication boundary.** Configuration still travels as a whole snapshot, once
 immediately after pairing and every 30 s after that (P3-04's debounce replaces the
@@ -57,11 +63,19 @@ clears every table before inserting any, because deleting `users` cascades into
 `sessions`. A standby writes no audit rows of its own, so the chain it receives from the
 active still verifies after promotion.
 
+The 30-second snapshot check is gated by a configuration digest: the standby asks
+`/ha/config` for the active's canonical hash of the replicated tables and restores a
+snapshot only when it differs, so an idle pair does not rewrite every table twice a
+minute. A gap, an overflow or an apply error still forces a restore.
+
 **Not covered yet.** Only the active captures, so a returning old active still needs a
-snapshot (P5). Applied rows are not forwarded to a third node. The P4 gate was exercised
-with two stores and the real pinned TLS listener on loopback, not on two VMs with a VIP:
-10,000 logins with a `kill -9` failover, the 200 ms ban-before-crash check and the
-`fill-disk` overflow fixture remain lab work for P5/P8.
+snapshot (P5-05/P5-06 land the sequence, not the lab run). Applied rows are not forwarded
+to a third node. The P4 gate was exercised with two stores and the real pinned TLS
+listener on loopback, not on two VMs with a VIP: 10,000 logins with a `kill -9` failover,
+the 200 ms ban-before-crash check and the `fill-disk` overflow fixture remain lab work for
+P5/P8. The P5 gate itself — ten planned and ten unplanned moves across two VMs, WebSocket
+close codes, RTO and `tcpdump vrrp` — has not been run; there is no VIP, keepalived or
+root nftables in the build environment.
 
 Gaps inside the landed slice: the role gate wraps the loops started in `run()`, but the
 backup and auto-update managers start inside `internal/api` and still run on a standby until
@@ -545,6 +559,17 @@ overflow path exercised. **Rollback:** revert P4; schema 24 stays, empty and ine
 
 **Goal.** An operator can move traffic deliberately, and the move is measured rather than
 hoped for.
+
+**Build note (dark, on `ha/full-build`).** The sequence, the preflight, the control
+socket and the keepalived hook are built and unit-tested with injected hooks. A standby
+now pre-binds the service address with `IP_FREEBIND`, serves nothing, follows the stream
+until a move, and on demotion drains its listeners and forwarders while the process stays
+up. Promotion stops the follower, quiesces and drains the peer, re-runs preflight at the
+head of the stream, persists the next epoch with `fsync`, reloads every site's policy,
+reconciles bans into the kernel, serves, and only then writes the active role. Every step
+before `serve` rolls back to standby; an abort after `serve` is refused with the reason.
+The pieces that need two VMs are not verified here: the VIP actually moving, keepalived's
+notify exit codes, WebSocket/SSE close codes, and the RTO measurements.
 
 **Entry:** P4 merged. **Exit:** P5 gate on two VMs.
 

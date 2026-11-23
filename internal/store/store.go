@@ -41,12 +41,9 @@ type Store struct {
 	// auditMu serialises audit appends so each row links to the one before it.
 	// A pointer, so a site-scoped copy shares the same lock.
 	auditMu *sync.Mutex
-	// nodeID enables HA change capture. Empty on a standalone node, the CLI and
-	// a standby, where the outbox stays empty.
-	nodeID string
-	// auditOff stops local audit writes. A standby must not fork the chain the
-	// active streams, or verification fails after a failover.
-	auditOff bool
+	// capture holds the HA toggles. It is shared by every site-scoped copy, so
+	// a promotion reaches handles that were made before it.
+	capture *haCapture
 }
 
 // ErrNotFound is returned when a row does not exist.
@@ -91,7 +88,7 @@ func Open(dir string) (*Store, error) {
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
-	s := &Store{db: db, auditMu: &sync.Mutex{}}
+	s := &Store{db: db, auditMu: &sync.Mutex{}, capture: &haCapture{}}
 	if err := s.migrate(); err != nil {
 		return nil, err
 	}
@@ -124,10 +121,42 @@ func (s *Store) Close() error { return s.db.Close() }
 // restarts or every session is invalidated.
 func (s *Store) SetSessionKey(key []byte) { s.sessionKey = key }
 
+// QuickCheck runs PRAGMA quick_check, the cheap integrity check a promotion
+// preflight uses. An ok database returns "ok".
+func (s *Store) QuickCheck() (string, error) {
+	var v string
+	err := s.db.QueryRow(`PRAGMA quick_check(1)`).Scan(&v)
+	return v, err
+}
+
+// Writable proves the database accepts a write and rolls it back, so a
+// promotion does not discover a read-only volume after traffic has moved.
+func (s *Store) Writable() (bool, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, q := range []string{
+		`CREATE TABLE IF NOT EXISTS ha_write_probe(x INTEGER)`,
+		`INSERT INTO ha_write_probe VALUES(1)`,
+		`DROP TABLE ha_write_probe`,
+	} {
+		if _, err := tx.Exec(q); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
 // SetAuditEnabled turns local audit writes on or off. A standby turns them off:
 // its audit rows arrive from the active, and a local row would break the hash
 // chain VerifyAuditChain walks after a failover.
-func (s *Store) SetAuditEnabled(enabled bool) { s.auditOff = !enabled }
+func (s *Store) SetAuditEnabled(enabled bool) {
+	if s.capture != nil {
+		s.capture.auditOff.Store(!enabled)
+	}
+}
 
 // SetSecretBox installs the box that seals secret columns. It must be set
 // before certificates are read or written, and stay stable across restarts.
@@ -1187,7 +1216,7 @@ func (s *Store) AddAudit(user, action, detail, ip string) {
 // addAuditLocked appends one entry to the chain and returns its id. The caller
 // holds auditMu.
 func (s *Store) addAuditLocked(user, action, detail, ip string) int64 {
-	if s.auditOff {
+	if s.capture != nil && s.capture.auditOff.Load() {
 		return 0
 	}
 	tx, err := s.db.Begin()

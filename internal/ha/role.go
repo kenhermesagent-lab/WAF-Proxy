@@ -4,6 +4,7 @@ package ha
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -22,8 +23,11 @@ const (
 // Node is the local, un-replicated role record. It lives on disk rather than in
 // SQLite so a database restore cannot silently change which node serves.
 type Node struct {
-	NodeID    string `json:"node_id"`
-	Role      Role   `json:"role"`
+	NodeID string `json:"node_id"`
+	Role   Role   `json:"role"`
+	// State is the finer-grained place in a move. It is optional so a role file
+	// written before P5 still loads; an empty state is derived from the role.
+	State     State  `json:"state,omitempty"`
 	Epoch     int64  `json:"epoch"`
 	Peer      string `json:"peer,omitempty"`
 	UpdatedAt string `json:"updated_at"`
@@ -31,9 +35,26 @@ type Node struct {
 
 // Active reports whether the node may serve traffic and run background loops.
 // Standalone is the HA-off state and stays active, so a single node behaves
-// exactly as it did before HA existed.
+// exactly as it did before HA existed. A node that persisted `promoting` is
+// still a standby by role and does not serve.
 func (n *Node) Active() bool {
 	return n.Role == RoleActive || n.Role == RoleStandalone
+}
+
+// EffectiveState is the state the console and `ha status` show. A role file
+// from before P5 has no state, so it is derived from the role.
+func (n *Node) EffectiveState() State {
+	if n.State != "" {
+		return n.State
+	}
+	switch n.Role {
+	case RoleActive:
+		return StateActive
+	case RoleStandalone:
+		return StateStandalone
+	default:
+		return StateStandby
+	}
 }
 
 // RoleDir returns the directory holding the role file for a data directory.
@@ -68,6 +89,9 @@ func Load(dataDir string) (*Node, error) {
 	if !validRole(n.Role) || n.NodeID == "" || n.Epoch < 0 {
 		return &Node{Role: RoleStandby}, errors.New("ha: invalid role file")
 	}
+	if n.State != "" && !validState(n.State) {
+		return &Node{Role: RoleStandby}, errors.New("ha: invalid role file state")
+	}
 	return &n, nil
 }
 
@@ -76,6 +100,9 @@ func Load(dataDir string) (*Node, error) {
 func Save(dataDir string, n *Node) error {
 	if !validRole(n.Role) {
 		return errors.New("ha: invalid role")
+	}
+	if n.State != "" && !validState(n.State) {
+		return errors.New("ha: invalid state")
 	}
 	if n.NodeID == "" || n.Epoch < 0 {
 		return errors.New("ha: node id and a non-negative epoch are required")
@@ -122,4 +149,58 @@ func Save(dataDir string, n *Node) error {
 
 func validRole(r Role) bool {
 	return r == RoleStandalone || r == RoleActive || r == RoleStandby
+}
+
+func validState(s State) bool {
+	switch s {
+	case StateStandalone, StateStandby, StateReadyStandby, StatePromoting,
+		StateActive, StateDraining, StateDemoting, StateFenced, StateSplitBrainRisk:
+		return true
+	}
+	return false
+}
+
+// BeginPromotion persists the next epoch before any listener may accept. The
+// role stays standby, so a crash at this point restarts as a promoting standby
+// rather than an active node with the old epoch. Save fsyncs the file and its
+// directory before returning.
+func BeginPromotion(dataDir string, n *Node, epoch int64) (*Node, error) {
+	if n.Role != RoleStandby && n.Role != RoleStandalone {
+		return nil, fmt.Errorf("ha: cannot promote a %s node", n.Role)
+	}
+	if epoch <= n.Epoch {
+		return nil, fmt.Errorf("ha: promotion epoch %d must be above %d", epoch, n.Epoch)
+	}
+	out := *n
+	out.State = StatePromoting
+	out.Epoch = epoch
+	if err := Save(dataDir, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Activate writes the new role and epoch after the promotion sequence has done
+// its work. Callers serve only after this returns.
+func Activate(dataDir string, n *Node, epoch int64) (*Node, error) {
+	out := *n
+	out.Role = RoleActive
+	out.State = StateActive
+	out.Epoch = epoch
+	if err := Save(dataDir, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ReturnToStandby records that this node no longer serves. It keeps the epoch,
+// because a later promotion must still move past it.
+func ReturnToStandby(dataDir string, n *Node) (*Node, error) {
+	out := *n
+	out.Role = RoleStandby
+	out.State = StateStandby
+	if err := Save(dataDir, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

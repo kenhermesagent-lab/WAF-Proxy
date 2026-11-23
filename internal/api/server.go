@@ -92,6 +92,12 @@ type Server struct {
 	// haStatus reports this node's effective role. Nil on a build or test
 	// without HA, where the node is always standalone and serving.
 	haStatus func() HAStatus
+	// haWriteGate pauses configuration writes while a planned move quiesces
+	// this node. Reads stay open. Nil means writes are never paused.
+	haWriteGate func() bool
+	// writes counts mutating console requests in flight, so a promotion
+	// preflight can refuse to start while an edit is still landing.
+	writes atomic.Int64
 
 	// CrowdSec one-click install progress, polled by the CrowdSec page.
 	csMu      sync.Mutex
@@ -576,6 +582,14 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if s.haWriteGate != nil && s.haWriteGate() {
+				writeError(w, http.StatusConflict, "configuration writes are paused for a failover")
+				return
+			}
+			s.writes.Add(1)
+			defer s.writes.Add(-1)
+		}
 		// Sliding idle timeout (12 h) bounded by an absolute 7 day lifetime. It
 		// only refreshes once less than half the window remains, so an active
 		// session costs at most one write per six hours.
@@ -678,6 +692,27 @@ type HAStatus struct {
 
 // SetHAStatus installs the role source used by health and the standby guard.
 func (s *Server) SetHAStatus(fn func() HAStatus) { s.haStatus = fn }
+
+// SetWriteGate installs the pause that stops new configuration writes while a
+// move drains this node. Reads and the HA routes stay open.
+func (s *Server) SetWriteGate(fn func() bool) { s.haWriteGate = fn }
+
+// ConfigWritesInFlight reports mutating console requests still running. A
+// promotion preflight uses it so a move does not start on top of an edit.
+func (s *Server) ConfigWritesInFlight() int { return int(s.writes.Load()) }
+
+// ReloadAll recompiles every site's policy and the proxy routing table from the
+// database. A promotion calls it after draining replication, when this node's
+// copy is at the peer's head.
+func (s *Server) ReloadAll(ctx context.Context) error {
+	s.reloadPolicies()
+	if s.proxy != nil {
+		if err := s.proxy.Reload(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // standbyAllows reports whether a request may reach its handler on a standby.
 // Reads keep the console usable; the HA control routes and the login/account

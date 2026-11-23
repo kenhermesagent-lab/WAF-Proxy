@@ -57,6 +57,54 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	}
 }
 
+// The configuration digest is what keeps the standby's 30-second snapshot from
+// rewriting live sessions on every tick.
+func TestConfigHashTracksConfigurationOnly(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	st.SetSessionKey([]byte("0123456789abcdef0123456789abcdef"))
+	userID, err := st.CreateUser("admin", "hash", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := st.ConfigHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(base) != 64 {
+		t.Fatalf("config hash = %q, want 64 hex characters", base)
+	}
+
+	// Streamed state must not move the configuration digest.
+	if err := st.CreateSession("cookie", userID, "csrf", "", "", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.ConfigHash(); err != nil || got != base {
+		t.Fatalf("a session changed the config hash: %s, %v", got, err)
+	}
+
+	if err := st.Unscoped().SetSetting("ha.probe", "one"); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := st.ConfigHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == base {
+		t.Fatal("a settings change did not move the config hash")
+	}
+	// The digest is over content, not history: removing the row restores it.
+	if _, err := st.db.Exec(`DELETE FROM settings WHERE key = 'ha.probe'`); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.ConfigHash(); err != nil || got != base {
+		t.Fatalf("config hash is not canonical: %s, %v", got, err)
+	}
+}
+
 // A session references its user with ON DELETE CASCADE. Clearing users after a
 // session was restored used to wipe the session, so the restore has to clear
 // every table before it inserts any row.

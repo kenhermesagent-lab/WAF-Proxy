@@ -45,6 +45,7 @@ type JoinServer struct {
 	store     *store.Store
 	log       *slog.Logger
 	limit     *attemptLimiter
+	quiesce   *Quiesce
 }
 
 // NewJoinServer builds the handler for one node. masterKey is handed to a
@@ -74,6 +75,8 @@ func (s *JoinServer) Handler() http.Handler {
 	mux.HandleFunc("GET /ha/snapshot", s.snapshot)
 	mux.HandleFunc("GET /ha/outbox", s.outbox)
 	mux.HandleFunc("POST /ha/outbox/ack", s.outboxAck)
+	mux.HandleFunc("GET /ha/config", s.configHandler)
+	mux.HandleFunc("POST /ha/quiesce", s.quiesceNode)
 	return mux
 }
 

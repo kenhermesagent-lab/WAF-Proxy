@@ -1,14 +1,16 @@
 # High availability: an active/standby pair
 
-> **Status: partly implemented on `ha/full-build`, dark by default.** P0-P4 of
+> **Status: partly implemented on `ha/full-build`, dark by default.** P0-P5 of
 > `docs/HA-BUILD.md` are built: role file, pairing and join with a pinned
-> certificate, sealed master-key transfer, whole-database snapshot replication, and
-> a row-level outbox for sessions, trusted devices, password resets, bans, gate
-> sessions and failures, audit and alerts. Everything is gated by
-> `WAFPROXY_HA_ENABLE` (off by default), so a single-node install behaves as it did
-> before. Failover and failback, the witness and epochs, the console page and the
-> two-VM lab are not built; sections that describe them state the intended end
-> state. `docs/HA-BUILD.md` carries the per-task status and the known gaps.
+> certificate, sealed master-key transfer, whole-database snapshot replication
+> gated by a configuration digest, a row-level outbox for sessions, trusted
+> devices, password resets, bans, gate sessions and failures, audit and alerts, and
+> manual failover and failback through a local control socket with a keepalived
+> notify hook. Everything is gated by `WAFPROXY_HA_ENABLE` (off by default), so a
+> single-node install behaves as it did before. The automatic heartbeat, witness and
+> fencing (P6), the console page (P7) and the two-VM lab gates are not built;
+> sections that describe them state the intended end state. `docs/HA-BUILD.md`
+> carries the per-task status and the known gaps.
 >
 > The document is written so an operator can read the runbooks as the intended
 > end state and an implementer can build against them. Each section that asserts
@@ -381,7 +383,9 @@ exec sudo -u wafproxy /usr/local/bin/wafproxy ha notify "$1"
 ```
 
 Make it executable and readable only by root and the service group:
-`chown root:wafproxy`, `chmod 0750`.
+`chown root:wafproxy`, `chmod 0750`. Both files ship in `deploy/ha/`; they talk to
+`/run/wafproxy-ha/ha.sock` by default (override with
+`WAFPROXY_HA_CONTROL_SOCKET`).
 
 ### 6.2 Minimal unicast VRRP instance
 
