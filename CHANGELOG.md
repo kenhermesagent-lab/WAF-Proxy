@@ -12,6 +12,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.55.1] — 2026-11-23
+
+### Fixed
+
+- **An install that banned one address on two sites failed to start.** The base schema still
+  created the pre-sites unique index on `bans.cidr` while the per-site migration replaces it with
+  one on `(site_id, cidr)`. Once a second site held the same address, every start stopped at
+  `apply schema: constraint failed: UNIQUE constraint failed: bans.cidr`, and a self-update
+  rollback could not help because the older binary reads the same database. The base schema no
+  longer creates the global index; the per-site migration drops any leftover one and enforces the
+  pair, so a database already in the restart loop boots again without manual repair.
+
 ## [1.55.0] — 2026-11-23
 
 ### Added

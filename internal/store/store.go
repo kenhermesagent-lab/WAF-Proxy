@@ -324,7 +324,6 @@ CREATE TABLE IF NOT EXISTS bans (
   created_at TEXT NOT NULL,
   expires_at TEXT
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_bans_cidr ON bans(cidr);
 CREATE INDEX IF NOT EXISTS idx_bans_exp ON bans(expires_at);
 CREATE TABLE IF NOT EXISTS feeds (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
