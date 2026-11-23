@@ -11,6 +11,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.48.6] — 2026-11-23
+
+### Documentation
+
+- **Every console page is pictured.** `docs/screenshots/` holds a capture of the dashboard,
+  statistics, proxies, streaming, policies, sources, threat intel, logs, anomaly events,
+  activity, access gate, certificates, agent access, notifications, settings, readiness and
+  updates, taken from a demo install with sample sites, bans, events and a certificate. The
+  [screenshot index](docs/screenshots/README.md) says which page each image shows, and the
+  README, the configuration reference, the installation pages, the runbook and this release's
+  security policy embed the ones they describe.
+- **Corrections after checking the guides against a running console.** The runbook's renewal
+  line now states the real policy (checked every 12 hours; a month before expiry by default,
+  with `Every 3 months` capped at seven days before expiry), the lost-password section starts
+  with `wafproxy recover --user … --password … --reset-totp` instead of jumping to deleting the
+  database, and the release-tag section describes the tagging convention rather than claiming
+  every changelog section already has a tag.
+- **The README states the sampling rule exactly** (`sample_above_rps`, 500 requests per second
+  by default) instead of saying allowed requests are never logged.
+- **SECURITY.md**: removed a duplicated "Reporting a vulnerability" heading, put the delivered
+  fixes back in newest-first order, and replaced the claim that `govulncheck` runs in CI with
+  what CI actually runs (`go vet`, the race suite, `npm audit --omit=dev`).
+
 ## [1.48.5] — 2026-11-23
 
 ### Fixed

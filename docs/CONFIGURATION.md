@@ -4,6 +4,9 @@ Every knob the console exposes, what it changes, and where the change is enforce
 **bold** are the defaults. Sections follow the sidebar, and the tables are named after the control
 you see on screen.
 
+Every picture below comes from the demo install these notes were checked against, so the sites,
+bans and events in them are sample data.
+
 For installing the service see [Installation](INSTALL.md); for day-to-day checks, recovery and
 troubleshooting see the [operations runbook](OPERATIONS.md); for the wire API see
 [openapi.yaml](openapi.yaml).
@@ -74,6 +77,11 @@ Headless alternative: `wafproxy setup --password …` creates the first administ
 browser.
 
 ## Settings
+
+![Settings: network, protection, retention, backup and the GeoIP database](screenshots/settings.png)
+
+*Settings: network, protection, retention, backup and the GeoIP database. Sample data.*
+
 
 **Settings** holds node-wide defaults. Saving reloads the policy engine, the body limit, the
 stealth rules and the interface sampler without dropping connections. Bind-address changes take
@@ -180,6 +188,11 @@ YAML transport, but have no field on the Settings page:
 
 ## Proxies
 
+![Proxies: hostnames, upstream health and the per-site protection settings](screenshots/proxies.png)
+
+*Proxies: hostnames, upstream health and the per-site protection settings. Sample data.*
+
+
 A proxy is one hostname: certificate, upstream pool, protection, optional access gate, and routes.
 The list can be filtered by hostname/upstream and by state (enabled, disabled, maintenance), and
 sorted by hostname, requests or blocks. **360** opens the site's traffic, health and configuration
@@ -277,6 +290,11 @@ Cal.com, the \*arr suite (Sonarr, Radarr, Lidarr, Readarr, Prowlarr) and Generic
 
 ## Streaming
 
+![Streaming: one byte-relay forwarder per media application](screenshots/streaming.png)
+
+*Streaming: one byte-relay forwarder per media application. Sample data.*
+
+
 Streaming forwarders relay TCP byte for byte to a media server. TLS stays end to end, so the WAF
 and access gate cannot inspect the payload — but the source allow list, named lists, connection
 cap and ban engine still apply, and a running stream is cut when a ban lands.
@@ -297,6 +315,11 @@ immediately; restart only after changing bind addresses. Each application card i
 router and application-side steps (Plex allow-without-auth list, Jellyfin known proxies).
 
 ## Policies
+
+![Policies: bans, the global profile, WAF and protection profiles, lists](screenshots/policies.png)
+
+*Policies: bans, the global profile, WAF and protection profiles, lists. Sample data.*
+
 
 Policies decide what happens before traffic reaches a proxy. The page is tabbed.
 
@@ -437,6 +460,11 @@ a puzzle.
 
 ### Sources
 
+![Sources: threat feeds, local lists and per-address investigation](screenshots/sources.png)
+
+*Sources: threat feeds, local lists and per-address investigation. Sample data.*
+
+
 The source explorer aggregates requests, blocks, distinct hosts and ban state per client address for
 1 hour, 24 hours, 7 days or 30 days, optionally filtered by IP prefix. Clicking a row opens the
 source drawer: totals for 1 h/24 h/7 d/30 d, block share, hosts, first/last seen, intel matches,
@@ -444,6 +472,11 @@ recent requests and ban state. Administrators with `policies.write` can ban for 
 reason or release a ban; the drawer is read-only for other roles.
 
 ### Threat intel
+
+![Threat intel: feed health, entries and the intel rollup](screenshots/intel.png)
+
+*Threat intel: feed health, entries and the intel rollup. Sample data.*
+
 
 | Control | What it does |
 |---|---|
@@ -512,6 +545,11 @@ installed keep serving.",
 
 ## Logs
 
+![Logs: every proxied request with its stage, rule and outcome](screenshots/logs.png)
+
+*Logs: every proxied request with its stage, rule and outcome. Sample data.*
+
+
 | Control | What it does |
 |---|---|
 | Filters | Window, source IP, host, stage, action and free-text search. Stages run from `waf` and `response-waf` through `whitelist`, `method`, `protocol`, `route`, `stream`, `feed`, `list-block`, `list-allow`, `country-block`, `asn-block`, `decoy`, `decoy-host`, `dos`, `temp-ban`, `permanent-ban`, `access-gate`, `unknown-host` and the response-skip reasons. Actions are `allow`, `block`, `ban`, `challenge`, `log`. |
@@ -526,6 +564,11 @@ Allowed requests are sampled above `sample_above_rps`; every decision that block
 challenges produces one event row (source, country, ASN, host, path, stage, rule).
 
 ## Anomaly events
+
+![Anomaly events: behavioural detections against a rolling baseline](screenshots/anomalies.png)
+
+*Anomaly events: behavioural detections against a rolling baseline. Sample data.*
+
 
 Behavioural detections, compared once a minute against the same proxy's median over the last hour.
 
@@ -544,6 +587,11 @@ a restart only takes a sample.
 
 ## Activity (audit log)
 
+![Activity: the audit log with before/after diffs](screenshots/activity.png)
+
+*Activity: the audit log with before/after diffs. Sample data.*
+
+
 Every administrative mutation is recorded with actor, area, detail, source address and a
 before/after snapshot where one applies.
 
@@ -558,6 +606,11 @@ Auditing is tamper-evident, not tamper-proof: the chain detects edits or truncat
 file, not an attacker who can rewrite every row.
 
 ## Access gate
+
+![Access gate: site accounts, TOTP and lockouts](screenshots/access.png)
+
+*Access gate: site accounts, TOTP and lockouts. Sample data.*
+
 
 Accounts used by proxies whose gate mode is **Accounts** or **Accounts + TOTP**.
 
@@ -599,6 +652,11 @@ the same ban engine as everything else.
 
 ## Certificates
 
+![Certificates: issuance, renewal policy and expiry](screenshots/certs.png)
+
+*Certificates: issuance, renewal policy and expiry. Sample data.*
+
+
 | Field | What it does |
 |---|---|
 | Domains | Comma-separated names. Wildcards (`*.example.com`) require DNS-01. |
@@ -633,6 +691,11 @@ Two further sources exist in the API but have no button in the console:
   `GET /api/certs/internal/root` downloads the root to install on clients.
 
 ## AI Agent Access
+
+![AI Agent Access: the MCP endpoint and per-tool tokens](screenshots/agent.png)
+
+*AI Agent Access: the MCP endpoint and per-tool tokens. Sample data.*
+
 
 ### MCP gateway
 
@@ -672,6 +735,11 @@ count and error are shown.
 
 ## Notifications
 
+![Notifications: channels and per-event routing](screenshots/notifications.png)
+
+*Notifications: channels and per-event routing. Sample data.*
+
+
 Alerts are queued, retried and recorded. **Send test** proves a channel works.
 
 | Channel | Fields |
@@ -694,6 +762,11 @@ Explicit channel test messages are always sent. WhatsApp needs a paid Business A
 not included.
 
 ## Updates
+
+![Updates: application and host-package updates](screenshots/updates.png)
+
+*Updates: application and host-package updates. Sample data.*
+
 
 | Control | What it does |
 |---|---|
@@ -726,6 +799,11 @@ and `tcp:<gui_port>` (plus 53 when split DNS is on), and add a restricted namese
 domain pointing at the tailnet address.
 
 ## Readiness
+
+![Readiness: the scored hardening checklist](screenshots/readiness.png)
+
+*Readiness: the scored hardening checklist. Sample data.*
+
 
 A scored checklist of what a hardened install has that a working one may not. Each row links to the
 control that fixes it.

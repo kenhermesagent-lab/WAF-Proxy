@@ -13,6 +13,10 @@
 - [Admin configuration reference](CONFIGURATION.md) — every page, field, option, default and
   environment variable, and what each one changes
 
+**Look at it**
+- [Screenshots](screenshots/README.md) — every console page, captured from a demo install with
+  sample data
+
 **Operate**
 - [Operations runbook](OPERATIONS.md) — health, logs, backup, alerting, diagnostics, canary
 - [API reference](openapi.yaml) — generated from the routes the console serves, with

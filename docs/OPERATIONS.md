@@ -2,6 +2,11 @@
 
 ## Daily checks
 
+![Dashboard: needs-attention queue, live rates and the attack globe](screenshots/dashboard.png)
+
+*The dashboard of the demo install these pages were checked against; its sites, bans and events
+are sample data.*
+
 - **Dashboard** — WAN/LAN throughput, blocked ratio, top blocked sources, per-proxy live
   request and traffic rates, and the attack globe (1 h / 6 h / 24 h, category filters).
 - **Statistics** — date-range request outcomes, hourly traffic, per-proxy shares, visitor
@@ -9,7 +14,8 @@
   down/recovery transition is also sent to the **Backend up/down** notification channels.
 - **Policies → Temp/Permanent bans** — unexpected permanent bans usually mean a decoy hit
   or a feed false positive; both carry a reason and source.
-- **Certificates** — expiry and `last_error`. Renewal is automatic inside 30 days.
+- **Certificates** — expiry and `last_error`. Renewal is checked every 12 hours; the default
+  policy renews a month before expiry (`Every 3 months` is capped at seven days before expiry).
 - **Threat intel** — a feed stuck in `frozen` means the 5× growth guardrail tripped;
   inspect before enabling it again. Uploaded `.txt`/`.csv` lists appear as local feeds and are
   always global blocks. To replace one, delete it first and upload the new file.
@@ -51,10 +57,21 @@ with password + TOTP, or a single-use recovery code.
 
 ### Lost password and TOTP and recovery codes
 
-There is no online reset (that would be a backdoor). Stop the stack, back up the data volume,
-and remove `wafproxy.db` to re-run the setup wizard. This deletes proxies, bans, feeds,
-certificates and settings. Restore a JSON backup afterwards to recover configuration
-(secrets and certificates excluded).
+There is no online reset (that would be a backdoor), but the binary can repair an account
+without the console:
+
+```bash
+sudo env WAFPROXY_DATA_DIR=/var/lib/waf-proxy/data wafproxy recover \
+  --user admin --password 'a-new-12-plus-passphrase' --reset-totp
+```
+
+`recover` rewrites the password hash and, with `--reset-totp`, disables the authenticator so
+the next sign-in enrols a new one. Only the account you name is touched.
+
+If the database itself is unusable, stop the stack, back up the data volume, and remove
+`wafproxy.db` to re-run the setup wizard. This deletes proxies, bans, feeds, certificates and
+settings. Restore a JSON backup afterwards to recover configuration (secrets and certificates
+excluded).
 
 ### GeoIP install fails
 
@@ -377,8 +394,8 @@ a timeline.
 
 ## Release tags
 
-Every `CHANGELOG.md` section has an annotated tag `vX.Y.Z` on `main`. Pushing a
-tag runs only the `release` job at the tagged commit — publishing a batch of old
+A release is published with an annotated `vX.Y.Z` tag on the commit that carries its
+`CHANGELOG.md` section. Pushing a tag runs only the `release` job at the tagged commit — publishing a batch of old
 tags does not start a full build per tag — and that job fails when the tag name
 disagrees with `VERSION`, or when the newest `CHANGELOG.md` section or
 `internal/version/version.go` disagrees with it. Branch pushes still run every

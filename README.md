@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.48.5.
+systemd service. Version 1.48.6.
 
 ## Contents
 
@@ -103,7 +103,8 @@ the reason. It is off by default because it delays the first byte by up to one b
 
 Every decision that blocks, bans or challenges produces one event row (source, country, ASN, host,
 path, stage, rule) that feeds the dashboard, the globe, Logs, Sources and notifications. Allowed
-requests are sampled rather than logged, so the event table stays small on a busy site.
+requests are downsampled once the site passes `sample_above_rps` (500 requests per second by
+default), so the event table stays small on a busy site.
 
 ## Signature bundles
 
@@ -212,6 +213,12 @@ the same address, so upstreams are reached over that interface. Enter the addres
 in the wizard and in **Settings → Network**, and do not forward the console port from the router.
 
 ## The console
+
+![Dashboard: needs-attention queue, live rates, attack globe and per-site traffic](docs/screenshots/dashboard.png)
+
+*The console of the demo install these docs were written against. The sites, bans and events in
+the screenshots are sample data; the [screenshot index](docs/screenshots/README.md) lists every
+page.*
 
 | Page | What it covers |
 |---|---|
@@ -333,6 +340,7 @@ re-records the performance baseline after a deliberate change.
 - [docs/openapi.yaml](docs/openapi.yaml) — generated reference for every admin API route
 - [docs/MCP.md](docs/MCP.md) — agent gateway, tool reference, containment playbook
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — runbook, troubleshooting, capacity
+- [docs/screenshots/](docs/screenshots/README.md) — screenshots of every console page, with sample data
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology
 - [CHANGELOG.md](CHANGELOG.md) — release history
 
