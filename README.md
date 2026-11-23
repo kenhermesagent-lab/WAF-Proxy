@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.49.0.
+systemd service. Version 1.49.2.
 
 ## Contents
 
@@ -83,6 +83,7 @@ systemd service. Version 1.49.0.
 - `wafproxy recover --password … --reset-totp` resets a locked-out account.
 - `wafproxy backup --keep 7` writes an encrypted backup and prunes older ones.
 - `wafproxy unban <ip|cidr>` removes a ban while the console is unreachable.
+- `wafproxy sites list|add|rename|remove` manages the sites one process serves.
 - `bundletool keygen|sign` publishes a signed signature-bundle channel.
 
 ## How a request is handled
@@ -103,7 +104,8 @@ the reason. It is off by default because it delays the first byte by up to one b
 
 Every decision that blocks, bans or challenges produces one event row (source, country, ASN, host,
 path, stage, rule) that feeds the dashboard, the globe, Logs, Sources and notifications. Allowed
-requests are sampled rather than logged, so the event table stays small on a busy site.
+requests are downsampled once the site passes `sample_above_rps` (500 requests per second by
+default), so the event table stays small on a busy site.
 
 ## Signature bundles
 
@@ -213,6 +215,12 @@ in the wizard and in **Settings → Network**, and do not forward the console po
 
 ## The console
 
+![Dashboard: needs-attention queue, live rates, attack globe and per-site traffic](docs/screenshots/dashboard.png)
+
+*The console of the demo install these docs were written against. The sites, bans and events in
+the screenshots are sample data; the [screenshot index](docs/screenshots/README.md) lists every
+page.*
+
 | Page | What it covers |
 |---|---|
 | Dashboard | Needs-attention queue, live requests and byte rates, attack globe with country drill-down, top sources, upstream health |
@@ -297,6 +305,9 @@ secrets are not part of the document.
   action without exposing the Docker socket to the console.
 - **Agent gateway.** The MCP endpoint is documented in [docs/MCP.md](docs/MCP.md); tokens are
   limited per tool and can be revoked from **Agent access**.
+- **Sites.** Every configurable row belongs to a site. An upgrade adopts the existing install as
+  `default`, with its current `base_domain` as the console host, and `wafproxy sites` manages the
+  rest; per-site console routing is the next step.
 
 ## Development
 
@@ -328,6 +339,7 @@ re-records the performance baseline after a deliberate change.
 - [docs/openapi.yaml](docs/openapi.yaml) — generated reference for every admin API route
 - [docs/MCP.md](docs/MCP.md) — agent gateway, tool reference, containment playbook
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — runbook, troubleshooting, capacity
+- [docs/screenshots/](docs/screenshots/README.md) — screenshots of every console page, with sample data
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology
 - [CHANGELOG.md](CHANGELOG.md) — release history
 

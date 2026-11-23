@@ -67,12 +67,14 @@ func main() {
 			err = recoverCLI(os.Args[2:])
 		case "backup":
 			err = backupCLI(os.Args[2:])
+		case "sites":
+			err = sitesCLI(os.Args[2:])
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, os.Args[1]+":", err)
 			os.Exit(1)
 		}
-		if os.Args[1] == "unban" || os.Args[1] == "setup" || os.Args[1] == "recover" || os.Args[1] == "backup" {
+		if os.Args[1] == "unban" || os.Args[1] == "setup" || os.Args[1] == "recover" || os.Args[1] == "backup" || os.Args[1] == "sites" {
 			return
 		}
 	}

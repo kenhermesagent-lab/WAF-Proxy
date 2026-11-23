@@ -9,9 +9,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - `MAJOR.MINOR.PATCH`, tracked in `VERSION` (single source of truth).
 - Each completed plan phase bumps **MINOR**: `0.1.0` → `0.2.0` → … → `1.0.0`.
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
-- Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
+- Every push to `main` has a matching section here; a release is published with an annotated
+  `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.49.0] — 2026-11-23
+## [1.49.2] — 2026-11-23
 
 ### Changed
 
@@ -39,6 +40,106 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   pointed at a Policies query parameter that no longer selected the tab.
 - **A long kernel status reason no longer widens Settings at phone width.** The runtime row uses
   the same wrapping badge as Policies, so the page keeps its 390px width.
+- **Copy that named the old pages points at the new tabs**: access-profile hints name Profiles and
+  Lists, Streaming points at Policies → Lists, and Settings names Threat intel → CrowdSec.
+
+## [1.49.1] — 2026-11-23
+
+### Documentation
+
+- **The release convention no longer claims a tag per push.** The header here said every push to
+  `main` carries an annotated `vX.Y.Z` tag, which the repository does not do; it now says what
+  `docs/OPERATIONS.md` says — every push has a section, and a release is published by tagging the
+  commit that carries it.
+- **`docs/MCP.md` matches the gateway.** The page is **AI Agent Access**, the read-tool table was
+  missing `list_anomalies` (1–200, default 50), and `block_ip`'s `ttl_seconds` is 0–31536000 with
+  `0` meaning 24 hours unless `permanent` is set, not 60–31536000.
+- **`docs/BENCHMARKS.md`** no longer calls 8 MiB the *default* body ceiling: 8 MiB is the hard
+  ceiling on a profile's inspected body and the shipped profiles default to 128 KiB.
+- **`docs/ROADMAP.md` delivery status** was self-contradictory — its Phase 4 bullet said console
+  TLS and revocation were both missing and shipped in 1.40.0, and its Phase 5 bullet listed
+  diagnostics, the canary, the OpenAPI check and the INSTALL split as undelivered while also
+  naming them as done. It now lists what shipped per phase and what is still outstanding
+  (`setup --config` with `WAFPROXY_SETUP_*`, `recover --rotate-master-key`, install-time
+  preflight, per-stage latency metrics, certificate/ACME counters, flap detection, SLO rollups,
+  recipe pages), and the screenshot item is marked delivered.
+- **`docs/openapi.yaml` regenerated** so the route reference and its `info.version` match the
+  build again; `go run ./tools/openapi -check` passes.
+
+## [1.49.0] — 2026-11-23
+
+### Added
+
+- **Sites, the foundation for multi-domain hosting.** Every configurable row now carries a site,
+  and a `site_settings` overlay lets a site override its own behaviour while host-wide keys (bind
+  addresses, update schedule, CrowdSec, Tailscale) stay fixed for the process. An existing install
+  is adopted by a single `default` site whose console host is the `base_domain` it already
+  advertised, so nothing has to be reconfigured and no console behaviour changes. `wafproxy sites
+  list|add|rename|remove` manages sites, and a slug, console host or site row is validated and
+  unique before it is written.
+
+## [1.48.8] — 2026-11-23
+
+### Documentation
+
+- **Every console page is pictured.** `docs/screenshots/` holds a capture of the dashboard,
+  statistics, proxies, streaming, policies, sources, threat intel, logs, anomaly events,
+  activity, access gate, certificates, agent access, notifications, settings, readiness and
+  updates, taken from a demo install with sample sites, bans, events and a certificate. The
+  [screenshot index](docs/screenshots/README.md) says which page each image shows, and the
+  README, the configuration reference, the installation pages, the runbook and this release's
+  security policy embed the ones they describe.
+- **Corrections after checking the guides against a running console.** The runbook's renewal
+  line now states the real policy (checked every 12 hours; a month before expiry by default,
+  with `Every 3 months` capped at seven days before expiry), the lost-password section starts
+  with `wafproxy recover --user … --password … --reset-totp` instead of jumping to deleting the
+  database, and the release-tag section describes the tagging convention rather than claiming
+  every changelog section already has a tag.
+- **The README states the sampling rule exactly** (`sample_above_rps`, 500 requests per second
+  by default) instead of saying allowed requests are never logged.
+- **SECURITY.md**: removed a duplicated "Reporting a vulnerability" heading, put the delivered
+  fixes back in newest-first order, and replaced the claim that `govulncheck` runs in CI with
+  what CI actually runs (`go vet`, the race suite, `npm audit --omit=dev`).
+
+## [1.48.7] — 2026-11-23
+
+### Fixed
+
+- **Bundle hits report what happened, not what the profiles would allow.** The outcome badge came
+  from the installed profile modes, so a rule that only ever matched on a log-only site still read
+  "blocked" because some other profile allows blocking it. The query now returns blocked and logged
+  counts from the recorded event action, a rule that saw both shows both badges, the column is
+  labelled Outcome, and the "these requests were served" banner follows the same counts.
+- **The profile dialog said "1 rules"** for a single-rule pack; the count is pluralised.
+
+## [1.48.6] — 2026-11-23
+
+### Added
+
+- **An end-to-end bundle channel test.** It serves a real signed manifest over `httptest`, then
+  covers the first install, a `304` on the next check, a version bump that replaces the pack, and a
+  profile switched to `block` refusing a matching request with a 403 — the whole path from
+  publisher to verdict in one test instead of a unit test per step.
+
+### Fixed
+
+- **The previous bundle version survives an install.** `prune` counted the installed version against
+  its own budget, so the first install after a bump deleted the pack it is supposed to keep,
+  leaving nothing to roll back to. It now keeps the installed pack plus the one before it, which
+  the new end-to-end test asserts.
+
+## [1.48.5] — 2026-11-23
+
+### Fixed
+
+- **The configuration reference matches the code.** Corrected health probes (HTTP `GET` every 10
+  seconds, not `HEAD` every 30), body-limit behaviour (413 at the global limit and WAF rule 200004
+  at the profile limit, never truncation), the admin session lifetime (12-hour idle, 7-day
+  absolute), gate sessions (site- and account-bound, not client-network-bound), the temporary-ban
+  cap, notification batching, and the scope of event retention and of the protection switch.
+- **Missing defaults and ranges are documented**: per-site advanced fields, WAF profile limits,
+  anomaly thresholds, streaming connection caps, the seeded feeds that start enabled and the ban
+  list caps. Host package updates are marked as native-install-only.
 
 ## [1.48.4] — 2026-11-23
 

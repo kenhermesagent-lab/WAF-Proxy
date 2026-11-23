@@ -48,4 +48,12 @@ func TestBundleHitsOnlyCountsWAFBundleRules(t *testing.T) {
 	if got := byRule[990123]; got.Hits != 1 || got.Addresses != 1 {
 		t.Fatalf("990123 = %+v", got)
 	}
+	// The outcome columns have to follow the event action, not the profile
+	// mode: 990417 was blocked both times, 990123 was only logged.
+	if got := byRule[990417]; got.Blocked != 2 || got.Logged != 0 {
+		t.Fatalf("990417 outcomes = %+v, want two blocks", got)
+	}
+	if got := byRule[990123]; got.Blocked != 0 || got.Logged != 1 {
+		t.Fatalf("990123 outcomes = %+v, want one log", got)
+	}
 }

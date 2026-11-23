@@ -351,7 +351,7 @@ function SettingsGeneral({ onError, onOK, version = "" }: { onError: (m: string)
               {cs?.configured
                 ? <Badge tone="ok">stream · {cs.applied} applied</Badge>
                 : <Badge tone="warn">{cs?.lapi_configured ? "configured, not connected" : "disabled"}</Badge>}
-              <div className="faint small-text">configure on the CrowdSec page</div>
+              <div className="faint small-text">configure under Threat intel → CrowdSec</div>
             </div>
           </div>
           {cs?.configured && (

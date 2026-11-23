@@ -2,6 +2,11 @@
 
 Part of [Installation](../INSTALL.md).
 
+![The dashboard of a running install](../screenshots/dashboard.png)
+
+*What you are aiming at: the dashboard after setup, with sample data. Every page in these guides
+is pictured in the [screenshot index](../screenshots/README.md).*
+
 ## 1. Host prerequisites
 
 - Linux. The Docker path needs Docker Engine 24+ and Compose v2; the systemd path needs Go 1.27

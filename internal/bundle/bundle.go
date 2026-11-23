@@ -618,7 +618,10 @@ func (m *Manager) prune(name, keep string) {
 	sort.Sort(sort.Reverse(sort.StringSlice(versions)))
 	kept := 0
 	for _, v := range versions {
-		if v == keep || kept < keepVersions-1 {
+		// The installed version counts against the budget like any other, so
+		// the previous one has to fit alongside it. Counting it separately
+		// would delete the last known good pack.
+		if v == keep || kept < keepVersions {
 			kept++
 			continue
 		}

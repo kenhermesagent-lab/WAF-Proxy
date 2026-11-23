@@ -488,7 +488,7 @@ Every item in the review maps to exactly one phase or to an explicit deferral.
 | C6 | Pipeline/threat-model diagram generated from the stage list | 1.34 (Phase 5) |
 | C7 | Upgrade matrix, Keep-a-Changelog with a Security section | 1.34 (Phase 5); every release updates it |
 | C8 | Accurate SECURITY.md | Done in 1.28.1; maintained every release |
-| C9 | Contributor docs, refreshed screenshots/GIFs | Deferred beyond 1.34 (screenshots depend on the UI rebuild) |
+| C9 | Contributor docs, refreshed screenshots/GIFs | Screenshots delivered in 1.48.8 (`docs/screenshots/`); contributor docs still deferred |
 | C10 | Hosted docs site | Deferred beyond 1.34 |
 
 ### Observability
@@ -525,7 +525,7 @@ Every item in the review maps to exactly one phase or to an explicit deferral.
 
 HA/multi-node clustering, HTTP/3, third-party config importers, dynamic upstream
 discovery, shared cache, hosted docs site, SSO, site mTLS, contributor
-screenshots. None of them are required by a single-node deployment.
+docs. None of them are required by a single-node deployment.
 
 ## Delivery status (updated as releases land)
 
@@ -539,15 +539,18 @@ screenshots. None of them are required by a single-node deployment.
   forwarding through the Custom TCP stream service (with bans, allow lists and caps). Not
   delivered: per-upstream transports with DNS TTL, explicit Happy Eyeballs tuning, UDP
   forwarding.
-- **1.37.0 — Phase 4: delivered, except console TLS and revocation.** Certificate upload and
-  source tracking, internal CA with a downloadable trust anchor, HTTP-01 served by the gateway's
-  own listener, renewal backoff with jitter, per-site minimum TLS version, console HTTPS and certificate revocation. The console TLS
-  listener and the revoke endpoint shipped in 1.40.0.
-- **1.36.0–1.37.0 — Phase 5: partial.** Request IDs, JSON access logs, unattended
-  `wafproxy setup`, and `wafproxy recover`. Not delivered: alerting
-  dedupe/Test, diagnostics bundle, SLO rollups, upstream flap detection, synthetic canary, the
-  INSTALL split, generated OpenAPI, recipes. The encrypted backup command shipped in 1.38.0. Request-ID propagation and JSON access logs with stage, rule,
-  latency and action. Not delivered: unattended setup, preflight is in the console only,
-  break-glass recovery, CLI encrypted backup and retention, per-stage latency metrics, alerting
-  dedupe/Test, diagnostics bundle, SLO rollups, certificate/ACME counters, upstream flap
-  detection, synthetic canary, the INSTALL split, generated OpenAPI and recipes.
+- **1.37.0–1.40.0 — Phase 4: delivered.** Certificate upload with source tracking, the internal
+  CA and its downloadable trust anchor, HTTP-01 served by the gateway's own listener, renewal
+  backoff with jitter, per-site minimum TLS version, certificate revocation, and console HTTPS
+  (`WAFPROXY_LISTEN_GUI_TLS`, 1.40.0).
+- **1.36.0–1.48.x — Phase 5: delivered, except the items named below.** Request IDs, JSON access
+  logs, headless `wafproxy setup --password`, break-glass `wafproxy recover`, `wafproxy backup`,
+  the diagnostics JSON and zip bundle, threshold alerting with a 24-hour dedupe and a Test
+  button, the manual and scheduled synthetic canary, the generated OpenAPI reference with its
+  CI staleness check, and the INSTALL split into the task pages under `docs/install/`.
+  Not delivered: `setup --config` with `WAFPROXY_SETUP_*`, `recover --rotate-master-key`, an
+  install-time preflight outside the console (the policy **Preflight** only simulates rules),
+  per-stage latency metrics, certificate/ACME attempt counters, upstream flapping detection,
+  7/30-day SLO rollups, and per-application recipe pages (the presets themselves ship).
+- **1.48.8 — screenshots.** `docs/screenshots/` now captures every console page, so the
+  refreshed-screenshots item is done; contributor docs are still deferred.

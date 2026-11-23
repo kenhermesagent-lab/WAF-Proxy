@@ -85,7 +85,8 @@ func (s *Server) bundleHits(w http.ResponseWriter, r *http.Request) {
 		rules = append(rules, BundleHit{
 			RuleID: h.RuleID, Bundle: info.Bundle, Version: info.Version,
 			Message: firstNonEmpty(h.Message, info.Message),
-			Hits:    h.Hits, Addresses: h.Addresses, LastSeen: h.LastSeen,
+			Hits:    h.Hits, Addresses: h.Addresses,
+			Blocked: h.Blocked, Logged: h.Logged, LastSeen: h.LastSeen,
 			Modes: modeCounts(profiles, info.Bundle),
 		})
 	}
@@ -94,14 +95,18 @@ func (s *Server) bundleHits(w http.ResponseWriter, r *http.Request) {
 
 // BundleHit is one bundle rule with its activity and profile modes.
 type BundleHit struct {
-	RuleID    int            `json:"rule_id"`
-	Bundle    string         `json:"bundle,omitempty"`
-	Version   string         `json:"version,omitempty"`
-	Message   string         `json:"message"`
-	Hits      int64          `json:"hits"`
-	Addresses int64          `json:"addresses"`
-	LastSeen  string         `json:"last_seen"`
-	Modes     map[string]int `json:"modes"`
+	RuleID    int    `json:"rule_id"`
+	Bundle    string `json:"bundle,omitempty"`
+	Version   string `json:"version,omitempty"`
+	Message   string `json:"message"`
+	Hits      int64  `json:"hits"`
+	Addresses int64  `json:"addresses"`
+	// Blocked and Logged are what the matching requests got, which can differ
+	// from the profile modes below when sites run the same bundle differently.
+	Blocked  int64          `json:"blocked"`
+	Logged   int64          `json:"logged"`
+	LastSeen string         `json:"last_seen"`
+	Modes    map[string]int `json:"modes"`
 }
 
 // modeCounts answers "what does this bundle do on the profiles that use it?".

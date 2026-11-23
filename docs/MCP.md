@@ -10,13 +10,13 @@ shell, package manager or proxy-configuration tool.
 ### Console-issued token (recommended)
 
 1. Sign in to the admin console.
-2. Open **Agent access**.
+2. Open **AI Agent Access**.
 3. Choose **New agent token**, name it for the agent or host, and copy the value shown once.
 4. Give the agent that token. Store it in the agent's secret store, not in a command line or a
    committed file.
 
 The token is stored as a SHA-256 hash. Revoking it takes effect on the next request. The
-**Agent access** page lists the prefix, creation time and last use, but cannot recover the
+**AI Agent Access** page lists the prefix, creation time and last use, but cannot recover the
 plaintext.
 
 ### Environment token (headless installs)
@@ -124,6 +124,7 @@ for bans and username blocks, in the block record.
 |---|---|---|
 | `get_security_overview` | none | Active IP ban count, kernel status, 1h/24h traffic and block totals, top source IPs and stages, recent blocked events, active gate sessions, username blocks |
 | `query_logs` | `src_ip`, `host`, `action`, `stage`, `blocked_only`, `since_minutes` (1–10080, default 60), `limit` (1–500, default 50) | Matching events newest first, total matching, returned count, `bytes_out`, blocked count |
+| `list_anomalies` | `limit` (1–200, default 50) | Recent outbound-spike, request-rate and login-burst detections with the proxy, the measured value and its baseline |
 | `get_ip_activity` | `ip` | 24h request/block/byte totals, covering ban, recent events, live gate sessions |
 | `list_proxies` | none | Proxy id, hostname, enabled, gate mode, WAF mode, maintenance |
 | `list_blocks` | none | Active IP/CIDR bans and username blocks |
@@ -134,7 +135,7 @@ for bans and username blocks, in the block record.
 
 | Tool | Arguments | Effect |
 |---|---|---|
-| `block_ip` | `ip`, `reason`, `permanent` (default false), `ttl_seconds` (60–31536000, default 86400) | Adds an IP or CIDR to the same ban engine used by the console and nftables |
+| `block_ip` | `ip`, `reason`, `permanent` (default false), `ttl_seconds` (0–31536000, default 86400; `0` means 24 hours unless `permanent` is set) | Adds an IP or CIDR to the same ban engine used by the console and nftables |
 | `unblock_ip` | `ip`, optional `reason` | Removes the exact ban row; reports a broader covering prefix without removing it |
 | `block_username` | `username`, `reason`, `ttl_seconds` (0 = permanent), `revoke_sessions` (default true) | Blocks gate logins and revokes the account's live sessions |
 | `unblock_username` | `username`, optional `reason` | Lifts the username block; existing sessions stay revoked |
@@ -182,7 +183,7 @@ Every call is written to the audit log as `mcp.<tool>` with actor `mcp:<token na
 
 | Symptom | Check |
 |---|---|
-| HTTP 401 | Token is missing, misspelled, revoked, or belongs to a different install. Create a new token on **Agent access**. |
+| HTTP 401 | Token is missing, misspelled, revoked, or belongs to a different install. Create a new token on **AI Agent Access**. |
 | HTTP 403 | `Origin` does not match the console host. Remove the header or configure the client's base URL correctly. |
 | HTTP 400 `unsupported MCP protocol version` | Send one of the four supported `MCP-Protocol-Version` values, or omit the header. |
 | HTTP 405 on GET | This endpoint does not provide a server-initiated SSE stream; use POST for every request. |

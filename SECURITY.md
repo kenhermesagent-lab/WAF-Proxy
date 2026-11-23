@@ -36,16 +36,14 @@ These are the fixes since the 1.16 review, newest first. Each has a matching CHA
   truncating the newest rows is detected.
 - **1.24.0** — `/metrics` requires a 32+ character bearer token and is closed when the variable is
   unset; the audit table gains a SHA-256 chain and a full CSV export.
+- **1.22.0** — Remote threat feeds can no longer inject private, loopback, link-local, multicast
+  or unspecified addresses into the ban engine; skipped entries are counted.
 - **1.21.0** — `/api/setup/status` stops disclosing the base domain, listener addresses,
   interfaces and kernel-ban state once an administrator exists. The bot-challenge cookie is bound
   to the client network (IPv4 exactly, IPv6 within its /64).
 - **1.20.0** — Administrator accounts and roles (RBAC) with per-area grants; an admin source
   allowlist enforced at sign-in and on every API call, refusing a change that would exclude the
   caller. The last administrator cannot be demoted or deleted.
-- **1.22.0** — Remote threat feeds can no longer inject private, loopback, link-local, multicast
-  or unspecified addresses into the ban engine; skipped entries are counted.
-
-## Reporting a vulnerability
 
 ## Reporting a vulnerability
 
@@ -121,13 +119,18 @@ Out of scope:
   per-site exceptions;
 - denial of service by volume that any proxy would suffer (the request budget and rate limits are
   documented, as are their limits);
-- vulnerabilities in third-party dependencies with no exploitable path here (report them upstream;
-  `govulncheck` is run in CI);
+- vulnerabilities in third-party dependencies with no exploitable path here (report them
+  upstream; CI runs `go vet`, the race test suite and `npm audit --omit=dev`, so the advisory
+  feeds are worth checking yourself for the Go modules);
 - the fact that decoy paths ban permanently, or that a permanent ban is absolute — both are
   documented behaviour;
 - findings from an automated scanner with no demonstrated impact.
 
 ## Hardening the deployment
+
+![Readiness: the scored hardening checklist, with a fix for each gap](docs/screenshots/readiness.png)
+
+*The **Readiness** page scores the deployment and links every gap to the control that closes it.*
 
 `README.md` → **Security model and limitations** lists the deliberate trade-offs: the console is
 plain HTTP on the LAN, secrets are sealed under `master.key` in the data directory, the update

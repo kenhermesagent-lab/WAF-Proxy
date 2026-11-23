@@ -183,7 +183,7 @@ export default function AccessProfiles({
         </div>
       )}
       <p className="muted" style={{ fontSize: 12 }}>
-        A profile stacks on top of the global <strong>Countries, IPs, ASN</strong> settings: an <em>allow only these</em>{" "}
+        A profile stacks on top of the global lists on the <strong>Profiles</strong> tab: an <em>allow only these</em>{" "}
         list narrows that host to the addresses and countries it names, and a <em>block these</em> list removes them even
         when a global allow list names them. Selected protection profiles travel with the profile, so the host form only
         asks for one choice.
@@ -207,7 +207,7 @@ export default function AccessProfiles({
           <Field label="Lists">
             {policies.length === 0 ? (
               <p className="muted" style={{ fontSize: 12 }}>
-                No lists yet. Create them on the Countries, IPs, ASN tab first.
+                No lists yet. Create them on the Profiles tab first.
               </p>
             ) : (
               <div style={{ maxHeight: 280, overflowY: "auto", display: "grid", gap: 6 }}>
@@ -238,7 +238,7 @@ export default function AccessProfiles({
           <Field label="Blocklists and whitelists">
             {lists.length === 0 ? (
               <p className="muted" style={{ fontSize: 12 }}>
-                No named lists yet. Create them on the Blocklist profiles or Whitelist profiles tab first.
+                No named lists yet. Create them on the Lists tab first.
               </p>
             ) : (
               <div style={{ maxHeight: 220, overflowY: "auto", display: "grid", gap: 4 }}>

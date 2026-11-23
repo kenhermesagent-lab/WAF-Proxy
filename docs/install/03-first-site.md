@@ -4,6 +4,10 @@ Part of [Installation](../INSTALL.md).
 
 ## 6. First proxy
 
+![Proxies: hostnames, upstream health and per-site settings](../screenshots/proxies.png)
+
+*The Proxies page of the demo install, with sample sites. Yours starts empty.*
+
 GUI → **Proxies** → **New proxy**:
 
 - Hostname: `app.example.duckdns.org` (single-label subdomain of the base domain; the apex is

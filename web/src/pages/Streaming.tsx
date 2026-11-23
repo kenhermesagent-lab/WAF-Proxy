@@ -290,7 +290,7 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
                 </div>
                 {lists.length === 0 ? (
                   <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>
-                    No lists yet. Create them on the Policies page, then attach them here.
+                    No lists yet. Create them under Policies → Lists, then attach them here.
                   </p>
                 ) : (
                   <>

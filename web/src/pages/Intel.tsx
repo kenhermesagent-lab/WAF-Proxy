@@ -188,54 +188,62 @@ export default function Intel({
       <PageTabs tabs={tabs} active={tab} onSelect={onTab} />
 
       {tab === "explorer" && <Sources head={false} onError={onError} onOpenSource={onOpenSource} />}
-      {tab === "crowdsec" && <CrowdSecPage head={false} onError={onError} onOK={onOK} />}
 
-      {tab === "lookup" && (
-        <Card title="Check an address">
-          <div className="row grow">
-            <Field label="IP address">
-              <input value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="203.0.113.10" />
-            </Field>
-            <button className="primary" style={{ marginTop: 18 }} disabled={checking || !probe.trim()} onClick={checkIP}>
-              {checking ? "Checking…" : "Check"}
-            </button>
-          </div>
-          {lookup && (
-            <>
-              <div className="bar-row">
-                <div>Threat feed</div>
-                <div>
-                  {lookup.feed ? (
-                    <>
-                      <Badge tone={lookup.feed.action === "block" ? "bad" : "warn"}>{lookup.feed.action}</Badge>{" "}
-                      {lookup.feed.name}
-                    </>
-                  ) : (
-                    <span className="muted">not listed</span>
-                  )}
-                </div>
+      {tab === "crowdsec" && (
+        <>
+          <CrowdSecPage head={false} onError={onError} onOK={onOK} />
+          <Card
+            title="CrowdSec console blocklists"
+            actions={
+              consoleLists?.available ? (
+                <Badge>{consoleLists.total.toLocaleString()} decisions</Badge>
+              ) : consoleLists ? (
+                <Badge tone="warn">not reported</Badge>
+              ) : undefined
+            }
+          >
+            {!consoleLists ? (
+              <Empty>Loading…</Empty>
+            ) : !consoleLists.available ? (
+              <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+                {consoleLists.reason || "The Security Engine did not report its decisions."}
+              </p>
+            ) : consoleLists.rows.length === 0 ? (
+              <Empty>No console-pushed decisions are active on this engine.</Empty>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <div className="table-wrap"><table>
+                  <thead>
+                    <tr><th>Reason</th><th>Origin</th><th>Action</th><th className="num">Decisions</th></tr>
+                  </thead>
+                  <tbody>
+                    {consoleLists.rows.map((r) => (
+                      <tr key={`${r.origin}:${r.reason}:${r.action}`}>
+                        <td className="mono" style={{ overflowWrap: "anywhere" }}>{r.reason}</td>
+                        <td>
+                          <Badge tone={r.origin === "console" ? "bad" : "info"}>{r.origin}</Badge>
+                        </td>
+                        <td>{r.action}</td>
+                        <td className="num">{r.count.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table></div>
               </div>
-              <div className="bar-row" style={{ borderBottom: 0 }}>
-                <div>Ban</div>
-                <div>
-                  {lookup.ban ? (
-                    <>
-                      <Badge tone={lookup.ban.permanent ? "bad" : "warn"}>
-                        {lookup.ban.permanent ? "permanent" : "temporary"}
-                      </Badge>{" "}
-                      {lookup.ban.cidr} — {lookup.ban.reason} (source: {lookup.ban.source})
-                      {lookup.ban.expires_at && (
-                        <span className="muted"> · until {lookup.ban.expires_at.slice(0, 16).replace("T", " ")}Z</span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="muted">not banned</span>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-        </Card>
+            )}
+            {consoleLists?.raw && (
+              <pre className="mono" style={{ fontSize: 11, maxHeight: 220, overflow: "auto" }}>{consoleLists.raw}</pre>
+            )}
+            {consoleLists?.available && (
+              <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
+                Reported by the Security Engine (<code>cscli metrics show decisions</code>) and enforced by the bouncer, so
+                every row is a decision that is actually in force. Origins <code>lists</code> (subscribed blocklists),
+                <code> CAPI</code> (community blocklist) and <code>console</code> (pushed from the console) are managed at
+                app.crowdsec.net and cannot be edited here.
+              </p>
+            )}
+          </Card>
+        </>
       )}
 
       {tab === "bundles" && (
@@ -303,7 +311,6 @@ export default function Intel({
               </>
             )}
           </Card>
-
           <Card
             title="Bundle hits"
             actions={<span className="faint" style={{ fontSize: 11.5 }}>last 24 hours</span>}
@@ -312,9 +319,9 @@ export default function Intel({
               <Empty>No bundle rule has matched in the last 24 hours.</Empty>
             ) : (
               <>
-                {bundleHits.every((h) => (h.modes?.block ?? 0) === 0) ? (
+                {bundleHits.every((h) => h.blocked === 0) ? (
                   <div className="banner warn" style={{ marginBottom: 10 }} role="status">
-                    <span>These requests were served: every profile runs these bundles in log only.</span>
+                    <span>These requests were served: no profile blocks these rules yet, so every match was only logged.</span>
                     <div className="banner-actions">
                       <button className="small" onClick={onOpenPolicies}>
                         Set bundle mode →
@@ -325,7 +332,7 @@ export default function Intel({
                 <div style={{ overflowX: "auto" }}>
                   <div className="table-wrap"><table>
                     <thead>
-                      <tr><th>Rule</th><th>Bundle</th><th>What it matched</th><th className="num">Hits</th><th className="num">Addresses</th><th>Last seen</th><th>Today</th></tr>
+                      <tr><th>Rule</th><th>Bundle</th><th>What it matched</th><th className="num">Hits</th><th className="num">Addresses</th><th>Last seen</th><th>Outcome</th></tr>
                     </thead>
                     <tbody>
                       {bundleHits.map((h) => (
@@ -340,11 +347,11 @@ export default function Intel({
                           <td className="num">{h.addresses.toLocaleString()}</td>
                           <td className="muted">{fmtAgo(h.last_seen)}</td>
                           <td>
-                            {(h.modes?.block ?? 0) > 0
-                              ? <Badge tone="bad">blocked</Badge>
-                              : (h.modes?.log ?? 0) > 0
-                                ? <Badge tone="warn">logged</Badge>
-                                : <Badge>off</Badge>}
+                            <div className="row" style={{ gap: 4 }}>
+                              {h.blocked > 0 ? <Badge tone="bad">{h.blocked.toLocaleString()} blocked</Badge> : null}
+                              {h.logged > 0 ? <Badge tone="warn">{h.logged.toLocaleString()} logged</Badge> : null}
+                              {h.blocked === 0 && h.logged === 0 ? <Badge>off</Badge> : null}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -361,6 +368,54 @@ export default function Intel({
         </>
       )}
 
+      {tab === "lookup" && (
+          <Card title="Check an address">
+            <div className="row grow">
+              <Field label="IP address">
+                <input value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="203.0.113.10" />
+              </Field>
+              <button className="primary" style={{ marginTop: 18 }} disabled={checking || !probe.trim()} onClick={checkIP}>
+                {checking ? "Checking…" : "Check"}
+              </button>
+            </div>
+            {lookup && (
+              <>
+                <div className="bar-row">
+                  <div>Threat feed</div>
+                  <div>
+                    {lookup.feed ? (
+                      <>
+                        <Badge tone={lookup.feed.action === "block" ? "bad" : "warn"}>{lookup.feed.action}</Badge>{" "}
+                        {lookup.feed.name}
+                      </>
+                    ) : (
+                      <span className="muted">not listed</span>
+                    )}
+                  </div>
+                </div>
+                <div className="bar-row" style={{ borderBottom: 0 }}>
+                  <div>Ban</div>
+                  <div>
+                    {lookup.ban ? (
+                      <>
+                        <Badge tone={lookup.ban.permanent ? "bad" : "warn"}>
+                          {lookup.ban.permanent ? "permanent" : "temporary"}
+                        </Badge>{" "}
+                        {lookup.ban.cidr} — {lookup.ban.reason} (source: {lookup.ban.source})
+                        {lookup.ban.expires_at && (
+                          <span className="muted"> · until {lookup.ban.expires_at.slice(0, 16).replace("T", " ")}Z</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="muted">not banned</span>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </Card>
+      )}
+
       {tab === "feeds" && (
         <>
           <div className="grid cols-3">
@@ -374,7 +429,6 @@ export default function Intel({
               <div className="stat"><div className="k">Frozen</div><div className="v">{feeds.filter((f) => f.state === "frozen").length}</div><div className="sub">guardrails held a suspicious list</div></div>
             </Card>
           </div>
-
           <Card title="Upload local blocklist">
             <div className="row grow">
               <Field label="Name (optional)">
@@ -392,7 +446,6 @@ export default function Intel({
               <strong> block</strong>, so every address is dropped globally. CSV files may have the IP in any column.
             </p>
           </Card>
-
           <Card title="Add custom feed">
             <div className="row grow">
               <Field label="Name"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="My blocklist" /></Field>
@@ -408,7 +461,6 @@ export default function Intel({
               <button className="primary" style={{ marginTop: 18 }} onClick={add}>Add feed</button>
             </div>
           </Card>
-
           <Card title="Feeds">
             {feeds.length === 0 ? <Empty>No feeds configured.</Empty> : (
               <div style={{ overflowX: "auto" }}>
@@ -462,58 +514,6 @@ export default function Intel({
               Feeds are fetched with ETag/If-Modified-Since caching, deduplicated and merged into one in-memory table. A list that grows
               more than five times in a single refresh is frozen instead of applied.
             </p>
-          </Card>
-
-          <Card
-            title="CrowdSec console blocklists"
-            actions={
-              consoleLists?.available ? (
-                <Badge>{consoleLists.total.toLocaleString()} decisions</Badge>
-              ) : consoleLists ? (
-                <Badge tone="warn">not reported</Badge>
-              ) : undefined
-            }
-          >
-            {!consoleLists ? (
-              <Empty>Loading…</Empty>
-            ) : !consoleLists.available ? (
-              <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-                {consoleLists.reason || "The Security Engine did not report its decisions."}
-              </p>
-            ) : consoleLists.rows.length === 0 ? (
-              <Empty>No console-pushed decisions are active on this engine.</Empty>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <div className="table-wrap"><table>
-                  <thead>
-                    <tr><th>Reason</th><th>Origin</th><th>Action</th><th className="num">Decisions</th></tr>
-                  </thead>
-                  <tbody>
-                    {consoleLists.rows.map((r) => (
-                      <tr key={`${r.origin}:${r.reason}:${r.action}`}>
-                        <td className="mono" style={{ overflowWrap: "anywhere" }}>{r.reason}</td>
-                        <td>
-                          <Badge tone={r.origin === "console" ? "bad" : "info"}>{r.origin}</Badge>
-                        </td>
-                        <td>{r.action}</td>
-                        <td className="num">{r.count.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table></div>
-              </div>
-            )}
-            {consoleLists?.raw && (
-              <pre className="mono" style={{ fontSize: 11, maxHeight: 220, overflow: "auto" }}>{consoleLists.raw}</pre>
-            )}
-            {consoleLists?.available && (
-              <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
-                Reported by the Security Engine (<code>cscli metrics show decisions</code>) and enforced by the bouncer, so
-                every row is a decision that is actually in force. Origins <code>lists</code> (subscribed blocklists),
-                <code> CAPI</code> (community blocklist) and <code>console</code> (pushed from the console) are managed at
-                app.crowdsec.net and cannot be edited here.
-              </p>
-            )}
           </Card>
         </>
       )}
