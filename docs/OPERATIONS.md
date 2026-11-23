@@ -374,3 +374,24 @@ curl -s -b jar.txt 'https://console.example.com/api/events/incident.md?host=app.
 The body carries the summary, verdict counts, the newest 50 events and the audit
 actions that mention the subject; an empty window says so instead of inventing
 a timeline.
+
+## Release tags
+
+Every `CHANGELOG.md` section has an annotated tag `vX.Y.Z` on `main`. Pushing a
+tag runs CI at the tagged commit, and the `release` job fails when the tag name
+disagrees with `VERSION`, or when the newest `CHANGELOG.md` section or
+`internal/version/version.go` disagrees with it:
+
+```sh
+git tag -a v1.47.18 -m 1.47.18            # the release commit, annotated
+git push origin HEAD:main --follow-tags   # branch plus its annotated tags
+git push origin v1.47.18                  # or one tag on its own
+```
+
+Check what the remote really holds:
+
+```sh
+git ls-remote --tags origin               # annotated tags list the ref and its ^{} peel
+git cat-file -t v1.47.18                  # "tag", not "commit": the object is annotated
+git describe --tags --abbrev=0            # the nearest annotated tag, as tooling sees it
+```

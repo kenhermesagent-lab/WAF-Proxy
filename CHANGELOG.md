@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.18] — 2026-11-23
+
+### Added
+
+- **Tag pushes run CI.** A `v*` tag now triggers the workflow, so the `release` job validates
+  the tagged commit and fails when the tag name disagrees with `VERSION` (the check already
+  covered the newest `CHANGELOG.md` section and the `version.go` default). `docs/OPERATIONS.md`
+  gained a short section on pushing and verifying release tags.
+
 ## [1.47.17] — 2026-11-23
 
 ### Added
