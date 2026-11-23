@@ -12,13 +12,18 @@ on:
 
 permissions:
   contents: write
+  # Keyless signing and provenance: the job proves its identity to Fulcio and
+  # the attestation service with the workflow's OIDC token, so no key is stored.
+  id-token: write
+  attestations: write
 
 jobs:
   assets:
-    name: Build and attach binaries
+    name: Build, sign and attach binaries
     runs-on: ubuntu-latest
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
+      REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,7 +33,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Build linux amd64 and arm64 binaries
-        run: |
+        run: |-
           set -euo pipefail
           version=$(cat VERSION)
           ldflags="-s -w \
@@ -44,10 +49,63 @@ jobs:
             done
           done
           (cd dist && sha256sum *_linux_* > SHA256SUMS)
-      - name: Attach the binaries and checksums
+      # Attest before signing so the subjects are the built artifacts, not the bundles.
+      - name: Publish build provenance for the artifacts
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |-
+            dist/*_linux_*
+            dist/SHA256SUMS
+      - uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.1'
+      - name: Sign each binary and the checksum list keyless
+        run: |-
+          set -euo pipefail
+          # --bundle writes the signature, Fulcio certificate and Rekor entry as
+          # one file next to the artifact; nothing is stored between runs.
+          cd dist
+          for f in *_linux_* SHA256SUMS; do
+            cosign sign-blob --yes --bundle "${f}.sigstore.json" "$f"
+          done
+      - name: Verify what will be published
+        run: |-
+          set -euo pipefail
+          cd dist
+          sha256sum -c SHA256SUMS
+          identity="^https://github.com/${REPO}/.github/workflows/release.yml@"
+          # Walk the bundles, not the artifacts: *_linux_* would also match the
+          # bundles themselves once signing has run.
+          for bundle in *.sigstore.json; do
+            cosign verify-blob "${bundle%.sigstore.json}" \
+              --bundle "$bundle" \
+              --certificate-identity-regexp "$identity" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          done
+      - name: Record how to verify this release
+        run: |-
+          set -euo pipefail
+          version=$(cat VERSION)
+          {
+            echo "### Verify this release"
+            echo ''
+            echo 'Each binary and `SHA256SUMS` carries a `.sigstore.json` bundle; provenance is'
+            echo 'queryable with `gh attestation verify`. No key is involved — the certificate'
+            echo 'names this workflow as the signer.'
+            echo ''
+            echo '```sh'
+            echo "cosign verify-blob wafproxy_${version}_linux_amd64 \\"
+            echo "  --bundle wafproxy_${version}_linux_amd64.sigstore.json \\"
+            echo "  --certificate-identity-regexp '^https://github.com/${REPO}/.github/workflows/release.yml@' \\"
+            echo '  --certificate-oidc-issuer https://token.actions.githubusercontent.com'
+            echo 'sha256sum -c SHA256SUMS'
+            echo "gh attestation verify wafproxy_${version}_linux_amd64 --repo ${REPO}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Attach the binaries, bundles and checksums
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
+        run: |-
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber

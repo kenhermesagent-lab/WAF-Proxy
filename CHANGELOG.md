@@ -32,6 +32,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   HTML readers, and the same text with the link written out for clients that do not render HTML.
   The logo is drawn in the message itself, so no mail client has to fetch anything from the
   internal console.
+- **Release artifacts are signed and attested.** The release workflow signs each binary and
+  `SHA256SUMS` keyless with cosign, attaching a `.sigstore.json` bundle, and publishes build
+  provenance with `actions/attest-build-provenance`. A download can be checked against the
+  workflow identity instead of a stored key; the commands are in
+  [docs/OPERATIONS.md](docs/OPERATIONS.md#verifying-a-download).
 
 ### Fixed
 

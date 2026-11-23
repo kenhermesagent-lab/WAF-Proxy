@@ -464,5 +464,36 @@ Check what the remote really holds:
 ```sh
 git ls-remote --tags origin               # annotated tags list the ref and its ^{} peel
 git cat-file -t v1.47.19                  # "tag", not "commit": the object is annotated
-git describe --tags --abbrev=0            # the nearest annotated tag, as tooling sees it
+git describe --tags --abbrev=0        # the nearest annotated tag, as tooling sees it
 ```
+
+### Verifying a download
+
+Every binary and `SHA256SUMS` is signed keyless with cosign and carries a build-provenance
+attestation. The signature certificate names this repository's `release.yml` workflow instead of
+a key, and the Fulcio/Rekor entry records when it was made, so verification needs no secret and no
+key of ours. Each file ships with a `<name>.sigstore.json` bundle.
+
+```sh
+version=1.55.2
+base="https://github.com/kenhermesagent-lab/WAF-Proxy/releases/download/v${version}"
+
+for f in SHA256SUMS wafproxy_${version}_linux_amd64; do
+  curl -fsSLO "$base/$f"
+  curl -fsSLO "$base/$f.sigstore.json"
+  cosign verify-blob "$f" \
+    --bundle "$f.sigstore.json" \
+    --certificate-identity-regexp \
+      '^https://github\.com/kenhermesagent-lab/WAF-Proxy/\.github/workflows/release\.yml@' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+done
+
+sha256sum -c SHA256SUMS
+gh attestation verify wafproxy_${version}_linux_amd64 --repo kenhermesagent-lab/WAF-Proxy
+```
+
+The identity regexp accepts both a tag push (`…@refs/tags/v1.55.2`) and a manual run from `main`
+(`…@refs/heads/main`); pin it to `refs/tags/` when the release must have been built from a tag. A
+failure on the identity means the bytes came from somewhere other than this workflow, whatever the
+checksum says.
+
