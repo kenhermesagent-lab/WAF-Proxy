@@ -83,6 +83,56 @@ func TestDeleteOtherSessionsKeepsCurrent(t *testing.T) {
 	}
 }
 
+// The signed-in list has to show who is online without handing out a session
+// identifier, mark the caller's own row, and leave expired sessions out.
+func TestActiveAdminSessionsMarksCaller(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	st.SetSessionKey([]byte(strings.Repeat("k", 32)))
+	adminID, err := st.CreateFirstUser("admin", "hash", "secret", "codes", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewerID, err := st.CreateUser("viewer", "hash", "secret", "codes", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []struct {
+		token   string
+		userID  int64
+		ip      string
+		expires time.Time
+	}{
+		{"caller", adminID, "10.0.0.10", time.Now().Add(2 * time.Hour)},
+		{"other", viewerID, "10.0.0.11", time.Now().Add(time.Hour)},
+		{"gone", adminID, "10.0.0.12", time.Now().Add(-time.Minute)},
+	} {
+		if err := st.CreateSession(s.token, s.userID, "csrf", s.ip, "test", s.expires); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	list, err := st.ActiveAdminSessions("caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("active sessions = %d, want 2: %+v", len(list), list)
+	}
+	if !list[0].Current || list[0].Username != "admin" || list[0].IP != "10.0.0.10" {
+		t.Fatalf("first row = %+v, want the caller's admin session", list[0])
+	}
+	if list[1].Current || list[1].Username != "viewer" || list[1].IP != "10.0.0.11" {
+		t.Fatalf("second row = %+v, want the viewer's session", list[1])
+	}
+	if list[0].Role == "" {
+		t.Fatal("the session list did not resolve the role")
+	}
+}
+
 // Sessions written before schema 13 held the cookie as the key; they cannot be
 // converted, so the upgrade clears them instead of leaving dead rows.
 func TestUpgradeDropsLegacySessions(t *testing.T) {

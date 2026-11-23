@@ -11,7 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
-## [1.47.18] — 2026-11-23
+## [1.47.19] — 2026-11-23
 
 ### Added
 
@@ -19,6 +19,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   the tagged commit and fails when the tag name disagrees with `VERSION` (the check already
   covered the newest `CHANGELOG.md` section and the `version.go` default). `docs/OPERATIONS.md`
   gained a short section on pushing and verifying release tags.
+
+## [1.47.18] — 2026-11-23
+
+### Added
+
+- **Signed-in administrators** in the account menu lists every live console session with the
+  source address, browser, sign-in time and idle expiry, and marks the browser you are using.
+  It needs read access to Settings and never exposes a session identifier.
+- A "Buy me a coffee" link in the account menu for operators who want to tip the project.
 
 ## [1.47.17] — 2026-11-23
 

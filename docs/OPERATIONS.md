@@ -383,15 +383,15 @@ disagrees with `VERSION`, or when the newest `CHANGELOG.md` section or
 `internal/version/version.go` disagrees with it:
 
 ```sh
-git tag -a v1.47.18 -m 1.47.18            # the release commit, annotated
+git tag -a v1.47.19 -m 1.47.19            # the release commit, annotated
 git push origin HEAD:main --follow-tags   # branch plus its annotated tags
-git push origin v1.47.18                  # or one tag on its own
+git push origin v1.47.19                  # or one tag on its own
 ```
 
 Check what the remote really holds:
 
 ```sh
 git ls-remote --tags origin               # annotated tags list the ref and its ^{} peel
-git cat-file -t v1.47.18                  # "tag", not "commit": the object is annotated
+git cat-file -t v1.47.19                  # "tag", not "commit": the object is annotated
 git describe --tags --abbrev=0            # the nearest annotated tag, as tooling sees it
 ```
