@@ -198,7 +198,8 @@ func (s *Store) ReplaceUpstreams(proxyID int64, ups []model.Upstream) error {
 
 // ListRoutes returns the redirect/alias routes of a proxy.
 func (s *Store) ListRoutes(proxyID int64) ([]model.Route, error) {
-	rows, err := s.db.Query(`SELECT id, proxy_id, kind, match, target, strip_prefix, priority
+	rows, err := s.db.Query(`SELECT id, proxy_id, kind, match, target, strip_prefix, priority,
+		method, header, query, regex, upstream, timeout, status
 		FROM routes WHERE proxy_id = ? ORDER BY priority DESC, id`, proxyID)
 	if err != nil {
 		return nil, err
@@ -207,11 +208,13 @@ func (s *Store) ListRoutes(proxyID int64) ([]model.Route, error) {
 	out := []model.Route{}
 	for rows.Next() {
 		var r model.Route
-		var strip int
-		if err := rows.Scan(&r.ID, &r.ProxyID, &r.Kind, &r.Match, &r.Target, &strip, &r.Priority); err != nil {
+		var strip, regex int
+		if err := rows.Scan(&r.ID, &r.ProxyID, &r.Kind, &r.Match, &r.Target, &strip, &r.Priority,
+			&r.Method, &r.Header, &r.Query, &regex, &r.Upstream, &r.Timeout, &r.Status); err != nil {
 			return nil, err
 		}
 		r.StripPrefix = i2b(strip)
+		r.Regex = i2b(regex)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -228,8 +231,11 @@ func (s *Store) ReplaceRoutes(proxyID int64, routes []model.Route) error {
 		return err
 	}
 	for _, r := range routes {
-		if _, err := tx.Exec(`INSERT INTO routes(proxy_id, kind, match, target, strip_prefix, priority)
-			VALUES(?, ?, ?, ?, ?, ?)`, proxyID, r.Kind, r.Match, r.Target, b2i(r.StripPrefix), r.Priority); err != nil {
+		if _, err := tx.Exec(`INSERT INTO routes(proxy_id, kind, match, target, strip_prefix, priority,
+			method, header, query, regex, upstream, timeout, status)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, proxyID, r.Kind, r.Match, r.Target,
+			b2i(r.StripPrefix), r.Priority, r.Method, r.Header, r.Query, b2i(r.Regex),
+			r.Upstream, r.Timeout, r.Status); err != nil {
 			return err
 		}
 	}

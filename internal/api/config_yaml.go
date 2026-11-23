@@ -89,6 +89,13 @@ type configRoute struct {
 	Match       string `json:"match"`
 	Target      string `json:"target"`
 	StripPrefix bool   `json:"strip_prefix"`
+	Method      string `json:"method,omitempty"`
+	Header      string `json:"header,omitempty"`
+	Query       string `json:"query,omitempty"`
+	Regex       bool   `json:"regex,omitempty"`
+	Upstream    string `json:"upstream,omitempty"`
+	Timeout     int    `json:"timeout,omitempty"`
+	Status      int    `json:"status,omitempty"`
 }
 
 // configAccessProfile names its lists and policies, because numeric ids from
@@ -202,7 +209,9 @@ func (s *Server) configDocument() (configDoc, error) {
 		}
 		routes, _ := s.st.ListRoutes(p.ID)
 		for _, r := range routes {
-			row.Routes = append(row.Routes, configRoute{Kind: r.Kind, Match: r.Match, Target: r.Target, StripPrefix: r.StripPrefix})
+			row.Routes = append(row.Routes, configRoute{Kind: r.Kind, Match: r.Match, Target: r.Target, StripPrefix: r.StripPrefix,
+				Method: r.Method, Header: r.Header, Query: r.Query, Regex: r.Regex,
+				Upstream: r.Upstream, Timeout: r.Timeout, Status: r.Status})
 		}
 		hosts = append(hosts, row)
 	}
@@ -519,7 +528,9 @@ func (s *Server) applyConfigProxies(in []configProxy, problems []string) (int, [
 			bp.Upstreams = append(bp.Upstreams, model.Upstream{URL: u.URL, Weight: u.Weight, Enabled: u.Enabled, MaxConns: u.MaxConns})
 		}
 		for _, r := range p.Routes {
-			bp.Routes = append(bp.Routes, model.Route{Kind: r.Kind, Match: r.Match, Target: r.Target, StripPrefix: r.StripPrefix})
+			bp.Routes = append(bp.Routes, model.Route{Kind: r.Kind, Match: r.Match, Target: r.Target, StripPrefix: r.StripPrefix,
+				Method: r.Method, Header: r.Header, Query: r.Query, Regex: r.Regex,
+				Upstream: r.Upstream, Timeout: r.Timeout, Status: r.Status})
 		}
 		rows = append(rows, bp)
 	}

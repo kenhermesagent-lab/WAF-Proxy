@@ -529,17 +529,14 @@ screenshots. None of them are required by a single-node deployment.
 
 ## Delivery status (updated as releases land)
 
-- **1.30.0 — Phase 1: delivered.** All five defects fixed with tests: balancing policies and
-  `max_conns`, configurable probes with passive ejection, per-site and per-client budgets,
-  matched-pattern certificate selection with `cert_id` authoritative, environment proxying
-  removed.
-- **1.31.0 — Phase 2: core delivered.** Per-site upstream timeout, bounded idempotent retries,
-  502/504 taxonomy, ordered request/response header rewriting. Not yet delivered from this
-  phase: method/header/query/regex route matchers with per-rule upstreams, per-route (as opposed
-  to per-site) timeouts, regex path rewriting and redirect status choice, the published
-  conformance table.
-- **1.32.0 — Phase 3: core delivered.** Shared process-wide cache with per-host quotas,
-  eviction and purge; warm connections preserved across reload; drain readiness. Not yet
-  delivered: per-upstream transports with DNS TTL, explicit Happy Eyeballs, TCP/UDP stream
-  routes with SNI passthrough and connection caps.
-- **Phase 4 (TLS/ACME) and Phase 5 (operability/observability): not started.**
+- **1.30.0 — Phase 1: delivered.** All five defects fixed with tests.
+- **1.31.0–1.34.0 — Phase 2: delivered.** Per-site upstream timeout, bounded idempotent
+  retries, 502/504 taxonomy, ordered header rewriting, method/header/query/regex route matchers
+  with priority, per-rule upstreams and timeouts, redirect status choice, and
+  `docs/CONFORMANCE.md`. Unsupported by design: pipelining, gRPC trailers, HTTP/3.
+- **1.32.0–1.34.0 — Phase 3: delivered, except three items.** Shared cache with per-host
+  quotas, eviction and purge; warm connections across reload; drain readiness; generic TCP
+  forwarding through the Custom TCP stream service (with bans, allow lists and caps). Not
+  delivered: per-upstream transports with DNS TTL, explicit Happy Eyeballs tuning, UDP
+  forwarding.
+- **Phase 4 (TLS/ACME) and Phase 5 (operability/observability): in progress.**

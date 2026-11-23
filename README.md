@@ -47,7 +47,7 @@ systemd service. Version 1.28.0.
 - Proxies with per-site load balancing (`weighted_rr`, `least_conn`, `least_latency`, `ip_hash`,
   `sticky_cookie`), per-upstream connection caps, configurable health probes with passive ejection,
   per-site and per-client request budgets, per-site upstream timeouts with bounded idempotent
-  retries, ordered request/response header rewriting, path and host routes, redirects and maintenance mode; a shared response cache with per-host
+  retries, ordered request/response header rewriting, method/header/query/regex routes with per-rule upstreams and timeouts, redirects and maintenance mode; a shared response cache with per-host
   quotas and purge; drain readiness; application presets for Nextcloud, Jellyfin, Plex, Home Assistant, Proxmox VE,
   Vaultwarden, Gitea/Forgejo, Grafana, n8n, BookStack, the *arr suite and more.
 - Streaming forwarders (Plex, Jellyfin and similar) that relay bytes without HTTP inspection,

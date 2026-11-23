@@ -224,6 +224,17 @@ type Route struct {
 	Target      string `json:"target"`
 	StripPrefix bool   `json:"strip_prefix"`
 	Priority    int    `json:"priority"`
+	// Request matchers. Empty fields match everything; a route with more
+	// matchers is only chosen when all of them agree.
+	Method string `json:"method,omitempty"`
+	Header string `json:"header,omitempty"` // "Name: value"
+	Query  string `json:"query,omitempty"`  // "name=value"
+	Regex  bool   `json:"regex,omitempty"`
+	// Upstream overrides the site's pool for this route. Timeout bounds the
+	// exchange in seconds. Status is the redirect code (301, 307 or 308).
+	Upstream string `json:"upstream,omitempty"`
+	Timeout  int    `json:"timeout,omitempty"`
+	Status   int    `json:"status,omitempty"`
 }
 
 // Profile is a WAF protection profile.
