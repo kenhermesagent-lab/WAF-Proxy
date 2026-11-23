@@ -11,6 +11,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.6] — 2026-11-23
+
+### Added
+
+- **Incident reports are fetchable without a browser.** `GET /api/ips/{ip}/incident.md?hours=24`
+  renders the same Markdown as the console's Incident report drawer — summary, verdict counts,
+  newest-first timeline and the audit actions that mention the address — with a
+  `text/markdown` body and an `incident-<ip>-<stamp>.md` download name. It sits under the
+  `traffic` read permission, so a cron job or on-call runbook can store write-ups with the
+  same access it already needs for the log export. Timestamps are UTC and counts are grouped;
+  country names, which the console resolves through the browser's `Intl`, appear as ISO codes.
+
 ## [1.47.5] — 2026-11-23
 
 ### Added
