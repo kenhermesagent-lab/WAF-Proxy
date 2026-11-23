@@ -1065,3 +1065,29 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   .provider-row { flex-wrap: wrap; }
   .provider-row button { width: 100%; }
 }
+
+/* ---------- threat feeds ----------
+   The feed URL and last error are the widest cells, so they step down first;
+   counts and freshness drop before the state or the row controls. At phone
+   width the state badge moves into the feed cell, so nothing is hidden. */
+.feed-name, .feed-source { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-error { max-width: 260px; overflow-wrap: anywhere; }
+.feed-action { width: 118px; }
+
+@media (max-width: 1100px) { .feed-name, .feed-source { max-width: 220px; } }
+@media (max-width: 900px) {
+  .feed-name, .feed-source { max-width: 104px; }
+  .feed-error { max-width: 140px; }
+  .feed-action { width: 100px; }
+}
+@media (max-width: 480px) {
+  .feeds-table { table-layout: fixed; }
+  .feeds-table th, .feeds-table td { padding: 7px 4px; }
+  .feeds-table th:nth-child(1) { width: 33%; }
+  .feeds-table th:nth-child(2) { width: 39%; }
+  .feeds-table th:nth-child(6) { width: 28%; }
+  .feeds-table .feed-name, .feeds-table .feed-source { max-width: 96px; }
+  .feed-action { width: 100%; }
+  .feed-actions { display: flex; flex-direction: column; align-items: stretch; gap: 4px; white-space: normal; }
+  .feed-actions button { width: 100%; }
+}

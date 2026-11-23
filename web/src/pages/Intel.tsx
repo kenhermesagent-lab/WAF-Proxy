@@ -506,48 +506,53 @@ export default function Intel({
           <Card title="Feeds">
             {feeds.length === 0 ? <Empty>No feeds configured.</Empty> : (
               <div style={{ overflowX: "auto" }}>
-                <div className="table-wrap"><table>
+                <div className="table-wrap"><table className="feeds-table">
                   <thead>
-                    <tr><th>Feed</th><th>Action</th><th className="num">Entries</th><th>Last refresh</th><th>State</th><th /></tr>
+                    <tr><th>Feed</th><th>Action</th><th className="num hide-tablet">Entries</th><th className="hide-compact">Last refresh</th><th className="hide-narrow">State</th><th /></tr>
                   </thead>
                   <tbody>
-                    {feeds.map((f) => (
-                      <tr key={f.id}>
-                        <td>
-                          <div>{f.name}</div>
-                          <div className="faint mono" style={{ fontSize: 11, maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {f.local ? `Local upload · ${f.filename || "file"}` : f.url}
-                          </div>
-                        </td>
-                        <td>
-                          {f.local ? (
-                            <Badge tone="bad">block</Badge>
-                          ) : (
-                            <select
-                              value={f.action}
-                              aria-label={`Action for ${f.name}`}
-                              style={{ width: 118 }}
-                              onChange={(e) => setAction(f, e.target.value)}
-                            >
-                              <option value="block">block</option>
-                              <option value="challenge">challenge</option>
-                              <option value="log">log only</option>
-                            </select>
-                          )}
-                        </td>
-                        <td className="num">{f.last_count.toLocaleString()}</td>
-                        <td className="muted">{fmtAgo(f.last_fetch)}</td>
-                        <td>
-                          <Badge tone={f.state === "ok" ? "ok" : f.state === "frozen" ? "bad" : f.state === "error" ? "warn" : "info"}>{f.state}</Badge>
-                          {f.last_error ? <div className="faint" style={{ fontSize: 11, maxWidth: 260 }}>{f.last_error}</div> : null}
-                        </td>
-                        <td className="right" style={{ whiteSpace: "nowrap" }}>
-                          <button className="small" onClick={() => toggle(f)}>{f.enabled ? "Disable" : "Enable"}</button>{" "}
-                          <button className="small" onClick={() => refresh(f)}>Refresh</button>{" "}
-                          {!f.builtin && <button className="small danger" onClick={() => remove(f)}>Delete</button>}
-                        </td>
-                      </tr>
-                    ))}
+                    {feeds.map((f) => {
+                      const tone = f.state === "ok" ? "ok" : f.state === "frozen" ? "bad" : f.state === "error" ? "warn" : "info";
+                      return (
+                        <tr key={f.id}>
+                          <td>
+                            <div className="feed-name" title={f.name}>{f.name}</div>
+                            {/* The state column drops at phone width, so its badge rides here instead. */}
+                            <div className="phone-only" style={{ marginTop: 2 }}><Badge tone={tone}>{f.state}</Badge></div>
+                            <div className="faint mono feed-source" style={{ fontSize: 11 }}>
+                              {f.local ? `Local upload · ${f.filename || "file"}` : f.url}
+                            </div>
+                          </td>
+                          <td>
+                            {f.local ? (
+                              <Badge tone="bad">block</Badge>
+                            ) : (
+                              <select
+                                value={f.action}
+                                aria-label={`Action for ${f.name}`}
+                                className="feed-action"
+                                onChange={(e) => setAction(f, e.target.value)}
+                              >
+                                <option value="block">block</option>
+                                <option value="challenge">challenge</option>
+                                <option value="log">log only</option>
+                              </select>
+                            )}
+                          </td>
+                          <td className="num hide-tablet">{f.last_count.toLocaleString()}</td>
+                          <td className="muted hide-compact">{fmtAgo(f.last_fetch)}</td>
+                          <td className="hide-narrow">
+                            <Badge tone={tone}>{f.state}</Badge>
+                            {f.last_error ? <div className="faint feed-error" style={{ fontSize: 11 }}>{f.last_error}</div> : null}
+                          </td>
+                          <td className="right feed-actions">
+                            <button className="small" onClick={() => toggle(f)}>{f.enabled ? "Disable" : "Enable"}</button>{" "}
+                            <button className="small" onClick={() => refresh(f)}>Refresh</button>{" "}
+                            {!f.builtin && <button className="small danger" onClick={() => remove(f)}>Delete</button>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table></div>
               </div>
