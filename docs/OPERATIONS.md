@@ -253,6 +253,17 @@ other URLs keep their host and path but lose credentials, query strings and frag
 Copy the response into a ticket; it contains no keys, session tokens or password
 hashes.
 
+`GET /api/diagnostics/bundle` returns the same material as a zip for attaching to a
+ticket: `version.json`, `settings.json` (redacted), `listeners.json`,
+`certificates.json`, `errors.json` (failed alert deliveries, certificate errors,
+anomalies and recent 5xx responses), `logs.txt` (the last 500 lines of the access log,
+256 KiB at most) and `README.txt`. Log lines have query strings replaced and values
+following `token`, `key`, `secret`, `password`, `authorization` or `apikey` masked, in
+both `key=value` and quoted JSON forms. The bundle is only produced for an
+authenticated session and is marked `no-store`. Client IPs are kept because they are
+usually the point of the investigation; review `logs.txt` before sharing if that
+matters.
+
 ## Synthetic canary
 
 `POST /api/canary` probes one site end to end and reports each stage in order, naming

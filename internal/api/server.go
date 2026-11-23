@@ -125,6 +125,7 @@ func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Serve
 func (s *Server) routes() {
 	m := s.mux
 	m.HandleFunc("GET /api/diagnostics", s.authed(s.diagnostics))
+	m.HandleFunc("GET /api/diagnostics/bundle", s.authed(s.diagnosticsBundle))
 	m.HandleFunc("POST /api/canary", s.authed(s.runCanary))
 	m.HandleFunc("GET /api/health", s.health)
 	m.HandleFunc("GET /api/version", s.versionInfo)

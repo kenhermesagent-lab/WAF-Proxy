@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.44.0] — 2026-11-23
+
+### Added
+
+- **Diagnostics bundle download.** `GET /api/diagnostics/bundle` returns a zip with
+  version, redacted settings, listener and certificate status, recent errors
+  (certificates, failed alerts, anomalies, 5xx) and a sanitized access-log tail.
+
 ## [1.43.4] — 2026-11-23
 
 ### Fixed
@@ -22,7 +30,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   a real change still shows.
 - **A long kernel-status badge no longer widens the Policies page on a phone.** The badge wraps
   instead, and the tab strip wraps with it.
-
 ## [1.43.3] — 2026-11-23
 
 ### Fixed
