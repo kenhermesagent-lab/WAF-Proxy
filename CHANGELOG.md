@@ -38,6 +38,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   workflow identity instead of a stored key; the commands are in
   [docs/OPERATIONS.md](docs/OPERATIONS.md#verifying-a-download). Its actions are pinned to commit
   SHAs, so a moved tag cannot change what a verified run executed.
+- **Workflow actions cannot drift back to tags.** `deploy/check-workflow-pins.sh` fails CI when any
+  workflow references an action by tag, branch or abbreviated commit; a local `./action` and a
+  `docker://image@sha256:` digest still pass. `make verify-release` and `make test-release` run it
+  with its regression test.
 
 ### Fixed
 

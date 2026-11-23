@@ -33,6 +33,7 @@ test: docs-check
 
 test-release:
 	bash deploy/check-version_test.sh
+	bash deploy/check-workflow-pins_test.sh
 
 vet:
 	go vet ./...
@@ -42,6 +43,7 @@ fmt:
 
 verify-release:
 	bash deploy/check-version.sh
+	bash deploy/check-workflow-pins.sh
 
 # Dist is gitignored: the SBOM is a release artefact, not source.
 sbom:

@@ -103,6 +103,10 @@ jobs:
         run: bash deploy/check-version.sh
       - name: The release check still rejects every mismatch
         run: bash deploy/check-version_test.sh
+      - name: Workflow actions are pinned to commits
+        run: bash deploy/check-workflow-pins.sh
+      - name: The pin check rejects tags, branches and short SHAs
+        run: bash deploy/check-workflow-pins_test.sh
       - name: Module SBOM
         run: make sbom
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
