@@ -106,6 +106,10 @@ func (p Prober) Run(ctx context.Context, host string) Result {
 		add("dns", false, err.Error())
 		return res
 	}
+	if len(ips) == 0 {
+		add("dns", false, "the resolver returned no addresses")
+		return res
+	}
 	add("dns", true, strings.Join(ips, ","))
 
 	dial := p.Dial

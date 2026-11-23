@@ -1937,7 +1937,11 @@ func (s *Server) getNotifications(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	recent, _ := s.st.RecentAlerts(50)
+	recent, err := s.st.RecentAlerts(50)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
 	// A row keeps the kind it was queued with, which may predate the class it
 	// now routes as (CrowdSec bans were once stored as a plain ban), so show
 	// both and whether that class is currently muted.

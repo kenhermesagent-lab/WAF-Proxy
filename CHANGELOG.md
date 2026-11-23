@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.11] — 2026-11-23
+
+### Fixed
+
+- `GET /api/notifications` ignored a database error from the recent-alert query and
+  returned an empty list as success; it now answers 500 like the settings read.
+- The canary probe indexed the first resolved address without checking that the
+  resolver returned one, so an empty answer panicked the health handler.
+- A misplaced comment left the OpenAPI `Generate` function undocumented and described
+  `operationID` as `Generate`.
+
 ## [1.47.10] — 2026-11-23
 
 ### Added

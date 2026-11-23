@@ -22,7 +22,6 @@ type route struct {
 	params  []string
 }
 
-// Generate renders the document for the routes found in src.
 // operationID derives a stable, unique id from the method and path; handler
 // names repeat (every guarded route records "authed") and validators reject that.
 func operationID(method, path string) string {
@@ -37,6 +36,7 @@ func operationID(method, path string) string {
 	return id
 }
 
+// Generate renders the document for the routes found in src.
 func Generate(src []byte, version string) ([]byte, error) {
 	routes, err := parse(string(src))
 	if err != nil {
