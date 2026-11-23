@@ -324,8 +324,8 @@ export default function Dashboard({
         tone: "warn",
         title: `${securityUpdates.length} security package update${securityUpdates.length === 1 ? "" : "s"} pending`,
         detail: securityUpdates.slice(0, 3).map((p) => p.name).join(", "),
-        href: "#/settings/updates",
-        action: "Open updates",
+        href: "#/settings",
+        action: "Open settings",
       });
     }
     if (updates?.app_update_available) {
@@ -334,8 +334,8 @@ export default function Dashboard({
         tone: "warn",
         title: `Console update available${updates.app_remote_version ? `: v${updates.app_remote_version}` : ""}`,
         detail: "Apply it from Updates when the node has a quiet moment.",
-        href: "#/settings/updates",
-        action: "Open updates",
+        href: "#/settings",
+        action: "Open settings",
       });
     }
     return items;

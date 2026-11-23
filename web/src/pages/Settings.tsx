@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import { COFFEE_URL, DOCS_URL } from "../links";
-import { Badge, Field, PageHead, PageTabs, SaveBar, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
+import { Badge, Field, PageHead, SaveBar, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
 import type { AuditEntry, CrowdSecStatus, GeoIPStatus, Me } from "../types";
-import { NAV, type NavTab } from "../nav";
 import BackupCard from "../components/BackupCard";
 import UpdatesPage from "./Updates";
 import Readiness from "./Readiness";
@@ -23,61 +22,23 @@ function editable(s: Settings): Settings {
 
 const SECTIONS = [
   { id: "network", label: "Network" },
+  { id: "updates", label: "Updates" },
   { id: "protection", label: "Protection" },
   { id: "retention", label: "Retention & ACME" },
   { id: "backup", label: "Backup" },
   { id: "runtime", label: "Runtime status" },
   { id: "geoip", label: "GeoIP database" },
   { id: "activity", label: "Administrator activity" },
+  { id: "readiness", label: "Readiness" },
   { id: "about", label: "About" },
 ];
 
-export default function SettingsPage({
-  onError,
-  onOK,
-  version = "",
-  me,
-  tab: routeTab = "general",
-  tabs = NAV.find((n) => n.id === "settings")?.tabs ?? [],
-  onTab,
-}: {
+export default function SettingsPage({ onError, onOK, version = "", me }: {
   onError: (m: string) => void;
   onOK: (m: string) => void;
   version?: string;
   me?: Me | null;
-  tab?: string;
-  tabs?: NavTab[];
-  onTab?: (id: string) => void;
 }) {
-  // The route owns the tab; the local copy keeps the page usable on its own
-  // and follows the URL when the operator navigates.
-  const [tab, setTab] = useState(routeTab);
-  useEffect(() => setTab(routeTab), [routeTab]);
-  const select = (id: string) => {
-    setTab(id);
-    onTab?.(id);
-  };
-
-  return (
-    <div className="grid" style={{ gap: 14 }}>
-      <PageHead
-        sub={
-          tab === "updates"
-            ? "Console and host package versions, with the restart that applies a rebuild."
-            : tab === "readiness"
-              ? "What a hardened install has that a working one may not. Every row links to the control that fixes it."
-              : "Node networking, protection defaults, retention and administrator controls."
-        }
-      />
-      <PageTabs tabs={tabs} active={tab} onSelect={select} />
-      {tab === "general" && <SettingsGeneral onError={onError} onOK={onOK} version={version} />}
-      {tab === "updates" && <UpdatesPage onError={onError} onOK={onOK} head={false} />}
-      {tab === "readiness" && <Readiness me={me ?? null} onError={onError} head={false} />}
-    </div>
-  );
-}
-
-function SettingsGeneral({ onError, onOK, version = "" }: { onError: (m: string) => void; onOK: (m: string) => void; version?: string }) {
   const [s, setS] = useState<Settings>({});
   const [saved, setSaved] = useState<Settings>({});
   const [saving, setSaving] = useState(false);
@@ -136,14 +97,23 @@ function SettingsGeneral({ onError, onOK, version = "" }: { onError: (m: string)
   }, [geo?.installing]);
 
   useEffect(() => {
+    // Nearest section head to the top of the viewport, so the last short
+    // sections still highlight when the page cannot scroll them any higher.
     const onScroll = () => {
       let current = SECTIONS[0].id;
+      let best = Infinity;
       for (const sec of SECTIONS) {
         const el = document.getElementById(sec.id);
-        if (el && el.getBoundingClientRect().top <= 140) current = sec.id;
+        if (!el) continue;
+        const distance = Math.abs(el.getBoundingClientRect().top - 140);
+        if (distance < best) {
+          best = distance;
+          current = sec.id;
+        }
       }
       setActiveSection(current);
     };
+    onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
@@ -240,6 +210,8 @@ function SettingsGeneral({ onError, onOK, version = "" }: { onError: (m: string)
     name ? `${name} (${auto ? "auto-detected" : "configured"})` : "— (none detected)";
 
   return (
+    <>
+    <PageHead sub="Node networking, protection defaults, retention, updates and the hardening checklist." />
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
         {SECTIONS.map((sec) => (
@@ -287,6 +259,14 @@ function SettingsGeneral({ onError, onOK, version = "" }: { onError: (m: string)
             Both addresses must exist on this host. A single-NIC host uses the same address for WAN and LAN; firewall the GUI port from the WAN.
             Restart the service after changing bind addresses.
           </p>
+        </section>
+
+        <section id="updates" className="settings-section">
+          <div className="section-head">
+            <h2>Updates</h2>
+            <p>Console and host package versions, with the restart that applies a rebuild.</p>
+          </div>
+          <UpdatesPage onError={onError} onOK={onOK} head={false} />
         </section>
 
         <section id="protection" className="settings-section card">
@@ -473,6 +453,14 @@ function SettingsGeneral({ onError, onOK, version = "" }: { onError: (m: string)
           </p>
         </section>
 
+        <section id="readiness" className="settings-section">
+          <div className="section-head">
+            <h2>Readiness</h2>
+            <p>What a hardened install has that a working one may not. Every row links to the control that fixes it.</p>
+          </div>
+          <Readiness me={me ?? null} onError={onError} head={false} />
+        </section>
+
         <section id="about" className="settings-section card">
           <div className="section-head">
             <h2>About</h2>
@@ -506,5 +494,6 @@ function SettingsGeneral({ onError, onOK, version = "" }: { onError: (m: string)
         )}
       </div>
     </div>
+    </>
   );
 }

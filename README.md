@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.49.4.
+systemd service. Version 1.49.5.
 
 ## Contents
 
@@ -233,14 +233,14 @@ page.*
 | Proxies | **Sites** (hostnames, upstreams, routes, health checks, maintenance, presets, per-site **360** view), **Certificates** (issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01) and **Streaming** (byte-relay forwarders for Plex, Jellyfin and similar) |
 | Policies | **Bans**, **Profiles** (global profile with policy **Preflight**, WAF and protection profiles), **Access profiles**, **Lists** (blocklists/whitelists) and **Bot filter** |
 | Logs | Event search, filters, saved views, live tail, bulk source actions, incident report, the **Why?** request simulator |
-| Threat intel | **Feeds** (health and rollup), **Lookup**, **Sources** (per-address investigation), **Bundles** and **CrowdSec** |
+| Threat intel | **Feeds** (health and rollup), **Lookup**, **Sources** (per-address investigation), **Bundles** and **CrowdSec** (engine, bouncer and the console blocklists it is enforcing) |
 | Anomalies | Requests that tripped a rule but were not blocked |
 | Access gate | **Accounts** (site accounts, TOTP) and **Identity providers** |
 | Activity | The audit log with before/after diffs and rollback of edits |
 | Agent access | MCP endpoint, tokens and their per-tool scopes |
 | Notifications | Webhook routing |
 | Tailscale | Listener on the tailnet address |
-| Settings | **General** (network, protection, retention, backup, GeoIP, audit, YAML/JSON transport), **Updates** (version, release check, one-click update) and **Readiness** (a scored hardening checklist, each gap linking to the control that fixes it) |
+| Settings | One page of sections: **Network**, **Updates** (version, release check, one-click update), **Protection**, **Retention & ACME**, **Backup**, **Runtime status**, **GeoIP database**, **Administrator activity** (audit, YAML/JSON transport) and **Readiness** (a scored hardening checklist, each gap linking to the control that fixes it) |
 | Account | Password, authenticator rotation, recovery codes, administrators and roles |
 
 **Investigating a source.** Any address in the log, dashboard, attack map, source explorer or ⌘K

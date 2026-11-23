@@ -1008,6 +1008,10 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   .card-head { flex-wrap: wrap; }
   .card-head .actions { margin-left: 0; width: 100%; flex-wrap: wrap; }
   .page-head .actions { flex-wrap: wrap; }
+  /* Tighter tab padding keeps a five-tab row on one line at 390px instead of
+     leaving the last tab alone on a second row. */
+  .tabs { gap: 0; }
+  .tab { padding-left: 9px; padding-right: 9px; }
   td, th { white-space: normal; }
   td { overflow-wrap: anywhere; }
   .modal-actions { flex-wrap: wrap; }
