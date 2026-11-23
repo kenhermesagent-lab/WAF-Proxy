@@ -11,6 +11,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.38.0] — 2026-11-22
+
+### Added
+
+- **Incident report.** A **Report** button on the source drawer and on the event log builds a
+  self-contained Markdown write-up of the window: summary, verdicts by stage, the newest events as a
+  timeline, and every administrator action that mentions the subject. Copy it, download it as `.md`,
+  or print it — a print stylesheet leaves only the report on the page. A window with no events says
+  so instead of inventing content.
+- **Command actions.** The palette takes verbs, not just destinations: ban an address, release a ban,
+  disable a proxy, or preflight a rule against recorded traffic. Each asks for confirmation and does
+  what the page-level control does. A role without the permission never sees the verb, and the dialog
+  still refuses the action if the role lacks it.
+- **Readiness checklist.** A scored page — base domain, TLS certificate, GeoIP databases, kernel
+  enforcement, backup schedule, notification target, second factor and the audit chain, with CrowdSec
+  as an unscored optional row — where every unmet row links to the control that fixes it. A source
+  that fails to load marks its row unknown, never ready.
+
+### Changed
+
+- The palette lists the verbs under **Actions** beside pages and search results.
+- Phone layout: 44 px navigation and drawer targets, wrapping action rows and table cells that wrap
+  instead of clipping long paths or IPv6 addresses. `--faint` was lightened to clear AA contrast on
+  the elevated surface.
+- The live log tail announces each new event to screen readers through a polite live region.
+
 ## [1.37.0] — 2026-11-22
 
 ### Added

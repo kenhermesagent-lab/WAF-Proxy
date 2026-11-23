@@ -4,6 +4,7 @@ import { api, setCSRF } from "./api";
 import { errText } from "./ui";
 import PageBoundary from "./components/PageBoundary";
 import CommandPalette from "./components/CommandPalette";
+import QuickActions, { COMMANDS, type CommandId } from "./components/QuickActions";
 import SourceDrawer from "./components/SourceDrawer";
 import Icon from "./components/Icon";
 import { Me, SetupStatus, can } from "./types";
@@ -20,6 +21,7 @@ import Sources from "./pages/Sources";
 import Intel from "./pages/Intel";
 import Anomalies from "./pages/Anomalies";
 import Activity from "./pages/Activity";
+import Readiness from "./pages/Readiness";
 import Certs from "./pages/Certs";
 import Access from "./pages/Access";
 import Notifications from "./pages/Notifications";
@@ -49,6 +51,7 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("waf.nav.collapsed") === "1");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sourceIp, setSourceIp] = useState<string | null>(null);
+  const [command, setCommand] = useState<CommandId | null>(null);
   const [userMenu, setUserMenu] = useState(false);
   const toastSeq = useRef(0);
   const userWrap = useRef<HTMLDivElement>(null);
@@ -339,6 +342,7 @@ export default function App() {
               {page === "intel" && <Intel onError={onError} onOK={onOK} />}
               {page === "anomalies" && <Anomalies onError={onError} onOK={onOK} />}
               {page === "activity" && <Activity onError={onError} onOK={onOK} permissions={me?.permissions ?? []} />}
+              {page === "readiness" && <Readiness me={me} onError={onError} />}
               {page === "crowdsec" && <CrowdSecPage onError={onError} onOK={onOK} />}
               {page === "certs" && <Certs onError={onError} onOK={onOK} base={me?.base_domain ?? ""} />}
               {page === "access" && <Access onError={onError} onOK={onOK} />}
@@ -373,7 +377,19 @@ export default function App() {
         onNavigate={navigate}
         onSignOut={logout}
         onOpenSource={setSourceIp}
+        permissions={me?.permissions ?? []}
+        onCommand={setCommand}
       />
+
+      {command && (
+        <QuickActions
+          command={command}
+          canWrite={can(me?.permissions, COMMANDS.find((c) => c.id === command)?.permission ?? "")}
+          onClose={() => setCommand(null)}
+          onError={onError}
+          onOK={onOK}
+        />
+      )}
 
       {sourceIp && (
         <SourceDrawer

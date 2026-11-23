@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import Icon, { type IconName } from "./Icon";
 import type { NavItem } from "../nav";
+import { can } from "../types";
+import { COMMANDS, type CommandId } from "./QuickActions";
 
 type SearchResult = { kind: string; title: string; subtitle: string; href: string };
 
@@ -21,6 +23,8 @@ export default function CommandPalette({
   onNavigate,
   onSignOut,
   onOpenSource,
+  permissions,
+  onCommand,
 }: {
   open: boolean;
   onClose: () => void;
@@ -28,6 +32,8 @@ export default function CommandPalette({
   onNavigate: (id: string, query?: string) => void;
   onSignOut: () => void;
   onOpenSource: (ip: string) => void;
+  permissions: string[];
+  onCommand: (id: CommandId) => void;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -98,14 +104,26 @@ export default function CommandPalette({
         onNavigate(page, qs);
       },
     }));
+    // Verbs stay hidden for roles that cannot use them, and match the query the
+    // same way page names do.
+    const commands: Row[] = COMMANDS.filter((c) => can(permissions, c.permission))
+      .filter((c) => !q || c.title.toLowerCase().includes(q) || c.subtitle.toLowerCase().includes(q))
+      .map((c) => ({
+        key: `command-${c.id}`,
+        title: c.title,
+        subtitle: c.subtitle,
+        kind: "Action",
+        icon: "terminal" as IconName,
+        run: () => onCommand(c.id),
+      }));
     const actions: Row[] = q
       ? []
       : [
           { key: "action-account", title: "Account settings", subtitle: "Password and authenticator", kind: "Action", icon: "user", run: () => onNavigate("account") },
           { key: "action-signout", title: "Sign out", subtitle: "End this browser session", kind: "Action", icon: "power", run: onSignOut },
         ];
-    return [...searchRows, ...pageRows, ...actions];
-  }, [nav, onNavigate, onOpenSource, onSignOut, query, results]);
+    return [...searchRows, ...pageRows, ...commands, ...actions];
+  }, [nav, onCommand, onNavigate, onOpenSource, onSignOut, permissions, query, results]);
 
   useEffect(() => {
     if (active >= rows.length) setActive(0);

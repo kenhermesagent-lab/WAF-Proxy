@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import Simulator from "../components/Simulator";
+import IncidentReport, { buildReport, reportFilename } from "../components/IncidentReport";
 import { Badge, Card, Empty, Field, confirmDialog, errText, fmtTime } from "../ui";
 import { Event } from "../types";
 
@@ -85,6 +86,9 @@ export default function Logs({
   const [viewSel, setViewSel] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [report, setReport] = useState<string | null>(null);
+  const [announce, setAnnounce] = useState("");
+  const newest = useRef(0);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   // Only the newest request may paint the table, and a background poll never
@@ -148,6 +152,15 @@ export default function Logs({
       document.removeEventListener("visibilitychange", poll);
     };
   }, [live]);
+
+  // Screen readers hear the tail move; the visual table is already updating.
+  useEffect(() => {
+    const top = events[0];
+    if (!live || !top || top.id === newest.current) return;
+    const first = newest.current === 0;
+    newest.current = top.id;
+    if (!first) setAnnounce(`New event at ${clockTime(top.ts)} from ${top.src_ip}`);
+  }, [events, live]);
 
   const toggleLive = () => {
     const next = !live;
@@ -235,6 +248,24 @@ export default function Logs({
     }
   };
 
+  const openReport = () => {
+    const q = queryOf(filters).toString();
+    const blocked = events.filter((e) => e.action !== "allow").length;
+    setReport(
+      buildReport({
+        subject: filters.ip || filters.host || "log window",
+        window: q ? `filters: ${q}` : "every event, no filters",
+        summary: [
+          `Matching events: ${total.toLocaleString()}`,
+          `On this page: ${events.length} · not allowed ${blocked} · distinct hosts ${new Set(events.map((e) => e.host)).size}`,
+          `Filters: ${q || "none"}`,
+        ],
+        events,
+        total,
+      }),
+    );
+  };
+
   const exportHref = () => {
     const q = queryOf(filters);
     q.set("limit", "50000");
@@ -243,6 +274,7 @@ export default function Logs({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <div className="sr-only" aria-live="polite">{announce}</div>
       <Card title="Filters">
         <div className="row grow" style={{ marginBottom: 6 }}>
           <Field label="Saved views">
@@ -320,6 +352,7 @@ export default function Logs({
             >
               {live ? "● Live" : "Live tail"}
             </button>
+            <button className="small" onClick={openReport} disabled={events.length === 0}>Report</button>
             <a href={exportHref()}><button className="small">Export CSV</button></a>
             <button className="small" disabled={live || offset === 0} onClick={() => load(Math.max(0, offset - PAGE))}>Newer</button>
             <button className="small" disabled={live || offset + PAGE >= total} onClick={() => load(offset + PAGE)}>Older</button>
@@ -399,6 +432,16 @@ export default function Logs({
 
       {picked && (
         <Simulator event={picked} onClose={() => setPicked(null)} onError={onError} />
+      )}
+
+      {report && (
+        <IncidentReport
+          report={report}
+          filename={reportFilename(filters.ip || filters.host || "log window")}
+          onClose={() => setReport(null)}
+          onError={onError}
+          onOK={onOK}
+        />
       )}
     </div>
   );

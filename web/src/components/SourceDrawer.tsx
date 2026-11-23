@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { countryFlag, countryName } from "../countries";
-import type { IPDetail, IntelLookup } from "../types";
+import type { AuditEntry, IPDetail, IntelLookup } from "../types";
 import { Badge, Drawer, Empty, Skeleton, confirmDialog, errText, fmtAgo, fmtTime } from "../ui";
+import IncidentReport, { buildReport, reportFilename } from "./IncidentReport";
 
 const WINDOWS: [number, string][] = [
   [1, "1h"],
@@ -36,6 +37,8 @@ export default function SourceDrawer({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("Manual ban from source investigation");
+  const [report, setReport] = useState<string | null>(null);
+  const [reporting, setReporting] = useState(false);
   // Toasts are recreated on every App render; reading them through a ref keeps
   // the fetch from repeating whenever one appears.
   const handlers = useRef({ onError, onOK });
@@ -124,6 +127,52 @@ export default function SourceDrawer({
   const banned = !!s?.banned;
   const windowLabel = WINDOWS.find(([h]) => h === hours)?.[1] ?? `${hours}h`;
 
+  const openReport = async () => {
+    if (!detail) return;
+    setReporting(true);
+    try {
+      // The audit log is the only source for "what did we do about it", and a
+      // role that cannot read it still gets the traffic half of the report.
+      const audit = await api.get<AuditEntry[]>("/api/audit").catch(() => [] as AuditEntry[]);
+      const needle = ip.toLowerCase();
+      const mentions = (audit || []).filter((a) => `${a.detail} ${a.action}`.toLowerCase().includes(needle));
+      const sum = detail.summary;
+      const share = sum.requests ? Math.round((sum.blocked / sum.requests) * 100) : 0;
+      setReport(
+        buildReport({
+          subject: ip,
+          window: `last ${windowLabel}`,
+          summary: [
+            `Country: ${countryName(sum.country) || "unknown"} (${sum.country || "—"}) · AS${sum.asn || "?"}`,
+            `Requests: ${sum.requests.toLocaleString()} · blocked ${sum.blocked.toLocaleString()} (${share}%)`,
+            `Distinct hostnames: ${sum.hosts}`,
+            `First seen ${fmtTime(sum.first_seen)} · last seen ${fmtTime(sum.last_seen)}`,
+            sum.banned
+              ? `Ban: ${sum.permanent ? "permanent" : `temporary until ${fmtTime(sum.ban_expires)}`} · ${sum.ban_reason || "no reason recorded"}`
+              : "Ban: none in force",
+          ],
+          events: detail.events,
+          total: detail.total,
+          audit: mentions,
+        }),
+      );
+    } finally {
+      setReporting(false);
+    }
+  };
+
+  if (report) {
+    return (
+      <IncidentReport
+        report={report}
+        filename={reportFilename(ip)}
+        onClose={() => setReport(null)}
+        onError={handlers.current.onError}
+        onOK={handlers.current.onOK}
+      />
+    );
+  }
+
   return (
     <Drawer
       title={<span className="mono">{ip}</span>}
@@ -166,6 +215,9 @@ export default function SourceDrawer({
                 {busy ? "Working…" : "Ban 24h"}
               </button>
             ))}
+          <button onClick={openReport} disabled={reporting || !detail}>
+            {reporting ? "Building…" : "Report"}
+          </button>
           <button onClick={onClose}>Close</button>
         </>
       }
