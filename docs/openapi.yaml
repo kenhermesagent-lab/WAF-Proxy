@@ -2,7 +2,7 @@
 openapi: 3.0.3
 info:
   title: WAF-Proxy admin API
-  version: "1.47.8"
+  version: "1.47.9"
   description: |
     Routes registered by the admin console. Every `/api` route except setup,
     login, health and version requires the session cookie and, for mutations,
@@ -163,7 +163,7 @@ components:
 paths:
   /api/access-profiles:
     get:
-      operationId: authed
+      operationId: getApiAccessProfiles
       tags: [access-profiles]
       summary: Authed
       security:
@@ -176,7 +176,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiAccessProfiles
       tags: [access-profiles]
       summary: Authed
       security:
@@ -190,7 +190,7 @@ paths:
           description: Invalid request
   /api/access-profiles/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiAccessProfilesId
       tags: [access-profiles]
       summary: Authed
       security:
@@ -208,7 +208,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiAccessProfilesId
       tags: [access-profiles]
       summary: Authed
       security:
@@ -227,7 +227,7 @@ paths:
           description: Invalid request
   /api/account/logout-all:
     post:
-      operationId: authed
+      operationId: postApiAccountLogoutAll
       tags: [account]
       summary: Authed
       security:
@@ -241,7 +241,7 @@ paths:
           description: Invalid request
   /api/account/password:
     post:
-      operationId: authed
+      operationId: postApiAccountPassword
       tags: [account]
       summary: Authed
       security:
@@ -255,7 +255,7 @@ paths:
           description: Invalid request
   /api/account/totp:
     post:
-      operationId: authed
+      operationId: postApiAccountTotp
       tags: [account]
       summary: Authed
       security:
@@ -269,7 +269,7 @@ paths:
           description: Invalid request
   /api/account/totp/confirm:
     post:
-      operationId: authed
+      operationId: postApiAccountTotpConfirm
       tags: [account]
       summary: Authed
       security:
@@ -283,7 +283,7 @@ paths:
           description: Invalid request
   /api/agents:
     get:
-      operationId: authed
+      operationId: getApiAgents
       tags: [agents]
       summary: Authed
       security:
@@ -296,7 +296,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiAgents
       tags: [agents]
       summary: Authed
       security:
@@ -310,7 +310,7 @@ paths:
           description: Invalid request
   /api/agents/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiAgentsId
       tags: [agents]
       summary: Authed
       security:
@@ -328,7 +328,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiAgentsId
       tags: [agents]
       summary: Authed
       security:
@@ -347,7 +347,7 @@ paths:
           description: Invalid request
   /api/agents/{id}/deliveries:
     get:
-      operationId: authed
+      operationId: getApiAgentsIdDeliveries
       tags: [agents]
       summary: Authed
       security:
@@ -366,7 +366,7 @@ paths:
           description: Invalid request
   /api/agents/{id}/retry:
     post:
-      operationId: authed
+      operationId: postApiAgentsIdRetry
       tags: [agents]
       summary: Authed
       security:
@@ -385,7 +385,7 @@ paths:
           description: Invalid request
   /api/agents/{id}/test:
     post:
-      operationId: authed
+      operationId: postApiAgentsIdTest
       tags: [agents]
       summary: Authed
       security:
@@ -404,7 +404,7 @@ paths:
           description: Invalid request
   /api/analytics:
     get:
-      operationId: authed
+      operationId: getApiAnalytics
       tags: [analytics]
       summary: Authed
       security:
@@ -418,7 +418,7 @@ paths:
           description: Invalid request
   /api/anomaly:
     get:
-      operationId: authed
+      operationId: getApiAnomaly
       tags: [anomaly]
       summary: Authed
       security:
@@ -435,7 +435,7 @@ paths:
           description: Invalid request
   /api/anomaly/events/{id}/ack:
     post:
-      operationId: authed
+      operationId: postApiAnomalyEventsIdAck
       tags: [anomaly]
       summary: Authed
       security:
@@ -457,7 +457,7 @@ paths:
           description: Invalid request
   /api/anomaly/settings:
     put:
-      operationId: authed
+      operationId: putApiAnomalySettings
       tags: [anomaly]
       summary: Authed
       security:
@@ -479,7 +479,7 @@ paths:
           description: Invalid request
   /api/asn-recommendations:
     get:
-      operationId: authed
+      operationId: getApiAsnRecommendations
       tags: [asn-recommendations]
       summary: Authed
       security:
@@ -493,7 +493,7 @@ paths:
           description: Invalid request
   /api/audit:
     get:
-      operationId: authed
+      operationId: getApiAudit
       tags: [audit]
       summary: Authed
       security:
@@ -507,7 +507,7 @@ paths:
           description: Invalid request
   /api/audit/verify:
     get:
-      operationId: authed
+      operationId: getApiAuditVerify
       tags: [audit]
       summary: Authed
       security:
@@ -521,7 +521,7 @@ paths:
           description: Invalid request
   /api/audit/{id}:
     get:
-      operationId: authed
+      operationId: getApiAuditId
       tags: [audit]
       summary: Authed
       security:
@@ -540,7 +540,7 @@ paths:
           description: Invalid request
   /api/audit/{id}/rollback:
     post:
-      operationId: authed
+      operationId: postApiAuditIdRollback
       tags: [audit]
       summary: Authed
       security:
@@ -559,7 +559,7 @@ paths:
           description: Invalid request
   /api/auth-providers:
     get:
-      operationId: authed
+      operationId: getApiAuthProviders
       tags: [auth-providers]
       summary: Authed
       security:
@@ -572,7 +572,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiAuthProviders
       tags: [auth-providers]
       summary: Authed
       security:
@@ -586,7 +586,7 @@ paths:
           description: Invalid request
   /api/auth-providers/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiAuthProvidersId
       tags: [auth-providers]
       summary: Authed
       security:
@@ -604,7 +604,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiAuthProvidersId
       tags: [auth-providers]
       summary: Authed
       security:
@@ -623,7 +623,7 @@ paths:
           description: Invalid request
   /api/backup:
     get:
-      operationId: authed
+      operationId: getApiBackup
       tags: [backup]
       summary: Authed
       security:
@@ -637,7 +637,7 @@ paths:
           description: Invalid request
   /api/backup/restore:
     post:
-      operationId: authed
+      operationId: postApiBackupRestore
       tags: [backup]
       summary: Authed
       security:
@@ -651,7 +651,7 @@ paths:
           description: Invalid request
   /api/backup/schedule:
     get:
-      operationId: authed
+      operationId: getApiBackupSchedule
       tags: [backup]
       summary: Authed
       security:
@@ -664,7 +664,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiBackupSchedule
       tags: [backup]
       summary: Authed
       security:
@@ -678,7 +678,7 @@ paths:
           description: Invalid request
   /api/backup/schedule/run:
     post:
-      operationId: authed
+      operationId: postApiBackupScheduleRun
       tags: [backup]
       summary: Authed
       security:
@@ -692,7 +692,7 @@ paths:
           description: Invalid request
   /api/bans:
     get:
-      operationId: authed
+      operationId: getApiBans
       tags: [bans]
       summary: Authed
       security:
@@ -710,7 +710,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiBans
       tags: [bans]
       summary: Authed
       security:
@@ -734,7 +734,7 @@ paths:
           description: Invalid request
   /api/bans/bulk:
     post:
-      operationId: authed
+      operationId: postApiBansBulk
       tags: [bans]
       summary: Authed
       security:
@@ -758,7 +758,7 @@ paths:
           description: Invalid request
   /api/bans/rollup:
     post:
-      operationId: authed
+      operationId: postApiBansRollup
       tags: [bans]
       summary: Authed
       security:
@@ -782,7 +782,7 @@ paths:
           description: Invalid request
   /api/bans/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiBansId
       tags: [bans]
       summary: Authed
       security:
@@ -804,7 +804,7 @@ paths:
           description: Invalid request
   /api/bans/{id}/promote:
     post:
-      operationId: authed
+      operationId: postApiBansIdPromote
       tags: [bans]
       summary: Authed
       security:
@@ -831,7 +831,7 @@ paths:
           description: Invalid request
   /api/cache/purge:
     post:
-      operationId: authed
+      operationId: postApiCachePurge
       tags: [cache]
       summary: Authed
       security:
@@ -845,7 +845,7 @@ paths:
           description: Invalid request
   /api/canary:
     post:
-      operationId: authed
+      operationId: postApiCanary
       tags: [canary]
       summary: Authed
       security:
@@ -859,7 +859,7 @@ paths:
           description: Invalid request
   /api/certs:
     get:
-      operationId: authed
+      operationId: getApiCerts
       tags: [certs]
       summary: Authed
       security:
@@ -877,7 +877,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiCerts
       tags: [certs]
       summary: Authed
       security:
@@ -901,7 +901,7 @@ paths:
           description: Invalid request
   /api/certs/internal:
     post:
-      operationId: authed
+      operationId: postApiCertsInternal
       tags: [certs]
       summary: Authed
       security:
@@ -923,7 +923,7 @@ paths:
           description: Invalid request
   /api/certs/internal/root:
     get:
-      operationId: authed
+      operationId: getApiCertsInternalRoot
       tags: [certs]
       summary: Authed
       security:
@@ -940,7 +940,7 @@ paths:
           description: Invalid request
   /api/certs/upload:
     post:
-      operationId: authed
+      operationId: postApiCertsUpload
       tags: [certs]
       summary: Authed
       security:
@@ -962,7 +962,7 @@ paths:
           description: Invalid request
   /api/certs/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiCertsId
       tags: [certs]
       summary: Authed
       security:
@@ -983,7 +983,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiCertsId
       tags: [certs]
       summary: Authed
       security:
@@ -1010,7 +1010,7 @@ paths:
           description: Invalid request
   /api/certs/{id}/renew:
     post:
-      operationId: authed
+      operationId: postApiCertsIdRenew
       tags: [certs]
       summary: Authed
       security:
@@ -1032,7 +1032,7 @@ paths:
           description: Invalid request
   /api/certs/{id}/revoke:
     post:
-      operationId: authed
+      operationId: postApiCertsIdRevoke
       tags: [certs]
       summary: Authed
       security:
@@ -1054,7 +1054,7 @@ paths:
           description: Invalid request
   /api/config/export.yaml:
     get:
-      operationId: authed
+      operationId: getApiConfigExportYaml
       tags: [config]
       summary: Authed
       security:
@@ -1068,7 +1068,7 @@ paths:
           description: Invalid request
   /api/config/import.yaml:
     post:
-      operationId: authed
+      operationId: postApiConfigImportYaml
       tags: [config]
       summary: Authed
       security:
@@ -1082,7 +1082,7 @@ paths:
           description: Invalid request
   /api/crowdsec:
     get:
-      operationId: authed
+      operationId: getApiCrowdsec
       tags: [crowdsec]
       summary: Authed
       security:
@@ -1095,7 +1095,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiCrowdsec
       tags: [crowdsec]
       summary: Authed
       security:
@@ -1109,7 +1109,7 @@ paths:
           description: Invalid request
   /api/crowdsec/blocklists:
     get:
-      operationId: authed
+      operationId: getApiCrowdsecBlocklists
       tags: [crowdsec]
       summary: Authed
       security:
@@ -1123,7 +1123,7 @@ paths:
           description: Invalid request
   /api/crowdsec/console:
     post:
-      operationId: authed
+      operationId: postApiCrowdsecConsole
       tags: [crowdsec]
       summary: Authed
       security:
@@ -1137,7 +1137,7 @@ paths:
           description: Invalid request
   /api/crowdsec/install:
     get:
-      operationId: authed
+      operationId: getApiCrowdsecInstall
       tags: [crowdsec]
       summary: Authed
       security:
@@ -1150,7 +1150,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiCrowdsecInstall
       tags: [crowdsec]
       summary: Authed
       security:
@@ -1164,7 +1164,7 @@ paths:
           description: Invalid request
   /api/crowdsec/restart:
     post:
-      operationId: authed
+      operationId: postApiCrowdsecRestart
       tags: [crowdsec]
       summary: Authed
       security:
@@ -1178,7 +1178,7 @@ paths:
           description: Invalid request
   /api/crowdsec/status:
     get:
-      operationId: authed
+      operationId: getApiCrowdsecStatus
       tags: [crowdsec]
       summary: Authed
       security:
@@ -1192,7 +1192,7 @@ paths:
           description: Invalid request
   /api/crowdsec/test:
     post:
-      operationId: authed
+      operationId: postApiCrowdsecTest
       tags: [crowdsec]
       summary: Authed
       security:
@@ -1206,7 +1206,7 @@ paths:
           description: Invalid request
   /api/diagnostics:
     get:
-      operationId: authed
+      operationId: getApiDiagnostics
       tags: [diagnostics]
       summary: Authed
       security:
@@ -1220,7 +1220,7 @@ paths:
           description: Invalid request
   /api/diagnostics/bundle:
     get:
-      operationId: authed
+      operationId: getApiDiagnosticsBundle
       tags: [diagnostics]
       summary: Authed
       security:
@@ -1234,7 +1234,7 @@ paths:
           description: Invalid request
   /api/events:
     get:
-      operationId: authed
+      operationId: getApiEvents
       tags: [events]
       summary: Authed
       security:
@@ -1248,7 +1248,7 @@ paths:
           description: Invalid request
   /api/events/export.csv:
     get:
-      operationId: authed
+      operationId: getApiEventsExportCsv
       tags: [events]
       summary: Authed
       security:
@@ -1262,7 +1262,7 @@ paths:
           description: Invalid request
   /api/feeds:
     get:
-      operationId: authed
+      operationId: getApiFeeds
       tags: [feeds]
       summary: Authed
       security:
@@ -1275,7 +1275,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiFeeds
       tags: [feeds]
       summary: Authed
       security:
@@ -1289,7 +1289,7 @@ paths:
           description: Invalid request
   /api/feeds/upload:
     post:
-      operationId: authed
+      operationId: postApiFeedsUpload
       tags: [feeds]
       summary: Authed
       security:
@@ -1303,7 +1303,7 @@ paths:
           description: Invalid request
   /api/feeds/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiFeedsId
       tags: [feeds]
       summary: Authed
       security:
@@ -1321,7 +1321,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiFeedsId
       tags: [feeds]
       summary: Authed
       security:
@@ -1340,7 +1340,7 @@ paths:
           description: Invalid request
   /api/feeds/{id}/refresh:
     post:
-      operationId: authed
+      operationId: postApiFeedsIdRefresh
       tags: [feeds]
       summary: Authed
       security:
@@ -1359,7 +1359,7 @@ paths:
           description: Invalid request
   /api/gate-failures:
     get:
-      operationId: authed
+      operationId: getApiGateFailures
       tags: [gate-failures]
       summary: Authed
       security:
@@ -1373,7 +1373,7 @@ paths:
           description: Invalid request
   /api/gate-users:
     get:
-      operationId: authed
+      operationId: getApiGateUsers
       tags: [gate-users]
       summary: Authed
       security:
@@ -1386,7 +1386,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiGateUsers
       tags: [gate-users]
       summary: Authed
       security:
@@ -1400,7 +1400,7 @@ paths:
           description: Invalid request
   /api/gate-users/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiGateUsersId
       tags: [gate-users]
       summary: Authed
       security:
@@ -1418,7 +1418,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiGateUsersId
       tags: [gate-users]
       summary: Authed
       security:
@@ -1437,7 +1437,7 @@ paths:
           description: Invalid request
   /api/geoip:
     get:
-      operationId: authed
+      operationId: getApiGeoip
       tags: [geoip]
       summary: Authed
       security:
@@ -1451,7 +1451,7 @@ paths:
           description: Invalid request
   /api/geoip/install:
     post:
-      operationId: authed
+      operationId: postApiGeoipInstall
       tags: [geoip]
       summary: Authed
       security:
@@ -1465,7 +1465,7 @@ paths:
           description: Invalid request
   /api/global-lists:
     get:
-      operationId: authed
+      operationId: getApiGlobalLists
       tags: [global-lists]
       summary: Authed
       security:
@@ -1478,7 +1478,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiGlobalLists
       tags: [global-lists]
       summary: Authed
       security:
@@ -1492,7 +1492,7 @@ paths:
           description: Invalid request
   /api/globe:
     get:
-      operationId: authed
+      operationId: getApiGlobe
       tags: [globe]
       summary: Authed
       security:
@@ -1506,7 +1506,7 @@ paths:
           description: Invalid request
   /api/globe/hits:
     get:
-      operationId: authed
+      operationId: getApiGlobeHits
       tags: [globe]
       summary: Authed
       security:
@@ -1520,7 +1520,7 @@ paths:
           description: Invalid request
   /api/health:
     get:
-      operationId: health
+      operationId: getApiHealth
       tags: [health]
       summary: Health
       security: []
@@ -1531,7 +1531,7 @@ paths:
           description: Invalid request
   /api/intel/lookup:
     get:
-      operationId: authed
+      operationId: getApiIntelLookup
       tags: [intel]
       summary: Authed
       security:
@@ -1545,7 +1545,7 @@ paths:
           description: Invalid request
   /api/ips:
     get:
-      operationId: authed
+      operationId: getApiIps
       tags: [ips]
       summary: Authed
       security:
@@ -1559,7 +1559,7 @@ paths:
           description: Invalid request
   /api/ips/{ip}:
     get:
-      operationId: authed
+      operationId: getApiIpsIp
       tags: [ips]
       summary: Authed
       security:
@@ -1578,7 +1578,7 @@ paths:
           description: Invalid request
   /api/ips/{ip}/incident.md:
     get:
-      operationId: authed
+      operationId: getApiIpsIpIncidentMd
       tags: [ips]
       summary: Authed
       security:
@@ -1597,7 +1597,7 @@ paths:
           description: Invalid request
   /api/lists:
     get:
-      operationId: authed
+      operationId: getApiLists
       tags: [lists]
       summary: Authed
       security:
@@ -1610,7 +1610,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiLists
       tags: [lists]
       summary: Authed
       security:
@@ -1624,7 +1624,7 @@ paths:
           description: Invalid request
   /api/lists/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiListsId
       tags: [lists]
       summary: Authed
       security:
@@ -1642,7 +1642,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiListsId
       tags: [lists]
       summary: Authed
       security:
@@ -1661,7 +1661,7 @@ paths:
           description: Invalid request
   /api/log-views:
     get:
-      operationId: authed
+      operationId: getApiLogViews
       tags: [log-views]
       summary: Authed
       security:
@@ -1675,7 +1675,7 @@ paths:
           description: Invalid request
   /api/log-views/{name}:
     delete:
-      operationId: authed
+      operationId: deleteApiLogViewsName
       tags: [log-views]
       summary: Authed
       security:
@@ -1693,7 +1693,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiLogViewsName
       tags: [log-views]
       summary: Authed
       security:
@@ -1712,7 +1712,7 @@ paths:
           description: Invalid request
   /api/login:
     post:
-      operationId: login
+      operationId: postApiLogin
       tags: [login]
       summary: Login
       security: []
@@ -1723,7 +1723,7 @@ paths:
           description: Invalid request
   /api/logout:
     post:
-      operationId: authed
+      operationId: postApiLogout
       tags: [logout]
       summary: Authed
       security:
@@ -1737,7 +1737,7 @@ paths:
           description: Invalid request
   /api/mcp:
     get:
-      operationId: authed
+      operationId: getApiMcp
       tags: [mcp]
       summary: Authed
       security:
@@ -1751,7 +1751,7 @@ paths:
           description: Invalid request
   /api/mcp/tokens:
     get:
-      operationId: authed
+      operationId: getApiMcpTokens
       tags: [mcp]
       summary: Authed
       security:
@@ -1764,7 +1764,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiMcpTokens
       tags: [mcp]
       summary: Authed
       security:
@@ -1778,7 +1778,7 @@ paths:
           description: Invalid request
   /api/mcp/tokens/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiMcpTokensId
       tags: [mcp]
       summary: Authed
       security:
@@ -1797,7 +1797,7 @@ paths:
           description: Invalid request
   /api/me:
     get:
-      operationId: authed
+      operationId: getApiMe
       tags: [me]
       summary: Authed
       security:
@@ -1811,7 +1811,7 @@ paths:
           description: Invalid request
   /api/metrics:
     get:
-      operationId: authed
+      operationId: getApiMetrics
       tags: [metrics]
       summary: Authed
       security:
@@ -1825,7 +1825,7 @@ paths:
           description: Invalid request
   /api/notifications:
     get:
-      operationId: authed
+      operationId: getApiNotifications
       tags: [notifications]
       summary: Authed
       security:
@@ -1841,7 +1841,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiNotifications
       tags: [notifications]
       summary: Authed
       security:
@@ -1863,7 +1863,7 @@ paths:
           description: Invalid request
   /api/notifications/test:
     post:
-      operationId: authed
+      operationId: postApiNotificationsTest
       tags: [notifications]
       summary: Authed
       security:
@@ -1885,7 +1885,7 @@ paths:
           description: Invalid request
   /api/policies:
     get:
-      operationId: authed
+      operationId: getApiPolicies
       tags: [policies]
       summary: Authed
       security:
@@ -1898,7 +1898,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiPolicies
       tags: [policies]
       summary: Authed
       security:
@@ -1912,7 +1912,7 @@ paths:
           description: Invalid request
   /api/policies/preflight:
     post:
-      operationId: authed
+      operationId: postApiPoliciesPreflight
       tags: [policies]
       summary: Authed
       security:
@@ -1926,7 +1926,7 @@ paths:
           description: Invalid request
   /api/policies/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiPoliciesId
       tags: [policies]
       summary: Authed
       security:
@@ -1944,7 +1944,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiPoliciesId
       tags: [policies]
       summary: Authed
       security:
@@ -1963,7 +1963,7 @@ paths:
           description: Invalid request
   /api/presets:
     get:
-      operationId: authed
+      operationId: getApiPresets
       tags: [presets]
       summary: Authed
       security:
@@ -1977,7 +1977,7 @@ paths:
           description: Invalid request
   /api/profiles:
     get:
-      operationId: authed
+      operationId: getApiProfiles
       tags: [profiles]
       summary: Authed
       security:
@@ -1990,7 +1990,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiProfiles
       tags: [profiles]
       summary: Authed
       security:
@@ -2004,7 +2004,7 @@ paths:
           description: Invalid request
   /api/profiles/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiProfilesId
       tags: [profiles]
       summary: Authed
       security:
@@ -2022,7 +2022,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiProfilesId
       tags: [profiles]
       summary: Authed
       security:
@@ -2041,7 +2041,7 @@ paths:
           description: Invalid request
   /api/protection-profiles:
     get:
-      operationId: authed
+      operationId: getApiProtectionProfiles
       tags: [protection-profiles]
       summary: Authed
       security:
@@ -2054,7 +2054,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiProtectionProfiles
       tags: [protection-profiles]
       summary: Authed
       security:
@@ -2068,7 +2068,7 @@ paths:
           description: Invalid request
   /api/protection-profiles/audit:
     get:
-      operationId: authed
+      operationId: getApiProtectionProfilesAudit
       tags: [protection-profiles]
       summary: Authed
       security:
@@ -2082,7 +2082,7 @@ paths:
           description: Invalid request
   /api/protection-profiles/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiProtectionProfilesId
       tags: [protection-profiles]
       summary: Authed
       security:
@@ -2100,7 +2100,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiProtectionProfilesId
       tags: [protection-profiles]
       summary: Authed
       security:
@@ -2119,7 +2119,7 @@ paths:
           description: Invalid request
   /api/proxies:
     get:
-      operationId: authed
+      operationId: getApiProxies
       tags: [proxies]
       summary: Authed
       security:
@@ -2137,7 +2137,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiProxies
       tags: [proxies]
       summary: Authed
       security:
@@ -2161,7 +2161,7 @@ paths:
           description: Invalid request
   /api/proxies/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiProxiesId
       tags: [proxies]
       summary: Authed
       security:
@@ -2182,7 +2182,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiProxiesId
       tags: [proxies]
       summary: Authed
       security:
@@ -2209,7 +2209,7 @@ paths:
           description: Invalid request
   /api/proxies/{id}/gate/revoke:
     post:
-      operationId: authed
+      operationId: postApiProxiesIdGateRevoke
       tags: [proxies]
       summary: Authed
       security:
@@ -2236,7 +2236,7 @@ paths:
           description: Invalid request
   /api/roles:
     get:
-      operationId: authed
+      operationId: getApiRoles
       tags: [roles]
       summary: Authed
       security:
@@ -2249,7 +2249,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiRoles
       tags: [roles]
       summary: Authed
       security:
@@ -2263,7 +2263,7 @@ paths:
           description: Invalid request
   /api/roles/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiRolesId
       tags: [roles]
       summary: Authed
       security:
@@ -2281,7 +2281,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiRolesId
       tags: [roles]
       summary: Authed
       security:
@@ -2300,7 +2300,7 @@ paths:
           description: Invalid request
   /api/search:
     get:
-      operationId: authed
+      operationId: getApiSearch
       tags: [search]
       summary: Authed
       security:
@@ -2314,7 +2314,7 @@ paths:
           description: Invalid request
   /api/settings:
     get:
-      operationId: authed
+      operationId: getApiSettings
       tags: [settings]
       summary: Authed
       security:
@@ -2327,7 +2327,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiSettings
       tags: [settings]
       summary: Authed
       security:
@@ -2341,7 +2341,7 @@ paths:
           description: Invalid request
   /api/setup:
     post:
-      operationId: setup
+      operationId: postApiSetup
       tags: [setup]
       summary: Setup
       security: []
@@ -2352,7 +2352,7 @@ paths:
           description: Invalid request
   /api/setup/status:
     get:
-      operationId: setupStatus
+      operationId: getApiSetupStatus
       tags: [setup]
       summary: Setup Status
       security: []
@@ -2363,7 +2363,7 @@ paths:
           description: Invalid request
   /api/simulate:
     post:
-      operationId: authed
+      operationId: postApiSimulate
       tags: [simulate]
       summary: Authed
       security:
@@ -2377,7 +2377,7 @@ paths:
           description: Invalid request
   /api/stream:
     get:
-      operationId: authed
+      operationId: getApiStream
       tags: [stream]
       summary: Authed
       security:
@@ -2391,7 +2391,7 @@ paths:
           description: Invalid request
   /api/streaming:
     get:
-      operationId: authed
+      operationId: getApiStreaming
       tags: [streaming]
       summary: Authed
       security:
@@ -2405,7 +2405,7 @@ paths:
           description: Invalid request
   /api/streaming/{id}:
     put:
-      operationId: authed
+      operationId: putApiStreamingId
       tags: [streaming]
       summary: Authed
       security:
@@ -2424,7 +2424,7 @@ paths:
           description: Invalid request
   /api/system/restart:
     post:
-      operationId: authed
+      operationId: postApiSystemRestart
       tags: [system]
       summary: Authed
       security:
@@ -2438,7 +2438,7 @@ paths:
           description: Invalid request
   /api/tailscale:
     get:
-      operationId: authed
+      operationId: getApiTailscale
       tags: [tailscale]
       summary: Authed
       security:
@@ -2451,7 +2451,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiTailscale
       tags: [tailscale]
       summary: Authed
       security:
@@ -2465,7 +2465,7 @@ paths:
           description: Invalid request
   /api/updates:
     get:
-      operationId: authed
+      operationId: getApiUpdates
       tags: [updates]
       summary: Authed
       security:
@@ -2479,7 +2479,7 @@ paths:
           description: Invalid request
   /api/updates/app:
     get:
-      operationId: authed
+      operationId: getApiUpdatesApp
       tags: [updates]
       summary: Authed
       security:
@@ -2492,7 +2492,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiUpdatesApp
       tags: [updates]
       summary: Authed
       security:
@@ -2506,7 +2506,7 @@ paths:
           description: Invalid request
   /api/updates/app/config:
     post:
-      operationId: authed
+      operationId: postApiUpdatesAppConfig
       tags: [updates]
       summary: Authed
       security:
@@ -2520,7 +2520,7 @@ paths:
           description: Invalid request
   /api/updates/apply:
     post:
-      operationId: authed
+      operationId: postApiUpdatesApply
       tags: [updates]
       summary: Authed
       security:
@@ -2534,7 +2534,7 @@ paths:
           description: Invalid request
   /api/updates/auto:
     get:
-      operationId: authed
+      operationId: getApiUpdatesAuto
       tags: [updates]
       summary: Authed
       security:
@@ -2547,7 +2547,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiUpdatesAuto
       tags: [updates]
       summary: Authed
       security:
@@ -2561,7 +2561,7 @@ paths:
           description: Invalid request
   /api/updates/check:
     post:
-      operationId: authed
+      operationId: postApiUpdatesCheck
       tags: [updates]
       summary: Authed
       security:
@@ -2575,7 +2575,7 @@ paths:
           description: Invalid request
   /api/uptime:
     get:
-      operationId: authed
+      operationId: getApiUptime
       tags: [uptime]
       summary: Authed
       security:
@@ -2589,7 +2589,7 @@ paths:
           description: Invalid request
   /api/users:
     get:
-      operationId: authed
+      operationId: getApiUsers
       tags: [users]
       summary: Authed
       security:
@@ -2602,7 +2602,7 @@ paths:
         "400":
           description: Invalid request
     post:
-      operationId: authed
+      operationId: postApiUsers
       tags: [users]
       summary: Authed
       security:
@@ -2616,7 +2616,7 @@ paths:
           description: Invalid request
   /api/users/{id}:
     delete:
-      operationId: authed
+      operationId: deleteApiUsersId
       tags: [users]
       summary: Authed
       security:
@@ -2634,7 +2634,7 @@ paths:
         "400":
           description: Invalid request
     put:
-      operationId: authed
+      operationId: putApiUsersId
       tags: [users]
       summary: Authed
       security:
@@ -2653,7 +2653,7 @@ paths:
           description: Invalid request
   /api/version:
     get:
-      operationId: versionInfo
+      operationId: getApiVersion
       tags: [version]
       summary: Version Info
       security: []
@@ -2664,7 +2664,7 @@ paths:
           description: Invalid request
   /metrics:
     get:
-      operationId: prometheusMetrics
+      operationId: getMetrics
       tags: [metrics]
       summary: Prometheus Metrics
       security: []

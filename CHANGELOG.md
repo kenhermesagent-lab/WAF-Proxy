@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.9] — 2026-11-23
+
+### Added
+
+- `internal/openapi` now validates the committed document with kin-openapi: YAML structure,
+  schema references and duplicate operations fail `go test ./...`, not just the
+  byte-for-byte regeneration check.
+
+### Fixed
+
+- Generated operation IDs were the handler name, so every guarded route was `authed`; they
+  are now derived from method and path (`getApiProxies`, `deleteApiProxiesId`).
+
 ## [1.47.8] — 2026-11-23
 
 ### Fixed

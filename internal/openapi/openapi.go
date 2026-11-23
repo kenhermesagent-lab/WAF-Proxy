@@ -23,6 +23,20 @@ type route struct {
 }
 
 // Generate renders the document for the routes found in src.
+// operationID derives a stable, unique id from the method and path; handler
+// names repeat (every guarded route records "authed") and validators reject that.
+func operationID(method, path string) string {
+	id := strings.ToLower(method)
+	for _, seg := range strings.Split(path, "/") {
+		for _, word := range strings.FieldsFunc(seg, func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		}) {
+			id += strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+	return id
+}
+
 func Generate(src []byte, version string) ([]byte, error) {
 	routes, err := parse(string(src))
 	if err != nil {
@@ -290,7 +304,7 @@ func render(routes []route, version string) []byte {
 		}
 		sh := shapeFor(r)
 		b.WriteString("    " + strings.ToLower(r.method) + ":\n")
-		b.WriteString("      operationId: " + r.handler + "\n")
+		b.WriteString("      operationId: " + operationID(r.method, r.path) + "\n")
 		b.WriteString("      tags: [" + r.tag + "]\n")
 		b.WriteString("      summary: " + strings.Title(humanize(r.handler)) + "\n")
 		if r.authed {
