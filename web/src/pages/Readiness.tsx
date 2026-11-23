@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import Icon from "../components/Icon";
+import { COFFEE_URL } from "../links";
 import { Badge, Card, PageHead, Skeleton, errText, fmtAgo } from "../ui";
 import type { Cert, CrowdSecStatus, GeoIPStatus, Me } from "../types";
 
@@ -204,6 +206,18 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
             ))}
           </div>
         )}
+      </Card>
+
+      <Card title="Support the project">
+        <div className="row between" style={{ gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div>WAF-Proxy is built and maintained in the open.</div>
+            <div className="faint small-text">If it saves you time, you can buy the maintainer a coffee. Optional, and nothing in the console depends on it.</div>
+          </div>
+          <a className="link-button" href={COFFEE_URL} target="_blank" rel="noreferrer">
+            <Icon name="coffee" size={14} /> Buy me a coffee
+          </a>
+        </div>
       </Card>
     </div>
   );

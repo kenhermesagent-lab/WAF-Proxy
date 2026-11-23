@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.21] — 2026-11-23
+
+### Added
+
+- **"Buy me a coffee" in four places**, so a tip is one click from wherever an operator
+  already is: an icon beside the signed-in user and version at the foot of the sidebar, a
+  card at the bottom of Readiness, an About section at the end of Settings, and the sign-in
+  page footer next to Documentation. The addresses now live in `web/src/links.ts` rather than
+  being repeated per page.
+
 ## [1.47.20] — 2026-11-23
 
 ### Changed
