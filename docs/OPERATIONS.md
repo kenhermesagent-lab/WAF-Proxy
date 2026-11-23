@@ -184,10 +184,14 @@ upload a certificate whose names include the console host (for example
 `console.home.arpa` from the internal CA), then set:
 
 ```
-WAFPROXY_LISTEN_GUI=http://127.0.0.1:8080   # ignored once TLS is on
-WAFPROXY_LISTEN_GUI_TLS=1
-WAFPROXY_GUI_HOST=console.home.arpa
+WAFPROXY_LISTEN_GUI=127.0.0.1:8080   # host:port only, no scheme
+WAFPROXY_LISTEN_GUI_TLS=1           # 1/true/yes/on enables TLS on that listener
+WAFPROXY_GUI_HOST=console.home.arpa # hostname only, no scheme or port
 ```
+
+`WAFPROXY_LISTEN_GUI` is passed straight to `net.Listen`, so a URL scheme or path is
+not accepted. The certificate is chosen by `WAFPROXY_GUI_HOST`, which is lowercased
+and matched against the certificate's names.
 
 The listener refuses to start when no valid certificate matches the host, so a typo
 cannot silently leave the console on plain HTTP. The certificate is resolved on every

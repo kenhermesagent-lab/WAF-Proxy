@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.43.2] — 2026-11-23
+
+### Fixed
+
+- The console HTTPS docs showed `WAFPROXY_LISTEN_GUI` with a URL scheme although the
+  setting is a `host:port` listen address; the TLS and host variables are now annotated
+  with what `config.Load` accepts.
+
 ## [1.43.1] — 2026-11-23
 
 ### Fixed
