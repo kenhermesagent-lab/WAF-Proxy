@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.46.0] — 2026-11-23
+
+### Added
+
+- **TLS is its own canary stage.** The probe dials, then handshakes with SNI and checks
+  the presented certificate, so an expired certificate, a wrong-host certificate and a
+  plain connect failure are reported separately. The leaf expiry is returned as
+  `cert_expires_at`, including in the scheduled canary's health snapshot.
+
 ## [1.45.1] — 2026-11-23
 
 ### Changed

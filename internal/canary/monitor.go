@@ -17,15 +17,16 @@ type Notifier interface {
 
 // Snapshot is the last scheduled probe, exposed in the health payload.
 type Snapshot struct {
-	Enabled      bool   `json:"enabled"`
-	Host         string `json:"host"`
-	OK           bool   `json:"ok"`
-	FailedStage  string `json:"failed_stage,omitempty"`
-	Detail       string `json:"detail,omitempty"`
-	LatencyMS    int64  `json:"latency_ms"`
-	CheckedAt    string `json:"checked_at,omitempty"`
-	Failures     int    `json:"consecutive_failures"`
-	LastNotified string `json:"last_notified,omitempty"`
+	Enabled       bool   `json:"enabled"`
+	Host          string `json:"host"`
+	OK            bool   `json:"ok"`
+	FailedStage   string `json:"failed_stage,omitempty"`
+	Detail        string `json:"detail,omitempty"`
+	LatencyMS     int64  `json:"latency_ms"`
+	CertExpiresAt string `json:"cert_expires_at,omitempty"`
+	CheckedAt     string `json:"checked_at,omitempty"`
+	Failures      int    `json:"consecutive_failures"`
+	LastNotified  string `json:"last_notified,omitempty"`
 }
 
 // Monitor probes one site on an interval, retries a failed probe, and notifies
@@ -90,6 +91,7 @@ func (m *Monitor) Check(ctx context.Context) Snapshot {
 	snap.OK = res.OK
 	snap.FailedStage = res.Failed
 	snap.Detail = failureDetail(res)
+	snap.CertExpiresAt = res.CertExpiresAt
 	for _, st := range res.Stages {
 		if st.Name == "connect" && st.OK {
 			if d, err := time.ParseDuration(st.Detail); err == nil {

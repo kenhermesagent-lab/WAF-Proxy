@@ -275,8 +275,15 @@ the first stage that failed:
 ```
 
 The body may carry `{"proxy_id": 3}` or `{"host": "app.example.com"}`; with neither,
-the first configured site is used. The probe resolves the name, connects, requests
-`/.well-known/wafproxy-canary` with the site's hostname and classifies the result:
+the first configured site is used. The probe resolves the name, opens a TCP connection, performs its own TLS handshake
+with the site's hostname as SNI, and requests `/.well-known/wafproxy-canary`. Stages are
+`config`, `dns`, `connect`, `tls`, `route`, `waf` and `upstream`. The TLS stage inspects
+the presented certificate itself: an expired certificate fails with
+`certificate expired on <date>`, a certificate for another name fails with the
+verification error naming the expected and presented names, and a protocol-level
+failure reports `handshake failed`. The leaf expiry is also returned as
+`cert_expires_at`. A plain connect failure stays on the `connect` stage, so an
+unreachable port is never reported as a certificate problem. After the HTTP request,
 `403`/`429` fail at **waf**, `421` fails at **route**, `502`/`503`/`5xx` fail at
 **upstream**, and any other status passes. It returns `200` when every stage passed and
 `502` with the same body when one did not.
@@ -338,8 +345,9 @@ The last result is part of `GET /api/health`:
 
 ```
 "canary": {"enabled": true, "host": "app.example.com", "ok": false,
-           "failed_stage": "upstream", "detail": "upstream: upstream answered 502",
-           "latency_ms": 18, "checked_at": "...", "consecutive_failures": 2}
+           "failed_stage": "tls", "detail": "tls: certificate expired on ...",
+           "latency_ms": 18, "cert_expires_at": "...", "checked_at": "...",
+           "consecutive_failures": 2}
 ```
 
 Health still returns `200` while the canary is failing; the field is diagnostic, and

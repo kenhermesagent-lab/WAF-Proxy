@@ -6,6 +6,7 @@ package canary
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
@@ -27,11 +28,13 @@ type Stage struct {
 
 // Result is a completed probe. Failed names the first stage that did not pass.
 type Result struct {
-	OK     bool    `json:"ok"`
-	Host   string  `json:"host"`
-	URL    string  `json:"url"`
-	Failed string  `json:"failed_stage,omitempty"`
-	Stages []Stage `json:"stages"`
+	OK     bool   `json:"ok"`
+	Host   string `json:"host"`
+	URL    string `json:"url"`
+	Failed string `json:"failed_stage,omitempty"`
+	// CertExpiresAt is the leaf expiry observed at the TLS stage.
+	CertExpiresAt string  `json:"cert_expires_at,omitempty"`
+	Stages        []Stage `json:"stages"`
 }
 
 // Probe runs one check against a host.
@@ -46,6 +49,8 @@ type Prober struct {
 	Now    func() time.Time
 	// Scheme defaults to https; tests use http for a plain listener.
 	Scheme string
+	// RootCAs overrides the system trust store for TLS verification.
+	RootCAs *x509.CertPool
 }
 
 func (p Prober) client() *http.Client {
@@ -55,7 +60,7 @@ func (p Prober) client() *http.Client {
 	return &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: p.RootCAs},
 			DialContext:     p.Dial,
 		},
 	}
@@ -68,23 +73,28 @@ func (p Prober) now() time.Time {
 	return time.Now()
 }
 
-// Run probes one hostname and stops recording once a stage fails. Later stages
-// are reported as skipped so the list stays in pipeline order.
+// Run probes one hostname and stops recording once a stage fails. The TLS
+// stage inspects the presented certificate before the HTTP request, so an
+// expired or wrong-host certificate is reported on its own line instead of
+// hiding behind a generic transport error.
 func (p Prober) Run(ctx context.Context, host string) Result {
 	host = strings.ToLower(strings.TrimSpace(host))
 	scheme := p.Scheme
 	if scheme == "" {
 		scheme = "https"
 	}
-	name := host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		name = h
+	name, port := host, "443"
+	if scheme == "http" {
+		port = "80"
+	}
+	if h, po, err := net.SplitHostPort(host); err == nil {
+		name, port = h, po
 	}
 	res := Result{Host: host, URL: scheme + "://" + host + Path}
-	add := func(name string, ok bool, detail string) bool {
-		res.Stages = append(res.Stages, Stage{Name: name, OK: ok, Detail: detail})
+	add := func(stage string, ok bool, detail string) bool {
+		res.Stages = append(res.Stages, Stage{Name: stage, OK: ok, Detail: detail})
 		if !ok && res.Failed == "" {
-			res.Failed = name
+			res.Failed = stage
 		}
 		return ok
 	}
@@ -98,7 +108,26 @@ func (p Prober) Run(ctx context.Context, host string) Result {
 	}
 	add("dns", true, strings.Join(ips, ","))
 
+	dial := p.Dial
+	if dial == nil {
+		dialer := &net.Dialer{Timeout: 5 * time.Second}
+		dial = dialer.DialContext
+	}
 	start := p.now()
+	conn, err := dial(ctx, "tcp", net.JoinHostPort(ips[0], port))
+	if err != nil {
+		add("connect", false, err.Error())
+		return res
+	}
+	add("connect", true, p.now().Sub(start).Round(time.Millisecond).String())
+	if scheme == "https" {
+		if !p.tlsStage(ctx, conn, name, &res, add) {
+			conn.Close()
+			return res
+		}
+	}
+	conn.Close()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, res.URL, nil)
 	if err != nil {
 		add("request", false, err.Error())
@@ -108,11 +137,10 @@ func (p Prober) Run(ctx context.Context, host string) Result {
 	req.Header.Set("User-Agent", "WAF-Proxy-Canary/1")
 	resp, err := p.client().Do(req)
 	if err != nil {
-		add("connect", false, err.Error())
+		add("request", false, err.Error())
 		return res
 	}
 	defer resp.Body.Close()
-	add("connect", true, p.now().Sub(start).Round(time.Millisecond).String())
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 	switch {
@@ -135,4 +163,41 @@ func (p Prober) Run(ctx context.Context, host string) Result {
 		res.OK = true
 	}
 	return res
+}
+
+// tlsStage captures the certificate with SNI set, then checks expiry and the
+// hostname itself so each failure gets its own message.
+func (p Prober) tlsStage(ctx context.Context, conn net.Conn, name string, res *Result, add func(string, bool, string) bool) bool {
+	tc := tls.Client(conn, &tls.Config{ServerName: name, InsecureSkipVerify: true, MinVersion: tls.VersionTLS12})
+	hsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := tc.HandshakeContext(hsCtx); err != nil {
+		add("tls", false, "handshake failed: "+err.Error())
+		return false
+	}
+	state := tc.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		add("tls", false, "the server presented no certificate")
+		return false
+	}
+	leaf := state.PeerCertificates[0]
+	res.CertExpiresAt = leaf.NotAfter.UTC().Format(time.RFC3339)
+	if !leaf.NotAfter.After(p.now()) {
+		add("tls", false, "certificate expired on "+leaf.NotAfter.UTC().Format(time.RFC3339))
+		return false
+	}
+	roots := p.RootCAs
+	if roots == nil {
+		roots, _ = x509.SystemCertPool()
+	}
+	inter := x509.NewCertPool()
+	for _, c := range state.PeerCertificates[1:] {
+		inter.AddCert(c)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{DNSName: name, Roots: roots, Intermediates: inter}); err != nil {
+		add("tls", false, err.Error())
+		return false
+	}
+	days := int(leaf.NotAfter.Sub(p.now()).Hours() / 24)
+	return add("tls", true, fmt.Sprintf("expires in %d days", days))
 }
