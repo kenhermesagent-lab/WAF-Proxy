@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { confirmDialog, Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
-import { CrowdSecBlocklists, Feed, IntelLookup } from "../types";
+import { modeBadges } from "../bundles";
+import { BundleHit, BundlesSnapshot, CrowdSecBlocklists, Feed, IntelLookup } from "../types";
 
 export default function Intel({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [feeds, setFeeds] = useState<Feed[]>([]);
@@ -14,6 +15,9 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
   const [lookup, setLookup] = useState<IntelLookup | null>(null);
   const [checking, setChecking] = useState(false);
   const file = useRef<HTMLInputElement>(null);
+  const [bundles, setBundles] = useState<BundlesSnapshot | null>(null);
+  const [bundleHits, setBundleHits] = useState<BundleHit[]>([]);
+  const [checkingBundles, setCheckingBundles] = useState(false);
 
   const load = () =>
     api
@@ -44,6 +48,35 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
       clearInterval(t);
     };
   }, []);
+
+  const loadBundles = () => {
+    api.get<BundlesSnapshot>("/api/bundles").then(setBundles).catch(() => undefined);
+    api
+      .get<{ hours: number; rules: BundleHit[] }>("/api/bundles/hits?hours=24")
+      .then((r) => setBundleHits(r.rules || []))
+      .catch(() => undefined);
+  };
+
+  useEffect(() => {
+    loadBundles();
+    const t = setInterval(loadBundles, 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const checkBundles = async () => {
+    setCheckingBundles(true);
+    try {
+      const snap = await api.post<BundlesSnapshot>("/api/bundles/check");
+      setBundles(snap);
+      if (snap.error) onError(snap.error);
+      else onOK("Bundle channel checked");
+      loadBundles();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setCheckingBundles(false);
+    }
+  };
 
   const toggle = async (f: Feed) => {
     try {
@@ -143,6 +176,125 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
           <div className="stat"><div className="k">Frozen</div><div className="v">{feeds.filter((f) => f.state === "frozen").length}</div><div className="sub">guardrails held a suspicious list</div></div>
         </Card>
       </div>
+
+      <Card
+        title="Signature bundles"
+        actions={
+          <>
+            <Badge tone={bundles?.configured ? "ok" : "warn"}>
+              {bundles?.configured ? "signed channel" : "not configured"}
+            </Badge>
+            <button className="small" onClick={checkBundles} disabled={checkingBundles || !bundles?.configured}>
+              {checkingBundles ? "Checking…" : "Check now"}
+            </button>
+          </>
+        }
+      >
+        {!bundles ? (
+          <Empty>Loading…</Empty>
+        ) : !bundles.configured ? (
+          <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+            No signed bundle channel is configured. Set <code>WAFPROXY_BUNDLE_URL</code> and
+            <code> WAFPROXY_BUNDLE_PUBKEY</code> to receive attack-signature packs. A pack carries rules only, never
+            addresses, so it can add signatures but never ban an IP.
+          </p>
+        ) : bundles.bundles.length === 0 ? (
+          <Empty>No bundles installed yet.</Empty>
+        ) : (
+          <>
+            <div className="facts" style={{ marginBottom: 10 }}>
+              <span><b>Channel</b> <code>{bundles.url}</code></span>
+              <span><b>Publisher</b> <code>{bundles.key_id}</code></span>
+              <span><b>Checked</b> {fmtAgo(bundles.last_check)} · next {fmtAgo(bundles.next_check)}</span>
+            </div>
+            {bundles.error ? (
+              <div className="banner warn" style={{ marginBottom: 10 }} role="status">{bundles.error}</div>
+            ) : null}
+            <div style={{ overflowX: "auto" }}>
+              <div className="table-wrap"><table>
+                <thead>
+                  <tr><th>Bundle</th><th>Version</th><th className="num">Rules</th><th>Installed</th><th>Profile modes</th></tr>
+                </thead>
+                <tbody>
+                  {bundles.bundles.map((b) => (
+                    <tr key={b.name}>
+                      <td>{b.name}</td>
+                      <td className="mono">{b.version}</td>
+                      <td className="num">{b.rules}</td>
+                      <td className="muted">{fmtAgo(b.installed_at)}</td>
+                      <td>
+                        <div className="row" style={{ gap: 4 }}>
+                          {modeBadges(b.modes).map((m) => <Badge key={m.label} tone={m.tone}>{m.label}</Badge>)}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+            </div>
+            <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
+              Checks read the signed manifest hourly and download a pack only when its version changes. Each rule
+              runs in log only until a profile allows it to block; the mode is per profile, so one site can refuse
+              these matches while another only records them.
+            </p>
+          </>
+        )}
+      </Card>
+
+      <Card
+        title="Bundle hits"
+        actions={<span className="faint" style={{ fontSize: 11.5 }}>last 24 hours</span>}
+      >
+        {bundleHits.length === 0 ? (
+          <Empty>No bundle rule has matched in the last 24 hours.</Empty>
+        ) : (
+          <>
+            {bundleHits.every((h) => (h.modes?.block ?? 0) === 0) ? (
+              <div className="banner warn" style={{ marginBottom: 10 }} role="status">
+                <span>These requests were served: every profile runs these bundles in log only.</span>
+                <div className="banner-actions">
+                  <button className="small" onClick={() => { window.location.hash = "#/policies?tab=profiles"; }}>
+                    Set bundle mode →
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <div style={{ overflowX: "auto" }}>
+              <div className="table-wrap"><table>
+                <thead>
+                  <tr><th>Rule</th><th>Bundle</th><th>What it matched</th><th className="num">Hits</th><th className="num">Addresses</th><th>Last seen</th><th>Today</th></tr>
+                </thead>
+                <tbody>
+                  {bundleHits.map((h) => (
+                    <tr key={h.rule_id}>
+                      <td className="mono">{h.rule_id}</td>
+                      <td>
+                        {h.bundle || <span className="faint">removed</span>}{" "}
+                        {h.version ? <span className="faint" style={{ fontSize: 11 }}>{h.version}</span> : null}
+                      </td>
+                      <td className="muted" style={{ maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={h.message}>{h.message}</td>
+                      <td className="num">{h.hits.toLocaleString()}</td>
+                      <td className="num">{h.addresses.toLocaleString()}</td>
+                      <td className="muted">{fmtAgo(h.last_seen)}</td>
+                      <td>
+                        {(h.modes?.block ?? 0) > 0
+                          ? <Badge tone="bad">blocked</Badge>
+                          : (h.modes?.log ?? 0) > 0
+                            ? <Badge tone="warn">logged</Badge>
+                            : <Badge>off</Badge>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+            </div>
+            <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
+              A hit proves a rule matched, not that the request was hostile. The counts come from the request log, so
+              they follow the retention window and the sampling setting.
+            </p>
+          </>
+        )}
+      </Card>
 
       <Card title="Check an address">
         <div className="row grow">

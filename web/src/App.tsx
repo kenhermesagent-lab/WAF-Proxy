@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api, setCSRF } from "./api";
+import { COFFEE_URL, DOCS_URL } from "./links";
 import { errText } from "./ui";
 import PageBoundary from "./components/PageBoundary";
 import CommandPalette from "./components/CommandPalette";
@@ -36,9 +37,6 @@ type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 type Enrolment = { username: string; secret: string; url: string; codes: string[] };
 type ToastTone = "ok" | "error" | "info" | "warn";
 type Toast = { id: number; tone: ToastTone; title: string; message: string };
-
-const DOCS_URL = "https://github.com/kenhermesagent-lab/WAF-Proxy-Docker/tree/main/docs";
-const COFFEE_URL = "https://buymeacoffee.com/kenhermesagent";
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("loading");
@@ -268,7 +266,10 @@ export default function App() {
         <div className="nav-spacer" />
         {NAV_UTILITY.filter(allowed).map(navButton)}
         <div className="nav-foot">
-          {me?.username} · v{me?.version}
+          <span className="nav-foot-who">{me?.username} · v{me?.version}</span>
+          <a className="nav-coffee" href={COFFEE_URL} target="_blank" rel="noreferrer" title="Buy me a coffee" aria-label="Buy me a coffee">
+            <Icon name="coffee" size={13} />
+          </a>
         </div>
         <button className="nav-collapse" onClick={() => setCollapsed((v) => !v)} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>
           <Icon name={collapsed ? "expand" : "collapse"} size={15} />
@@ -380,7 +381,7 @@ export default function App() {
                   canShareViews={can(me?.permissions, "traffic.write")}
                 />
               )}
-              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} />}
+              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} />}
               {page === "account" && (
                 <Account
                   me={me}
@@ -624,6 +625,7 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
           <p className="login-foot">
             This console is restricted to administrators. Sessions expire after 12 hours of inactivity.
             {" "}<a href={DOCS_URL} target="_blank" rel="noreferrer">Documentation</a>
+            {" · "}<a href={COFFEE_URL} target="_blank" rel="noreferrer">Buy me a coffee</a>
           </p>
         </form>
       </section>

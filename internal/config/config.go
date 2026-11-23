@@ -55,6 +55,14 @@ type Config struct {
 	// server (step-ca, Pebble). ACMECAFile is the PEM bundle to trust for it.
 	ACMEDirectory string
 	ACMECAFile    string
+	// BundleURL and BundlePublicKey configure the signed signature-bundle
+	// channel. Both are required to enable it; without them the service serves
+	// whatever packs are already installed and never fetches.
+	BundleURL       string
+	BundlePublicKey string
+	// BundleIntervalSeconds is the manifest refresh period. The manager never
+	// checks more often than every five minutes.
+	BundleIntervalSeconds int
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -79,6 +87,10 @@ func Load() (*Config, error) {
 		MetricsToken:   strings.TrimSpace(os.Getenv("WAFPROXY_METRICS_TOKEN")),
 		ACMEDirectory:  strings.TrimSpace(os.Getenv("WAFPROXY_ACME_DIRECTORY")),
 		ACMECAFile:     strings.TrimSpace(os.Getenv("WAFPROXY_ACME_CA_FILE")),
+
+		BundleURL:             strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_URL")),
+		BundlePublicKey:       strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_PUBKEY")),
+		BundleIntervalSeconds: envInt("WAFPROXY_BUNDLE_INTERVAL", 3600),
 	}
 	if c.ListenGUITLS && c.GUIHost == "" {
 		return nil, errors.New("WAFPROXY_GUI_HOST is required when WAFPROXY_LISTEN_GUI_TLS is set")

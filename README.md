@@ -12,6 +12,7 @@ systemd service. Version 1.28.0.
 
 - [What it does](#what-it-does)
 - [How a request is handled](#how-a-request-is-handled)
+- [Signature bundles](#signature-bundles)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [First boot](#first-boot)
@@ -37,6 +38,9 @@ systemd service. Version 1.28.0.
   streaming forwarders, with the deciding list named in every event.
 - Keyless threat feeds plus local uploads, CrowdSec LAPI bouncer, and a ban engine backed by
   nftables with escalating temporary bans and permanent bans.
+- Signed signature bundles: an ed25519-signed channel delivers rule packs between releases, they
+  are verified, checksummed and compiled before replacing the previous version, and each pack is
+  off, log only or block per WAF profile.
 - Access gates per site: a shared passphrase, named accounts, or accounts plus TOTP, with an
   allowlist, lockout that survives an IP change, and a session cookie bound to the client network.
 
@@ -79,6 +83,7 @@ systemd service. Version 1.28.0.
 - `wafproxy recover --password … --reset-totp` resets a locked-out account.
 - `wafproxy backup --keep 7` writes an encrypted backup and prunes older ones.
 - `wafproxy unban <ip|cidr>` removes a ban while the console is unreachable.
+- `bundletool keygen|sign` publishes a signed signature-bundle channel.
 
 ## How a request is handled
 
@@ -99,6 +104,47 @@ the reason. It is off by default because it delays the first byte by up to one b
 Every decision that blocks, bans or challenges produces one event row (source, country, ASN, host,
 path, stage, rule) that feeds the dashboard, the globe, Logs, Sources and notifications. Allowed
 requests are sampled rather than logged, so the event table stays small on a busy site.
+
+## Signature bundles
+
+The bundled OWASP CRS moves with the release, so a newly exploited pattern waits for the next
+version of this project. A bundle channel fills that gap without turning the console into a rule
+editor: a publisher signs a manifest, the service checks it hourly, and each pack becomes extra
+phase-1 rules in the profiles that opt in.
+
+- Packs carry **rules only**. A bundle can add a signature but never ban an address; IP and CIDR
+  lists stay in Threat intel → Feeds.
+- The manifest is ed25519-signed and carries a `sequence` that must increase, so a mirror cannot
+  roll the channel back to an older pack.
+- A pack is installed only after its signature, SHA-256, advertised size and a throwaway compile
+  all pass. The previous version stays on disk as the last known good copy, and the swap is atomic.
+- Rules use the reserved range `990000–999999`: above every CRS rule ID (CRS v4 tops out at
+  980170) and inside the per-profile exception cap, so an exception can disable one signature.
+- A bundle is **off, log only or block per WAF profile**, never globally. A new pack starts in log
+  only, and a site whose own WAF mode is `detect` keeps logging even when its profile allows block.
+
+A refresh reads the manifest only (`If-None-Match` answers 304 in the steady state); a pack is
+downloaded only when its version changes. Configure the channel:
+
+```
+WAFPROXY_BUNDLE_URL=https://bundles.example.com/stable/manifest.json
+WAFPROXY_BUNDLE_PUBKEY=<hex or base64 ed25519 public key>
+WAFPROXY_BUNDLE_INTERVAL=3600
+```
+
+Without both the URL and the key the channel stays off and the service serves whatever packs are
+already installed. The manifest and pack shapes are documented in `internal/bundle`. To publish:
+
+```
+go run ./cmd/bundletool keygen -out publisher.key
+go run ./cmd/bundletool sign -dir packs -seq 42 -key publisher.key -base /stable/packs -out manifest.json
+```
+
+The tool validates and compiles every rule before signing, so the channel cannot ship a pack the
+service will reject. In the console, **Threat intel → Signature bundles** shows the channel, the
+installed versions and the modes across profiles; **Bundle hits** counts the rules that matched in
+the last 24 hours from the request log. The switch itself lives in **Policies → WAF profiles →
+Edit**, next to paranoia and rule exceptions.
 
 ## Requirements
 

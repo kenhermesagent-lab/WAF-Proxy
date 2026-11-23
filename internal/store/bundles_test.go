@@ -1,0 +1,51 @@
+package store
+
+import (
+	"testing"
+	"time"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+)
+
+func TestBundleHitsOnlyCountsWAFBundleRules(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC()
+	events := []model.Event{
+		{TS: now, Stage: "waf", RuleID: "990417", RuleMsg: "template injection", SrcIP: "203.0.113.9", Action: "block"},
+		{TS: now.Add(-time.Hour), Stage: "waf", RuleID: "990417", RuleMsg: "template injection", SrcIP: "203.0.113.10", Action: "block"},
+		{TS: now, Stage: "waf", RuleID: "990123", RuleMsg: "union select", SrcIP: "203.0.113.9", Action: "log"},
+		// Not a bundle rule, wrong stage, and outside the window: none of these
+		// may appear in the hit table.
+		{TS: now, Stage: "waf", RuleID: "942100", SrcIP: "203.0.113.9", Action: "block"},
+		// A real CRS ID above 960000, which the bundle range must stay clear of.
+		{TS: now, Stage: "waf", RuleID: "980170", SrcIP: "203.0.113.9", Action: "log"},
+		{TS: now, Stage: "route", RuleID: "990417", SrcIP: "203.0.113.11", Action: "allow"},
+		{TS: now.Add(-48 * time.Hour), Stage: "waf", RuleID: "990417", SrcIP: "203.0.113.12", Action: "block"},
+	}
+	if err := st.InsertEvents(events); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := st.BundleHits(now.Add(-24 * time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 {
+		t.Fatalf("hits = %+v, want two rules", hits)
+	}
+	byRule := map[int]RuleHit{}
+	for _, h := range hits {
+		byRule[h.RuleID] = h
+	}
+	if got := byRule[990417]; got.Hits != 2 || got.Addresses != 2 || got.Message != "template injection" {
+		t.Fatalf("990417 = %+v", got)
+	}
+	if got := byRule[990123]; got.Hits != 1 || got.Addresses != 1 {
+		t.Fatalf("990123 = %+v", got)
+	}
+}

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
+import Icon from "../components/Icon";
+import { COFFEE_URL, DOCS_URL } from "../links";
 import { Badge, Field, PageHead, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
 import type { AuditEntry, CrowdSecStatus, GeoIPStatus } from "../types";
 import BackupCard from "../components/BackupCard";
@@ -24,9 +26,10 @@ const SECTIONS = [
   { id: "runtime", label: "Runtime status" },
   { id: "geoip", label: "GeoIP database" },
   { id: "activity", label: "Administrator activity" },
+  { id: "about", label: "About" },
 ];
 
-export default function SettingsPage({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
+export default function SettingsPage({ onError, onOK, version = "" }: { onError: (m: string) => void; onOK: (m: string) => void; version?: string }) {
   const [s, setS] = useState<Settings>({});
   const [saved, setSaved] = useState<Settings>({});
   const [saving, setSaving] = useState(false);
@@ -422,6 +425,28 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
           <p className="faint small-text">
             Newest 20 entries: sign-ins, sign-outs, settings changes, proxy and certificate changes, bans and restores.
           </p>
+        </section>
+
+        <section id="about" className="settings-section card">
+          <div className="section-head">
+            <h2>About</h2>
+            <p>WAF-Proxy is a self-hosted web application firewall and reverse proxy.</p>
+          </div>
+          <div className="bar-row">
+            <div>Console version</div>
+            <div className="mono">{version ? `v${version}` : "unknown"}</div>
+          </div>
+          <div className="bar-row">
+            <div>Documentation</div>
+            <div><a className="link-button" href={DOCS_URL} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Operations guide</a></div>
+          </div>
+          <div className="bar-row">
+            <div>
+              Buy me a coffee
+              <div className="faint small-text">Optional tip for the maintainer; nothing in the console depends on it.</div>
+            </div>
+            <div><a className="link-button" href={COFFEE_URL} target="_blank" rel="noreferrer"><Icon name="coffee" size={14} /> Buy me a coffee</a></div>
+          </div>
         </section>
 
         {/* Only present while something is unsaved, so it never hovers over fields. */}

@@ -12,7 +12,7 @@ import (
 func responseEngine(t *testing.T, exceptions string) *Engine {
 	t.Helper()
 	e, err := compile(model.Profile{ID: 2, Name: "resp", Mode: "block", Paranoia: 1, Anomaly: 5,
-		MaxBody: 131072, Exceptions: exceptions})
+		MaxBody: 131072, Exceptions: exceptions}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

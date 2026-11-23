@@ -158,9 +158,18 @@ code, .mono, kbd {
 }
 .nav-spacer { flex: 1; min-height: 12px; }
 .nav-foot {
+  display: flex; align-items: center; gap: 6px;
   padding: 8px; font-size: 11px; color: var(--faint);
   border-top: 1px solid var(--border-soft); margin-top: 8px;
 }
+.nav-foot-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-coffee {
+  margin-left: auto; flex: 0 0 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 6px;
+  color: var(--faint); border: 1px solid transparent;
+}
+.nav-coffee:hover { color: var(--text); background: var(--bg-hover); border-color: var(--border-soft); }
 .nav-collapse {
   display: flex; align-items: center; justify-content: flex-start; gap: 9px;
   padding: 7px 8px; border-radius: 7px; border: 0;
@@ -630,6 +639,7 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 .login-form h2 { margin: 0 0 6px; font-size: 20px; font-weight: 600; letter-spacing: -.025em; }
 .login-form .sub { color: var(--muted); font-size: 12.5px; margin: 0 0 22px; line-height: 1.6; }
 .login-foot { margin-top: 20px; color: var(--faint); font-size: 11px; line-height: 1.7; }
+.link-button svg { flex: 0 0 auto; }
 .login-foot a { color: var(--muted); }
 .setup-card { width: min(660px, 100%); }
 
@@ -1005,7 +1015,8 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 
 /* A link that carries a control's weight without being a button. */
 .link-button {
-  display: inline-flex; align-items: center; min-height: 27px; padding: 0 9px;
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  min-height: 27px; padding: 0 9px;
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg-elev-2); color: var(--text); font-size: 11.5px; font-weight: 550;
 }

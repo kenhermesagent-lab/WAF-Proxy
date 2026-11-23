@@ -148,7 +148,8 @@ CREATE TABLE IF NOT EXISTS profiles (
   login_rps INTEGER NOT NULL DEFAULT 0,
   login_burst INTEGER NOT NULL DEFAULT 0,
   admin_paths TEXT NOT NULL DEFAULT '',
-  admin_ips TEXT NOT NULL DEFAULT ''
+  admin_ips TEXT NOT NULL DEFAULT '',
+  bundle_modes TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS certificates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -509,6 +510,9 @@ func (s *Store) migrateAddColumns() error {
 		{"profiles", "login_burst", `ALTER TABLE profiles ADD COLUMN login_burst INTEGER NOT NULL DEFAULT 0`},
 		{"profiles", "admin_paths", `ALTER TABLE profiles ADD COLUMN admin_paths TEXT NOT NULL DEFAULT ''`},
 		{"profiles", "admin_ips", `ALTER TABLE profiles ADD COLUMN admin_ips TEXT NOT NULL DEFAULT ''`},
+		// Per-profile mode for each installed signature bundle: off, log or
+		// block. An empty object means every bundle logs only.
+		{"profiles", "bundle_modes", `ALTER TABLE profiles ADD COLUMN bundle_modes TEXT NOT NULL DEFAULT '{}'`},
 		// Audit rows chain by hash so an edited row is detectable.
 		{"audit", "hash", `ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`},
 		// Agent tokens can be limited to read, ban or session tools.

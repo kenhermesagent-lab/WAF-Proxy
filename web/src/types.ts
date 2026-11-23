@@ -283,6 +283,41 @@ export interface Profile {
   login_burst: number;
   admin_paths: string;
   admin_ips: string;
+  // Per-bundle mode for this profile: off, log or block. An unset bundle logs
+  // only, so installing one never starts refusing traffic on its own.
+  bundle_modes: Record<string, string>;
+}
+
+export interface BundleStatus {
+  name: string;
+  version: string;
+  rules: number;
+  size: number;
+  sha256: string;
+  installed_at?: string | null;
+  modes: Record<string, number>;
+}
+
+export interface BundlesSnapshot {
+  configured: boolean;
+  url?: string;
+  key_id?: string;
+  last_check?: string | null;
+  next_check?: string | null;
+  sequence: number;
+  error?: string;
+  bundles: BundleStatus[];
+}
+
+export interface BundleHit {
+  rule_id: number;
+  bundle?: string;
+  version?: string;
+  message: string;
+  hits: number;
+  addresses: number;
+  last_seen: string;
+  modes: Record<string, number>;
 }
 
 export interface Preset {
