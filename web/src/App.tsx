@@ -144,12 +144,6 @@ export default function App() {
   useEffect(() => {
     if (!me) return;
     const item = NAV.find((n) => n.id === page);
-    if (item?.permission && !can(me.permissions, item.permission)) {
-      const first = NAV.find((n) => !n.permission || can(me.permissions, n.permission)) ?? NAV[0];
-      setRoute(routeFromHash(href(first.id)));
-      window.location.hash = href(first.id);
-      return;
-    }
     // A tab the role cannot read (or one that no longer exists) opens the
     // first tab it can, so the URL never points at an invisible view.
     const allowedTabs = (item?.tabs ?? []).filter((t) => !t.permission || can(me.permissions, t.permission));
@@ -238,8 +232,11 @@ export default function App() {
 
   const allowed = (n: NavItem) => !n.permission || can(me?.permissions, n.permission);
   const visibleNav = NAV.filter(allowed);
-  const current = visibleNav.find((n) => n.id === page) ?? visibleNav[0] ?? NAV[0];
-  const pageAllowed = allowed(NAV.find((n) => n.id === page) ?? current);
+  // The crumb names the page the URL asked for, even when the role cannot read
+  // it; the card offers the first page the role can open instead.
+  const current = NAV.find((n) => n.id === page) ?? visibleNav[0] ?? NAV[0];
+  const fallback = visibleNav[0] ?? NAV[0];
+  const pageAllowed = allowed(current);
   const tabsFor = (id: string) =>
     (NAV.find((n) => n.id === id)?.tabs ?? []).filter((t) => !t.permission || can(me?.permissions, t.permission));
   const tabProps = (id: string) => ({ tab, tabs: tabsFor(id), onTab: (next: string) => navigate(id, undefined, next) });
@@ -366,7 +363,10 @@ export default function App() {
 
         <div className="content">
           {!pageAllowed ? (
-            <div className="card">Your role does not include this page.</div>
+            <div className="card">
+              <p style={{ marginTop: 0 }}>Your role does not include this page.</p>
+              <button className="primary" onClick={() => navigate(fallback.id)}>Open {fallback.label}</button>
+            </div>
           ) : (
             <PageBoundary page={page}>
               {page === "dashboard" && <Dashboard onError={onError} home={home} onOpenSource={setSourceIp} />}
@@ -399,7 +399,7 @@ export default function App() {
                   canShareViews={can(me?.permissions, "traffic.write")}
                 />
               )}
-              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} {...tabProps("settings")} />}
+              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} />}
               {page === "account" && (
                 <Account
                   me={me}

@@ -113,12 +113,6 @@ export const NAV_UTILITY: NavItem[] = [
     icon: "settings",
     permission: "settings.read",
     hint: "Network, protection, backup, updates and readiness",
-    defaultTab: "general",
-    tabs: [
-      { id: "general", label: "General" },
-      { id: "updates", label: "Updates", permission: "system.read" },
-      { id: "readiness", label: "Readiness" },
-    ],
   },
   { id: "account", label: "Account", icon: "user", hint: "Password, authenticator and team" },
 ];
@@ -134,8 +128,8 @@ const LEGACY_ROUTES: Record<string, Route> = {
   crowdsec: { page: "intel", tab: "crowdsec" },
   certs: { page: "proxies", tab: "certs" },
   streaming: { page: "proxies", tab: "streaming" },
-  updates: { page: "settings", tab: "updates" },
-  readiness: { page: "settings", tab: "readiness" },
+  updates: { page: "settings", tab: "" },
+  readiness: { page: "settings", tab: "" },
 };
 
 // routeFromHash maps "#/intel/explorer?ip=1.2.3.4" to { page: "intel", tab:

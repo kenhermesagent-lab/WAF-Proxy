@@ -40,6 +40,14 @@ describe("Settings configuration transport", () => {
           return { configured: false };
         case "/api/audit":
           return [];
+        case "/api/audit/verify":
+          return { ok: true, checked: 0 };
+        case "/api/updates":
+          return { packages: [], updating: false, app_updating: false };
+        case "/api/certs":
+          return { certs: [] };
+        case "/api/notifications":
+          return { settings: {}, channels: {}, recent: [], event_kinds: [] };
         default:
           return {};
       }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { confirmDialog, Badge, Card, Empty, Field, PageHead, PageTabs, errText, fmtAgo } from "../ui";
 import { loggedOnly, modeBadges, outcomeBadges } from "../bundles";
-import { BundleHit, BundlesSnapshot, CrowdSecBlocklists, Feed, IntelLookup } from "../types";
+import { BundleHit, BundlesSnapshot, Feed, IntelLookup } from "../types";
 import type { NavTab } from "../nav";
 import Sources from "./Sources";
 import CrowdSecPage from "./CrowdSec";
@@ -29,7 +29,6 @@ export default function Intel({
   const [form, setForm] = useState({ name: "", url: "", action: "block", interval_s: 900 });
   const [uploadName, setUploadName] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [consoleLists, setConsoleLists] = useState<CrowdSecBlocklists | null>(null);
   const [probe, setProbe] = useState("");
   const [lookup, setLookup] = useState<IntelLookup | null>(null);
   const [checking, setChecking] = useState(false);
@@ -52,21 +51,6 @@ export default function Intel({
     load();
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    const refresh = () =>
-      api
-        .get<CrowdSecBlocklists>("/api/crowdsec/blocklists")
-        .then((r) => alive && setConsoleLists(r))
-        .catch(() => undefined);
-    refresh();
-    const t = setInterval(refresh, 30000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
   }, []);
 
   const loadBundles = () => {
@@ -193,62 +177,7 @@ export default function Intel({
 
       {tab === "explorer" && <Sources head={false} onError={onError} onOpenSource={onOpenSource} />}
 
-      {tab === "crowdsec" && (
-        <>
-          <CrowdSecPage head={false} onError={onError} onOK={onOK} />
-          <Card
-            title="CrowdSec console blocklists"
-            actions={
-              consoleLists?.available ? (
-                <Badge>{consoleLists.total.toLocaleString()} decisions</Badge>
-              ) : consoleLists ? (
-                <Badge tone="warn">not reported</Badge>
-              ) : undefined
-            }
-          >
-            {!consoleLists ? (
-              <Empty>Loading…</Empty>
-            ) : !consoleLists.available ? (
-              <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-                {consoleLists.reason || "The Security Engine did not report its decisions."}
-              </p>
-            ) : consoleLists.rows.length === 0 ? (
-              <Empty>No console-pushed decisions are active on this engine.</Empty>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <div className="table-wrap"><table>
-                  <thead>
-                    <tr><th>Reason</th><th>Origin</th><th>Action</th><th className="num">Decisions</th></tr>
-                  </thead>
-                  <tbody>
-                    {consoleLists.rows.map((r) => (
-                      <tr key={`${r.origin}:${r.reason}:${r.action}`}>
-                        <td className="mono" style={{ overflowWrap: "anywhere" }}>{r.reason}</td>
-                        <td>
-                          <Badge tone={r.origin === "console" ? "bad" : "info"}>{r.origin}</Badge>
-                        </td>
-                        <td>{r.action}</td>
-                        <td className="num">{r.count.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table></div>
-              </div>
-            )}
-            {consoleLists?.raw && (
-              <pre className="mono" style={{ fontSize: 11, maxHeight: 220, overflow: "auto" }}>{consoleLists.raw}</pre>
-            )}
-            {consoleLists?.available && (
-              <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
-                Reported by the Security Engine (<code>cscli metrics show decisions</code>) and enforced by the bouncer, so
-                every row is a decision that is actually in force. Origins <code>lists</code> (subscribed blocklists),
-                <code> CAPI</code> (community blocklist) and <code>console</code> (pushed from the console) are managed at
-                app.crowdsec.net and cannot be edited here.
-              </p>
-            )}
-          </Card>
-        </>
-      )}
+      {tab === "crowdsec" && <CrowdSecPage head={false} onError={onError} onOK={onOK} />}
 
       {tab === "bundles" && (
         <>

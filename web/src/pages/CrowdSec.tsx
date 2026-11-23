@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Field, errText, fmtAgo, PageHead } from "../ui";
-import type { CrowdSecInstall, CrowdSecStatus } from "../types";
+import { Badge, Card, Empty, Field, errText, fmtAgo, PageHead } from "../ui";
+import type { CrowdSecBlocklists, CrowdSecInstall, CrowdSecStatus } from "../types";
 
 // ConsoleConnection shows the rows `cscli console status` reports, so the plan
 // and decision management state are visible instead of inferred.
@@ -28,7 +28,7 @@ function ConsoleConnection({ inst }: { inst: CrowdSecInstall }) {
       </table></div>
       <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
         {inst.console_decision_active
-          ? "The console can push decisions and blocklists to this engine; what it is currently enforcing is listed, read-only, on Threat intel."
+          ? "The console can push decisions and blocklists to this engine; what it is currently enforcing is listed, read-only, further down this page."
           : "Console-pushed decisions and blocklists will not reach this engine until Decision management is active, which needs a plan that includes it."}
       </p>
     </div>
@@ -48,6 +48,7 @@ export default function CrowdSecPage({ onError, onOK, head = true }: { onError: 
   const [enrolling, setEnrolling] = useState(false);
   const [installKey, setInstallKey] = useState("");
   const [restarting, setRestarting] = useState(false);
+  const [blocklists, setBlocklists] = useState<CrowdSecBlocklists | null>(null);
 
   const applyStatus = (s: CrowdSecStatus) => {
     setStatus(s);
@@ -74,6 +75,23 @@ export default function CrowdSecPage({ onError, onOK, head = true }: { onError: 
       api.get<CrowdSecStatus>("/api/crowdsec").then(setStatus).catch(() => undefined);
     }, 15000);
     return () => clearInterval(t);
+  }, []);
+
+  // What the engine is enforcing right now, which also proves the bouncer is
+  // reading decisions rather than merely configured.
+  useEffect(() => {
+    let alive = true;
+    const refresh = () =>
+      api
+        .get<CrowdSecBlocklists>("/api/crowdsec/blocklists")
+        .then((r) => alive && setBlocklists(r))
+        .catch(() => undefined);
+    refresh();
+    const t = setInterval(refresh, 30000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
   }, []);
 
   // A host install runs in the background: adding the CrowdSec repository and
@@ -206,6 +224,56 @@ export default function CrowdSecPage({ onError, onOK, head = true }: { onError: 
           decisions and applies them to the local ban engine. The Security Engine (and its LAPI) must be
           installed and running separately. No CrowdSec port is exposed to the WAN.
         </p>
+      </Card>
+
+      <Card
+        title="CrowdSec console blocklists"
+        actions={
+          blocklists?.available ? (
+            <Badge>{blocklists.total.toLocaleString()} decisions</Badge>
+          ) : blocklists ? (
+            <Badge tone="warn">not reported</Badge>
+          ) : undefined
+        }
+      >
+        {!blocklists ? (
+          <Empty>Loading…</Empty>
+        ) : !blocklists.available ? (
+          <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+            {blocklists.reason || "The Security Engine did not report its decisions."}
+          </p>
+        ) : blocklists.rows.length === 0 ? (
+          <Empty>No console-pushed decisions are active on this engine.</Empty>
+        ) : (
+          <div className="table-wrap"><table>
+            <thead>
+              <tr><th>Reason</th><th>Origin</th><th>Action</th><th className="num">Decisions</th></tr>
+            </thead>
+            <tbody>
+              {blocklists.rows.map((r) => (
+                <tr key={`${r.origin}:${r.reason}:${r.action}`}>
+                  <td className="mono" style={{ overflowWrap: "anywhere" }}>{r.reason}</td>
+                  <td>
+                    <Badge tone={r.origin === "console" ? "bad" : "info"}>{r.origin}</Badge>
+                  </td>
+                  <td>{r.action}</td>
+                  <td className="num">{r.count.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        )}
+        {blocklists?.raw && (
+          <pre className="mono" style={{ fontSize: 11, maxHeight: 220, overflow: "auto" }}>{blocklists.raw}</pre>
+        )}
+        {blocklists?.available && (
+          <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
+            Reported by the Security Engine (<code>cscli metrics show decisions</code>) and enforced by the bouncer, so
+            every row is a decision that is actually in force. Origins <code>lists</code> (subscribed blocklists),
+            <code> CAPI</code> (community blocklist) and <code>console</code> (pushed from the console) are managed at
+            app.crowdsec.net and cannot be edited here.
+          </p>
+        )}
       </Card>
 
       {inst && !inst.container && (

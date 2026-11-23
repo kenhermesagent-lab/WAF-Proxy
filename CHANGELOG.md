@@ -46,6 +46,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **Deleting a row that belongs to another site answers `404`**, not a silent success or a `500`.
 - **Events recorded before a proxy was matched** belong to the default site instead of vanishing
   from the console.
+## [1.49.5] — 2026-11-23
+
+### Changed
+
+- **Settings is one scrolling page again**, with the former **Updates** and **Readiness** tabs folded
+  into its vertical section list: Network · Updates · Protection · Retention & ACME · Backup ·
+  Runtime status · GeoIP database · Administrator activity · Readiness · About. `#/settings/updates`
+  and `#/readiness` land on Settings.
+- **CrowdSec console blocklists** moved from Threat intel → Feeds to **Threat intel → CrowdSec**,
+  between the engine/bouncer summary and the automatic install card, so the decisions the engine is
+  enforcing sit next to the engine that enforces them.
+- The Threat intel tab row keeps all five tabs on one line at 390px by tightening tab padding at
+  phone widths instead of wrapping CrowdSec onto a second row.
+
+### Fixed
+
+- A role without a page's permission now sees the "Your role does not include this page." card with
+  a button to the first page it can open. It previously redirected to that page before the card
+  could render.
+- The Settings section list highlights the section nearest the top of the viewport, so the last
+  short sections no longer leave an earlier one highlighted when the page cannot scroll further.
+
 ## [1.49.4] — 2026-11-23
 
 ### Changed
