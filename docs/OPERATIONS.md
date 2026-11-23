@@ -200,3 +200,36 @@ then deletes the local record. Uploaded and internal certificates have no ACME a
 they are deleted locally. If the CA refuses, the endpoint returns `502` with the reason
 and keeps the certificate. Deleting a certificate without revoking it remains available
 through `DELETE /api/certs/{id}`.
+
+
+## Threshold alerting
+
+The detector evaluates one-minute windows per proxy against a rolling baseline and
+raises three event kinds: `egress_spike` (outbound bytes above both a floor and a
+multiple of the median), `rate_spike` (requests per second above both a floor and a
+multiple of the median) and `auth_burst` (failed logins in one minute). Thresholds are
+stored as settings and edited with `PUT /api/anomaly/settings`:
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| `anomaly_enabled` | detector on/off | `1` |
+| `anomaly_egress_mb` | egress floor per minute | `5` |
+| `anomaly_egress_factor` | multiple of the baseline | `4` |
+| `anomaly_rate_rps` | request-rate floor | `200` |
+| `anomaly_rate_factor` | multiple of the baseline | `3` |
+| `anomaly_auth_burst` | failed logins per minute | `20` |
+
+Each raised event is stored once and refreshed while the condition stays open, so a
+long spike is one row, not one row per minute. Alerts are routed through the same
+notification channels and event toggles as bans (`notify_events`), and deduplication
+uses the key `anomaly:<kind>:<proxy id>`: a second alert with the same key inside 24
+hours is dropped before it reaches the queue.
+
+## Testing a notification channel
+
+`POST /api/notifications/test` with `{"channel":"telegram"|"email"|"webhook"}` sends a
+real message through the configured channel, bypassing the event toggles and the
+digest — the button in the console calls this endpoint. It returns `200` when the
+provider accepted the message and `502` with the provider's error when it did not, so a
+bad token or webhook URL fails visibly instead of silently. The test message is not
+deduplicated: every click sends one.

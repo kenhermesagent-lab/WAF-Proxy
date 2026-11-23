@@ -11,6 +11,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.40.1] — 2026-11-23
+
+### Changed
+
+- Threshold alerting and the notification **Test** action are now documented in
+  `docs/OPERATIONS.md`: the three anomaly kinds, their settings and defaults, the
+  24-hour dedupe key, and the `200`/`502` behaviour of `POST /api/notifications/test`.
+
+### Fixed
+
+- Regression tests now cover the parts that had none: a webhook test message reaching a
+  real HTTP endpoint, unknown channels failing, deduplication by alert key, and the API
+  endpoint returning `200` only after the provider accepted the message.
+
 ## [1.40.0] — 2026-11-23
 
 ### Added
