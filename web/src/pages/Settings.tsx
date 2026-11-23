@@ -367,6 +367,12 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             >
               <input value={s.max_body ?? "131072"} onChange={(e) => set("max_body", e.target.value)} disabled={hostWide} />
             </Field>
+            <Field
+              label="Queue wait (ms)"
+              hint="Per site: how long a request waits for capacity before it is refused with a 503. 0 refuses at once."
+            >
+              <input value={s.queue_ms ?? "250"} onChange={(e) => set("queue_ms", e.target.value)} />
+            </Field>
             <Field label="Sample allowed above (rps)" hint="Per-site sampling threshold for the request log."><input value={s.sample_above_rps ?? "500"} onChange={(e) => set("sample_above_rps", e.target.value)} /></Field>
           </div>
           <Field label="Request normalization" hint="Duplicate parameters and double encoding from the release checks.">

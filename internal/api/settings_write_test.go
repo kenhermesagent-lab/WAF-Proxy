@@ -45,6 +45,25 @@ func newSettingsServer(t *testing.T) (*Server, string, string) {
 	return srv, token, csrf
 }
 
+// queue_ms=0 is a real setting ("refuse at once"), not an unset field, and the
+// cap is enforced so a form cannot park every request for a minute.
+func TestSettingsQueueMSRange(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	if _, err := st.CreateSite("queue", "Queue", "console.queue.test"); err != nil {
+		t.Fatal(err)
+	}
+	rec := sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"queue_ms": "0"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("queue_ms=0 = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"queue_ms": "9000"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("queue_ms=9000 = %d, want 400", rec.Code)
+	}
+}
+
 // A site created after setup has no settings rows, so its form reads empty
 // bot_filter and normalization_mode values and posts them back. Empty means
 // "never set" and the engine already defaults it, so the save must accept it;

@@ -61,10 +61,10 @@ database — in front of an `httptest` upstream, with 200 keep-alive clients ove
 
 | Run | Requests | rps | p50 | p95 | p99 | Shed | Errors | Peak RSS |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `-cache=off` (h1) | 182,540 | 6,080 | 28.9 ms | 76.5 ms | 103.3 ms | 0 | 0 | 317 MiB |
-| `-cache=on` (h1) | 1,651,669 | 54,776 | 3.0 ms | 8.7 ms | 13.5 ms | 0 | 0 | 237 MiB |
-| `-cache=on` (h2) | 1,617,323 | 53,668 | 3.4 ms | 7.2 ms | 10.5 ms | 0 | 0 | 201 MiB |
-| `-cache=on -waf=block` (h1) | 317,465 | 10,574 | 15.2 ms | 47.0 ms | 68.6 ms | 0 | 0 | 181 MiB |
+| `-cache=off` (h1) | 211,028 | 7,029 | 26.3 ms | 61.2 ms | 79.5 ms | 0 | 0 | 343 MiB |
+| `-cache=on` (h1) | 1,560,753 | 51,846 | 3.2 ms | 9.1 ms | 14.0 ms | 0 | 0 | 189 MiB |
+| `-cache=on` (h2) | 1,542,336 | 51,227 | 3.6 ms | 7.5 ms | 10.6 ms | 0 | 0 | 207 MiB |
+| `-cache=on -waf=block` (h1) | 253,727 | 8,453 | 18.5 ms | 60.3 ms | 89.8 ms | 0 | 0 | 304 MiB |
 
 ```bash
 go run ./cmd/perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=on -waf=block -record
@@ -80,9 +80,11 @@ go run ./cmd/perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cac
 
 What the numbers say, and do not:
 
-- **A cache hit is 9× the uncached path** (54,776 vs 6,080 rps) and **5× the inspected path**
-  (10,574 rps). The gap between the second and third row is the cost of running Coraza on a
-  request the cache could have answered: it is defect 3 of Plan A, measured.
+- **A cache hit is 7× the uncached path** (51,846 vs 7,029 rps) and **6× the inspected path**
+  (8,453 rps). The gap between `-cache=on` and `-cache=on -waf=block` is the cost of running
+  Coraza on a request the cache could have answered: it is defect 3 of Plan A, measured.
+- `errors` counts non-200 responses, so a shed request appears there as well; `shed` comes from
+  the proxy's own capacity counter.
 - Every client shares one loopback source address, so the run raises `dos_rps`/`dos_burst` out of
   the way. The per-source rate limit has its own tests; it is not what these rows measure.
 - `bytes` in `perf/proxy-*.json` is the body the client received (identity), not the gzip bytes
@@ -90,6 +92,28 @@ What the numbers say, and do not:
 - One process, no real NIC and no separate client host: this is the pipeline's own ceiling, not a
   network measurement. `perf/proxy-*.json` carries each run's date and CPU, because a shared
   sandbox's neighbours change the numbers between runs.
+
+### Admission: the queue absorbs the burst
+
+200 keep-alive clients against a 128-request budget, uncached, on the same host. The first row is
+what 1.60 did (shed at the door); the second is the same budget with the 250 ms queue.
+
+| Run | Served | rps | p95 | p99 | Shed | Peak RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| `-inflight 128 -queue 0` | 182,941 | 6,094 | 64.7 ms | 86.4 ms | **162,630** | 320 MiB |
+| `-inflight 128 -queue 250ms` | 213,480 | 7,112 | 61.0 ms | 81.9 ms | **0** | 316 MiB |
+| `-inflight 256 -queue 250ms` (default) | 211,028 | 7,029 | 61.2 ms | 79.5 ms | **0** | 343 MiB |
+
+With no queue, 47 % of the attempts on the box (162,630 of 345,571) were refused with a 503 while
+the CPUs were busy serving the other 53 %. The queue turns the same budget into zero refusals and
+17 % more completed requests, at the same p95: the wait is shorter than the time a slot takes to
+come free. Latency in the queue-0 row is measured over served requests only, so it flatters the
+shed requests it hides.
+
+```bash
+go run ./cmd/perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=off -inflight 128 -queue 0 -record
+go run ./cmd/perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=off -inflight 128 -queue 250ms -record
+```
 
 ## Not measured
 
@@ -163,7 +187,10 @@ size.
 
 | Setting | Where | Effect |
 |---|---|---|
-| `WAFPROXY_MAX_INFLIGHT` | environment | Hard cap on concurrent buffered requests; excess is refused with 503 and counted as `shed`. |
+| `WAFPROXY_MAX_INFLIGHT` | environment | Cap on concurrent buffered requests, default 256. |
+| `WAFPROXY_MAX_BUFFERED_BYTES` | environment | Cap on the request memory those requests hold, default 512 MiB (suffixes `KiB`/`MiB`/`GiB` accepted). |
+| `WAFPROXY_QUEUE_MS` | environment | How long a request waits for budget before a 503, default 250; 0 refuses at once. Per-site override: the `queue_ms` setting. |
+| `WAFPROXY_MEMORY_LIMIT` | environment | Soft heap limit; default 75 % of the cgroup limit. Startup refuses a buffer budget that cannot fit under it. |
 | `WAFPROXY_DB_CONNS` | environment | SQLite pool size; defaults to 2× CPU count (4–32). |
 | Max inspected body | Settings / WAF profile | Per-request memory ceiling; the dominant term above. |
 | Event retention | Settings | 1–30 days; the main driver of database growth. |

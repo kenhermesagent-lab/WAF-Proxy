@@ -14,6 +14,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [1.61.0] — unreleased
 
+### Changed
+
+- **A burst is absorbed, not refused.** Admission now bounds request bytes as well as the request
+  count (`WAFPROXY_MAX_BUFFERED_BYTES`, default 512 MiB, and a `WAFPROXY_MAX_INFLIGHT` default of
+  256), and a request that cannot be admitted waits `WAFPROXY_QUEUE_MS` (default 250 ms, per-site
+  `queue_ms`, `0` for the old behaviour) for a slot before it receives a 503. On the test host,
+  200 clients against a 128-request budget refused 162,630 of 345,571 requests with no queue and
+  none with it, while completing 17 % more of them. `WAFPROXY_MEMORY_LIMIT` sets the soft heap
+  limit and boot refuses a buffer budget that cannot fit under it.
+
 ### Added
 
 - **A capacity number instead of a guess.** `cmd/perftool -proxy` runs the real proxy — TLS

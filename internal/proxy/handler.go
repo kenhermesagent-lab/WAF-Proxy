@@ -28,13 +28,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			r.RemoteAddr = net.JoinHostPort(addr.String(), "0")
 		}
 	}
-	if !s.acquire() {
-		w.Header().Set("Retry-After", "1")
-		uniformError(w, http.StatusServiceUnavailable)
-		return
-	}
-	defer s.release()
-
 	host := normalizeHost(r.Host)
 	e := s.lookup(host)
 
@@ -219,7 +212,29 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	body, tooLarge, err := readBody(r, s.hardBody)
+	// A body that cannot fit in the buffer is refused now rather than queued
+	// behind a full budget: the answer is 413 either way, and the client should
+	// hear it without a wait.
+	if r.ContentLength > s.hardBody {
+		blocked = true
+		event.Stage, event.RuleID = "body-limit", "too-large"
+		uniformError(rw, http.StatusRequestEntityTooLarge)
+		return
+	}
+	release, reason := s.budget.reserve(r.Context(), estimateBody(r, s.hardBody), e.queue)
+	if release == nil {
+		blocked = true
+		event.Stage, event.RuleID = "capacity", "queue-timeout"
+		if reason == "bytes" {
+			event.RuleID = "budget-too-large"
+		}
+		rw.Header().Set("Retry-After", "1")
+		uniformError(rw, http.StatusServiceUnavailable)
+		return
+	}
+	read, tooLarge, err := readBody(r, s.hardBody)
+	body := read
+	defer release()
 	if tooLarge {
 		blocked = true
 		event.Stage, event.RuleID = "body-limit", "too-large"
@@ -572,6 +587,19 @@ func validHeaderName(name string) bool {
 		}
 	}
 	return true
+}
+
+// estimateBody reserves what the request will hold before its body is read: the
+// declared length when there is one, the largest body the proxy will buffer when
+// there is not. The reservation is settled against the real length afterwards.
+func estimateBody(r *http.Request, hardBody int64) int64 {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return 0
+	}
+	if r.ContentLength > 0 {
+		return min(r.ContentLength, hardBody)
+	}
+	return min(hardBody, 64<<10)
 }
 
 func readBody(r *http.Request, limit int64) ([]byte, bool, error) {

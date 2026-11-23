@@ -49,6 +49,10 @@ type proxyConfig struct {
 	HTTP2    bool
 	WAF      bool
 	Record   bool
+	// Inflight and Queue override the admission budget, so a run can show what
+	// the old immediate-shed behaviour did on the same host.
+	Inflight int
+	Queue    time.Duration
 }
 
 // proxyResult is the file written per mode. Every field is a measurement, not
@@ -62,6 +66,8 @@ type proxyResult struct {
 	WAF          string  `json:"waf"`
 	Clients      int     `json:"clients"`
 	Hosts        int     `json:"hosts"`
+	Budget       int     `json:"budget"`
+	QueueMS      int     `json:"queue_ms"`
 	BodyBytes    int     `json:"body_bytes"`
 	Seconds      float64 `json:"seconds"`
 	Requests     int64   `json:"requests"`
@@ -86,6 +92,12 @@ func (c proxyConfig) mode() string {
 	if c.WAF {
 		m += "-waf"
 	}
+	if c.Inflight > 0 {
+		m += fmt.Sprintf("-budget%d", c.Inflight)
+	}
+	if c.Queue == 0 {
+		m += "-queue0"
+	}
 	return m
 }
 
@@ -96,8 +108,8 @@ func runProxy(c proxyConfig) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	fmt.Printf("proxy %s (%s, waf %s): %d clients, %d hosts, %d B body\n",
-		res.Mode, res.Proto, res.WAF, res.Clients, res.Hosts, res.BodyBytes)
+	fmt.Printf("proxy %s (%s, waf %s): %d clients, %d hosts, %d B body, budget %d, queue %d ms\n",
+		res.Mode, res.Proto, res.WAF, res.Clients, res.Hosts, res.BodyBytes, res.Budget, res.QueueMS)
 	fmt.Printf("%d requests in %.1fs: %.0f rps, %.1f MiB/s out\n",
 		res.Requests, res.Seconds, res.RPS, float64(res.BytesOut)/res.Seconds/(1<<20))
 	fmt.Printf("latency p50 %.2fms  p95 %.2fms  p99 %.2fms  shed %d  errors %d  peak RSS %.1f MiB\n",
@@ -258,9 +270,14 @@ func proxyRun(c proxyConfig) (proxyResult, error) {
 	if err != nil {
 		return proxyResult{}, err
 	}
-	// The run measures the pipeline, not admission: a budget twice the client
+	// The run measures the pipeline unless a budget is set: twice the client
 	// count leaves the queue idle so a shed here is a real finding.
-	px.SetMaxInflight(c.Clients * 2)
+	budget := c.Inflight
+	if budget <= 0 {
+		budget = c.Clients * 2
+	}
+	px.SetMaxInflight(budget)
+	px.SetBudget(proxy.DefaultMaxBufferedBytes, c.Queue)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := px.Reload(ctx); err != nil {
@@ -384,6 +401,8 @@ func proxyRun(c proxyConfig) (proxyResult, error) {
 		WAF:          wafMode,
 		Clients:      c.Clients,
 		Hosts:        len(hosts),
+		Budget:       budget,
+		QueueMS:      int(c.Queue / time.Millisecond),
 		BodyBytes:    len(body),
 		Seconds:      elapsed.Seconds(),
 		Requests:     total,

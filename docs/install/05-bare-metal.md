@@ -117,9 +117,11 @@ same host, a container network, Cloudflare Tunnel). Leaving it empty behind a tu
 client look like `127.0.0.1`: the LAN check passes for traffic that is not on the LAN, and a
 single decoy hit bans the tunnel.
 
-`WAFPROXY_MAX_INFLIGHT` (default `128`) caps requests in flight; each may buffer a body up to the
-profile limit, so this is the memory ceiling for request bodies. Requests past it receive `503`,
-and **Dashboard → Request budget** shows the current count and how many were refused.
+`WAFPROXY_MAX_INFLIGHT` (default `256`) and `WAFPROXY_MAX_BUFFERED_BYTES` (default `512 MiB`)
+cap requests in flight and the request memory they hold; each may buffer a body up to the profile
+limit, so both are the ceiling for request bodies. A request that cannot fit waits
+`WAFPROXY_QUEUE_MS` (default `250`) and then receives `503`; **Dashboard → Request budget** shows
+the current count and how many were refused.
 
 ### 11.3 Firewall and nftables
 

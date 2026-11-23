@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -718,6 +719,9 @@ func run() error {
 			}
 		})
 	})
+	if cfg.MemoryLimit > 0 {
+		debug.SetMemoryLimit(cfg.MemoryLimit)
+	}
 	px, err := proxy.New(proxy.Deps{
 		Store: all, Policy: router, Gate: gateEngine, Bots: bots, Bans: bans,
 		Geo: geo, Metrics: met, Log: log, ClientIP: trusted,
@@ -726,6 +730,7 @@ func run() error {
 		return err
 	}
 	px.SetMaxInflight(cfg.MaxInflight)
+	px.SetBudget(cfg.MaxBufferedBytes, time.Duration(cfg.QueueMS)*time.Millisecond)
 	px.SetCertProvider(res)
 	// TLS-ALPN-01 validations are answered by the WAN listener itself; lego's
 	// own server would have to bind port 443 a second time.

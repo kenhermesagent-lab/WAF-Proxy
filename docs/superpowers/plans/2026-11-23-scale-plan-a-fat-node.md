@@ -12,8 +12,9 @@ Companion plan: [Plan C — game-server streaming](2026-11-23-scale-plan-c-game-
 | Task | State |
 | --- | --- |
 | A1 — measurement harness and baseline | **done** 2026-11-23: `cmd/perftool -proxy`, results in `docs/BENCHMARKS.md` and `perf/proxy-*.json` |
-| A2 — byte budget, bounded queue, memory ceiling | next |
-| A3 — deadlines, A4 — cache and brotli, A5 — cache-first, A6 — transports, A7 — observability, A8 — docs and releases | not started |
+| A2 — byte budget, bounded queue, memory ceiling | **done** 2026-11-23: `budget.go`, `queue_ms`, measured in `docs/BENCHMARKS.md` |
+| A3 — deadlines | next |
+| A4 — cache and brotli, A5 — cache-first, A6 — transports, A7 — observability, A8 — docs and releases | not started |
 
 ## Why this plan exists
 

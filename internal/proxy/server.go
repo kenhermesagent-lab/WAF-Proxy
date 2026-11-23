@@ -90,6 +90,7 @@ type edge struct {
 	rp      *httputil.ReverseProxy
 	cache   *responseCache
 	cancel  context.CancelFunc
+	queue   time.Duration
 	health  healthSettings
 	site    *capLimiter
 	clients *clientLimiter
@@ -123,12 +124,9 @@ type Server struct {
 
 	hardBody int64
 
-	// inflight bounds the requests buffered at once; shed counts the ones
-	// refused because that budget was full.
-	inflight    chan struct{}
-	inflightN   atomic.Int64
-	maxInflight atomic.Int64
-	shed        atomic.Int64
+	// budget bounds the requests buffered at once, by count and by bytes.
+	budget       *budget
+	defaultQueue time.Duration
 
 	listenMu  sync.Mutex
 	listenErr map[string]string
@@ -141,16 +139,17 @@ func New(d Deps) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		d:        d,
-		edges:    map[string]*edge{},
-		self:     self,
-		events:   make(chan model.Event, 8192),
-		hardBody: 8 << 20,
+		d:            d,
+		edges:        map[string]*edge{},
+		self:         self,
+		events:       make(chan model.Event, 8192),
+		hardBody:     8 << 20,
+		defaultQueue: DefaultQueue,
 	}
-	s.SetMaxInflight(DefaultMaxInflight)
+	s.budget = newBudget(DefaultMaxInflight, DefaultMaxBufferedBytes)
 	// One cache for the process: 128 MiB total, at most 32 MiB per hostname,
 	// so one site cannot evict every other site's entries.
-	s.cache = newResponseCache(128<<20, 32<<20)
+	s.cache = newResponseCache(CacheBytes, 32<<20)
 	// No Proxy field: an HTTP_PROXY in the service environment must never
 	// carry customer traffic through a third party.
 	s.transport = &http.Transport{
@@ -229,47 +228,41 @@ func (s *Server) SetBodyLimit(n int64) {
 	}
 }
 
-// DefaultMaxInflight is the request budget when none is configured. With the
-// 8 MiB body ceiling this keeps the worst case near a gigabyte rather than
-// letting a few hundred concurrent uploads take the host down.
-const DefaultMaxInflight = 128
+// DefaultMaxInflight is the request-count budget when none is configured. The
+// byte budget is the other half: a count alone lets 256 large uploads hold two
+// gigabytes while the CPU is still idle.
+const DefaultMaxInflight = 256
+
+// DefaultMaxBufferedBytes bounds the request memory held at once.
+const DefaultMaxBufferedBytes = 512 << 20
+
+// DefaultQueue is how long a request waits for budget before it is shed: long
+// enough to smooth a burst, short enough that a client sees a 503 rather than a
+// stall.
+const DefaultQueue = 250 * time.Millisecond
+
+// CacheBytes is the response cache's share of process memory, checked against
+// the configured ceiling at startup.
+const CacheBytes = 128 << 20
 
 // SetMaxInflight bounds how many requests may be in flight or buffered at once.
 // It is called once at startup, before the listeners serve.
 func (s *Server) SetMaxInflight(n int) {
-	if n <= 0 {
-		n = DefaultMaxInflight
-	}
-	s.maxInflight.Store(int64(n))
-	s.inflight = make(chan struct{}, n)
+	s.budget.setCount(int64(n))
+}
+
+// SetBudget sets the byte ceiling and how long a request waits for room before
+// it is shed. Called once at startup, before the listeners serve.
+func (s *Server) SetBudget(maxBytes int64, queue time.Duration) {
+	s.defaultQueue = queue
+	s.budget.setLimits(maxBytes)
 }
 
 // Capacity reports the current request budget: in flight, allowed, and how many
 // requests have been refused because the budget was full.
 func (s *Server) Capacity() (inflight, max int, shed int64) {
-	return int(s.inflightN.Load()), int(s.maxInflight.Load()), s.shed.Load()
-}
-
-func (s *Server) acquire() bool {
-	if s.inflight == nil {
-		return true
-	}
-	select {
-	case s.inflight <- struct{}{}:
-		s.inflightN.Add(1)
-		return true
-	default:
-		s.shed.Add(1)
-		return false
-	}
-}
-
-func (s *Server) release() {
-	if s.inflight == nil {
-		return
-	}
-	<-s.inflight
-	s.inflightN.Add(-1)
+	count, maxCount, _, _, refused := s.budget.snapshot()
+	return int(count), int(maxCount), refused
 }
 
 // Reload rebuilds every host route from the database.
@@ -341,7 +334,7 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 	}
 	child, cancel := context.WithCancel(ctx)
 	e := &edge{proxy: p, ups: ups, routes: routes, cache: s.cache, cancel: cancel,
-		waf: s.d.Policy.ProfileFor(&p), health: healthFor(p),
+		queue: s.queueFor(p.SiteID), waf: s.d.Policy.ProfileFor(&p), health: healthFor(p),
 		site: newCapLimiter(p.MaxInflight), clients: newClientLimiter(p.MaxInflightPerClient),
 		timeout: time.Duration(p.UpstreamTimeout) * time.Second,
 		reqOps:  p.RequestHeaders, respOps: p.ResponseHeaders}
@@ -395,6 +388,24 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 		go healthLoop(child, ups, e.health)
 	}
 	return e, nil
+}
+
+// queueFor is the site's queue wait: the process default unless the site sets
+// queue_ms, where 0 means refuse at once.
+func (s *Server) queueFor(siteID int64) time.Duration {
+	kv, err := s.d.Store.SettingsFor(siteID)
+	if err != nil {
+		return s.defaultQueue
+	}
+	raw, ok := kv["queue_ms"]
+	if !ok {
+		return s.defaultQueue
+	}
+	ms, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || ms < 0 || ms > 5000 {
+		return s.defaultQueue
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 func (s *Server) lookup(host string) *edge {
