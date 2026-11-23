@@ -41,6 +41,12 @@ type Store struct {
 	// auditMu serialises audit appends so each row links to the one before it.
 	// A pointer, so a site-scoped copy shares the same lock.
 	auditMu *sync.Mutex
+	// nodeID enables HA change capture. Empty on a standalone node, the CLI and
+	// a standby, where the outbox stays empty.
+	nodeID string
+	// auditOff stops local audit writes. A standby must not fork the chain the
+	// active streams, or verification fails after a failover.
+	auditOff bool
 }
 
 // ErrNotFound is returned when a row does not exist.
@@ -117,6 +123,11 @@ func (s *Store) Close() error { return s.db.Close() }
 // must be set before the store serves requests, and must stay stable across
 // restarts or every session is invalidated.
 func (s *Store) SetSessionKey(key []byte) { s.sessionKey = key }
+
+// SetAuditEnabled turns local audit writes on or off. A standby turns them off:
+// its audit rows arrive from the active, and a local row would break the hash
+// chain VerifyAuditChain walks after a failover.
+func (s *Store) SetAuditEnabled(enabled bool) { s.auditOff = !enabled }
 
 // SetSecretBox installs the box that seals secret columns. It must be set
 // before certificates are read or written, and stay stable across restarts.
@@ -565,11 +576,33 @@ CREATE TABLE IF NOT EXISTS log_views (
   updated_by TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ha_outbox (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  origin TEXT NOT NULL,
+  origin_seq INTEGER NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL,
+  op TEXT NOT NULL,
+  row_id TEXT NOT NULL DEFAULT '',
+  payload BLOB NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ha_outbox_created ON ha_outbox(created_at);
+CREATE TABLE IF NOT EXISTS ha_peer_ack (
+  peer TEXT PRIMARY KEY,
+  acked_seq INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ha_applied (
+  origin TEXT NOT NULL,
+  origin_seq INTEGER NOT NULL,
+  applied_at TEXT NOT NULL,
+  PRIMARY KEY (origin, origin_seq)
+);
 `
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "24"
+const schemaVersion = "25"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -734,13 +767,17 @@ func (s *Store) dropLegacySessions() error {
 	if err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
+	// Only the migrations that changed how a cookie is keyed need this reset.
+	// A later additive step must not sign everyone out on upgrade.
+	before, convErr := strconv.Atoi(v)
+	if convErr == nil && before >= 24 {
+		return nil
+	}
 	if _, err := s.db.Exec(`DELETE FROM sessions`); err != nil {
 		return err
 	}
-	if before, err := strconv.Atoi(v); err == nil && before < 24 {
-		if _, err := s.db.Exec(`DELETE FROM gate_sessions`); err != nil {
-			return err
-		}
+	if _, err := s.db.Exec(`DELETE FROM gate_sessions`); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1020,11 +1057,15 @@ type Session struct {
 func (s *Session) Can(permission string) bool { return rbac.Allows(s.Permissions, permission) }
 
 // CreateSession stores a new session. The cookie value is hashed on the way in;
-// only the caller ever holds the token itself.
+// only the caller ever holds the token itself. The row and its replica entry
+// commit together, so the session a client was handed exists on the peer too.
 func (s *Store) CreateSession(id string, userID int64, csrf, ip, ua string, expires time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO sessions(id, user_id, csrf, ip, ua, created_at, expires_at, site_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, s.sessionID(id), userID, csrf, ip, ua, stamp(time.Now()), stamp(expires), s.site)
-	return err
+	key := s.sessionID(id)
+	return s.upsertChanged("sessions", []string{"id"}, func(db execer) ([]any, error) {
+		_, err := db.Exec(`INSERT INTO sessions(id, user_id, csrf, ip, ua, created_at, expires_at, site_id)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, key, userID, csrf, ip, ua, stamp(time.Now()), stamp(expires), s.site)
+		return []any{key}, err
+	})
 }
 
 // LookupSession returns a live session with its username.
@@ -1067,9 +1108,27 @@ func (s *Store) UpdateUserRecovery(id int64, recovery string) error {
 // ClaimTOTPStep records the time step of an accepted authenticator code and
 // reports whether it was still unused. The UPDATE is conditional, so two
 // concurrent logins cannot spend the same code, and a code captured from the
-// wire is useless after the legitimate login has used it.
+// wire is useless after the legitimate login has used it. The claimed step is
+// replicated: a code spent on the active must stay spent after a failover.
 func (s *Store) ClaimTOTPStep(userID, step int64) (bool, error) {
-	res, err := s.db.Exec(`UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ? AND (? = 0 OR site_id = ?)`,
+	if !s.Capturing() {
+		res, err := s.db.Exec(`UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ? AND (? = 0 OR site_id = ?)`,
+			step, userID, step, s.site, s.site)
+		if err != nil {
+			return false, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return false, err
+		}
+		return n == 1, nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.Exec(`UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ? AND (? = 0 OR site_id = ?)`,
 		step, userID, step, s.site, s.site)
 	if err != nil {
 		return false, err
@@ -1078,12 +1137,27 @@ func (s *Store) ClaimTOTPStep(userID, step int64) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if n == 1 {
+		// Only the replay guard crosses the link, never the password hash or the
+		// authenticator secret; configuration travels as a whole snapshot.
+		dump := rowDump{
+			Columns: []string{"id", "totp_last_step"},
+			Row:     []Value{{Kind: "int", Int: userID}, {Kind: "int", Int: step}},
+			Key:     []string{"id"},
+		}
+		if err := s.enqueue(tx, "users", "upsert", dump); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
 	return n == 1, nil
 }
 
 // DeleteSession removes one session.
 func (s *Store) DeleteSession(id string) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE id = ? AND (? = 0 OR site_id = ?)`, s.sessionID(id), s.site, s.site)
+	_, err := s.deleteCaptured("sessions", []string{"id"}, `id = ? AND (? = 0 OR site_id = ?)`, s.sessionID(id), s.site, s.site)
 	return err
 }
 
@@ -1113,18 +1187,36 @@ func (s *Store) AddAudit(user, action, detail, ip string) {
 // addAuditLocked appends one entry to the chain and returns its id. The caller
 // holds auditMu.
 func (s *Store) addAuditLocked(user, action, detail, ip string) int64 {
+	if s.auditOff {
+		return 0
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = tx.Rollback() }()
 	var prev string
-	_ = s.db.QueryRow(`SELECT hash FROM audit ORDER BY id DESC LIMIT 1`).Scan(&prev)
+	_ = tx.QueryRow(`SELECT hash FROM audit ORDER BY id DESC LIMIT 1`).Scan(&prev)
 	ts := stamp(time.Now())
 	hash := auditHash(prev, ts, user, action, detail, ip)
-	res, err := s.db.Exec(`INSERT INTO audit(ts, user, action, detail, ip, hash, site_id) VALUES(?, ?, ?, ?, ?, ?, ?)`,
+	res, err := tx.Exec(`INSERT INTO audit(ts, user, action, detail, ip, hash, site_id) VALUES(?, ?, ?, ?, ?, ?, ?)`,
 		ts, user, action, detail, ip, hash, s.site)
 	if err != nil {
 		return 0
 	}
-	_, _ = s.db.Exec(`INSERT INTO settings(key, value) VALUES(?, ?)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, auditHeadKey, hash)
+	if _, err := tx.Exec(`INSERT INTO settings(key, value) VALUES(?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, auditHeadKey, hash); err != nil {
+		return 0
+	}
 	id, _ := res.LastInsertId()
+	if id > 0 {
+		if err := s.captureRow(tx, "audit", []string{"id"}, []any{id}); err != nil {
+			return 0
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0
+	}
 	return id
 }
 

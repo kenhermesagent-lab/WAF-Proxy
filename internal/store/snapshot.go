@@ -17,6 +17,10 @@ type Snapshot struct {
 	SchemaVersion string               `json:"schema_version"`
 	CreatedAt     string               `json:"created_at"`
 	Tables        map[string]TableDump `json:"tables"`
+	// OutboxSeq is the newest change the snapshot already contains. A standby
+	// that takes a snapshot acknowledges this position instead of replaying
+	// the changes it replaced.
+	OutboxSeq int64 `json:"outbox_seq"`
 }
 
 // TableDump keeps column names with the rows, so a standby with the same schema
@@ -55,12 +59,19 @@ func SchemaVersion() string { return schemaVersion }
 // Snapshot reads every replicated table inside one read transaction, so a
 // concurrent write cannot produce a half-applied configuration.
 func (s *Store) Snapshot() (*Snapshot, error) {
+	// Read the stream position before the read transaction: every change
+	// committed before that point is visible to this snapshot, and every later
+	// change has a higher sequence, so the reader can safely acknowledge it.
+	seq, err := s.OutboxSeq()
+	if err != nil {
+		return nil, err
+	}
 	tx, err := s.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	snap := &Snapshot{SchemaVersion: schemaVersion, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Tables: map[string]TableDump{}}
+	snap := &Snapshot{SchemaVersion: schemaVersion, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), OutboxSeq: seq, Tables: map[string]TableDump{}}
 	existing, err := existingTables(tx)
 	if err != nil {
 		return nil, err
@@ -161,11 +172,16 @@ func (s *Store) Restore(snap *Snapshot) error {
 		tables = append(tables, name)
 	}
 	sort.Strings(tables)
+	// Clear every table before inserting anything. Deleting users cascades into
+	// sessions, so a table-by-table delete-and-insert would wipe rows that had
+	// already been restored.
 	for _, table := range tables {
-		dump := snap.Tables[table]
 		if _, err := tx.Exec(`DELETE FROM ` + quoteIdent(table)); err != nil {
 			return fmt.Errorf("store: clear %s: %w", table, err)
 		}
+	}
+	for _, table := range tables {
+		dump := snap.Tables[table]
 		if len(dump.Rows) == 0 {
 			continue
 		}
@@ -195,6 +211,14 @@ func (s *Store) Restore(snap *Snapshot) error {
 		if err := stmt.Close(); err != nil {
 			return err
 		}
+	}
+	// A snapshot replaces the whole state, so pending changes and the dedupe
+	// history they were matched against are obsolete.
+	if _, err := tx.Exec(`DELETE FROM ha_outbox`); err != nil {
+		return fmt.Errorf("store: clear outbox: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM ha_applied`); err != nil {
+		return fmt.Errorf("store: clear applied changes: %w", err)
 	}
 	return tx.Commit()
 }

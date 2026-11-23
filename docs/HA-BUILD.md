@@ -31,20 +31,43 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P2-03 join handshake | landed | pinned TLS, cluster secret, master key sealed under it and written 0600: `internal/ha/link_test.go`, `internal/ha/pair_master_test.go` |
 | P2-04 unpair and rekey | partial | `ha unpair` removes pair and code, keeps role and key; no automatic rekey of the peer |
 | P2-05 pairing CLI | partial | `ha pair`, `ha join`, `ha unpair`; no persistent audit trail beyond log lines |
-| P3 snapshot replication | partial | full sealed snapshot every 30 s, transactional restore, manual `ha sync`: `internal/store/snapshot_test.go`, `internal/ha/snapshot_test.go`; no outbox yet |
-| P3-P8 remainder | not started | |
+| P3 snapshot replication | landed | sealed whole-database snapshot over the pinned link, transactional restore, `ha sync`: `internal/store/snapshot_test.go`, `internal/ha/snapshot_test.go` |
+| P4-01 outbox schema | landed, schema 25 | `ha_outbox`, `ha_peer_ack`, `ha_applied`, all classified local: `internal/store/outbox_test.go` |
+| P4-02 enqueue API | landed | `upsertChanged`/`deleteCaptured` commit the change and its outbox row together |
+| P4-03 session write paths | landed | sessions, trusted devices, password resets and the TOTP replay step |
+| P4-04 bans and gates | landed | bans, username bans, gate sessions and gate failures |
+| P4-05 audit and alerts | landed | audit rows with their chain head, pending and delivered alert state |
+| P4-06 pull protocol | landed | one page per second, contiguous apply, `(origin, seq)` dedupe, ack watermark, prune |
+| P4-07 overflow | landed | 100 MiB ceiling returns 409, the standby takes a snapshot, the ack resets the stream |
+| P4-08 diagnostics | landed | `ha status --json`, `/api/ha/diagnostics`, `wafproxy_ha_outbox_depth` |
+| P5-P8 | not started | |
 
-P3 snapshot boundary: a standby replaces every replicated and streamed table from one
-read transaction on the active. Deletes are implicit because each table is cleared
-before insert, and foreign keys are deferred to commit. The cost is that a failover
-can lose the writes made since the last pull (30 s today), and every pull moves the
-whole database; the outbox in P4 is what closes that window.
+**Replication boundary.** Configuration still travels as a whole snapshot, once
+immediately after pairing and every 30 s after that (P3-04's debounce replaces the
+cadence): it changes rarely and a snapshot is easier to verify. A downloaded snapshot
+older than the stream this node has already applied is discarded rather than restored.
+The streamed class (sessions, trusted
+devices, password resets, bans, gate sessions and failures, audit, alerts) is captured
+row by row. Every capture happens in the transaction that made the change, so a write
+cannot be acknowledged without its outbox row. The standby pulls one page a second,
+applies it in order and acknowledges the highest contiguous sequence; the active prunes
+at or below that sequence. A page that does not start where the reader left off, or a
+stream over 100 MiB, falls back to a sealed snapshot and resets the watermark. A restore
+clears every table before inserting any, because deleting `users` cascades into
+`sessions`. A standby writes no audit rows of its own, so the chain it receives from the
+active still verifies after promotion.
+
+**Not covered yet.** Only the active captures, so a returning old active still needs a
+snapshot (P5). Applied rows are not forwarded to a third node. The P4 gate was exercised
+with two stores and the real pinned TLS listener on loopback, not on two VMs with a VIP:
+10,000 logins with a `kill -9` failover, the 200 ms ban-before-crash check and the
+`fill-disk` overflow fixture remain lab work for P5/P8.
 
 Gaps inside the landed slice: the role gate wraps the loops started in `run()`, but the
 backup and auto-update managers start inside `internal/api` and still run on a standby until
 P1 hands them the gate; `ha status` reports the role file rather than a live machine, so it
-is accurate but not yet a subscription; and no HA API route, settings toggle or console page
-exists, so nothing in the UI can enable or show HA.
+is accurate but not yet a subscription; `/api/ha/diagnostics` reports the outbox, but the
+HA settings toggle and the console page are P7, so nothing in the UI can enable or show HA.
 
 **How to use it.** Each task is one branch and normally one pull request. Tasks are ordered:
 the serial path is P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8, with P7 able to start once P5

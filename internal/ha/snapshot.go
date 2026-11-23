@@ -145,33 +145,22 @@ func OpenSnapshot(secret []byte, clusterID string, raw []byte) (*store.Snapshot,
 	return &snap, nil
 }
 
-// Pull fetches the peer's snapshot and applies it to this node's store. It is
-// only safe on a standby, which is why the caller checks the role first.
-func Pull(ctx context.Context, dataDir string, st *store.Store) (*store.Snapshot, error) {
-	pair, err := LoadPair(dataDir)
+// FetchSnapshot downloads and verifies the peer's snapshot without applying it,
+// so a caller can compare its stream position before replacing local state.
+func FetchSnapshot(ctx context.Context, dataDir string) (*store.Snapshot, error) {
+	conn, err := dialPeer(dataDir, 60*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	if pair == nil {
-		return nil, errors.New("ha: this node is not paired")
-	}
-	secret, err := pair.PairSecret()
+	return fetchSnapshot(ctx, conn)
+}
+
+func fetchSnapshot(ctx context.Context, conn *peerConn) (*store.Snapshot, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+conn.pair.PeerAddr+"/ha/snapshot", nil)
 	if err != nil {
 		return nil, err
 	}
-	id, err := LoadOrCreateIdentity(dataDir)
-	if err != nil {
-		return nil, err
-	}
-	client := &http.Client{
-		Timeout:   60 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: id.ClientConfig(pair.PeerFingerprint)},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+pair.PeerAddr+"/ha/snapshot", nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Do(req)
+	resp, err := conn.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ha: fetch snapshot: %w", err)
 	}
@@ -189,7 +178,13 @@ func Pull(ctx context.Context, dataDir string, st *store.Store) (*store.Snapshot
 		}
 		return nil, fmt.Errorf("ha: snapshot refused with status %d", resp.StatusCode)
 	}
-	snap, err := OpenSnapshot(secret, pair.ClusterID, raw)
+	return OpenSnapshot(conn.secret, conn.pair.ClusterID, raw)
+}
+
+// Pull fetches the peer's snapshot and applies it to this node's store. It is
+// only safe on a standby, which is why the caller checks the role first.
+func Pull(ctx context.Context, dataDir string, st *store.Store) (*store.Snapshot, error) {
+	snap, err := FetchSnapshot(ctx, dataDir)
 	if err != nil {
 		return nil, err
 	}

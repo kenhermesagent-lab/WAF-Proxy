@@ -55,10 +55,14 @@ var TableClasses = map[string]TableClass{
 	"agent_deliveries": ClassStreamed,
 	"anomaly_events":   ClassStreamed,
 
-	// Node-local history and bookkeeping.
+	// Node-local history and bookkeeping. The outbox is a node's own stream;
+	// sending it in a snapshot would duplicate every pending change.
 	"schema_meta": ClassLocal,
 	"events":      ClassLocal,
 	"flows":       ClassLocal,
+	"ha_outbox":   ClassLocal,
+	"ha_peer_ack": ClassLocal,
+	"ha_applied":  ClassLocal,
 }
 
 // ClassOf reports the class of a table.

@@ -200,6 +200,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/diagnostics/bundle", s.authed(s.diagnosticsBundle))
 	m.HandleFunc("POST /api/canary", s.authed(s.runCanary))
 	m.HandleFunc("GET /api/health", s.health)
+	m.HandleFunc("GET /api/ha/diagnostics", s.authed(s.haDiagnostics))
 	m.HandleFunc("GET /api/version", s.versionInfo)
 	m.HandleFunc("GET /api/setup/status", s.setupStatus)
 	m.HandleFunc("POST /api/setup", s.setup)
@@ -670,6 +671,9 @@ type HAStatus struct {
 	Serving bool   `json:"serving"`
 	Epoch   int64  `json:"epoch"`
 	Peer    string `json:"peer,omitempty"`
+	// PeerFingerprint keys the acknowledgement the peer sent for this node's
+	// stream.
+	PeerFingerprint string `json:"peer_fingerprint,omitempty"`
 }
 
 // SetHAStatus installs the role source used by health and the standby guard.

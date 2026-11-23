@@ -14,12 +14,20 @@ func truncate(s string, n int) string {
 
 // RecordGateFailure logs one failed access-gate login. The username is stored
 // as submitted, including unknown accounts: an operator reviewing the page
-// needs to see which accounts are being tried.
+// needs to see which accounts are being tried. The row is replicated so the
+// escalation ladder counts the same attempts after a failover.
 func (s *Store) RecordGateFailure(ip string, proxyID int64, username, reason string) error {
-	_, err := s.db.Exec(`INSERT INTO gate_failures(ip, proxy_id, username, reason, ts, site_id)
-		VALUES(?, ?, ?, ?, ?, COALESCE((SELECT site_id FROM proxies WHERE id = ?), ?))`,
-		ip, proxyID, truncate(username, 190), truncate(reason, 40), stamp(time.Now()), proxyID, s.site)
-	return err
+	var id int64
+	return s.upsertChanged("gate_failures", []string{"id"}, func(db execer) ([]any, error) {
+		res, err := db.Exec(`INSERT INTO gate_failures(ip, proxy_id, username, reason, ts, site_id)
+			VALUES(?, ?, ?, ?, ?, COALESCE((SELECT site_id FROM proxies WHERE id = ?), ?))`,
+			ip, proxyID, truncate(username, 190), truncate(reason, 40), stamp(time.Now()), proxyID, s.site)
+		if err != nil {
+			return nil, err
+		}
+		id, _ = res.LastInsertId()
+		return []any{id}, nil
+	})
 }
 
 // GateFailureRow aggregates failed logins by source address, username and proxy.
@@ -83,7 +91,7 @@ func (s *Store) GateFailureStats(ip string) (last10m, last24h, distinctDays int,
 // ClearGateFailures removes failure history for an IP, used after a successful
 // login or a manual unban.
 func (s *Store) ClearGateFailures(ip string) error {
-	_, err := s.db.Exec(`DELETE FROM gate_failures WHERE ip = ? AND (? = 0 OR site_id = ?)`, ip, s.site, s.site)
+	_, err := s.deleteCaptured("gate_failures", []string{"id"}, `ip = ? AND (? = 0 OR site_id = ?)`, ip, s.site, s.site)
 	return err
 }
 

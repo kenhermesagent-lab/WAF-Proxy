@@ -2,6 +2,7 @@ package store
 
 import (
 	"testing"
+	"time"
 )
 
 func TestSnapshotRestoreRoundTrip(t *testing.T) {
@@ -53,6 +54,41 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	}
 	if got, err := dst.Snapshot(); err != nil || len(got.Tables["bans"].Rows) != 1 {
 		t.Fatalf("second restore left %d bans, %v", len(got.Tables["bans"].Rows), err)
+	}
+}
+
+// A session references its user with ON DELETE CASCADE. Clearing users after a
+// session was restored used to wipe the session, so the restore has to clear
+// every table before it inserts any row.
+func TestRestoreKeepsRowsBehindACascade(t *testing.T) {
+	src, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	src.SetSessionKey([]byte("0123456789abcdef0123456789abcdef"))
+	userID, err := src.CreateUser("admin", "hash", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := src.CreateSession("cookie", userID, "csrf", "", "", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := src.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	dst.SetSessionKey([]byte("0123456789abcdef0123456789abcdef"))
+	if err := dst.Restore(snap); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dst.LookupSession("cookie"); err != nil {
+		t.Fatalf("restore lost a session through the users cascade: %v", err)
 	}
 }
 

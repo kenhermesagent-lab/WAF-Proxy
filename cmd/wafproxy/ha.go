@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -38,17 +39,66 @@ func haCLI(args []string) error {
 }
 
 type haStatus struct {
-	Enabled         bool     `json:"enabled"`
-	Paired          bool     `json:"paired"`
-	ClusterID       string   `json:"cluster_id,omitempty"`
-	Role            ha.Role  `json:"role"`
-	State           ha.State `json:"state"`
-	Epoch           int64    `json:"epoch"`
-	Peer            string   `json:"peer,omitempty"`
-	PeerFingerprint string   `json:"peer_fingerprint,omitempty"`
-	UpdatedAt       string   `json:"updated_at,omitempty"`
-	Serving         bool     `json:"serving"`
-	DataDir         string   `json:"data_dir"`
+	Enabled         bool            `json:"enabled"`
+	Paired          bool            `json:"paired"`
+	ClusterID       string          `json:"cluster_id,omitempty"`
+	Role            ha.Role         `json:"role"`
+	State           ha.State        `json:"state"`
+	Epoch           int64           `json:"epoch"`
+	Peer            string          `json:"peer,omitempty"`
+	PeerFingerprint string          `json:"peer_fingerprint,omitempty"`
+	UpdatedAt       string          `json:"updated_at,omitempty"`
+	Serving         bool            `json:"serving"`
+	DataDir         string          `json:"data_dir"`
+	Outbox          *haOutboxStatus `json:"outbox,omitempty"`
+}
+
+// haOutboxStatus is the diagnostic view of replication: what is waiting, how
+// far the peer has acknowledged, and how stale that position is.
+type haOutboxStatus struct {
+	Depth      int64            `json:"depth"`
+	Bytes      int64            `json:"bytes"`
+	Pending    map[string]int64 `json:"pending_by_kind,omitempty"`
+	AckedSeq   int64            `json:"acked_seq"`
+	AckedAt    string           `json:"acked_at,omitempty"`
+	LagSeconds float64          `json:"lag_s"`
+}
+
+// readOutboxStatus opens the database for a read. A live node keeps it open in
+// WAL mode, so a second reader is safe and never blocks a write.
+func readOutboxStatus(dir, peerFingerprint string) *haOutboxStatus {
+	// Status must not create a database on a node that has never run.
+	if _, err := os.Stat(filepath.Join(dir, "wafproxy.db")); err != nil {
+		return nil
+	}
+	st, err := store.Open(dir)
+	if err != nil {
+		return nil
+	}
+	defer st.Close()
+	stats, err := st.OutboxStats()
+	if err != nil {
+		return nil
+	}
+	out := &haOutboxStatus{Depth: stats.Depth, Bytes: stats.Bytes, Pending: stats.Pending}
+	if seq, at, err := st.PeerAck(peerFingerprint); err == nil {
+		out.AckedSeq = seq
+		if !at.IsZero() {
+			out.AckedAt = at.UTC().Format(time.RFC3339)
+		}
+	}
+	// The active's lag is the age of the oldest unacknowledged change; the
+	// standby's is how long ago it last consumed the stream.
+	if stats.Depth > 0 && stats.Oldest != "" {
+		if t, err := time.Parse(time.RFC3339, stats.Oldest); err == nil {
+			out.LagSeconds = time.Since(t).Seconds()
+		}
+	} else if out.AckedAt != "" {
+		if t, err := time.Parse(time.RFC3339, out.AckedAt); err == nil {
+			out.LagSeconds = time.Since(t).Seconds()
+		}
+	}
+	return out
 }
 
 // readHAStatus never fails closed to active: a damaged role file reports
@@ -93,6 +143,9 @@ func haStatusCLI(args []string) error {
 	enabled := envFlag("WAFPROXY_HA_ENABLE")
 	print := func() {
 		st := readHAStatus(enabled, dir)
+		if st.Enabled && st.Paired {
+			st.Outbox = readOutboxStatus(dir, st.PeerFingerprint)
+		}
 		if *asJSON {
 			raw, _ := json.Marshal(st)
 			fmt.Println(string(raw))
@@ -102,7 +155,12 @@ func haStatusCLI(args []string) error {
 		if st.Paired {
 			pair = fmt.Sprintf("cluster %s peer %s", st.ClusterID, st.Peer)
 		}
-		fmt.Printf("role=%s state=%s serving=%v epoch=%d %s ha=%v\n", st.Role, st.State, st.Serving, st.Epoch, pair, st.Enabled)
+		line := fmt.Sprintf("role=%s state=%s serving=%v epoch=%d %s ha=%v", st.Role, st.State, st.Serving, st.Epoch, pair, st.Enabled)
+		if st.Outbox != nil {
+			line += fmt.Sprintf(" outbox=%d acked=%d lag=%s", st.Outbox.Depth, st.Outbox.AckedSeq,
+				time.Duration(st.Outbox.LagSeconds*float64(time.Second)).Round(time.Second))
+		}
+		fmt.Println(line)
 	}
 	print()
 	if !*watch {
@@ -170,8 +228,9 @@ func haJoinCLI(args []string) error {
 	return nil
 }
 
-// haSyncCLI pulls one snapshot by hand. The standby daemon does this on a timer;
-// the command exists for the first sync and for diagnosing a lagging node.
+// haSyncCLI catches up by hand. The standby daemon does this every second; the
+// command exists for the first sync and for diagnosing a lagging node. A gap
+// or a stream over its size limit falls back to a sealed snapshot.
 func haSyncCLI(args []string) error {
 	fs := flag.NewFlagSet("ha sync", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
@@ -187,11 +246,15 @@ func haSyncCLI(args []string) error {
 		return err
 	}
 	defer st.Close()
-	snap, err := ha.Pull(context.Background(), dir, st)
+	res, err := ha.SyncOnce(context.Background(), dir, st)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("synced schema %s snapshot %s: %d tables\n", snap.SchemaVersion, snap.CreatedAt, len(snap.Tables))
+	if res.Snapshot {
+		fmt.Printf("stream unusable; applied a full snapshot and acknowledged seq %d\n", res.AckedSeq)
+		return nil
+	}
+	fmt.Printf("applied %d change(s); acknowledged seq %d\n", res.Applied, res.AckedSeq)
 	return nil
 }
 

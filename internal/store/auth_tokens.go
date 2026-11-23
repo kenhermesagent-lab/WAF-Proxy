@@ -17,9 +17,11 @@ type TrustedDevice struct {
 // CreateTrustedDevice remembers a browser that already passed the authenticator
 // check. Only the digest is stored: the cookie carries the token itself.
 func (s *Store) CreateTrustedDevice(tokenHash string, userID int64, ua, ip string, expires time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO trusted_devices(token_hash, user_id, site_id, ua, ip, created_at, expires_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?)`, tokenHash, userID, s.site, ua, ip, stamp(time.Now()), stamp(expires))
-	return err
+	return s.upsertChanged("trusted_devices", []string{"token_hash"}, func(db execer) ([]any, error) {
+		_, err := db.Exec(`INSERT INTO trusted_devices(token_hash, user_id, site_id, ua, ip, created_at, expires_at)
+			VALUES(?, ?, ?, ?, ?, ?, ?)`, tokenHash, userID, s.site, ua, ip, stamp(time.Now()), stamp(expires))
+		return []any{tokenHash}, err
+	})
 }
 
 // TrustedDeviceUser reports the administrator a live device token belongs to.
@@ -57,34 +59,46 @@ func (s *Store) ListUserTrustedDevices(userID int64) ([]TrustedDevice, error) {
 
 // DeleteUserTrustedDevice forgets one remembered browser of an account.
 func (s *Store) DeleteUserTrustedDevice(userID int64, tokenHash string) error {
-	_, err := s.db.Exec(`DELETE FROM trusted_devices WHERE user_id = ? AND token_hash = ? AND (? = 0 OR site_id = ?)`,
-		userID, tokenHash, s.site, s.site)
+	_, err := s.deleteCaptured("trusted_devices", []string{"token_hash"},
+		`user_id = ? AND token_hash = ? AND (? = 0 OR site_id = ?)`, userID, tokenHash, s.site, s.site)
 	return err
 }
 
 // DeleteUserTrustedDevices forgets every remembered browser for a user, used
 // after a password or authenticator change.
 func (s *Store) DeleteUserTrustedDevices(userID int64) error {
-	_, err := s.db.Exec(`DELETE FROM trusted_devices WHERE user_id = ? AND (? = 0 OR site_id = ?)`,
-		userID, s.site, s.site)
+	_, err := s.deleteCaptured("trusted_devices", []string{"token_hash"},
+		`user_id = ? AND (? = 0 OR site_id = ?)`, userID, s.site, s.site)
 	return err
 }
 
 // CreatePasswordReset stores one single-use reset token, replacing any earlier
-// token for the same user so only the newest email link works.
+// token for the same user so only the newest email link works. The replacement
+// and its replica entries commit in one transaction.
 func (s *Store) CreatePasswordReset(tokenHash string, userID int64, expires time.Time) error {
-	if err := s.DeleteUserPasswordResets(userID); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO password_resets(token_hash, user_id, site_id, created_at, expires_at)
-		VALUES(?, ?, ?, ?, ?)`, tokenHash, userID, s.site, stamp(time.Now()), stamp(expires))
-	return err
+	defer func() { _ = tx.Rollback() }()
+	if _, err := s.deleteCapturedTx(tx, "password_resets", []string{"token_hash"},
+		`user_id = ? AND (? = 0 OR site_id = ?)`, userID, s.site, s.site); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO password_resets(token_hash, user_id, site_id, created_at, expires_at)
+		VALUES(?, ?, ?, ?, ?)`, tokenHash, userID, s.site, stamp(time.Now()), stamp(expires)); err != nil {
+		return err
+	}
+	if err := s.captureRow(tx, "password_resets", []string{"token_hash"}, []any{tokenHash}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteUserPasswordResets drops the pending reset tokens for a user.
 func (s *Store) DeleteUserPasswordResets(userID int64) error {
-	_, err := s.db.Exec(`DELETE FROM password_resets WHERE user_id = ? AND (? = 0 OR site_id = ?)`,
-		userID, s.site, s.site)
+	_, err := s.deleteCaptured("password_resets", []string{"token_hash"},
+		`user_id = ? AND (? = 0 OR site_id = ?)`, userID, s.site, s.site)
 	return err
 }
 
@@ -97,7 +111,7 @@ func (s *Store) ConsumePasswordReset(tokenHash string) (int64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	if _, err := s.db.Exec(`DELETE FROM password_resets WHERE token_hash = ?`, tokenHash); err != nil {
+	if _, err := s.deleteCaptured("password_resets", []string{"token_hash"}, `token_hash = ?`, tokenHash); err != nil {
 		return 0, false
 	}
 	return userID, true

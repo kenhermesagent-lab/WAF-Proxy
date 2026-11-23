@@ -1665,6 +1665,20 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+  /api/ha/diagnostics:
+    get:
+      operationId: getApiHaDiagnostics
+      tags: [ha]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/health:
     get:
       operationId: getApiHealth

@@ -1948,6 +1948,18 @@ func (s *Server) prometheusMetrics(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(&b, "%s{proxy=%q} %d\n", m.name, id, m.val(snap.Proxies[id]))
 		}
 	}
+	// A growing outbox is the first sign of a peer that stopped acknowledging
+	// or a write path whose transaction is holding the stream back.
+	if s.cfg.HAEnabled {
+		var depth, bytes int64
+		if stats, err := s.db(r).Unscoped().OutboxStats(); err == nil {
+			depth, bytes = stats.Depth, stats.Bytes
+		}
+		fmt.Fprintf(&b, "# HELP wafproxy_ha_outbox_depth Changes waiting to reach the standby.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_ha_outbox_depth gauge\nwafproxy_ha_outbox_depth %d\n", depth)
+		fmt.Fprintf(&b, "# HELP wafproxy_ha_outbox_bytes Bytes of changes waiting to reach the standby.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_ha_outbox_bytes gauge\nwafproxy_ha_outbox_bytes %d\n", bytes)
+	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, _ = io.WriteString(w, b.String())
 }

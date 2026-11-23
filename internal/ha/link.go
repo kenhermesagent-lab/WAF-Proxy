@@ -72,6 +72,8 @@ func (s *JoinServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /ha/join", s.join)
 	mux.HandleFunc("GET /ha/snapshot", s.snapshot)
+	mux.HandleFunc("GET /ha/outbox", s.outbox)
+	mux.HandleFunc("POST /ha/outbox/ack", s.outboxAck)
 	return mux
 }
 

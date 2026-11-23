@@ -428,6 +428,22 @@ func run() error {
 	} else if n > 0 {
 		log.Info("sealed certificate private keys", "count", n)
 	}
+	// The pairing identity exists as soon as HA is enabled. An active node
+	// captures every streamed change into the outbox; a standby writes none and
+	// pays nothing for the machinery.
+	var haIdent *ha.Identity
+	if cfg.HAEnabled {
+		haIdent, err = ha.LoadOrCreateIdentity(cfg.DataDir)
+		if err != nil {
+			return fmt.Errorf("ha identity: %w", err)
+		}
+		if node.Active() {
+			st.SetNodeID(haIdent.Node)
+		}
+		// The standby's audit chain arrives from the active; a local row would
+		// break it. The console is read-only there, so nothing of value is lost.
+		st.SetAuditEnabled(node.Active())
+	}
 
 	kv, err := st.Settings()
 	if err != nil {
@@ -785,9 +801,15 @@ func run() error {
 	apiServer.SetHAStatus(func() api.HAStatus {
 		n, _ := ha.Load(cfg.DataDir)
 		state := stateForRole(n.Role)
+		pair, _ := ha.LoadPair(cfg.DataDir)
+		fingerprint := ""
+		if pair != nil {
+			fingerprint = pair.PeerFingerprint
+		}
 		return api.HAStatus{
 			Enabled: cfg.HAEnabled, Role: string(n.Role), State: string(state),
 			Serving: !cfg.HAEnabled || ha.Serving(state), Epoch: n.Epoch, Peer: n.Peer,
+			PeerFingerprint: fingerprint,
 		}
 	})
 	apiServer.StartBackup(ctx)
@@ -872,11 +894,8 @@ func run() error {
 		}
 	}
 	if cfg.HAEnabled {
-		ident, err := ha.LoadOrCreateIdentity(cfg.DataDir)
-		if err != nil {
-			return fmt.Errorf("ha identity: %w", err)
-		}
-		log.Info("ha identity ready", "node", ident.Node, "fingerprint", ha.Fingerprint(ident.Leaf))
+		ident := haIdent
+		log.Info("ha identity ready", "node", ident.Node, "fingerprint", ha.Fingerprint(ident.Leaf), "capturing", st.Capturing())
 		if cfg.HALinkListen != "" {
 			join := ha.NewJoinServer(ident, cfg.DataDir, cfg.MasterKey, st, log)
 			ln, err := tls.Listen("tcp", cfg.HALinkListen, join.TLSConfig())
@@ -895,14 +914,15 @@ func run() error {
 			}
 		}
 	}
-	// A standby keeps a warm copy by pulling a sealed snapshot. This is the
-	// bridge until the row-level outbox lands: writes made in the last interval
-	// are not on the standby yet.
+	// A standby follows the active's outbox, one page per second, and replaces
+	// its copy from a sealed snapshot every 30 seconds so configuration changes
+	// arrive too. A gap, an apply error or an outbox over its size limit forces a
+	// snapshot immediately.
 	if cfg.HAEnabled {
 		if pair, err := ha.LoadPair(cfg.DataDir); err == nil && pair != nil && !node.Active() {
-			log.Info("ha snapshot sync started", "peer", pair.PeerAddr, "interval", "30s")
-			go ha.SyncLoop(ctx, cfg.DataDir, st, 30*time.Second, func(err error) {
-				log.Warn("ha snapshot sync failed", "err", err)
+			log.Info("ha replication started", "peer", pair.PeerAddr, "stream", "1s", "snapshot", "30s")
+			go ha.OutboxLoop(ctx, cfg.DataDir, st, time.Second, 30, func(err error) {
+				log.Warn("ha replication failed", "err", err)
 			})
 		}
 	}

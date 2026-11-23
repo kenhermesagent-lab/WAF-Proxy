@@ -1,11 +1,14 @@
 # High availability: an active/standby pair
 
-> **Status: design proposal, not implemented.** WAF-Proxy 1.55.2 is a single-node
-> service and this document does not change that. Nothing in the `wafproxy ha`
-> command surface, the `/api/ha` routes, the `ha_*` tables or the
-> `WAFPROXY_HA_*` variables exists in the shipped binary; they are the interface
-> this plan proposes. `README.md` still lists HA as not included, and
-> `docs/ROADMAP.md` still defers it.
+> **Status: partly implemented on `ha/full-build`, dark by default.** P0-P4 of
+> `docs/HA-BUILD.md` are built: role file, pairing and join with a pinned
+> certificate, sealed master-key transfer, whole-database snapshot replication, and
+> a row-level outbox for sessions, trusted devices, password resets, bans, gate
+> sessions and failures, audit and alerts. Everything is gated by
+> `WAFPROXY_HA_ENABLE` (off by default), so a single-node install behaves as it did
+> before. Failover and failback, the witness and epochs, the console page and the
+> two-VM lab are not built; sections that describe them state the intended end
+> state. `docs/HA-BUILD.md` carries the per-task status and the known gaps.
 >
 > The document is written so an operator can read the runbooks as the intended
 > end state and an implementer can build against them. Each section that asserts
