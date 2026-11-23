@@ -30,11 +30,16 @@ func decodeBundleModes(raw string) map[string]string {
 	return out
 }
 
-// RuleHit is one signature rule's activity over a window.
+// RuleHit is one signature rule's activity over a window. Blocked and Logged
+// are what the requests actually got, which is not the same as what the
+// installed profiles would allow: a rule can be logged on a site that blocks
+// it and blocked on another.
 type RuleHit struct {
 	RuleID    int    `json:"rule_id"`
 	Hits      int64  `json:"hits"`
 	Addresses int64  `json:"addresses"`
+	Blocked   int64  `json:"blocked"`
+	Logged    int64  `json:"logged"`
 	LastSeen  string `json:"last_seen"`
 	Message   string `json:"message"`
 }
@@ -44,7 +49,10 @@ type RuleHit struct {
 // this is a plain query over the existing event log: no extra write path, no
 // second source of truth.
 func (s *Store) BundleHits(since time.Time) ([]RuleHit, error) {
-	rows, err := s.db.Query(`SELECT rule_id, COUNT(*), COUNT(DISTINCT src_ip), MAX(ts), MAX(rule_msg)
+	rows, err := s.db.Query(`SELECT rule_id, COUNT(*), COUNT(DISTINCT src_ip),
+			SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END),
+			SUM(CASE WHEN action <> 'block' THEN 1 ELSE 0 END),
+			MAX(ts), MAX(rule_msg)
 		FROM events
 		WHERE ts >= ? AND stage = 'waf' AND LENGTH(rule_id) = 6 AND rule_id >= '990000' AND rule_id <= '999999'
 		GROUP BY rule_id
@@ -58,7 +66,7 @@ func (s *Store) BundleHits(since time.Time) ([]RuleHit, error) {
 	for rows.Next() {
 		var h RuleHit
 		var rule string
-		if err := rows.Scan(&rule, &h.Hits, &h.Addresses, &h.LastSeen, &h.Message); err != nil {
+		if err := rows.Scan(&rule, &h.Hits, &h.Addresses, &h.Blocked, &h.Logged, &h.LastSeen, &h.Message); err != nil {
 			return nil, err
 		}
 		id, err := strconv.Atoi(rule)
