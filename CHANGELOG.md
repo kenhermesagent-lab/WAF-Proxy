@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.2] — 2026-11-23
+
+### Fixed
+
+- A canary recovery used the outage dedupe key, so the notice was dropped as a duplicate
+  for 24 hours; recovery now has its own key.
+- `wafproxy recover --reset-totp` cleared the second factor but left existing sessions
+  alive and claimed they were invalidated; both credential resets now delete sessions.
+
 ## [1.47.1] — 2026-11-23
 
 ### Changed

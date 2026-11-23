@@ -107,7 +107,7 @@ func (m *Monitor) Check(ctx context.Context) Snapshot {
 		if m.failing {
 			m.failing = false
 			m.notified = ""
-			m.notify.Enqueue("uptime", "Canary recovered: "+host+" answers through the proxy again", "canary:"+host, true)
+			m.notify.Enqueue("uptime", "Canary recovered: "+host+" answers through the proxy again", "canary:"+host+":recovered", true)
 		}
 	} else {
 		snap.Failures = m.last.Failures + 1

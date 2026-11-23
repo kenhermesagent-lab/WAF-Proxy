@@ -267,9 +267,6 @@ func recoverCLI(args []string) error {
 		if err := st.UpdateUserPassword(account.ID, hash); err != nil {
 			return err
 		}
-		if err := st.DeleteUserSessions(account.ID); err != nil {
-			return err
-		}
 		changed = append(changed, "password")
 	}
 	if *resetTOTP {
@@ -277,6 +274,10 @@ func recoverCLI(args []string) error {
 			return err
 		}
 		changed = append(changed, "TOTP")
+	}
+	// Either change is a credential reset, so a stolen session must not survive it.
+	if err := st.DeleteUserSessions(account.ID); err != nil {
+		return err
 	}
 	fmt.Printf("reset %s for %q; existing sessions were invalidated\n", strings.Join(changed, " and "), *user)
 	return nil

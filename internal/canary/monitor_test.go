@@ -66,8 +66,11 @@ func TestMonitorRetriesThenNotifiesOnceAndRecovers(t *testing.T) {
 	if !snap.OK || snap.Failures != 0 || snap.LatencyMS != 12 {
 		t.Fatalf("recovery snapshot = %+v", snap)
 	}
-	if len(notify.texts) != 2 || notify.keys[1] != "canary:app.example.com" {
-		t.Fatalf("recovery notification = %v", notify.texts)
+	if len(notify.texts) != 2 || notify.keys[1] != "canary:app.example.com:recovered" {
+		t.Fatalf("recovery notification = %v %v", notify.texts, notify.keys)
+	}
+	if notify.keys[0] == notify.keys[1] {
+		t.Fatal("recovery shares the outage dedupe key and would be suppressed")
 	}
 	if m.Snapshot().Host != "app.example.com" || !m.Snapshot().OK {
 		t.Fatalf("stored snapshot = %+v", m.Snapshot())
