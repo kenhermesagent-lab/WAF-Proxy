@@ -67,8 +67,8 @@ func haSettingOn(st *store.Store) bool {
 
 // haControl is the console's HA backend. It calls the same move manager and the
 // same role files as `wafproxy ha`, so a click cannot take a different path than
-// the CLI. rt is nil until the stored switch is on at boot; pairing and syncing
-// only need the data directory and the store.
+// the CLI. Pairing and syncing only need the data directory and the store, so
+// they work while the loops are stopped.
 type haControl struct {
 	dir      string
 	st       *store.Store

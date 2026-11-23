@@ -12,7 +12,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.58.0] — 2026-11-23
+## [1.58.0] — unreleased
+
+> **Not released.** This section describes the HA branch. The two-node hardware lab gates in
+> [docs/HA.md](docs/HA.md) and the three deslop reviews have not been completed, so it must not
+> be tagged or published from here.
 
 ### Added
 
@@ -38,8 +42,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **Console page, API and CLI.** `GET /api/ha` plus events, diagnostics, config, pair/join/sync,
   failover/failback, unpair and notify, behind `ha.read`/`ha.write` with fresh re-authentication
   and a typed cluster id for the destructive actions. It is dark by default and the two-node
-  hardware lab gates in [docs/HA.md](docs/HA.md) have not been run, so production use needs that
-  run first. The **High availability** page shows the
+  hardware lab gates have not been run, so production use needs that run first. The
+  **High availability** page shows the
   four states, the peer, replication, the console's action history and the guarded actions; the
   Settings switch starts and stops the HA loops in the running process. `wafproxy ha` exposes the
   same operations on a node whose console is unreachable.
@@ -2254,7 +2258,7 @@ compromise; each is a case where a safe default or an existing guarantee did not
 - DB-IP files installed by the console take precedence over a manually supplied GeoLite2
   file; `GeoLite2-*` still works when no DB-IP file is present.
 
-## [1.58.0] — 2026-11-23
+## [Unreleased]
 
 ### Added
 

@@ -71,11 +71,12 @@ systemd service. Version 1.57.0.
   through webhooks.
 - MCP gateway for AI agents with per-tool token scopes; a metrics endpoint guarded by a bearer
   token; Tailscale-aware listeners; one-click self-update with rollback.
-- **Optional two-node high availability.** A role machine on disk, a keepalived virtual address, a
-  witness lease and a fencing hook move the service between an active and a standby without
-  restarting the process, while configuration, sessions, bans, audit and alerts replicate over an
-  authenticated TLS link. Off by default: it needs `WAFPROXY_HA_ENABLE=1` and the switch in
-  Settings, and the two nodes need a lab run with the planned virtual address before production.
+- **Optional two-node high availability (branch, not yet released).** A role machine on disk, a
+  keepalived virtual address, a witness lease and a fencing hook move the service between an
+  active and a standby without restarting the process, while configuration, sessions, bans, audit
+  and alerts replicate over an authenticated TLS link. Off by default: it needs
+  `WAFPROXY_HA_ENABLE=1` and the switch in Settings. The two-node hardware lab gates and the
+  review passes are still outstanding, so it is not part of a tagged release yet.
 
 **Console**
 
@@ -321,8 +322,10 @@ secrets are not part of the document.
 
 ## High availability
 
-Two nodes can share one virtual service address, with one active and one standby. HA is **off by
-default** and changes nothing about a single-node install until an operator turns it on:
+Two nodes can share one virtual service address, with one active and one standby. This is built on
+the current branch and is **not in a tagged release yet**: the two-node lab gates in
+[docs/HA.md](docs/HA.md) and the review passes are still outstanding. HA is **off by default** and
+changes nothing about a single-node install until an operator turns it on:
 
 1. Give both nodes a private HA link address (`WAFPROXY_HA_LINK_LISTEN`, port 9443) and a fixed
    management console address (`WAFPROXY_HA_MGMT_LISTEN`), start both with

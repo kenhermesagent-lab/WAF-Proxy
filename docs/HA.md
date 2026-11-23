@@ -22,7 +22,9 @@
 > and toggle tests (P7-06), and the docs, CHANGELOG and README entry are written
 > (P7-07). The two-VM hardware lab gates and the P8 chaos/soak gate have not been
 > run, and the page still lacks the VIP, sessions, bans and witness cards, so
-> those parts remain the intended end state. `docs/HA-BUILD.md`
+> those parts remain the intended end state. The branch carries version 1.58.0 but its
+> CHANGELOG section is marked unreleased until those gates and the three deslop
+> reviews pass. `docs/HA-BUILD.md`
 > carries the per-task status and the known gaps.
 >
 > The document is written so an operator can read the runbooks as the intended

@@ -257,7 +257,6 @@ export default function App() {
     );
   }
 
-  const allowed = (n: NavItem) => navAllowed(n, me);
   // /api/me is the source of the nav, so a saved HA switch has to refresh it
   // for the item to appear without a reload.
   const reloadMe = () =>
@@ -265,12 +264,12 @@ export default function App() {
       setCSRF(m.csrf);
       setMe(m);
     }).catch(() => undefined);
-  const visibleNav = NAV.filter(allowed);
+  const visibleNav = NAV.filter((n) => navAllowed(n, me));
   // The crumb names the page the URL asked for, even when the role cannot read
   // it; the card offers the first page the role can open instead.
   const current = NAV.find((n) => n.id === page) ?? visibleNav[0] ?? NAV[0];
   const fallback = visibleNav[0] ?? NAV[0];
-  const pageAllowed = allowed(current);
+  const pageAllowed = navAllowed(current, me);
   const tabsFor = (id: string) =>
     (NAV.find((n) => n.id === id)?.tabs ?? []).filter((t) => !t.permission || can(me?.permissions, t.permission));
   const tabProps = (id: string) => ({ tab, tabs: tabsFor(id), onTab: (next: string) => navigate(id, undefined, next) });
@@ -301,7 +300,7 @@ export default function App() {
           <span className="brand-name">WAF-Proxy</span>
         </div>
         {NAV_GROUPS.map((g) => {
-          const items = g.items.filter(allowed);
+          const items = g.items.filter((n) => navAllowed(n, me));
           if (items.length === 0) return null;
           return (
             <div className="nav-group" key={g.title}>
@@ -311,7 +310,7 @@ export default function App() {
           );
         })}
         <div className="nav-spacer" />
-        {NAV_UTILITY.filter(allowed).map(navButton)}
+        {NAV_UTILITY.filter((n) => navAllowed(n, me)).map(navButton)}
         <div className="nav-foot">
           <span className="nav-foot-who">{me?.username} · v{me?.version}</span>
           <a className="nav-coffee" href={COFFEE_URL} target="_blank" rel="noreferrer" title="Buy me a coffee" aria-label="Buy me a coffee">

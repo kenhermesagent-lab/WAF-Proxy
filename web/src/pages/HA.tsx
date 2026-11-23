@@ -121,7 +121,7 @@ export default function HAPage({
     );
   }
 
-  if (st && !st.enabled) {
+  if (!st.enabled) {
     return (
       <>
         <PageHead sub="Two nodes, one service address." />
@@ -140,7 +140,7 @@ export default function HAPage({
   const state = st?.state ?? "standalone";
   const canWrite = !!st?.can_write;
   const paired = !!st?.paired;
-  const readOnlyReason = !canWrite ? "Your role cannot run HA actions." : !paired ? "Pair this node first." : "";
+  const readOnlyReason = canWrite ? "" : "Your role cannot run HA actions.";
   const standby = paired && role === "standby";
   const actionDisabled = (action: Action) => {
     if (!canWrite) return "Your role cannot run HA actions.";

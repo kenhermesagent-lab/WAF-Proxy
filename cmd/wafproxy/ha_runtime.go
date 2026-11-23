@@ -115,7 +115,7 @@ func (h *haRuntime) Start() error {
 		h.log.Error("ha control socket failed", "err", err)
 	}
 	if node.Active() {
-		h.startLease(life, node.Epoch)
+		h.startLease(node.Epoch)
 	}
 	if h.autoFailover {
 		h.startAuto(life)
@@ -146,7 +146,7 @@ func (h *haRuntime) Stop() {
 		h.st.SetAuditEnabled(true)
 	}
 	h.quiesce.Set(false)
-	h.log.Info("high availability stopped; serving as a single node")
+	h.log.Info("high availability stopped")
 }
 
 // peerWatch is the last heartbeat, shared by the probe and the watcher.
@@ -341,12 +341,9 @@ func (h *haRuntime) park(node *ha.Node, reason error) {
 
 // startLease renews the active's witness lease and demotes it when the lease
 // can no longer be held. Without a witness the pair stays on P5's manual moves.
-func (h *haRuntime) startLease(ctx context.Context, epoch int64) {
+func (h *haRuntime) startLease(epoch int64) {
 	if h.witness == nil || h.mgr == nil {
 		return
-	}
-	if h.root != nil {
-		ctx = h.root
 	}
 	h.stopLease()
 	client := *h.witness
@@ -413,7 +410,7 @@ func (h *haRuntime) serveDataPlane(ctx context.Context) error {
 	}
 	h.active.Start()
 	if node, err := ha.Load(h.dir); err == nil {
-		h.startLease(ctx, node.Epoch)
+		h.startLease(node.Epoch)
 	}
 	return nil
 }

@@ -14,6 +14,22 @@ type Settings = Record<string, string>;
 type HAInfo = { enabled?: boolean; boot_enabled?: boolean; paired?: boolean; cluster_id?: string; reason?: string };
 
 const RUNTIME_KEYS = new Set(["kernel", "geoip", "iface_available", "host_wide_keys"]);
+
+function haSwitchHelp(hostWide: boolean, me: Me | null | undefined, info: HAInfo | null): string {
+  if (hostWide || me?.role === "host_admin") {
+    return "Only an administrator on the default site can change this.";
+  }
+  if (info && info.boot_enabled === false) {
+    return "Locked off: this host booted with WAFPROXY_HA_ENABLE=0. Set it to 1, restart, then use this switch.";
+  }
+  if (info?.enabled && info.paired) {
+    return "This node is paired. Turning it off stops replication and the HA API on this node; the pair stays configured for when you turn it back on.";
+  }
+  if (info?.enabled) {
+    return "High availability is on but this node is not paired yet. Pair it from the High availability page to finish setup.";
+  }
+  return "Starts the HA role machine, replication and the management API on this node. Traffic does not move until you pair and run a move.";
+}
 function editable(s: Settings): Settings {
   const out: Settings = {};
   for (const [k, v] of Object.entries(s)) {
@@ -255,15 +271,6 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   // The boot switch and the site console both own this decision, so the switch
   // explains which one is in the way instead of failing on save.
   const mayToggleHA = !hostWide && me?.role !== "host_admin";
-  const haHelp = !mayToggleHA
-    ? "Only an administrator on the default site can change this."
-    : haInfo && haInfo.boot_enabled === false
-      ? "Locked off: this host booted with WAFPROXY_HA_ENABLE=0. Set it to 1, restart, then use this switch."
-      : haInfo?.enabled && haInfo.paired
-        ? "This node is paired. Turning it off stops replication and the HA API on this node; the pair stays configured for when you turn it back on."
-        : haInfo?.enabled
-          ? "High availability is on but this node is not paired yet. Pair it from the High availability page to finish setup."
-          : "Starts the HA role machine, replication and the management API on this node. Traffic does not move until you pair and run a move.";
 
   return (
     <>
@@ -393,7 +400,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
           </div>
           <Switch
             label="Enable high availability"
-            help={haHelp}
+            help={haSwitchHelp(hostWide, me, haInfo)}
             checked={s.ha_enabled === "1"}
             onChange={(v) => set("ha_enabled", v ? "1" : "0")}
             disabled={!mayToggleHA || haInfo?.boot_enabled === false}
