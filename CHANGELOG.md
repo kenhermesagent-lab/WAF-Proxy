@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.48.7] — 2026-11-23
+
+### Fixed
+
+- **Bundle hits report what happened, not what the profiles would allow.** The outcome badge came
+  from the installed profile modes, so a rule that only ever matched on a log-only site still read
+  "blocked" because some other profile allows blocking it. The query now returns blocked and logged
+  counts from the recorded event action, a rule that saw both shows both badges, the column is
+  labelled Outcome, and the "these requests were served" banner follows the same counts.
+- **The profile dialog said "1 rules"** for a single-rule pack; the count is pluralised.
+
 ## [1.48.6] — 2026-11-23
 
 ### Added

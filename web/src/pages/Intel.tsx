@@ -250,9 +250,9 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
           <Empty>No bundle rule has matched in the last 24 hours.</Empty>
         ) : (
           <>
-            {bundleHits.every((h) => (h.modes?.block ?? 0) === 0) ? (
+            {bundleHits.every((h) => h.blocked === 0) ? (
               <div className="banner warn" style={{ marginBottom: 10 }} role="status">
-                <span>These requests were served: every profile runs these bundles in log only.</span>
+                <span>These requests were served: no profile blocks these rules yet, so every match was only logged.</span>
                 <div className="banner-actions">
                   <button className="small" onClick={() => { window.location.hash = "#/policies?tab=profiles"; }}>
                     Set bundle mode →
@@ -263,7 +263,7 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
             <div style={{ overflowX: "auto" }}>
               <div className="table-wrap"><table>
                 <thead>
-                  <tr><th>Rule</th><th>Bundle</th><th>What it matched</th><th className="num">Hits</th><th className="num">Addresses</th><th>Last seen</th><th>Today</th></tr>
+                  <tr><th>Rule</th><th>Bundle</th><th>What it matched</th><th className="num">Hits</th><th className="num">Addresses</th><th>Last seen</th><th>Outcome</th></tr>
                 </thead>
                 <tbody>
                   {bundleHits.map((h) => (
@@ -278,11 +278,11 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
                       <td className="num">{h.addresses.toLocaleString()}</td>
                       <td className="muted">{fmtAgo(h.last_seen)}</td>
                       <td>
-                        {(h.modes?.block ?? 0) > 0
-                          ? <Badge tone="bad">blocked</Badge>
-                          : (h.modes?.log ?? 0) > 0
-                            ? <Badge tone="warn">logged</Badge>
-                            : <Badge>off</Badge>}
+                        <div className="row" style={{ gap: 4 }}>
+                          {h.blocked > 0 ? <Badge tone="bad">{h.blocked.toLocaleString()} blocked</Badge> : null}
+                          {h.logged > 0 ? <Badge tone="warn">{h.logged.toLocaleString()} logged</Badge> : null}
+                          {h.blocked === 0 && h.logged === 0 ? <Badge>off</Badge> : null}
+                        </div>
                       </td>
                     </tr>
                   ))}

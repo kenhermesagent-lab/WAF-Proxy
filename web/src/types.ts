@@ -316,6 +316,10 @@ export interface BundleHit {
   message: string;
   hits: number;
   addresses: number;
+  // What the requests got, which can differ from the profile modes: one site
+  // may block a bundle while another only logs it.
+  blocked: number;
+  logged: number;
   last_seen: string;
   modes: Record<string, number>;
 }

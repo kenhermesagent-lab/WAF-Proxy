@@ -1056,7 +1056,9 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                         <span className="faint" style={{ fontSize: 11 }}>{hitsFor(b.name).toLocaleString()} hits / 24h</span>
                       ) : null}
                     </div>
-                    <div className="faint mono" style={{ fontSize: 11 }}>{b.version} · {b.rules} rules</div>
+                    <div className="faint mono" style={{ fontSize: 11 }}>
+                      {b.version} · {b.rules} {b.rules === 1 ? "rule" : "rules"}
+                    </div>
                   </div>
                   <select
                     aria-label={`Bundle ${b.name} mode`}
