@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.41.0] — 2026-11-23
+
+### Added
+
+- **Diagnostics bundle.** `GET /api/diagnostics` returns versions, listeners,
+  configuration counts, certificate metadata and settings with secrets, URL credentials
+  and query strings redacted.
+- **Synthetic canary.** `POST /api/canary` resolves, connects and requests a benign path
+  through the gateway, reporting every stage and naming the first failure (`waf`,
+  `route` or `upstream`).
+
 ## [1.40.1] — 2026-11-23
 
 ### Changed

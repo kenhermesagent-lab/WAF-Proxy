@@ -233,3 +233,35 @@ digest — the button in the console calls this endpoint. It returns `200` when 
 provider accepted the message and `502` with the provider's error when it did not, so a
 bad token or webhook URL fails visibly instead of silently. The test message is not
 deduplicated: every click sends one.
+
+
+## Diagnostics bundle
+
+`GET /api/diagnostics` returns a JSON support bundle: version, Go version, platform,
+listener addresses, configuration counts, certificate metadata (domains, status, source,
+expiry, last error) and the settings map. Secret-bearing keys (`token`, `secret`,
+`password`, `*_key`, `credential`, `webhook`, `*_url`) are replaced with `[redacted]`;
+other URLs keep their host and path but lose credentials, query strings and fragments.
+Copy the response into a ticket; it contains no keys, session tokens or password
+hashes.
+
+## Synthetic canary
+
+`POST /api/canary` probes one site end to end and reports each stage in order, naming
+the first stage that failed:
+
+```
+{"ok": false, "host": "app.example.com", "failed_stage": "upstream",
+ "stages": [{"name":"config","ok":true}, {"name":"dns","ok":true}, ...]}
+```
+
+The body may carry `{"proxy_id": 3}` or `{"host": "app.example.com"}`; with neither,
+the first configured site is used. The probe resolves the name, connects, requests
+`/.well-known/wafproxy-canary` with the site's hostname and classifies the result:
+`403`/`429` fail at **waf**, `421` fails at **route**, `502`/`503`/`5xx` fail at
+**upstream**, and any other status passes. It returns `200` when every stage passed and
+`502` with the same body when one did not.
+
+The probe runs from the gateway itself, so the site must answer on its public hostname
+from that host (split-horizon DNS, hairpin NAT or an internal name may be needed). It
+checks the externally reachable path, not a specific WAF rule.
