@@ -43,8 +43,8 @@ describe("Readiness", () => {
           return geoip();
         case "/api/backup/schedule":
           return { config: { enabled: false }, status: {} };
-        case "/api/agents":
-          return [];
+        case "/api/notifications":
+          return { channels: {} };
         case "/api/audit/verify":
           return { ok: true, checked: 42 };
         default:
@@ -77,8 +77,8 @@ describe("Readiness", () => {
           return geoip();
         case "/api/backup/schedule":
           return { config: { enabled: true }, status: {} };
-        case "/api/agents":
-          return [{ id: 1, name: "hook", endpoint: "", has_secret: false, enabled: true, created_at: "" }];
+        case "/api/notifications":
+          return { channels: { telegram: true } };
         case "/api/audit/verify":
           return { ok: true, checked: 1 };
         default:

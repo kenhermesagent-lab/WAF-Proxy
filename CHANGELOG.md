@@ -11,6 +11,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.15] — 2026-11-23
+
+### Added
+
+- Regression tests for the notification 500 on a failed recent-alert query and for the
+  canary reporting an empty DNS answer as a `dns` stage instead of panicking; the prober's
+  resolver is now injectable for the test.
+- A canary test ages the delivered outage row past 24 hours and asserts the dedupe lets a
+  fresh alert through, covering the window in both directions.
+
+### Fixed
+
+- **Readiness showed "Notification target configured — missing" for Telegram users.**
+  It counted MCP agent links from `/api/agents`; it now counts the enabled channels
+  `/api/notifications` reports.
+
+### Changed
+
+- Readiness moved to the bottom of the System group, directly above Settings.
+
 ## [1.47.14] — 2026-11-23
 
 ### Fixed

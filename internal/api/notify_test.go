@@ -2,9 +2,11 @@ package api
 
 import (
 	"bytes"
+	"database/sql"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -54,5 +56,34 @@ func TestNotificationTestEndpointSends(t *testing.T) {
 	}
 	if rec := call(`{}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty channel = %d", rec.Code)
+	}
+}
+
+func TestNotificationsReturns500WhenRecentAlertsFail(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	box, err := wfcrypto.New(bytes.Repeat([]byte{0x22}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{st: st, notify: notify.New(st, box, slog.New(slog.DiscardHandler))}
+
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "wafproxy.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DROP TABLE alerts"); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	rec := httptest.NewRecorder()
+	s.getNotifications(rec, httptest.NewRequest(http.MethodGet, "/api/notifications", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("recent-alert failure = %d: %s", rec.Code, rec.Body.String())
 	}
 }
