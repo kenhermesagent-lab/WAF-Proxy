@@ -1048,7 +1048,9 @@ func (s *Store) AddAuditSnapshot(user, action, detail, ip string, snap model.Aud
 // GetAuditSnapshot returns the stored state for one audit entry.
 func (s *Store) GetAuditSnapshot(auditID int64) (*model.AuditSnapshot, error) {
 	var snap model.AuditSnapshot
-	err := s.db.QueryRow(`SELECT audit_id, entity, entity_id, before, after FROM audit_snapshots WHERE audit_id = ?`, auditID).
+	err := s.db.QueryRow(`SELECT s.audit_id, s.entity, s.entity_id, s.before, s.after
+		FROM audit_snapshots s JOIN audit a ON a.id = s.audit_id
+		WHERE s.audit_id = ? AND (? = 0 OR a.site_id = ?)`, auditID, s.site, s.site).
 		Scan(&snap.AuditID, &snap.Entity, &snap.EntityID, &snap.Before, &snap.After)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -1063,7 +1065,8 @@ func (s *Store) GetAuditSnapshot(auditID int64) (*model.AuditSnapshot, error) {
 func (s *Store) GetAuditEntry(id int64) (*model.AuditEntry, error) {
 	var e model.AuditEntry
 	var ts string
-	err := s.db.QueryRow(`SELECT id, ts, user, action, detail, ip FROM audit WHERE id = ?`, id).
+	err := s.db.QueryRow(`SELECT id, ts, user, action, detail, ip FROM audit
+		WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site).
 		Scan(&e.ID, &ts, &e.User, &e.Action, &e.Detail, &e.IP)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

@@ -45,7 +45,8 @@ func (s *Store) AnalyticsRange(from, to time.Time) (Analytics, error) {
 	err := s.db.QueryRow(`SELECT COUNT(*),
 		COALESCE(SUM(CASE WHEN action IN ('block','ban','challenge') THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(bytes_in),0), COALESCE(SUM(bytes_out),0), COUNT(DISTINCT src_ip)
-		FROM events WHERE ts >= ? AND ts <= ?`, stamp(from), stamp(to)).
+		FROM events WHERE ts >= ? AND ts <= ? AND `+eventSiteSQL,
+		stamp(from), stamp(to), s.site, s.site, s.site, s.defaultSite).
 		Scan(&out.Totals.Requests, &out.Totals.Blocked, &out.Totals.BytesIn, &out.Totals.BytesOut, &out.Totals.SrcIPs)
 	if err != nil {
 		return out, err
@@ -59,8 +60,8 @@ func (s *Store) AnalyticsRange(from, to time.Time) (Analytics, error) {
 		COALESCE(SUM(CASE WHEN action = 'allow' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN action IN ('block','ban','challenge') THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(bytes_in),0), COALESCE(SUM(bytes_out),0)
-		FROM events WHERE ts >= ? AND ts <= ? GROUP BY 1 ORDER BY 1`,
-		format, stamp(from), stamp(to))
+		FROM events WHERE ts >= ? AND ts <= ? AND `+eventSiteSQL+` GROUP BY 1 ORDER BY 1`,
+		format, stamp(from), stamp(to), s.site, s.site, s.site, s.defaultSite)
 	if err != nil {
 		return out, err
 	}
@@ -84,8 +85,8 @@ func (s *Store) AnalyticsRange(from, to time.Time) (Analytics, error) {
 		COALESCE(SUM(CASE WHEN action = 'allow' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN action IN ('block','ban','challenge') THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(bytes_in),0), COALESCE(SUM(bytes_out),0)
-		FROM events WHERE ts >= ? AND ts <= ? GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 100`,
-		stamp(from), stamp(to))
+		FROM events WHERE ts >= ? AND ts <= ? AND `+eventSiteSQL+` GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 100`,
+		stamp(from), stamp(to), s.site, s.site, s.site, s.defaultSite)
 	if err != nil {
 		return out, err
 	}
@@ -126,8 +127,9 @@ func (s *Store) groupCount(column string, from, to time.Time, limit int) ([]Name
 		return nil, nil
 	}
 	rows, err := s.db.Query(`SELECT `+column+`, COUNT(*) FROM events
-		WHERE ts >= ? AND ts <= ? AND `+column+` <> ''
-		GROUP BY `+column+` ORDER BY COUNT(*) DESC LIMIT ?`, stamp(from), stamp(to), limit)
+		WHERE ts >= ? AND ts <= ? AND `+column+` <> '' AND `+eventSiteSQL+`
+		GROUP BY `+column+` ORDER BY COUNT(*) DESC LIMIT ?`,
+		stamp(from), stamp(to), s.site, s.site, s.site, s.defaultSite, limit)
 	if err != nil {
 		return nil, err
 	}

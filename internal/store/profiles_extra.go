@@ -34,7 +34,8 @@ func scanProtectionProfile(row interface{ Scan(...any) error }) (*model.Protecti
 
 // ListProtectionProfiles returns the response-hardening profiles.
 func (s *Store) ListProtectionProfiles() ([]model.ProtectionProfile, error) {
-	rows, err := s.db.Query(`SELECT ` + protectionProfileColumns + ` FROM protection_profiles ORDER BY id`)
+	rows, err := s.db.Query(`SELECT ` + protectionProfileColumns + `
+		FROM protection_profiles WHERE (site_id = 0 OR site_id = ?) ORDER BY id`, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -52,24 +53,26 @@ func (s *Store) ListProtectionProfiles() ([]model.ProtectionProfile, error) {
 
 // GetProtectionProfile loads one profile.
 func (s *Store) GetProtectionProfile(id int64) (*model.ProtectionProfile, error) {
-	row := s.db.QueryRow(`SELECT `+protectionProfileColumns+` FROM protection_profiles WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT `+protectionProfileColumns+` FROM protection_profiles
+		WHERE id = ? AND (site_id = 0 OR site_id = ?)`, id, s.site)
 	return scanProtectionProfile(row)
 }
 
 // CreateProtectionProfile inserts an operator-defined profile.
 func (s *Store) CreateProtectionProfile(p *model.ProtectionProfile) error {
 	var exists int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM protection_profiles WHERE name = ?`, p.Name).Scan(&exists); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM protection_profiles WHERE name = ? AND site_id = ?`,
+		p.Name, s.site).Scan(&exists); err != nil {
 		return err
 	}
 	if exists > 0 {
 		return ErrDuplicate
 	}
 	res, err := s.db.Exec(`INSERT INTO protection_profiles(name, builtin, force_https, hsts, hsts_subdomains,
-		frame_options, nosniff, referrer_policy, csp, permissions_policy, hide_server)
-		VALUES(?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		frame_options, nosniff, referrer_policy, csp, permissions_policy, hide_server, site_id)
+		VALUES(?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, b2i(p.ForceHTTPS), b2i(p.HSTS), b2i(p.HSTSSubdomains), p.FrameOptions,
-		b2i(p.NoSniff), p.ReferrerPolicy, p.CSP, p.PermissionsPolicy, b2i(p.HideServer))
+		b2i(p.NoSniff), p.ReferrerPolicy, p.CSP, p.PermissionsPolicy, b2i(p.HideServer), s.site)
 	if err != nil {
 		return err
 	}
@@ -82,22 +85,23 @@ func (s *Store) CreateProtectionProfile(p *model.ProtectionProfile) error {
 func (s *Store) UpdateProtectionProfile(p *model.ProtectionProfile) error {
 	_, err := s.db.Exec(`UPDATE protection_profiles SET force_https = ?, hsts = ?, hsts_subdomains = ?,
 		frame_options = ?, nosniff = ?, referrer_policy = ?, csp = ?, permissions_policy = ?, hide_server = ?
-		WHERE id = ?`,
+		WHERE id = ? AND site_id = ?`,
 		b2i(p.ForceHTTPS), b2i(p.HSTS), b2i(p.HSTSSubdomains), p.FrameOptions, b2i(p.NoSniff),
-		p.ReferrerPolicy, p.CSP, p.PermissionsPolicy, b2i(p.HideServer), p.ID)
+		p.ReferrerPolicy, p.CSP, p.PermissionsPolicy, b2i(p.HideServer), p.ID, s.site)
 	return err
 }
 
 // ProtectionProfileInUse counts the proxies selecting a profile.
 func (s *Store) ProtectionProfileInUse(id int64) (int, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM proxies WHERE protection_profile_id = ?`, id).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM proxies WHERE protection_profile_id = ? AND (? = 0 OR site_id = ?)`,
+		id, s.site, s.site).Scan(&n)
 	return n, err
 }
 
 // DeleteProtectionProfile removes an operator-defined profile.
 func (s *Store) DeleteProtectionProfile(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM protection_profiles WHERE id = ? AND builtin = 0`, id)
+	_, err := s.db.Exec(`DELETE FROM protection_profiles WHERE id = ? AND builtin = 0 AND site_id = ?`, id, s.site)
 	return err
 }
 
@@ -183,7 +187,8 @@ func accessListValues(a *model.AccessProfile) string {
 
 // ListAccessProfiles returns the named access profiles.
 func (s *Store) ListAccessProfiles() ([]model.AccessProfile, error) {
-	rows, err := s.db.Query(`SELECT ` + accessProfileColumns + ` FROM access_profiles ORDER BY id`)
+	rows, err := s.db.Query(`SELECT ` + accessProfileColumns + `
+		FROM access_profiles WHERE (? = 0 OR site_id = ?) ORDER BY id`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -201,21 +206,23 @@ func (s *Store) ListAccessProfiles() ([]model.AccessProfile, error) {
 
 // GetAccessProfile loads one profile.
 func (s *Store) GetAccessProfile(id int64) (*model.AccessProfile, error) {
-	return scanAccessProfile(s.db.QueryRow(`SELECT `+accessProfileColumns+` FROM access_profiles WHERE id = ?`, id))
+	return scanAccessProfile(s.db.QueryRow(`SELECT `+accessProfileColumns+`
+		FROM access_profiles WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
 }
 
 // CreateAccessProfile inserts a profile.
 func (s *Store) CreateAccessProfile(a *model.AccessProfile) error {
 	var exists int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM access_profiles WHERE name = ?`, a.Name).Scan(&exists); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM access_profiles WHERE name = ? AND site_id = ?`,
+		a.Name, s.site).Scan(&exists); err != nil {
 		return err
 	}
 	if exists > 0 {
 		return ErrDuplicate
 	}
 	ids, roles := accessProfileValues(a)
-	res, err := s.db.Exec(`INSERT INTO access_profiles(name, policy_ids, rule_roles, list_ids, waf_profile_id, protection_profile_id)
-		VALUES(?, ?, ?, ?, ?, ?)`, a.Name, ids, roles, accessListValues(a), a.WAFProfileID, a.ProtectionProfileID)
+	res, err := s.db.Exec(`INSERT INTO access_profiles(name, policy_ids, rule_roles, list_ids, waf_profile_id, protection_profile_id, site_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?)`, a.Name, ids, roles, accessListValues(a), a.WAFProfileID, a.ProtectionProfileID, s.site)
 	if err != nil {
 		return err
 	}
@@ -227,20 +234,22 @@ func (s *Store) CreateAccessProfile(a *model.AccessProfile) error {
 func (s *Store) UpdateAccessProfile(a *model.AccessProfile) error {
 	ids, roles := accessProfileValues(a)
 	_, err := s.db.Exec(`UPDATE access_profiles SET policy_ids = ?, rule_roles = ?, list_ids = ?, waf_profile_id = ?, protection_profile_id = ?
-		WHERE id = ?`, ids, roles, accessListValues(a), a.WAFProfileID, a.ProtectionProfileID, a.ID)
+		WHERE id = ? AND (? = 0 OR site_id = ?)`, ids, roles, accessListValues(a), a.WAFProfileID,
+		a.ProtectionProfileID, a.ID, s.site, s.site)
 	return err
 }
 
 // AccessProfileInUse counts the proxies selecting a bundle.
 func (s *Store) AccessProfileInUse(id int64) (int, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM proxies WHERE access_profile_id = ?`, id).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM proxies WHERE access_profile_id = ? AND (? = 0 OR site_id = ?)`,
+		id, s.site, s.site).Scan(&n)
 	return n, err
 }
 
 // DeleteAccessProfile removes a bundle. The policies themselves are untouched.
 func (s *Store) DeleteAccessProfile(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM access_profiles WHERE id = ?`, id)
+	_, err := s.db.Exec(`DELETE FROM access_profiles WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
 	return err
 }
 
