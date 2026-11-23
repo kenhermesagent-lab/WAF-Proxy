@@ -445,7 +445,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "19"
+const schemaVersion = "20"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -534,6 +534,8 @@ func (s *Store) migrateAddColumns() error {
 		{"routes", "status", `ALTER TABLE routes ADD COLUMN status INTEGER NOT NULL DEFAULT 0`},
 		// Certificates record where they came from: acme, uploaded or internal.
 		{"certificates", "source", `ALTER TABLE certificates ADD COLUMN source TEXT NOT NULL DEFAULT 'acme'`},
+		// Per-site minimum TLS version; empty means 1.2.
+		{"proxies", "tls_min_version", `ALTER TABLE proxies ADD COLUMN tls_min_version TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)

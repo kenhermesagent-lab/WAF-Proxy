@@ -14,13 +14,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	mrand "math/rand"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge"
-	"github.com/go-acme/lego/v4/challenge/http01"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
@@ -36,10 +36,16 @@ type Manager struct {
 
 	mu sync.RWMutex
 	// order serialises ACME orders (DuckDNS stores one TXT record per domain).
-	order sync.Mutex
-	certs []cached
-	alpn  *ALPNChallenge
-	now   func() time.Time
+	order  sync.Mutex
+	certs  []cached
+	alpn   *ALPNChallenge
+	http01 *HTTP01Challenge
+	now    func() time.Time
+
+	// Failed renewals back off instead of hammering the CA every cycle.
+	retryMu sync.Mutex
+	retryAt map[int64]time.Time
+	retryN  map[int64]int
 }
 
 type cached struct {
@@ -62,7 +68,8 @@ func (a *account) SetRegistration(r *registration.Resource) { a.reg = r }
 
 // New creates a manager and loads existing certificates.
 func New(st *store.Store, box *wfcrypto.Box, log *slog.Logger) *Manager {
-	m := &Manager{st: st, box: box, log: log, alpn: NewALPNChallenge(), now: time.Now}
+	m := &Manager{st: st, box: box, log: log, alpn: NewALPNChallenge(), http01: NewHTTP01Challenge(),
+		now: time.Now, retryAt: map[int64]time.Time{}, retryN: map[int64]int{}}
 	if err := m.Load(); err != nil {
 		log.Error("load certificates", "err", err)
 	}
@@ -72,6 +79,9 @@ func New(st *store.Store, box *wfcrypto.Box, log *slog.Logger) *Manager {
 // TLSALPN returns the challenge store the proxy's TLS listener consults for
 // acme-tls/1 handshakes.
 func (m *Manager) TLSALPN() *ALPNChallenge { return m.alpn }
+
+// HTTP01 returns the token handler the gateway's plain-HTTP listener serves.
+func (m *Manager) HTTP01() *HTTP01Challenge { return m.http01 }
 
 // Load refreshes the in-memory certificate cache from the database.
 func (m *Manager) Load() error {
@@ -229,7 +239,7 @@ func (m *Manager) Issue(id int64) error {
 	}
 	switch challengeType {
 	case model.CertChallengeHTTP:
-		if err := client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "")); err != nil {
+		if err := client.Challenge.SetHTTP01Provider(m.http01); err != nil {
 			m.fail(id, err)
 			return err
 		}
@@ -353,12 +363,59 @@ func (m *Manager) renewDue() {
 		if c.Status != "issued" || c.ExpiresAt == nil {
 			continue
 		}
-		if renewalDue(c, m.now()) {
-			if err := m.Issue(c.ID); err != nil {
-				m.log.Warn("renewal failed", "domains", c.Domains, "err", err)
-			}
+		if !renewalDue(c, m.now()) || !m.renewalAllowed(c.ID, m.now()) {
+			continue
 		}
+		if err := m.Issue(c.ID); err != nil {
+			m.scheduleRetry(c.ID, m.now())
+			m.log.Warn("renewal failed", "domains", c.Domains, "err", err)
+			continue
+		}
+		m.clearRetry(c.ID)
 	}
+}
+
+// renewalBackoff is the wait after the nth consecutive failure: 30 minutes,
+// doubling up to six hours.
+func renewalBackoff(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	d := 30 * time.Minute
+	for i := 1; i < attempt && d < 6*time.Hour; i++ {
+		d *= 2
+	}
+	if d > 6*time.Hour {
+		d = 6 * time.Hour
+	}
+	return d
+}
+
+func (m *Manager) renewalAllowed(id int64, now time.Time) bool {
+	m.retryMu.Lock()
+	defer m.retryMu.Unlock()
+	at, ok := m.retryAt[id]
+	return !ok || !now.Before(at)
+}
+
+func (m *Manager) scheduleRetry(id int64, now time.Time) {
+	m.retryMu.Lock()
+	defer m.retryMu.Unlock()
+	m.retryN[id]++
+	d := renewalBackoff(m.retryN[id])
+	// Up to 20% jitter, so many certificates failing together do not retry in
+	// lockstep against the same CA.
+	if jitter := time.Duration(mrand.Int63n(int64(d) / 5)); jitter > 0 {
+		d += jitter
+	}
+	m.retryAt[id] = now.Add(d)
+}
+
+func (m *Manager) clearRetry(id int64) {
+	m.retryMu.Lock()
+	delete(m.retryAt, id)
+	delete(m.retryN, id)
+	m.retryMu.Unlock()
 }
 
 func renewalDue(c model.Cert, now time.Time) bool {

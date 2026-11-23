@@ -71,6 +71,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   on one site was accepted by another from the same client network. The port is now split with the
   standard host/port parser, and a regression test keeps two IPv6 sites apart.
 
+## [1.37.0] — 2026-11-22
+
+### Added
+
+- **Internal CA and domain-less certificates.** `POST /api/certs/internal` signs a certificate
+  from a local root for names like `nextcloud.home.arpa`, and
+  `GET /api/certs/internal/root` serves the trust anchor clients install. The root persists in
+  the data directory with a 0600 key, so trust survives restarts.
+- **HTTP-01 inside the gateway.** A plain-HTTP listener (`WAFPROXY_LISTEN_HTTP`, off by default)
+  serves ACME challenge tokens from the gateway's own handler and redirects every other request
+  to HTTPS; lego no longer binds port 80 by itself.
+- **Per-site minimum TLS version.** A site can require TLS 1.3 while every other host keeps 1.2.
+- **Unattended setup and break-glass recovery.** `wafproxy setup --password …` creates the first
+  administrator without a browser, and `wafproxy recover --password … --reset-totp` resets a
+  locked-out account and invalidates its sessions.
+
+### Changed
+
+- Failed renewals now back off (30 minutes doubling to six hours, with jitter) instead of retrying
+  every renewal tick.
+
 ## [1.36.0] — 2026-11-22
 
 ### Added

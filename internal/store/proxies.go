@@ -17,7 +17,7 @@ func (s *Store) ListProxies() ([]model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers FROM proxies ORDER BY hostname`)
+		request_headers, response_headers, tls_min_version FROM proxies ORDER BY hostname`)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,8 @@ func scanProxy(row interface{ Scan(...any) error }) (*model.Proxy, error) {
 	err := row.Scan(&p.ID, &p.Hostname, &enabled, &certID, &profileID, &p.GateMode, &p.GateSecret,
 		&p.GateTOTPHint, &p.Fingerprint, &p.BotLevel, &maint, &p.WAFMode, &created, &protectionID, &accessID, &providerID,
 		&p.LBPolicy, &p.HealthPath, &p.HealthExpect, &p.HealthInterval, &p.HealthFailAfter,
-		&p.MaxInflight, &p.MaxInflightPerClient, &p.UpstreamTimeout, &p.Retries, &reqHeaders, &respHeaders)
+		&p.MaxInflight, &p.MaxInflightPerClient, &p.UpstreamTimeout, &p.Retries, &reqHeaders, &respHeaders,
+		&p.TLSMinVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -95,7 +96,7 @@ func (s *Store) GetProxy(id int64) (*model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers FROM proxies WHERE id = ?`, id))
+		request_headers, response_headers, tls_min_version FROM proxies WHERE id = ?`, id))
 }
 
 // ProxyByHost loads a proxy by hostname.
@@ -105,7 +106,7 @@ func (s *Store) ProxyByHost(host string) (*model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers FROM proxies WHERE hostname = ?`, host))
+		request_headers, response_headers, tls_min_version FROM proxies WHERE hostname = ?`, host))
 }
 
 // CreateProxy inserts a proxy and returns its ID.
@@ -115,14 +116,15 @@ func (s *Store) CreateProxy(p *model.Proxy) (int64, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		request_headers, response_headers, tls_min_version)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Hostname, b2i(p.Enabled), p.CertID, p.ProfileID, p.GateMode, p.GateSecret,
 		p.GateTOTPHint, p.Fingerprint, defaultStr(p.BotLevel, "light"), b2i(p.Maintenance), p.WAFMode,
 		stamp(time.Now()), p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID,
 		defaultStr(p.LBPolicy, "weighted_rr"), defaultStr(p.HealthPath, "/"), defaultStr(p.HealthExpect, "200-399"),
 		p.HealthInterval, p.HealthFailAfter, p.MaxInflight, p.MaxInflightPerClient,
-		p.UpstreamTimeout, p.Retries, headerOpsJSON(p.RequestHeaders), headerOpsJSON(p.ResponseHeaders))
+		p.UpstreamTimeout, p.Retries, headerOpsJSON(p.RequestHeaders), headerOpsJSON(p.ResponseHeaders),
+		p.TLSMinVersion)
 	if err != nil {
 		return 0, err
 	}
@@ -136,14 +138,15 @@ func (s *Store) UpdateProxy(p *model.Proxy) error {
 		protection_profile_id = ?, access_profile_id = ?, auth_provider_id = ?,
 		lb_policy = ?, health_path = ?, health_expect = ?, health_interval = ?, health_fail_after = ?,
 		max_inflight = ?, max_inflight_per_client = ?, upstream_timeout = ?, retries = ?,
-		request_headers = ?, response_headers = ?
+		request_headers = ?, response_headers = ?, tls_min_version = ?
 		WHERE id = ?`,
 		p.Hostname, b2i(p.Enabled), p.CertID, p.ProfileID, p.GateMode, p.GateSecret,
 		p.GateTOTPHint, p.Fingerprint, defaultStr(p.BotLevel, "light"), b2i(p.Maintenance), p.WAFMode,
 		p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID,
 		defaultStr(p.LBPolicy, "weighted_rr"), defaultStr(p.HealthPath, "/"), defaultStr(p.HealthExpect, "200-399"),
 		p.HealthInterval, p.HealthFailAfter, p.MaxInflight, p.MaxInflightPerClient,
-		p.UpstreamTimeout, p.Retries, headerOpsJSON(p.RequestHeaders), headerOpsJSON(p.ResponseHeaders), p.ID)
+		p.UpstreamTimeout, p.Retries, headerOpsJSON(p.RequestHeaders), headerOpsJSON(p.ResponseHeaders),
+		p.TLSMinVersion, p.ID)
 	return err
 }
 

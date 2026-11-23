@@ -19,7 +19,9 @@ import (
 // WAN bind address are stored in the database and edited through the setup
 // wizard; this struct only holds what is needed to boot.
 type Config struct {
-	DataDir        string
+	DataDir string
+	// ListenHTTP serves ACME HTTP-01 and redirects to HTTPS; empty disables it.
+	ListenHTTP     string
 	ListenWAN      string
 	ListenGUI      string
 	WANIface       string
@@ -53,6 +55,7 @@ func Load() (*Config, error) {
 		DataDir:        envOr("WAFPROXY_DATA_DIR", "./data"),
 		ListenWAN:      envOr("WAFPROXY_LISTEN_WAN", ":8443"),
 		ListenGUI:      envOr("WAFPROXY_LISTEN_GUI", "127.0.0.1:8080"),
+		ListenHTTP:     envOr("WAFPROXY_LISTEN_HTTP", ""),
 		WANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_WAN_IFACE")),
 		LANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_LAN_IFACE")),
 		GUIPrivateOnly: envBoolOr("WAFPROXY_GUI_PRIVATE_ONLY", true),

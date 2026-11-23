@@ -71,6 +71,7 @@ type configProxy struct {
 	MaxInflightClient int              `json:"max_inflight_per_client,omitempty"`
 	UpstreamTimeout   int              `json:"upstream_timeout,omitempty"`
 	Retries           int              `json:"retries,omitempty"`
+	TLSMinVersion     string           `json:"tls_min_version,omitempty"`
 	RequestHeaders    []model.HeaderOp `json:"request_headers,omitempty"`
 	ResponseHeaders   []model.HeaderOp `json:"response_headers,omitempty"`
 	Upstreams         []configUpstream `json:"upstreams"`
@@ -191,7 +192,7 @@ func (s *Server) configDocument() (configDoc, error) {
 			LBPolicy: p.LBPolicy, HealthPath: p.HealthPath, HealthExpect: p.HealthExpect,
 			HealthInterval: p.HealthInterval, HealthFailAfter: p.HealthFailAfter,
 			MaxInflight: p.MaxInflight, MaxInflightClient: p.MaxInflightPerClient,
-			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries,
+			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries, TLSMinVersion: p.TLSMinVersion,
 			RequestHeaders: p.RequestHeaders, ResponseHeaders: p.ResponseHeaders,
 		}
 		if p.ProfileID != nil {
@@ -501,7 +502,7 @@ func (s *Server) applyConfigProxies(in []configProxy, problems []string) (int, [
 			LBPolicy: p.LBPolicy, HealthPath: p.HealthPath, HealthExpect: p.HealthExpect,
 			HealthInterval: p.HealthInterval, HealthFailAfter: p.HealthFailAfter,
 			MaxInflight: p.MaxInflight, MaxInflightPerClient: p.MaxInflightClient,
-			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries,
+			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries, TLSMinVersion: p.TLSMinVersion,
 			RequestHeaders: p.RequestHeaders, ResponseHeaders: p.ResponseHeaders,
 		}}
 		known := true

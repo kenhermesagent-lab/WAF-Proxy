@@ -33,8 +33,10 @@ type Proxy struct {
 	MaxInflightPerClient int `json:"max_inflight_per_client"`
 	// UpstreamTimeout bounds a whole upstream exchange in seconds; zero keeps
 	// the transport default. Retries applies to idempotent requests only.
-	UpstreamTimeout int        `json:"upstream_timeout"`
-	Retries         int        `json:"retries"`
+	UpstreamTimeout int `json:"upstream_timeout"`
+	Retries         int `json:"retries"`
+	// TLSMinVersion is "1.2" (default) or "1.3" for this site.
+	TLSMinVersion   string     `json:"tls_min_version"`
 	RequestHeaders  []HeaderOp `json:"request_headers"`
 	ResponseHeaders []HeaderOp `json:"response_headers"`
 	CreatedAt       time.Time  `json:"created_at"`

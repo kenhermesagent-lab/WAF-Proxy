@@ -100,6 +100,8 @@ type Server struct {
 	transport  *http.Transport
 	cache      *responseCache
 	draining   atomic.Bool
+	// httpChallenge answers ACME HTTP-01 on the plain-HTTP listener.
+	httpChallenge http.Handler
 
 	events  chan model.Event
 	dropped atomic.Int64
@@ -157,6 +159,44 @@ func (s *Server) SetCertProvider(p CertProvider) { s.certs = p }
 
 // SetALPNProvider installs the ACME TLS-ALPN-01 challenge store.
 func (s *Server) SetALPNProvider(p ALPNProvider) { s.alpn = p }
+
+// SetHTTPChallengeHandler installs the ACME HTTP-01 token handler used by the
+// plain-HTTP listener.
+func (s *Server) SetHTTPChallengeHandler(h http.Handler) { s.httpChallenge = h }
+
+// RunHTTP serves the ACME challenge path and redirects everything else to
+// HTTPS. An empty address disables the listener.
+func (s *Server) RunHTTP(ctx context.Context, addr string) error {
+	if strings.TrimSpace(addr) == "" {
+		return nil
+	}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           http.HandlerFunc(s.servePlainHTTP),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+	s.d.Log.Info("http listener", "addr", addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+func (s *Server) servePlainHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.httpChallenge != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
+		s.httpChallenge.ServeHTTP(w, r)
+		return
+	}
+	host := normalizeHost(r.Host)
+	http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusMovedPermanently)
+}
 
 // SetBodyLimit overrides the maximum buffered request body.
 func (s *Server) SetBodyLimit(n int64) {
@@ -436,9 +476,31 @@ func (s *Server) tlsConfig() *tls.Config {
 		MinVersion:             tls.VersionTLS12,
 		NextProtos:             []string{"h2", "http/1.1", "acme-tls/1"},
 		GetCertificate:         s.getCertificate,
+		GetConfigForClient:     s.siteTLSConfig,
 		SessionTicketsDisabled: false,
 		CurvePreferences:       []tls.CurveID{tls.X25519, tls.CurveP256},
 	}
+}
+
+// tlsVersionFor maps a site's setting to a tls constant. Empty means 1.2.
+func tlsVersionFor(v string) uint16 {
+	if v == "1.3" {
+		return tls.VersionTLS13
+	}
+	return tls.VersionTLS12
+}
+
+// siteTLSConfig raises the minimum version for a site that asks for TLS 1.3,
+// without changing the default for every other host.
+func (s *Server) siteTLSConfig(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+	e := s.lookup(normalizeHost(hello.ServerName))
+	if e == nil || e.proxy.TLSMinVersion != "1.3" {
+		return nil, nil
+	}
+	c := s.tlsConfig()
+	c.GetConfigForClient = nil
+	c.MinVersion = tlsVersionFor(e.proxy.TLSMinVersion)
+	return c, nil
 }
 
 func (s *Server) setListenError(addr string, err error) {
