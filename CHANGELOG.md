@@ -39,6 +39,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   even though it carried the bundle rule ID. Hits now count the reserved bundle ID range regardless
   of stage.
 
+## [1.51.1] — 2026-11-23
+
+### Fixed
+
+- **The console's wide tables fit their cards at 360px and 768px.** The WAF profile table, the
+  protection profiles, the ASN recommendations, the activity log, the dashboard's recent blocks and
+  Sources scrolled sideways below 1100px. They now use the same tiers as the bundle and Feeds
+  tables: the long identifier or message is capped first, then the secondary counts and timestamps
+  drop, and at phone width the value that must not disappear moves into the cell that stays — the
+  profile's bundle modes under its name, the event's status under the request, the clock under the
+  source — while the row buttons stack. Bundles also no longer show an empty `Version` column on a
+  phone, and a hit's provider/version line stays inside its cell.
+
 ## [1.51.0] — 2026-11-23
 
 ### Added

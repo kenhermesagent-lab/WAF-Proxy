@@ -637,10 +637,10 @@ export default function Dashboard({
                 <tr>
                   <th>Time</th>
                   <th>Source</th>
-                  <th>Host</th>
+                  <th className="hide-tablet">Host</th>
                   <th>Request</th>
-                  <th>Stage</th>
-                  <th>Rule</th>
+                  <th className="hide-tablet">Stage</th>
+                  <th className="hide-narrow">Rule</th>
                   <th className="num">Status</th>
                 </tr>
               </thead>
@@ -652,10 +652,10 @@ export default function Dashboard({
                       <button className="link-cell mono" style={{ fontSize: 11.5 }} onClick={() => onOpenSource(e.src_ip)} title={`Investigate ${e.src_ip}`}>{e.src_ip}</button>
                       <div className="faint small-text">{countryName(e.country) || e.country || "—"} · AS{e.asn || "?"}</div>
                     </td>
-                    <td className="muted">{e.host}</td>
-                    <td className="mono" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.method} {e.path}</td>
-                    <td><Badge tone="bad">{e.stage}</Badge></td>
-                    <td className="muted" title={e.rule_msg || e.rule_id} style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.rule_msg || e.rule_id || "—"}</td>
+                    <td className="muted hide-tablet">{e.host}</td>
+                    <td className="mono recent-request">{e.method} {e.path}</td>
+                    <td className="hide-tablet"><Badge tone="bad">{e.stage}</Badge></td>
+                    <td className="muted recent-rule hide-narrow" title={e.rule_msg || e.rule_id}>{e.rule_msg || e.rule_id || "—"}</td>
                     <td className="num">{e.status}</td>
                   </tr>
                 ))}

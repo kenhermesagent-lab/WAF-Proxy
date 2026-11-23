@@ -125,21 +125,24 @@ export default function ProtectionProfiles({ onError, onOK }: { onError: (m: str
         <Empty>No protection profiles.</Empty>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <div className="table-wrap"><table>
+          <div className="table-wrap"><table className="protection-table">
             <thead>
               <tr><th>Profile</th><th>Applied headers</th><th /></tr>
             </thead>
             <tbody>
               {list.map((p) => (
                 <tr key={p.id}>
-                  <td style={{ whiteSpace: "nowrap" }}>
-                    {p.name} {p.builtin && <Badge tone="info">built-in</Badge>}
+                  <td>
+                    <div className="profile-title">{p.name}</div>
+                    {p.builtin && <Badge tone="info">built-in</Badge>}
                   </td>
-                  <td className="muted" style={{ fontSize: 12 }}>{summary(p)}</td>
-                  <td className="right" style={{ whiteSpace: "nowrap" }}>
-                    <button className="small" onClick={() => { setChecking(p); setAudit(null); if (!proxyID && proxies[0]) setProxyID(String(proxies[0].id)); }}>Check a site</button>{" "}
-                    <button className="small" onClick={() => setDraft({ ...p })}>Edit</button>{" "}
-                    {!p.builtin && <button className="small danger" onClick={() => remove(p)}>Delete</button>}
+                  <td className="muted summary-cell">{summary(p)}</td>
+                  <td className="right">
+                    <div className="protection-actions">
+                      <button className="small" onClick={() => { setChecking(p); setAudit(null); if (!proxyID && proxies[0]) setProxyID(String(proxies[0].id)); }}>Check a site</button>
+                      <button className="small" onClick={() => setDraft({ ...p })}>Edit</button>
+                      {!p.builtin && <button className="small danger" onClick={() => remove(p)}>Delete</button>}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -883,7 +883,7 @@ export default function Policies({
                   before enabling: providers move between networks, and blocking a hosting ASN also blocks any
                   legitimate site hosted there.
                 </p>
-                <div className="table-wrap"><table>
+                <div className="table-wrap"><table className="asn-table">
                   <thead><tr><th>Network</th><th>ASNs</th><th /></tr></thead>
                   <tbody>
                     {[asnRecs.hosting, ...asnRecs.vpn].map((s) => (
@@ -892,7 +892,7 @@ export default function Policies({
                           {s.name}
                           <div className="faint" style={{ fontSize: 11 }}>{s.note}</div>
                         </td>
-                        <td className="mono" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{s.asns.join(", ")}</td>
+                        <td className="mono asn-cell">{s.asns.join(", ")}</td>
                         <td className="right" style={{ whiteSpace: "nowrap" }}>
                           <button className="small" disabled={addingASN !== ""} onClick={() => addASN(s)}>
                             {addingASN === s.id ? "Adding…" : "Block"}
@@ -916,15 +916,15 @@ export default function Policies({
         >
           {profiles.length === 0 ? <Empty>No profiles available.</Empty> : (
             <div style={{ overflowX: "auto" }}>
-              <div className="table-wrap"><table>
+              <div className="table-wrap"><table className="profiles-table">
                 <thead>
-                  <tr><th>Profile</th><th>Mode</th><th className="num">Paranoia</th><th className="num">Anomaly</th><th>Methods</th><th className="num">Max body</th><th>Bundles</th><th /></tr>
+                  <tr><th>Profile</th><th>Mode</th><th className="num hide-compact">Paranoia</th><th className="num hide-compact">Anomaly</th><th className="hide-tablet">Methods</th><th className="num hide-tablet">Max body</th><th className="hide-narrow">Bundles</th><th /></tr>
                 </thead>
                 <tbody>
                   {profiles.map((p) => (
                     <tr key={p.id}>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        {p.name}
+                      <td>
+                        <div className="profile-title">{p.name}</div>
                         {p.exceptions ? <div className="faint" style={{ fontSize: 11 }}>{p.exceptions.split(",").filter(Boolean).length} rule exception(s)</div> : null}
                         {(p.login_rps > 0 || p.max_response > 0 || (p.admin_paths && p.admin_ips)) && (
                           <div className="faint" style={{ fontSize: 11 }}>
@@ -935,21 +935,27 @@ export default function Policies({
                             ].filter(Boolean).join(" · ")}
                           </div>
                         )}
+                        <div className="row phone-only" style={{ gap: 4, marginTop: 2 }}>
+                          {profileBundleBadges(p, installedNames).map((m) => <Badge key={m.label} tone={m.tone}>{m.label}</Badge>)}
+                          {installedNames.length === 0 ? <span className="faint">—</span> : null}
+                        </div>
                       </td>
                       <td><Badge tone={p.mode === "block" ? "ok" : p.mode === "detect" ? "info" : "warn"}>{p.mode}</Badge></td>
-                      <td className="num">{p.paranoia}</td>
-                      <td className="num">{p.anomaly}</td>
-                      <td className="muted mono" style={{ fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.allowed_methods}>{p.allowed_methods}</td>
-                      <td className="num">{p.max_body.toLocaleString()}</td>
-                      <td>
+                      <td className="num hide-compact">{p.paranoia}</td>
+                      <td className="num hide-compact">{p.anomaly}</td>
+                      <td className="muted mono methods-cell hide-tablet" title={p.allowed_methods}>{p.allowed_methods}</td>
+                      <td className="num hide-tablet">{p.max_body.toLocaleString()}</td>
+                      <td className="hide-narrow">
                         <div className="row" style={{ gap: 4 }}>
                           {profileBundleBadges(p, installedNames).map((m) => <Badge key={m.label} tone={m.tone}>{m.label}</Badge>)}
                           {installedNames.length === 0 ? <span className="faint">—</span> : null}
                         </div>
                       </td>
-                      <td className="right" style={{ whiteSpace: "nowrap" }}>
-                        <button className="small" onClick={() => setProfile({ ...p })}>Edit</button>{" "}
-                        {!p.builtin && <button className="small danger" onClick={() => removeProfile(p)}>Delete</button>}
+                      <td className="right">
+                        <div className="profile-actions">
+                          <button className="small" onClick={() => setProfile({ ...p })}>Edit</button>
+                          {!p.builtin && <button className="small danger" onClick={() => removeProfile(p)}>Delete</button>}
+                        </div>
                       </td>
                     </tr>
                   ))}

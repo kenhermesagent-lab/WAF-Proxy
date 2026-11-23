@@ -418,7 +418,8 @@ export default function Intel({
                             <div>{h.bundle || <span className="faint">removed</span>}</div>
                             {h.version || h.provider ? (
                               <div className="faint mono" style={{ fontSize: 10.5 }}>
-                                {h.provider ? `${h.provider} · ` : ""}{h.version}
+                                {h.provider || ""}
+                                {h.version ? <span className="hide-narrow">{h.provider ? " · " : ""}{h.version}</span> : null}
                               </div>
                             ) : null}
                           </td>

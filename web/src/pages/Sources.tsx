@@ -68,16 +68,16 @@ export default function Sources({
           <div style={{ overflowX: "auto" }}>
             <div className="table-wrap"><table>
               <thead>
-                <tr><th>Source</th><th>Location</th><th className="num">Requests</th><th className="num">Blocked</th><th className="num">Hosts</th><th>Last seen</th><th>State</th><th /></tr>
+                <tr><th>Source</th><th className="hide-compact">Location</th><th className="num hide-narrow">Requests</th><th className="num hide-narrow">Blocked</th><th className="num hide-tablet">Hosts</th><th>Last seen</th><th>State</th><th /></tr>
               </thead>
               <tbody>
                 {list.map((r) => (
                   <tr key={r.ip} className="clickable" onClick={() => onOpenSource(r.ip)}>
                     <td className="mono">{r.ip}</td>
-                    <td className="muted">{r.country || "—"} · AS{r.asn || "?"}</td>
-                    <td className="num">{r.requests.toLocaleString()}</td>
-                    <td className="num">{r.blocked.toLocaleString()}</td>
-                    <td className="num">{r.hosts}</td>
+                    <td className="muted hide-compact">{r.country || "—"} · AS{r.asn || "?"}</td>
+                    <td className="num hide-narrow">{r.requests.toLocaleString()}</td>
+                    <td className="num hide-narrow">{r.blocked.toLocaleString()}</td>
+                    <td className="num hide-tablet">{r.hosts}</td>
                     <td className="muted" style={{ whiteSpace: "nowrap" }} title={fmtTime(r.last_seen)}>{fmtAgo(r.last_seen)}</td>
                     <td>
                       {r.banned
