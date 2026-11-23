@@ -8,12 +8,15 @@ import { HelpBody } from "./render";
 // renderer, so the two cannot drift, and drops the console chrome in print.
 export default function HelpPage({ page }: { page: string }) {
   const label = NAV.find((n) => n.id === page)?.label ?? "This page";
-  // The document title is what a printed copy carries in its header.
+  // The document title is what a printed copy carries in its header, and the
+  // body class is what scopes the print styles to this page alone.
   useEffect(() => {
     const was = document.title;
     document.title = `${label} help · WAF-Proxy`;
+    document.body.classList.add("help-doc");
     return () => {
       document.title = was;
+      document.body.classList.remove("help-doc");
     };
   }, [label]);
 

@@ -713,14 +713,15 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 .help-print .help-body { margin-top: 16px; }
 .help-print .help-body p, .help-print .help-body li { font-size: 13.5px; }
 
+/* The chrome and white page come from the print block at the end of this file.
+   These rules are scoped to the printable help so no other page is affected. */
 @media print {
-  body { background: #fff; color: #111; }
-  .sidebar, .topbar, .help-page-bar, .toast-stack, .skip-link { display: none !important; }
-  .main, .content { display: block; padding: 0; background: #fff; }
-  .help-page { max-width: none; }
-  .help-print { border: 0; box-shadow: none; background: #fff; color: #111; padding: 0; }
-  .help-print .faint, .help-body h3 { color: #555; }
-  .help-body a { color: #111; text-decoration: underline; }
+  body.help-doc .help-page-bar { display: none !important; }
+  body.help-doc .help-page { max-width: none; }
+  body.help-doc .help-print { border: 0; box-shadow: none; background: #fff; color: #111; padding: 0; }
+  body.help-doc .help-print .faint,
+  body.help-doc .help-body h3 { color: #555; }
+  body.help-doc .help-body a { color: #111; text-decoration: underline; }
 }
 .drawer-foot {
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
