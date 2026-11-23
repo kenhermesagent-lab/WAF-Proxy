@@ -1,7 +1,14 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -110,6 +117,117 @@ func TestStreamingPortConflictProtocols(t *testing.T) {
 	cfg.Protocol = "both"
 	if msg := srv.streamingPortConflict(plex, cfg, kv); !strings.Contains(msg, "WAN") {
 		t.Fatalf("conflict = %q, want the WAN listener", msg)
+	}
+}
+
+// freeBothRange finds n consecutive numbers a TCP listener and a UDP socket can
+// each bind, so a handler test can start a real "both" range.
+func freeBothRange(t *testing.T, n int) int {
+	t.Helper()
+	for base := 34000; base+n-1 < 65000; base++ {
+		tcp := make([]net.Listener, 0, n)
+		ok := true
+		for i := 0; i < n; i++ {
+			ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", base+i))
+			if err != nil {
+				ok = false
+				break
+			}
+			tcp = append(tcp, ln)
+		}
+		for _, ln := range tcp {
+			_ = ln.Close()
+		}
+		if !ok {
+			continue
+		}
+		udp := make([]*net.UDPConn, 0, n)
+		for i := 0; i < n; i++ {
+			pc, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: base + i})
+			if err != nil {
+				ok = false
+				break
+			}
+			udp = append(udp, pc)
+		}
+		for _, pc := range udp {
+			_ = pc.Close()
+		}
+		if ok {
+			return base
+		}
+	}
+	t.Fatalf("no run of %d free TCP+UDP ports", n)
+	return 0
+}
+
+// A save with protocol=both over a range binds both sockets, persists every new
+// key and reports the merged listener back to the page.
+func TestStreamingPutBindsBothProtocolsOverARange(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	m := streaming.New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv.SetStreaming(m)
+	t.Cleanup(m.Close)
+
+	base := freeBothRange(t, 3)
+	body := fmt.Sprintf(`{"enabled":true,"listen_ip":"127.0.0.1","protocol":"both",`+
+		`"port":%d,"port_count":3,"upstream":"10.0.0.10:%d","upstream_port":%d,`+
+		`"allow":"10.0.0.0/8","max_conns":32,"max_per_source":2,"idle_seconds":90,`+
+		`"max_datagram":1200,"list_ids":[]}`, base, base, base)
+	rec := authed(t, srv, token, csrf, http.MethodPut, "/api/streaming/custom", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/streaming/custom = %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Applied bool   `json:"applied"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.Applied || resp.Error != "" {
+		t.Fatalf("apply = %+v, want the both range bound", resp)
+	}
+
+	kv, err := st.Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"stream_custom_protocol":       "both",
+		"stream_custom_port":           strconv.Itoa(base),
+		"stream_custom_port_count":     "3",
+		"stream_custom_upstream":       "10.0.0.10:" + strconv.Itoa(base),
+		"stream_custom_upstream_port":  strconv.Itoa(base),
+		"stream_custom_max_per_source": "2",
+		"stream_custom_idle_seconds":   "90",
+		"stream_custom_max_datagram":   "1200",
+	}
+	for key, value := range want {
+		if kv[key] != value {
+			t.Errorf("%s = %q, want %q", key, kv[key], value)
+		}
+	}
+
+	rec = authed(t, srv, token, csrf, http.MethodGet, "/api/streaming", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/streaming = %d: %s", rec.Code, rec.Body.String())
+	}
+	var view struct{ Services []streaming.Status }
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatalf("decode streaming view: %v", err)
+	}
+	var custom streaming.Status
+	for _, s := range view.Services {
+		if s.ID == "custom" {
+			custom = s
+		}
+	}
+	if custom.Protocol != "both" || custom.PortCount != 3 || !custom.Bound {
+		t.Fatalf("status = %+v, want both bound over three ports", custom)
+	}
+	if wantAddr := fmt.Sprintf("127.0.0.1:%d-%d tcp+udp", base, base+2); custom.ListenAddr != wantAddr {
+		t.Fatalf("listen_addr = %q, want %q", custom.ListenAddr, wantAddr)
 	}
 }
 
