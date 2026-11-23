@@ -12,6 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.49.3] — 2026-11-23
+
+### Fixed
+
+- **The Feeds table no longer scrolls sideways.** It was 855px wide in a 285px card at 360px and
+  wider than its card on a 768px tablet, because the feed URL, the last error and a long feed name
+  sized their cells freely. It now follows the bundle tables: `Entries` drops at ≤1100, `Last
+  refresh` at ≤900, the URL/name/error caps step down, and at phone width the state badge moves
+  under the feed name while the row buttons stack, so Feed, Action and the controls fit without a
+  hidden column and without horizontal scroll.
+
 ## [1.49.2] — 2026-11-23
 
 ### Added
