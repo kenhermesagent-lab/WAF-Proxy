@@ -58,6 +58,44 @@ func TestIncidentReportEmptyWindow(t *testing.T) {
 	}
 }
 
+func TestLogIncidentReportMarkdown(t *testing.T) {
+	srv, _, token, _ := newObservabilityServer(t)
+
+	rec := getJSON(t, srv, token, "/api/events/incident.md?host=app.example.com&hours=24")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/markdown") {
+		t.Fatalf("content-type = %q", ct)
+	}
+	md := rec.Body.String()
+	for _, want := range []string{
+		"# Incident report — app.example.com",
+		"- Window: last 24h",
+		"- Matching events: 2",
+		"- Blocked or challenged: 1 (50%)",
+		"- Distinct sources: 1 · distinct hosts: 1",
+		"- Filters: host=app.example.com",
+		"| decoy | ban | 1 |",
+		"| route | allow | 1 |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("report is missing %q:\n%s", want, md)
+		}
+	}
+
+	// The filters are the same ones the Logs page uses, so a runbook can ask
+	// for exactly the blocked rows.
+	rec = getJSON(t, srv, token, "/api/events/incident.md?blocked=1&hours=1")
+	md = rec.Body.String()
+	if !strings.Contains(md, "# Incident report — log window") || !strings.Contains(md, "- Filters: blocked only") {
+		t.Fatalf("blocked-only report:\n%s", md)
+	}
+	if !strings.Contains(md, "- Matching events: 1") || strings.Contains(md, "| route | allow |") {
+		t.Fatalf("blocked-only report kept an allowed row:\n%s", md)
+	}
+}
+
 func TestIncidentReportRejectsBadInput(t *testing.T) {
 	srv, _, token, _ := newObservabilityServer(t)
 	if rec := getJSON(t, srv, token, "/api/ips/not-an-ip/incident.md"); rec.Code != http.StatusBadRequest {

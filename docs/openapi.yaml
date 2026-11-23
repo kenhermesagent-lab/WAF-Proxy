@@ -1260,6 +1260,23 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+  /api/events/incident.md:
+    get:
+      operationId: getApiEventsIncidentMd
+      tags: [events]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Markdown incident report, also offered as a download
+          content:
+            text/markdown:
+              schema: {type: string}
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/feeds:
     get:
       operationId: getApiFeeds
@@ -1590,7 +1607,10 @@ paths:
           schema: {type: string}
       responses:
         "200":
-          description: Success
+          description: Markdown incident report, also offered as a download
+          content:
+            text/markdown:
+              schema: {type: string}
         "401":
           description: Missing or expired session
         "400":

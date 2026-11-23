@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import Logs from "./Logs";
 
 vi.mock("../api", () => ({
-  api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn(), text: vi.fn() },
 }));
 
 import { api } from "../api";
@@ -11,6 +11,7 @@ import { api } from "../api";
 const get = vi.mocked(api.get);
 const post = vi.mocked(api.post);
 const put = vi.mocked(api.put);
+const text = vi.mocked(api.text);
 
 const blockedEvent = {
   id: 9,
@@ -49,6 +50,8 @@ describe("Logs request simulator", () => {
     get.mockReset();
     post.mockReset();
     put.mockReset();
+    text.mockReset();
+    text.mockResolvedValue("# Incident report — log window\n\n- Window: last 24h");
     // The test environment has no storage, so each test gets a fresh fake one.
     const store: Record<string, string> = {};
     vi.stubGlobal("localStorage", {
@@ -177,6 +180,30 @@ describe("Logs request simulator", () => {
 
     await waitFor(() => expect(onError).toHaveBeenCalledWith("Saved on this browser only: forbidden"));
     expect(await screen.findByRole("option", { name: "Mine" })).toBeTruthy();
+  });
+
+  it("reapplies the query when the same page is targeted again", async () => {
+    const view = (version: number) => (
+      <Logs query="ip=203.0.113.7" queryVersion={version} onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite canShareViews />
+    );
+    const { rerender } = render(view(1));
+    await waitFor(() => expect(get).toHaveBeenCalledWith(expect.stringContaining("ip=203.0.113.7")));
+    get.mockClear();
+
+    // Same query, same hash: only the navigation counter changes.
+    rerender(view(2));
+    await waitFor(() => expect(get).toHaveBeenCalledWith(expect.stringContaining("ip=203.0.113.7")));
+  });
+
+  it("fetches the report Markdown for the current filters", async () => {
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite canShareViews />);
+    await screen.findByText("GET /.env");
+
+    fireEvent.change(screen.getByPlaceholderText("203.0.113.7"), { target: { value: "203.0.113.7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+
+    await waitFor(() => expect(text).toHaveBeenCalledWith("/api/events/incident.md?ip=203.0.113.7"));
+    expect((await screen.findByLabelText("Incident report in Markdown")).textContent).toContain("Incident report — log window");
   });
 
   it("disables the shared-view controls for a read-only role", async () => {

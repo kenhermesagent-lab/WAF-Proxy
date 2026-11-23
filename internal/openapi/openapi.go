@@ -244,6 +244,9 @@ type shape struct {
 }
 
 func shapeFor(r route) shape {
+	if strings.HasSuffix(r.path, ".md") {
+		return shape{text: true}
+	}
 	single := len(r.params) > 0
 	switch r.tag {
 	case "proxies":
@@ -329,6 +332,8 @@ func render(routes []route, version string) []byte {
 		}
 		b.WriteString("      responses:\n        \"200\":\n")
 		switch {
+		case sh.text && strings.HasSuffix(r.path, ".md"):
+			b.WriteString("          description: Markdown incident report, also offered as a download\n          content:\n            text/markdown:\n              schema: {type: string}\n")
 		case sh.text:
 			b.WriteString("          description: Internal CA root certificate in PEM form\n          content:\n            application/x-pem-file:\n              schema: {type: string}\n")
 		case sh.response != "" && sh.array:

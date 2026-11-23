@@ -230,6 +230,25 @@ func scanEvent(row interface{ Scan(...any) error }) (*model.Event, error) {
 	return &e, nil
 }
 
+// EventTotals is a filtered window's aggregate, independent of how many rows a
+// caller fetched.
+type EventTotals struct {
+	Total   int
+	Blocked int
+	Sources int
+	Hosts   int
+}
+
+func (s *Store) EventTotals(f EventFilter) (EventTotals, error) {
+	conds, args := eventWhere(f)
+	var t EventTotals
+	err := s.db.QueryRow(`SELECT COUNT(*),
+		COALESCE(SUM(CASE WHEN action IN ('block','ban','challenge') THEN 1 ELSE 0 END),0),
+		COUNT(DISTINCT src_ip), COUNT(DISTINCT host) FROM events WHERE `+conds, args...).
+		Scan(&t.Total, &t.Blocked, &t.Sources, &t.Hosts)
+	return t, err
+}
+
 // DeleteEventsBefore drops events older than the retention window.
 func (s *Store) DeleteEventsBefore(t time.Time) (int64, error) {
 	res, err := s.db.Exec(`DELETE FROM events WHERE ts < ?`, stamp(t))

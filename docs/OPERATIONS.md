@@ -355,3 +355,22 @@ Health still returns `200` while the canary is failing; the field is diagnostic,
 `?ready=1` keeps answering only for proxy readiness. The probe runs from the gateway
 over the public hostname, so it needs the same DNS/hairpin setup as the manual
 `POST /api/canary`.
+
+## Incident reports from a runbook
+
+The console's Incident report drawer is rendered by the server, so an on-call
+runbook can fetch and keep the same Markdown without a browser. Both routes
+need the session cookie and the `traffic.read` permission, and both answer
+`text/markdown` with an `incident-*.md` download name:
+
+```sh
+# Everything known about one source over the last 24 hours.
+curl -s -b jar.txt 'https://console.example.com/api/ips/203.0.113.7/incident.md?hours=24' -o incident-203.0.113.7.md
+
+# The Logs page report for any filter set (ip, host, country, stage, action, blocked).
+curl -s -b jar.txt 'https://console.example.com/api/events/incident.md?host=app.example.com&stage=waf&hours=1' -o incident-app.example.com.md
+```
+
+The body carries the summary, verdict counts, the newest 50 events and the audit
+actions that mention the subject; an empty window says so instead of inventing
+a timeline.

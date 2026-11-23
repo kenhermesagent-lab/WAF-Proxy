@@ -62,8 +62,16 @@ async function download(path: string, headers: Record<string, string> = {}) {
   return { blob: await res.blob(), name: name || "download" };
 }
 
+// text reads a plain-text response (Markdown reports) outside the JSON reader.
+async function text(path: string): Promise<string> {
+  const res = await fetch(path, { credentials: "same-origin" });
+  if (!res.ok) return read<never>(res);
+  return res.text();
+}
+
 export const api = {
   get: <T>(p: string) => request<T>(p),
+  text,
   post: <T>(p: string, body?: unknown) => request<T>(p, { method: "POST", body }),
   postRaw: <T>(p: string, body: BodyInit, headers: Record<string, string>) => postRaw<T>(p, body, headers),
   put: <T>(p: string, body?: unknown) => request<T>(p, { method: "PUT", body }),

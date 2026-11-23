@@ -257,6 +257,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/simulate", s.authed(s.simulate))
 	m.HandleFunc("GET /api/gate-failures", s.authed(s.listGateFailures))
 	m.HandleFunc("GET /api/events/export.csv", s.authed(s.exportEventsCSV))
+	m.HandleFunc("GET /api/events/incident.md", s.authed(s.logIncidentReportMarkdown))
 	m.HandleFunc("GET /api/ips", s.authed(s.listIPs))
 	m.HandleFunc("GET /api/ips/{ip}", s.authed(s.getIP))
 	m.HandleFunc("GET /api/ips/{ip}/incident.md", s.authed(s.incidentReportMarkdown))

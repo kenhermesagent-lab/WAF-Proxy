@@ -43,6 +43,9 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [page, setPage] = useState(() => pageFromHash(window.location.hash));
   const [pageQuery, setPageQuery] = useState(() => window.location.hash.split("?")[1] ?? "");
+  // Bumped on every navigation: a page reached with the query it already has
+  // gets no hashchange, so the page itself needs a reason to reapply it.
+  const [navSeq, setNavSeq] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [enrol, setEnrol] = useState<Enrolment | null>(null);
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
@@ -69,6 +72,7 @@ export default function App() {
     const nextHash = `#/${id}${query ? `?${query}` : ""}`;
     setPage(id);
     setPageQuery(query ?? "");
+    setNavSeq((n) => n + 1);
     // A drawer or a command belongs to the page that opened it, and its
     // backdrop would otherwise block the page the operator just asked for.
     setSourceIp(null);
@@ -102,6 +106,7 @@ export default function App() {
     const onHash = () => {
       setPage(pageFromHash(window.location.hash));
       setPageQuery(window.location.hash.split("?")[1] ?? "");
+      setNavSeq((n) => n + 1);
       setSourceIp(null);
       setCommand(null);
     };
@@ -358,6 +363,7 @@ export default function App() {
                   onError={onError}
                   onOK={onOK}
                   query={pageQuery}
+                  queryVersion={navSeq}
                   onOpenSource={setSourceIp}
                   canWrite={can(me?.permissions, "policies.write")}
                   canShareViews={can(me?.permissions, "traffic.write")}

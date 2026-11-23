@@ -3,13 +3,14 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import SourceDrawer from "./SourceDrawer";
 
 vi.mock("../api", () => ({
-  api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn(), text: vi.fn() },
 }));
 
 import { api } from "../api";
 
 const get = vi.mocked(api.get);
 const post = vi.mocked(api.post);
+const text = vi.mocked(api.text);
 
 const detail = {
   summary: {
@@ -59,6 +60,7 @@ describe("SourceDrawer", () => {
   beforeEach(() => {
     get.mockReset();
     post.mockReset();
+    text.mockReset();
     get.mockImplementation(async (path: string) => {
       if (path.startsWith("/api/ips/")) return detail;
       if (path.startsWith("/api/intel/lookup")) return { ip: "203.0.113.7", feed: null, ban: null };
@@ -77,6 +79,17 @@ describe("SourceDrawer", () => {
     expect(screen.getByText("GET /.env")).toBeTruthy();
     expect(screen.getByText(/Showing the newest 1 of 42/)).toBeTruthy();
     expect(get).toHaveBeenCalledWith("/api/ips/203.0.113.7?hours=24");
+  });
+
+  it("fetches its incident report from the server", async () => {
+    text.mockResolvedValue("# Incident report — 203.0.113.7\n\n- Window: last 24h");
+    renderDrawer();
+    await screen.findByText("42");
+
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+
+    await waitFor(() => expect(text).toHaveBeenCalledWith("/api/ips/203.0.113.7/incident.md?hours=24"));
+    expect((await screen.findByLabelText("Incident report in Markdown")).textContent).toContain("Window: last 24h");
   });
 
   it("bans the address for 24 hours after confirmation", async () => {

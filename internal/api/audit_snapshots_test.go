@@ -135,6 +135,9 @@ func TestRollbackNeedsAStoredSnapshot(t *testing.T) {
 
 func TestProxyUpdateSnapshotKeepsChildren(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
+	if err := st.SetSetting("base_domain", "example.com"); err != nil {
+		t.Fatal(err)
+	}
 	created, err := st.CreateProxy(&model.Proxy{Hostname: "site.example.com", Enabled: true, WAFMode: "inherit", BotLevel: "light"})
 	if err != nil {
 		t.Fatal(err)
@@ -142,10 +145,22 @@ func TestProxyUpdateSnapshotKeepsChildren(t *testing.T) {
 	if err := st.ReplaceUpstreams(created, []model.Upstream{{URL: "http://10.0.0.5:8080", Weight: 1, Enabled: true}}); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"hostname":"site.example.com","enabled":false,"waf_mode":"off","upstreams":[{"url":"http://10.0.0.5:8080","weight":1,"enabled":true}]}`
+	if err := st.ReplaceRoutes(created, []model.Route{{Kind: "prefix", Match: "/api", Target: "http://10.0.0.5:8080", StripPrefix: true}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rename the site and swap its children, the way the proxy editor does.
+	body := `{"hostname":"renamed.example.com","enabled":false,"waf_mode":"off",
+		"upstreams":[{"url":"http://10.0.0.9:9000","weight":3,"enabled":true}],
+		"routes":[{"kind":"prefix","match":"/v2","target":"http://10.0.0.9:9000"}]}`
 	if rec := sendJSON(t, srv, http.MethodPut, token, csrf, fmt.Sprintf("/api/proxies/%d", created), body); rec.Code != http.StatusOK {
 		t.Fatalf("update status = %d: %s", rec.Code, rec.Body.String())
 	}
+	edited, err := st.GetProxy(created)
+	if err != nil || edited.Hostname != "renamed.example.com" {
+		t.Fatalf("proxy after edit = %+v, %v", edited, err)
+	}
+
 	entryID := newestSnapshotEntry(t, srv, token, "proxy")
 	rec := getJSON(t, srv, token, fmt.Sprintf("/api/audit/%d", entryID))
 	var detail struct {
@@ -155,16 +170,30 @@ func TestProxyUpdateSnapshotKeepsChildren(t *testing.T) {
 	if detail.Snapshot == nil || !strings.Contains(detail.Snapshot.Before, "10.0.0.5") {
 		t.Fatalf("proxy snapshot lost its upstreams: %+v", detail.Snapshot)
 	}
-	if rb := sendJSON(t, srv, http.MethodPost, token, csrf, fmt.Sprintf("/api/audit/%d/rollback", entryID), ""); rb.Code != http.StatusOK {
-		t.Fatalf("rollback status = %d: %s", rb.Code, rb.Body.String())
-	}
-	ups, err := st.ListUpstreams(created)
-	if err != nil || len(ups) != 1 {
-		t.Fatalf("upstreams after rollback: %v %v", ups, err)
-	}
 	var raw map[string]any
 	_ = json.Unmarshal([]byte(detail.Snapshot.Before), &raw)
 	if _, ok := raw["proxy"]; !ok {
 		t.Fatalf("proxy snapshot is not the wrapped shape: %s", detail.Snapshot.Before)
+	}
+
+	if rb := sendJSON(t, srv, http.MethodPost, token, csrf, fmt.Sprintf("/api/audit/%d/rollback", entryID), ""); rb.Code != http.StatusOK {
+		t.Fatalf("rollback status = %d: %s", rb.Code, rb.Body.String())
+	}
+
+	// The site and both of its children come back as they were.
+	restored, err := st.GetProxy(created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Hostname != "site.example.com" || !restored.Enabled {
+		t.Fatalf("proxy after rollback = %+v", restored)
+	}
+	ups, err := st.ListUpstreams(created)
+	if err != nil || len(ups) != 1 || ups[0].URL != "http://10.0.0.5:8080" || ups[0].Weight != 1 {
+		t.Fatalf("upstreams after rollback: %+v %v", ups, err)
+	}
+	routes, err := st.ListRoutes(created)
+	if err != nil || len(routes) != 1 || routes[0].Match != "/api" || routes[0].Target != "http://10.0.0.5:8080" {
+		t.Fatalf("routes after rollback: %+v %v", routes, err)
 	}
 }

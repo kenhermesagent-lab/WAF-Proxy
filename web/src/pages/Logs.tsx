@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import Simulator from "../components/Simulator";
-import IncidentReport, { buildReport, reportFilename } from "../components/IncidentReport";
+import IncidentReport, { reportFilename } from "../components/IncidentReport";
 import { Badge, Card, Empty, Field, confirmDialog, errText, fmtTime } from "../ui";
 import { Event } from "../types";
 
@@ -65,6 +65,7 @@ export default function Logs({
   onError,
   onOK,
   query,
+  queryVersion,
   onOpenSource,
   canWrite,
   canShareViews,
@@ -72,6 +73,7 @@ export default function Logs({
   onError: (m: string) => void;
   onOK: (m: string) => void;
   query?: string;
+  queryVersion?: number;
   onOpenSource: (ip: string) => void;
   canWrite: boolean;
   canShareViews: boolean;
@@ -156,7 +158,7 @@ export default function Logs({
     const f = filtersFromQuery(query);
     setFilters(f);
     load(0, f);
-  }, [query]);
+  }, [query, queryVersion]);
 
   // Live tail: refresh the newest page while the tab is visible, and catch up
   // immediately when the operator comes back to it.
@@ -280,22 +282,12 @@ export default function Logs({
     }
   };
 
-  const openReport = () => {
-    const q = queryOf(filters).toString();
-    const blocked = events.filter((e) => e.action !== "allow").length;
-    setReport(
-      buildReport({
-        subject: filters.ip || filters.host || "log window",
-        window: q ? `filters: ${q}` : "every event, no filters",
-        summary: [
-          `Matching events: ${total.toLocaleString()}`,
-          `On this page: ${events.length} · not allowed ${blocked} · distinct hosts ${new Set(events.map((e) => e.host)).size}`,
-          `Filters: ${q || "none"}`,
-        ],
-        events,
-        total,
-      }),
-    );
+  const openReport = async () => {
+    try {
+      setReport(await api.text(`/api/events/incident.md?${queryOf(filters).toString()}`));
+    } catch (e) {
+      onError(errText(e));
+    }
   };
 
   const exportHref = () => {
