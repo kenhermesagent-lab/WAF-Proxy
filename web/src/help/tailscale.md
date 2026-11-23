@@ -3,9 +3,9 @@ Reaching the console over Tailscale instead of exposing it, so administration st
 
 ## Concepts
 - **Tailnet** — your private Tailscale network; addresses in it look like `100.x.y.z`.
-- **Serve** — publishes the console on the tailnet without opening a firewall port.
-- **Exit node** — unrelated to the console; it routes other traffic, not administration.
+- **Listener** — the console or the proxy bound to this host's tailnet address, so the tailnet reaches it without a firewall port.
+- **Split DNS** — answers proxy hostnames on the tailnet only, so a fleet device resolves the app to this host.
 
 ## First tasks
-- Join this host to the tailnet, then open the console at its tailnet address.
-- Keep the console bound to loopback or the LAN address even after Tailscale works.
+- Join this host to the tailnet, then enable the admin listener and open the console at its tailnet address.
+- Keep the console bound to the LAN address even after Tailscale works.

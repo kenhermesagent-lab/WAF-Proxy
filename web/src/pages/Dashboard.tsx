@@ -5,7 +5,7 @@ import AttackMap from "../components/AttackMap";
 import Chart from "../components/Chart";
 import Icon from "../components/Icon";
 import { countryFlag, countryName } from "../countries";
-import { Badge, Card, Empty, Info, Skeleton, TableWrap, fmtAgo, fmtBps, fmtBytes, fmtTime } from "../ui";
+import { Badge, Card, Empty, Info, PageHead, Skeleton, TableWrap, fmtAgo, fmtBps, fmtBytes, fmtTime } from "../ui";
 import { AnomalyEvent, Cert, Event, Feed, GlobeHit, GlobePoint, Metrics, Proxy, UpdatesSnapshot, Uptime } from "../types";
 
 type Rate = { requests: number; bytesIn: number; bytesOut: number };
@@ -232,7 +232,10 @@ export default function Dashboard({
   const proxyRows = useMemo(() => {
     const names = new Map(proxies.map((p) => [String(p.id), p.hostname]));
     return Object.entries(metrics?.proxies ?? {})
-      .map(([id, c]) => ({ id, host: names.get(id) || `proxy #${id}`, ...c, rate: rates[id] }))
+      .map(([id, c]) => {
+        const host = names.get(id);
+        return { id, host: host || `proxy #${id}`, named: !!host, ...c, rate: rates[id] };
+      })
       .sort((a, b) => b.requests - a.requests);
   }, [metrics, proxies, rates]);
 
@@ -343,20 +346,20 @@ export default function Dashboard({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <div className="page-head">
-        <div>
-          <p>Live traffic, blocked requests and upstream health across every proxy on this node.</p>
-        </div>
-        <div className="actions">
-          <span className={`badge ${connected ? "ok" : "warn"}`}>
-            <span className="dot" aria-hidden="true" />
-            {connected ? "Streaming live" : "Reconnecting"}
-          </span>
-          <a className="small" href="#/statistics" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 12 }}>
-            <Icon name="chart" size={14} /> Analytics
-          </a>
-        </div>
-      </div>
+      <PageHead
+        sub="Live traffic, blocked requests and upstream health across every proxy on this node."
+        actions={
+          <>
+            <span className={`badge ${connected ? "ok" : "warn"}`}>
+              <span className="dot" aria-hidden="true" />
+              {connected ? "Streaming live" : "Reconnecting"}
+            </span>
+            <a className="small" href="#/statistics" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 12 }}>
+              <Icon name="chart" size={14} /> Analytics
+            </a>
+          </>
+        }
+      />
 
       <Card
         title="Needs attention"
@@ -586,7 +589,11 @@ export default function Dashboard({
                   {proxyRows.map((p) => (
                     <tr key={p.id}>
                       <td>
-                        <div className="mono" style={{ fontSize: 12 }}>{p.host}</div>
+                        {p.named ? (
+                          <a className="link-cell mono" href={`#/logs?host=${encodeURIComponent(p.host)}`} style={{ fontSize: 12 }}>{p.host}</a>
+                        ) : (
+                          <div className="mono" style={{ fontSize: 12 }}>{p.host}</div>
+                        )}
                       </td>
                       <td className="num">{p.requests.toLocaleString()}</td>
                       <td className="num">{p.rate ? p.rate.requests.toFixed(1) : "—"}</td>

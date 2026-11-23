@@ -4,7 +4,7 @@ Machine access to the console: the MCP endpoint and the tokens that let an agent
 ## Concepts
 - **Token** — a named credential with a scope; revoke it when the agent is retired.
 - **MCP endpoint** — `/mcp`, over the same address as the console.
-- **Delivery log** — what an agent asked for, and what it was allowed to see.
+- **Audit trail** — every tool call is written as `mcp:<token name>`, next to administrator changes.
 
 ## First tasks
 - Create one token per agent, never a shared one.

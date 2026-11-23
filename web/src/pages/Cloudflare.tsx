@@ -320,8 +320,8 @@ export default function CloudflarePage({
                     Install connector
                   </button>
                 )}
-                <a href={DASHBOARD_URL} target="_blank" rel="noreferrer">
-                  <button>Open Cloudflare dashboard</button>
+                <a className="link-button" href={DASHBOARD_URL} target="_blank" rel="noreferrer">
+                  Open Cloudflare dashboard
                 </a>
               </div>
             )}
@@ -369,8 +369,8 @@ export default function CloudflarePage({
             value={cf.tunnel_id}
             onChange={(e) => setCf({ ...cf, tunnel_id: e.target.value })}
           />
-          <a href={DASHBOARD_URL} target="_blank" rel="noreferrer">
-            <button>Cloudflare dashboard</button>
+          <a className="link-button" href={DASHBOARD_URL} target="_blank" rel="noreferrer">
+            Cloudflare dashboard
           </a>
         </div>
       </Card>

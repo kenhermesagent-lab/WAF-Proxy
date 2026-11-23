@@ -3,11 +3,11 @@ The request log: one row per request the proxy handled, with the WAF's verdict a
 
 ## Concepts
 - **Outcome** — allowed, blocked or challenged. A blocked row names the rule that matched.
-- **Filters** — hostname, address, path and outcome, combinable. The URL keeps them, so a filtered view can be shared.
+- **Filters** — hostname, address, policy stage and action, combinable, with a blocked-only switch. The URL keeps them, so a filtered view can be shared.
 - **Export** — CSV for the current filters, for a spreadsheet or an incident report.
 
 ## First tasks
-- Filter to one hostname and add `outcome=blocked` to see only refusals.
+- Filter to one hostname and turn on **blocked only** (the URL carries it as `blocked=1`) to see only refusals.
 - Save a filter you use often as a view; it appears in the Logs toolbar.
 
 ## If it stays empty

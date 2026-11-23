@@ -299,7 +299,18 @@ export default function App() {
 
   return (
     <div className="shell">
-      <a className="skip-link" href="#main-content">Skip to content</a>
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={(e) => {
+          // Moving focus is the whole job: changing the hash would look like a
+          // route change and send the operator to another page.
+          e.preventDefault();
+          document.getElementById("main-content")?.focus();
+        }}
+      >
+        Skip to content
+      </a>
       {navOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <aside className={`sidebar ${navOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`}>
         <div className="brand">
@@ -330,7 +341,7 @@ export default function App() {
         </button>
       </aside>
 
-      <main className="main" id="main-content">
+      <main className="main" id="main-content" tabIndex={-1}>
         <header className="topbar">
           <button
             className="nav-toggle icon-btn"

@@ -7,5 +7,5 @@ Totals over time, so you can tell whether protection is working without reading 
 - **Access gate logins** — sign-ins to gate-protected sites, which are not WAF decisions.
 
 ## First tasks
-- Compare blocked against allowed for a hostname that receives real traffic.
+- Open Traffic to compare success and error counts for each hostname.
 - Check Uptime after changing a backend, before users report it.

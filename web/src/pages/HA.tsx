@@ -130,7 +130,7 @@ export default function HAPage({
             <h2>High availability is turned off</h2>
             <p>{st.reason || "Enable it in Settings → High availability to pair this node."}</p>
           </div>
-          <a className="button primary" href="#/settings">Open Settings</a>
+          <a className="link-button" href="#/settings">Open Settings</a>
         </div>
       </>
     );

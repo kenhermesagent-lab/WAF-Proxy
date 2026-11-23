@@ -289,14 +289,14 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
         {SECTIONS.map((sec) => (
-          <a
+          <button
             key={sec.id}
-            href={`#${sec.id}`}
+            type="button"
             className={activeSection === sec.id ? "active" : ""}
-            onClick={(e) => { e.preventDefault(); document.getElementById(sec.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+            onClick={() => document.getElementById(sec.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
           >
             {sec.label}
-          </a>
+          </button>
         ))}
       </nav>
 

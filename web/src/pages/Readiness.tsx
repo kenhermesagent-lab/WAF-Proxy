@@ -225,10 +225,12 @@ export default function Readiness({
       {list.map((r) => (
         <div className="bar-row readiness-row" key={r.id}>
           <div style={{ minWidth: 0 }}>
-            <div className="row" style={{ gap: 8 }}>
-              <span>{r.label}</span>
-              {r.optional ? <Badge>optional</Badge> : null}
-              {r.ready === null ? <Badge tone="warn">unknown</Badge> : r.ready ? <Badge tone="ok">ready</Badge> : <Badge tone="bad">missing</Badge>}
+            <div className="row readiness-tags" style={{ gap: 8 }}>
+              <span className="readiness-label">{r.label}</span>
+              <span className="readiness-badges">
+                {r.optional ? <Badge>optional</Badge> : null}
+                {r.ready === null ? <Badge tone="warn">unknown</Badge> : r.ready ? <Badge tone="ok">ready</Badge> : <Badge tone="bad">missing</Badge>}
+              </span>
             </div>
             <div className="faint small-text" style={{ marginTop: 2 }}>{r.detail}</div>
           </div>

@@ -485,7 +485,7 @@ export default function CrowdSecPage({ onError, onOK, head = true }: { onError: 
             The repository includes an optional CrowdSec sidecar that reads the WAF access log. Start it,
             create a bouncer key, then paste the key above.
           </p>
-          <pre className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, margin: 0 }}>{`cd /path/to/WAF-Proxy-Docker
+          <pre className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, margin: 0 }}>{`cd /path/to/WAF-Proxy
 docker compose -f deploy/docker-compose.yml --profile crowdsec up -d crowdsec
 docker exec crowdsec cscli bouncers add wafproxy
 

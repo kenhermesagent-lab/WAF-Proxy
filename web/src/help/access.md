@@ -7,5 +7,5 @@ The access gate: accounts that sign in before reaching a protected site, and the
 - **Session** — how long a gate sign-in lasts before it is asked again.
 
 ## First tasks
-- Create a gate account, then switch one hostname's gate mode to accounts.
+- Create a gate account, then set a hostname's gate mode under Proxies → Access gate.
 - Test in a private window before enabling it on a site other people use.

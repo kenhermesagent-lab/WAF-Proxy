@@ -382,7 +382,7 @@ export default function Logs({
               {live ? "● Live" : "Live tail"}
             </button>
             <button className="small" onClick={openReport} disabled={events.length === 0}>Report</button>
-            <a href={exportHref()}><button className="small">Export CSV</button></a>
+            <a className="link-button" href={exportHref()}>Export CSV</a>
             <button className="small" disabled={live || offset === 0} onClick={() => load(Math.max(0, offset - PAGE))}>Newer</button>
             <button className="small" disabled={live || offset + PAGE >= total} onClick={() => load(offset + PAGE)}>Older</button>
           </div>

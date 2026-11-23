@@ -535,6 +535,15 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   color: var(--muted); font-size: 11.5px; line-height: 1.6;
   font-weight: 400;
 }
+/* A 290px popover centred on an icon in a phone-sized card leaves the viewport
+   on one side or the other. On a phone it becomes a bottom sheet: the full
+   width of the screen, so it is always readable and always dismissible. */
+@media (max-width: 560px) {
+  .info-tip .info-body {
+    position: fixed; left: 10px; right: 10px; bottom: 10px; top: auto;
+    width: auto; transform: none;
+  }
+}
 
 /* health banner */
 .banner {
@@ -701,8 +710,14 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 /* Readiness rows carry a short action. Below the phone breakpoint it moves
    under the text instead of squeezing the explanation into a column. */
 .readiness-row { grid-template-columns: minmax(0, 1fr) auto; }
+.readiness-badges { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 @media (max-width: 560px) {
   .readiness-row { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  /* The label takes the width it needs and the badges keep the right edge, so
+     a long label wraps inside its own line instead of pushing the badge down. */
+  .readiness-tags { flex-wrap: nowrap; align-items: flex-start; }
+  .readiness-label { flex: 1 1 auto; min-width: 0; }
+  .readiness-badges { flex: 0 0 auto; justify-content: flex-end; }
   .readiness-action { margin-top: 2px; justify-self: start; }
 }
 
@@ -781,6 +796,9 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 /* ---------- globe ---------- */
 .globe-wrap {
   position: relative; overflow: hidden; border-radius: 8px;
+  /* A definite width keeps aspect-ratio computing the height; without it the
+     min-height below decides the width and overflows a narrow card. */
+  width: 100%;
   aspect-ratio: 16 / 9; min-height: 220px;
   background: radial-gradient(circle at 50% 47%, #0d1622 0, #0a0c10 68%);
   border: 1px solid var(--border-soft);
@@ -868,12 +886,18 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 .settings-nav { position: sticky; top: 80px; display: flex; flex-direction: column; gap: 1px; scrollbar-width: none; }
 .settings-nav::-webkit-scrollbar { display: none; }
 .settings-sections { padding-bottom: 72px; }
-.settings-nav a {
+.settings-nav a, .settings-nav button {
   padding: 6px 9px; border-radius: 6px; color: var(--muted);
   font-size: 12.5px; text-decoration: none;
 }
-.settings-nav a:hover { background: var(--bg-hover); color: var(--text); }
-.settings-nav a.active { background: #182130; color: var(--text); }
+/* These are scroll targets, not routes: a real button cannot be opened in a
+   new tab as a hash the router would rewrite. */
+.settings-nav button {
+  min-height: 0; border: 0; background: transparent; text-align: left;
+  font-weight: 400; justify-content: flex-start;
+}
+.settings-nav a:hover, .settings-nav button:hover { background: var(--bg-hover); color: var(--text); }
+.settings-nav a.active, .settings-nav button.active { background: #182130; color: var(--text); }
 .settings-sections { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .settings-section { scroll-margin-top: 76px; }
 .section-head { margin-bottom: 12px; }
@@ -917,7 +941,7 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   .user-btn .user-name { display: none; }
   .settings-layout { grid-template-columns: 1fr; }
   .settings-nav { position: static; flex-direction: row; overflow: auto; gap: 2px; padding-bottom: 6px; }
-  .settings-nav a { white-space: nowrap; }
+  .settings-nav a, .settings-nav button { white-space: nowrap; }
   .login-split { grid-template-columns: 1fr; }
   .search-trigger { min-width: 30px; width: 30px; padding: 0; justify-content: center; }
   .search-trigger span, .search-trigger kbd { display: none; }

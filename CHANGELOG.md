@@ -12,6 +12,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.60.1] — 2026-11-23
+
+### Fixed
+
+- **Every page offers its help.** The Dashboard kept a hand-written header, so it had no `?` button
+  or shortcut even though its help exists; it now uses the shared page header like every other page.
+  A hostname in its proxy table opens that hostname's filtered log.
+- **No control is a link wrapped around a button.** The log's CSV export and the two Cloudflare
+  dashboard links are now anchors styled as controls, so a press cannot fire two navigation
+  targets. The Settings section nav is a set of buttons rather than `#section` anchors, so it
+  cannot be opened in a new tab as a hash the router rewrites.
+- **“Skip to content” no longer leaves the page.** The link focuses the main region instead of
+  changing the hash, which the router treated as a page change.
+- **Two dashboard surfaces fit a 320px screen.** The attack globe derived a 304px width from its
+  minimum height and pushed the page sideways, and an info popover centred on its icon opened past
+  the screen edge; the globe now takes its width from the card and the popover becomes a bottom
+  sheet on a phone.
+- **Readiness badges line up on a phone.** Below 560px, a row's status badges sit at its right edge
+  whatever the label's length, so the long-label rows no longer leave a ragged badge column; the
+  fix link still moves below the text.
+- **The HA-off card's “Open Settings” is a real control.** It used a `button` class the stylesheet
+  does not define, so the link rendered unstyled; it now uses the console's in-card link style.
+- **The documentation link names this repository.** It pointed at the pre-rename
+  `WAF-Proxy-Docker` repository, and the CrowdSec instructions still used the old checkout path.
+- **Help topics describe controls that exist.** Logs names the real `blocked=1` filter, Agent
+  describes the audit trail instead of a delivery log, Tailscale describes its native listeners
+  rather than `tailscale serve`, and Dashboard, Access and Statistics now point at the place each
+  action actually lives.
+
 ## [1.60.0] — 2026-11-23
 
 > **High availability, off by default.** The two-node hardware lab gates in
@@ -121,6 +150,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 - `deploy/install.sh` installs `deploy/cloudflared-install.sh` next to the CrowdSec installer, and
   the Upgrades page documents the new package.
+- **Printable help keeps its print rules to itself.** The printable route marks the document and
+  every help-specific print rule is scoped to that marker, so printing another console page is
+  unchanged and `styles.css` carries one print block again.
 
 ### Notes
 
