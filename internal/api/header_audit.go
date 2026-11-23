@@ -43,17 +43,17 @@ func (s *Server) auditProtectionHeaders(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "proxy_id is required")
 		return
 	}
-	p, err := s.st.GetProxy(proxyID)
+	p, err := s.db(r).GetProxy(proxyID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "proxy not found")
 		return
 	}
-	prof := s.protectionProfileFor(p, r.URL.Query().Get("profile_id"))
+	prof := s.protectionProfileFor(r, p, r.URL.Query().Get("profile_id"))
 	if prof == nil {
 		writeError(w, http.StatusBadRequest, "this proxy has no protection profile; choose one first")
 		return
 	}
-	ups, err := s.st.ListUpstreams(proxyID)
+	ups, err := s.db(r).ListUpstreams(proxyID)
 	if err != nil || len(ups) == 0 {
 		writeError(w, http.StatusBadRequest, "this proxy has no upstream to check")
 		return
@@ -92,22 +92,22 @@ func (s *Server) auditProtectionHeaders(w http.ResponseWriter, r *http.Request) 
 
 // protectionProfileFor resolves the profile to compare: the one the caller
 // selected, else the proxy's inherited profile, else its access profile.
-func (s *Server) protectionProfileFor(p *model.Proxy, override string) *model.ProtectionProfile {
+func (s *Server) protectionProfileFor(r *http.Request, p *model.Proxy, override string) *model.ProtectionProfile {
 	if override != "" {
 		if id, err := strconv.ParseInt(override, 10, 64); err == nil {
-			if prof, err := s.st.GetProtectionProfile(id); err == nil {
+			if prof, err := s.db(r).GetProtectionProfile(id); err == nil {
 				return prof
 			}
 		}
 	}
 	if p.ProtectionProfileID != nil {
-		if prof, err := s.st.GetProtectionProfile(*p.ProtectionProfileID); err == nil {
+		if prof, err := s.db(r).GetProtectionProfile(*p.ProtectionProfileID); err == nil {
 			return prof
 		}
 	}
 	if p.AccessProfileID != nil {
-		if ap, err := s.st.GetAccessProfile(*p.AccessProfileID); err == nil && ap.ProtectionProfileID != nil {
-			if prof, err := s.st.GetProtectionProfile(*ap.ProtectionProfileID); err == nil {
+		if ap, err := s.db(r).GetAccessProfile(*p.AccessProfileID); err == nil && ap.ProtectionProfileID != nil {
+			if prof, err := s.db(r).GetProtectionProfile(*ap.ProtectionProfileID); err == nil {
 				return prof
 			}
 		}

@@ -19,6 +19,9 @@ const MaxTempTTL = 24 * time.Hour
 
 // Record is an active ban held in memory.
 type Record struct {
+	// SiteID is the site that observed the ban. Records are per site; the
+	// kernel set they feed is the union of every site's records.
+	SiteID    int64
 	CIDR      string
 	Reason    string
 	Source    string
@@ -166,13 +169,20 @@ func (e *Engine) purgeExpired() {
 	}
 }
 
-// Add creates or refreshes a ban. A ttl of zero creates a permanent ban.
+// Add creates or refreshes a host-wide ban. A ttl of zero creates a permanent
+// ban.
 func (e *Engine) Add(cidr, reason, source, createdBy string, ttl time.Duration) (Record, error) {
+	return e.AddFor(0, cidr, reason, source, createdBy, ttl)
+}
+
+// AddFor records the ban against the site that observed it, so the site's
+// console lists it while every site still gets the kernel drop.
+func (e *Engine) AddFor(siteID int64, cidr, reason, source, createdBy string, ttl time.Duration) (Record, error) {
 	p, err := netmatch.ParsePrefix(cidr)
 	if err != nil {
 		return Record{}, err
 	}
-	rec := Record{CIDR: p.String(), Reason: reason, Source: source, CreatedAt: e.now()}
+	rec := Record{SiteID: siteID, CIDR: p.String(), Reason: reason, Source: source, CreatedAt: e.now()}
 	if ttl > 0 {
 		exp := e.now().Add(ttl)
 		rec.ExpiresAt = &exp
@@ -188,7 +198,11 @@ func (e *Engine) Add(cidr, reason, source, createdBy string, ttl time.Duration) 
 		CIDR: rec.CIDR, Reason: rec.Reason, Source: rec.Source, Permanent: rec.Permanent,
 		CreatedBy: createdBy, CreatedAt: rec.CreatedAt, ExpiresAt: rec.ExpiresAt,
 	}
-	if _, err := e.st.AddBan(b); err != nil {
+	st := e.st
+	if siteID != 0 {
+		st = e.st.InSite(siteID)
+	}
+	if _, err := st.AddBan(b); err != nil {
 		return Record{}, err
 	}
 	e.mu.Lock()

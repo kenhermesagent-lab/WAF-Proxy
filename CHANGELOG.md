@@ -12,7 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.49.6] — 2026-11-23
+## [1.52.0] — 2026-11-23
 
 ### Added
 
@@ -39,6 +39,64 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   even though it carried the bundle rule ID. Hits now count the reserved bundle ID range regardless
   of stage.
 
+## [1.51.0] — 2026-11-23
+
+### Added
+
+- **Per-site backups and restores.** Settings → **Download JSON** now exports the calling
+  site only and names the file after it (`wafproxy-<slug>-backup.json`). The new
+  `wafproxy backup --site <slug>` writes the same document for one site, and
+  `wafproxy backup --all` writes one encrypted file per site plus a `sites.json` manifest
+  naming each slug, console host and file. Restoring a document writes only into the site
+  whose console posted it.
+- **Scheduled backups cover the whole install.** The nightly job was building its document
+  from the default site's handle, so every other site was silently missing from the file.
+
+### Changed
+
+- **A runtime ban belongs to the site that observed it.** A ban raised by the decoy trap or
+  the rate limiter is recorded against the hostname's site, so that site's console lists
+  it, while the kernel set it feeds stays the union of every site's bans and keeps dropping
+  the address for all of them.
+- **Retention is per site.** The hourly loop reads each site's own `retention_days`, so one
+  site shortening its history can no longer delete another site's events.
+- **`docs/OPERATIONS.md` has a Sites section** covering console hosts, the host/tenant
+  settings split, host-wide kernel bans, per-site retention and restore boundaries.
+
+## [1.50.0] — 2026-11-23
+
+### Added
+
+- **One console per site.** A site's `console_host` is now served by the same process as every
+  other console. The console resolves the request's `Host` to its site, and every handler receives
+  a store bound to that site, so it lists and changes only that site's proxies, certificates,
+  bans, policies, feeds, lists, gate accounts and sessions, admins and sessions, events,
+  analytics, audit trail and saved log views. Settings written on a site's console stay on that
+  site. A session issued on one console cannot authenticate on another, and the login form of one
+  console rejects another console's administrators.
+- **A certificate per console host.** The console listener keeps resolving its certificate on each
+  handshake, now over every site's certificates, so two consoles on one process each present the
+  certificate issued for their own hostname. A single-site install keeps presenting the
+  `base_domain` certificate exactly as before.
+
+### Changed
+
+- **Host-wide settings are refused per site.** `wan_ip`, `lan_ip`, `gui_port`, `admin_allow_cidrs`,
+  the CrowdSec endpoint and the auto-update schedule stay process-wide. Any console reads them;
+  saving one from a site other than `default` now answers `403` instead of making it look saved.
+- **The proxy side runs unscoped.** Bans, feeds, certificates, the policy engine, the gate and the
+  anomaly monitor load every site's rows, because they serve every hostname; the console is the
+  only place a site narrows what is visible.
+- **Bans are keyed by site and address.** The same CIDR can be banned on one site and allowed on
+  another, and a duplicate ban is only a duplicate inside its own site.
+- **A saved log view's name is unique inside its site**, so two sites can both keep a view called
+  "errors" (the table is rebuilt on upgrade).
+
+### Fixed
+
+- **Deleting a row that belongs to another site answers `404`**, not a silent success or a `500`.
+- **Events recorded before a proxy was matched** belong to the default site instead of vanishing
+  from the console.
 ## [1.49.5] — 2026-11-23
 
 ### Changed

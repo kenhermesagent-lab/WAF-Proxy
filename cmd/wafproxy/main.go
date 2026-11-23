@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -116,11 +117,16 @@ func backupCLI(args []string) error {
 	out := fs.String("out", "", "output file (default: <data>/backups/wafproxy-backup-<time>.json.enc)")
 	pass := fs.String("passphrase", os.Getenv("WAFPROXY_BACKUP_PASSPHRASE"), "encryption passphrase, at least 16 characters")
 	keep := fs.Int("keep", 0, "keep only the newest N backups in the output directory")
+	site := fs.String("site", "", "back up one site by slug (default: every site in one file)")
+	all := fs.Bool("all", false, "write one file per site plus a sites manifest")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if len(*pass) < 16 {
 		return errors.New("the passphrase must be at least 16 characters")
+	}
+	if *site != "" && *all {
+		return errors.New("--site and --all are mutually exclusive")
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -138,7 +144,18 @@ func backupCLI(args []string) error {
 		}
 		*out = filepath.Join(dir, "wafproxy-backup-"+time.Now().UTC().Format("20060102T150405Z")+".json.enc")
 	}
-	doc, err := api.BuildBackupDocument(st)
+	if *all {
+		return backupAllSites(st, *out, *pass)
+	}
+	target := st.Unscoped()
+	if *site != "" {
+		s, err := st.SiteBySlug(*site)
+		if err != nil {
+			return fmt.Errorf("site %q: %w", *site, err)
+		}
+		target = st.InSite(s.ID)
+	}
+	doc, err := api.BuildBackupDocument(target)
 	if err != nil {
 		return err
 	}
@@ -159,6 +176,42 @@ func backupCLI(args []string) error {
 	}
 	fmt.Printf("wrote %s\n", *out)
 	return nil
+}
+
+// backupAllSites writes one encrypted file per site plus a plain manifest, so a
+// restore can name a site without decrypting every file.
+func backupAllSites(st *store.Store, out, pass string) error {
+	sites, err := st.ListSites()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(out)
+	base := strings.TrimSuffix(filepath.Base(out), ".enc")
+	manifest := make([]map[string]string, 0, len(sites))
+	for _, site := range sites {
+		doc, err := api.BuildBackupDocument(st.InSite(site.ID))
+		if err != nil {
+			return err
+		}
+		sealed, err := backup.Encrypt(pass, doc)
+		if err != nil {
+			return err
+		}
+		name := filepath.Join(dir, base+"-"+site.Slug+".enc")
+		if err := os.WriteFile(name, sealed, 0o600); err != nil {
+			return err
+		}
+		manifest = append(manifest, map[string]string{
+			"slug": site.Slug, "name": site.Name,
+			"console_host": site.ConsoleHost, "file": filepath.Base(name),
+		})
+		fmt.Printf("wrote %s\n", name)
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "sites.json"), data, 0o600)
 }
 
 // pruneBackups keeps the newest keep files matching the backup name.
@@ -286,10 +339,11 @@ func recoverCLI(args []string) error {
 	return nil
 }
 
-// consoleTLSConfig serves the certificate configured for the console host. The
-// callback resolves through the certificate manager on each handshake rather
-// than capturing the certificate at startup, so a renewal or replacement is
-// picked up without restarting the listener.
+// consoleTLSConfig serves the certificate that matches the requested console
+// host. The callback resolves through the certificate manager on each
+// handshake rather than capturing the certificate at startup, so a renewal or
+// replacement is picked up without restarting the listener, and a second site's
+// console host gets its own certificate from the same listener.
 func consoleTLSConfig(certs *acme.Manager, host string) (*tls.Config, error) {
 	if _, err := certs.CertificateForHost(host); err != nil {
 		return nil, err
@@ -432,13 +486,17 @@ func run() error {
 		log.Warn("no GeoIP database found; country and ASN policy will be unavailable")
 	}
 
+	// The proxy side serves every hostname, so its engines see every site's
+	// rows. The console keeps the default-scoped handle and narrows per request.
+	all := st.Unscoped()
+
 	met := metrics.New(wanIface, lanIface)
 	kernel := ban.NewKernel(log)
-	bans, err := ban.New(st, log, kernel)
+	bans, err := ban.New(all, log, kernel)
 	if err != nil {
 		return err
 	}
-	feeds := intel.New(st, log, 32<<20)
+	feeds := intel.New(all, log, 32<<20)
 	// Signed signature packs. Each provider is one manifest plus the key it must
 	// be signed with; a provider missing either half stays off, and the service
 	// still loads any pack already on disk.
@@ -466,16 +524,16 @@ func run() error {
 	if err := bundles.Load(); err != nil {
 		log.Warn("could not load installed bundles", "err", err)
 	}
-	profiles, err := st.ListProfiles()
+	profiles, err := all.ListProfiles()
 	if err != nil {
 		return err
 	}
 	wafs := waf.NewSet(profiles, log)
 	wafs.SetBundles(bundles.Rules())
-	certs := acme.New(st, box, log)
+	certs := acme.New(all, box, log)
 	certs.SetDirectory(cfg.ACMEDirectory, cfg.ACMECAFile)
-	notifier := notify.New(st, box, log)
-	uptimeMon := uptime.New(st, notifier, log)
+	notifier := notify.New(all, box, log)
+	uptimeMon := uptime.New(all, notifier, log)
 
 	// Assigned once the listeners exist; the ban callback needs it to cut
 	// streams that were already running when the ban landed.
@@ -510,7 +568,7 @@ func run() error {
 		}
 	}
 
-	gateEngine := gate.New(st, box, bans, log)
+	gateEngine := gate.New(all, box, bans, log)
 	gateEngine.OnBan = func(ip, reason string, permanent bool) {
 		kind := "Temporary ban"
 		if permanent {
@@ -518,7 +576,7 @@ func run() error {
 		}
 		notifier.Enqueue("gate", fmt.Sprintf("%s: %s — access gate (%s)", kind, ip, reason), "gate:"+ip, permanent)
 	}
-	bots := botguard.New(cfg.MasterKey, bans, st, log)
+	bots := botguard.New(cfg.MasterKey, bans, all, log)
 	csURL, csKey := cfg.CrowdSecURL, cfg.CrowdSecKey
 	csEnabled := true
 	if raw, ok := kv["crowdsec_enabled"]; ok {
@@ -540,7 +598,7 @@ func run() error {
 		log.Info("crowdsec bouncer enabled", "lapi", csURL)
 	}
 
-	pol, err := policy.New(st, bans, feeds, geo, wafs, log)
+	pol, err := policy.New(all, bans, feeds, geo, wafs, log)
 	if err != nil {
 		return err
 	}
@@ -553,7 +611,7 @@ func run() error {
 		}
 	})
 	px, err := proxy.New(proxy.Deps{
-		Store: st, Policy: pol, Gate: gateEngine, Bots: bots, Bans: bans,
+		Store: all, Policy: pol, Gate: gateEngine, Bots: bots, Bans: bans,
 		Geo: geo, Metrics: met, Log: log, ClientIP: trusted,
 	})
 	if err != nil {
@@ -683,7 +741,7 @@ func run() error {
 	agentLinks.SetRouting(notifier.EventEnabled)
 	apiServer.SetAgentLinks(agentLinks)
 	go agentLinks.Start(ctx)
-	anomalyMon := anomaly.New(st, met, notifier, log)
+	anomalyMon := anomaly.New(all, met, notifier, log)
 	anomalyMon.SetSink(agentLinks.Publish)
 	apiServer.SetAnomaly(anomalyMon)
 	go anomalyMon.Start(ctx)
@@ -879,17 +937,26 @@ func newLogger() *slog.Logger {
 
 func retentionLoop(ctx context.Context, st *store.Store, log *slog.Logger) {
 	run := func() {
-		kv, err := st.Settings()
+		// Retention is per site: one site keeping a year of history must not
+		// delete another site's week.
+		sites, err := st.ListSites()
 		if err != nil {
 			return
 		}
-		days := 7
-		if v, err := strconv.Atoi(kv["retention_days"]); err == nil && v >= 1 && v <= 30 {
-			days = v
-		}
-		cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-		if n, err := st.DeleteEventsBefore(cutoff); err == nil && n > 0 {
-			log.Info("retention applied", "deleted_events", n, "days", days)
+		for _, site := range sites {
+			siteSt := st.InSite(site.ID)
+			kv, err := siteSt.Settings()
+			if err != nil {
+				continue
+			}
+			days := 7
+			if v, err := strconv.Atoi(kv["retention_days"]); err == nil && v >= 1 && v <= 30 {
+				days = v
+			}
+			cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+			if n, err := siteSt.DeleteEventsBefore(cutoff); err == nil && n > 0 {
+				log.Info("retention applied", "site", site.Slug, "deleted_events", n, "days", days)
+			}
 		}
 		_ = st.RollupFlows(time.Now().Add(-time.Hour))
 		_ = st.PurgeBans()

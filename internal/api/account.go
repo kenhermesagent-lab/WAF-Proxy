@@ -14,7 +14,7 @@ import (
 // encrypted at rest like the TOTP secret, so both the comparison and the rewrite
 // have to go through the box; comparing the ciphertext directly would reject
 // every code.
-func (s *Server) consumeRecoveryCode(user *store.User, candidate string) bool {
+func (s *Server) consumeRecoveryCode(r *http.Request, user *store.User, candidate string) bool {
 	plain, err := s.box.Open(user.Recovery)
 	if err != nil {
 		return false
@@ -27,14 +27,14 @@ func (s *Server) consumeRecoveryCode(user *store.User, candidate string) bool {
 	if err != nil {
 		return false
 	}
-	return s.st.UpdateUserRecovery(user.ID, sealed) == nil
+	return s.db(r).UpdateUserRecovery(user.ID, sealed) == nil
 }
 
 // verifyAdminSecret checks the current password and, when enrolled, a live
 // authenticator code. A recovery code is accepted as a fallback and consumed,
 // because otherwise an operator who signed in with a recovery code could never
 // rotate the lost factor from this page.
-func (s *Server) verifyAdminSecret(user *store.User, password, totp, recovery string) bool {
+func (s *Server) verifyAdminSecret(r *http.Request, user *store.User, password, totp, recovery string) bool {
 	if user == nil || !auth.VerifyPassword(user.PasswordHash, password) {
 		return false
 	}
@@ -49,7 +49,7 @@ func (s *Server) verifyAdminSecret(user *store.User, password, totp, recovery st
 	if recovery == "" {
 		return false
 	}
-	return s.consumeRecoveryCode(user, recovery)
+	return s.consumeRecoveryCode(r, user, recovery)
 }
 
 // clearPendingTOTP drops an unconfirmed rotation for a session. Credential
@@ -66,7 +66,7 @@ func (s *Server) accountUser(w http.ResponseWriter, r *http.Request) (*store.Use
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return nil, nil, false
 	}
-	user, err := s.st.UserByID(sess.UserID)
+	user, err := s.db(r).UserByID(sess.UserID)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "account not found")
 		return nil, nil, false
@@ -95,7 +95,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if !s.verifyAdminSecret(user, in.CurrentPassword, strings.TrimSpace(in.TOTP), in.Recovery) {
+	if !s.verifyAdminSecret(r, user, in.CurrentPassword, strings.TrimSpace(in.TOTP), in.Recovery) {
 		writeError(w, http.StatusUnauthorized, "current password, authenticator code or recovery code is incorrect")
 		return
 	}
@@ -108,7 +108,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.st.UpdateUserPassword(user.ID, hash); err != nil {
+	if err := s.db(r).UpdateUserPassword(user.ID, hash); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update password")
 		return
 	}
@@ -116,12 +116,12 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	// Credential rotations invalidate every other browser. The current session
 	// survives so the operator is not bounced out mid-change.
 	revoked := true
-	if err := s.st.DeleteOtherSessions(user.ID, sess.ID); err != nil {
+	if err := s.db(r).DeleteOtherSessions(user.ID, sess.ID); err != nil {
 		revoked = false
 		s.log.Error("revoke sessions after password change", "err", err)
 	}
 	s.limiter.Reset("account:" + user.Username)
-	s.st.AddAudit(user.Username, "account.password", fmt.Sprintf("other sessions revoked: %t", revoked), clientIP(r))
+	s.db(r).AddAudit(user.Username, "account.password", fmt.Sprintf("other sessions revoked: %t", revoked), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "other_sessions_revoked": revoked})
 }
 
@@ -148,7 +148,7 @@ func (s *Server) beginTOTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if !s.verifyAdminSecret(user, in.CurrentPassword, strings.TrimSpace(in.TOTP), in.Recovery) {
+	if !s.verifyAdminSecret(r, user, in.CurrentPassword, strings.TrimSpace(in.TOTP), in.Recovery) {
 		writeError(w, http.StatusUnauthorized, "current password, authenticator code or recovery code is incorrect")
 		return
 	}
@@ -223,17 +223,17 @@ func (s *Server) confirmTOTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "encryption error")
 		return
 	}
-	if err := s.st.UpdateUserTOTP(user.ID, sealed, sealedCodes, true); err != nil {
+	if err := s.db(r).UpdateUserTOTP(user.ID, sealed, sealedCodes, true); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update authenticator")
 		return
 	}
 	revoked := true
-	if err := s.st.DeleteOtherSessions(user.ID, sess.ID); err != nil {
+	if err := s.db(r).DeleteOtherSessions(user.ID, sess.ID); err != nil {
 		revoked = false
 		s.log.Error("revoke sessions after TOTP change", "err", err)
 	}
 	s.limiter.Reset("account:" + user.Username)
-	s.st.AddAudit(user.Username, "account.totp", fmt.Sprintf("authenticator rotated; other sessions revoked: %t", revoked), clientIP(r))
+	s.db(r).AddAudit(user.Username, "account.totp", fmt.Sprintf("authenticator rotated; other sessions revoked: %t", revoked), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "ok", "recovery_codes": codes, "other_sessions_revoked": revoked,
 	})
@@ -244,7 +244,7 @@ func (s *Server) logoutAll(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.st.DeleteUserSessions(user.ID); err != nil {
+	if err := s.db(r).DeleteUserSessions(user.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot revoke sessions")
 		return
 	}
@@ -253,6 +253,6 @@ func (s *Server) logoutAll(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode})
-	s.st.AddAudit(user.Username, "account.logout_all", "all sessions revoked", clientIP(r))
+	s.db(r).AddAudit(user.Username, "account.logout_all", "all sessions revoked", clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

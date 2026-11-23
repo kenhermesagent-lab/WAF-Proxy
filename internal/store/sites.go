@@ -183,10 +183,20 @@ func (s *Store) DeleteSite(id int64) error {
 // SettingsFor returns the settings a site sees: the host's table with the
 // site's own overrides on top. Host-wide keys always come from the host.
 func (s *Store) SettingsFor(siteID int64) (map[string]string, error) {
-	out, err := s.Settings()
+	out := map[string]string{}
+	host, err := s.db.Query(`SELECT key, value FROM settings`)
 	if err != nil {
 		return nil, err
 	}
+	for host.Next() {
+		var k, v string
+		if err := host.Scan(&k, &v); err != nil {
+			host.Close()
+			return nil, err
+		}
+		out[k] = v
+	}
+	host.Close()
 	rows, err := s.db.Query(`SELECT key, value FROM site_settings WHERE site_id = ?`, siteID)
 	if err != nil {
 		return nil, err
@@ -252,8 +262,73 @@ func (s *Store) migrateSites() error {
 			return fmt.Errorf("adopt %s rows: %w", table, err)
 		}
 	}
-	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_proxies_site ON proxies(site_id)`)
-	return err
+	// From here on the plain handle is the default site's, so every existing
+	// caller keeps seeing exactly the rows it saw before sites existed.
+	s.site = id
+	s.defaultSite = id
+	// Bans are per site: the same address may be banned on one host and
+	// allowed on another, so the key is the pair.
+	if _, err := s.db.Exec(`DROP INDEX IF EXISTS idx_bans_cidr`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_bans_site_cidr ON bans(site_id, cidr)`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_proxies_site ON proxies(site_id)`); err != nil {
+		return err
+	}
+	// A saved log view's name is only unique inside its site. Older databases
+	// key on the name alone, so the table is rebuilt once.
+	var keyed int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('log_views')
+		WHERE name = 'site_id' AND pk > 0`).Scan(&keyed); err != nil {
+		return err
+	}
+	if keyed == 0 {
+		if _, err := s.db.Exec(`CREATE TABLE log_views_sites (
+			name TEXT NOT NULL,
+			query TEXT NOT NULL,
+			updated_by TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL,
+			site_id INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY(site_id, name)
+		)`); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO log_views_sites(name, query, updated_by, updated_at, site_id)
+			SELECT name, query, updated_by, updated_at, site_id FROM log_views`); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`DROP TABLE log_views`); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`ALTER TABLE log_views_sites RENAME TO log_views`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SiteForHost resolves a console hostname to the site that owns it. A host no
+// site and no proxy claims, and a single-site install, both land on the default
+// site, so the console reached the way it always was is unchanged.
+func (s *Store) SiteForHost(host string) int64 {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if host == "" {
+		return s.defaultSite
+	}
+	var id int64
+	if err := s.db.QueryRow(`SELECT id FROM sites WHERE lower(console_host) = ?`, host).Scan(&id); err == nil {
+		return id
+	}
+	var site int64
+	if err := s.db.QueryRow(`SELECT site_id FROM proxies WHERE lower(hostname) = ?`, host).Scan(&site); err == nil && site != 0 {
+		return site
+	}
+	return s.defaultSite
 }
 
 func isUniqueErr(err error) bool {

@@ -45,7 +45,7 @@ func (s *Server) SetBundles(m *bundle.Manager) { s.bundles = m }
 // across profiles, because a bundle mode is a profile setting, never a global
 // switch.
 func (s *Server) listBundles(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.bundleSnapshot())
+	writeJSON(w, http.StatusOK, s.bundleSnapshot(r))
 }
 
 // checkBundles refreshes one provider when ?provider= names it, otherwise all
@@ -73,8 +73,8 @@ func (s *Server) checkBundles(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		detail = err.Error()
 	}
-	s.st.AddAudit(sess.Username, "bundle.check", detail, clientIP(r))
-	writeJSON(w, http.StatusOK, s.bundleSnapshot())
+	s.db(r).AddAudit(sess.Username, "bundle.check", detail, clientIP(r))
+	writeJSON(w, http.StatusOK, s.bundleSnapshot(r))
 }
 
 // enableBundle switches one pack on or off. A disabled pack keeps its files
@@ -102,7 +102,7 @@ func (s *Server) enableBundle(w http.ResponseWriter, r *http.Request) {
 		action = "bundle.enable"
 	}
 	s.st.AddAudit(sess.Username, action, in.Name, clientIP(r))
-	writeJSON(w, http.StatusOK, s.bundleSnapshot())
+	writeJSON(w, http.StatusOK, s.bundleSnapshot(r))
 }
 
 // saveBundleProvider adds or replaces one channel from the console. The list
@@ -143,7 +143,7 @@ func (s *Server) saveBundleProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "bundle.provider", "saved "+strings.TrimSpace(in.Name), clientIP(r))
-	writeJSON(w, http.StatusOK, s.bundleSnapshot())
+	writeJSON(w, http.StatusOK, s.bundleSnapshot(r))
 }
 
 // deleteBundleProvider drops one channel. Its installed packs stay on disk and
@@ -179,7 +179,7 @@ func (s *Server) deleteBundleProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "bundle.provider", "removed "+name, clientIP(r))
-	writeJSON(w, http.StatusOK, s.bundleSnapshot())
+	writeJSON(w, http.StatusOK, s.bundleSnapshot(r))
 }
 
 // bundleHits groups the rule IDs the event log already recorded. Nothing extra
@@ -197,7 +197,7 @@ func (s *Server) bundleHits(w http.ResponseWriter, r *http.Request) {
 		}
 		hours = n
 	}
-	hits, err := s.st.BundleHits(nowMinus(hours))
+	hits, err := s.db(r).BundleHits(nowMinus(hours))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -206,7 +206,7 @@ func (s *Server) bundleHits(w http.ResponseWriter, r *http.Request) {
 	if s.bundles != nil {
 		index = s.bundles.RuleIndex()
 	}
-	profiles, _ := s.st.ListProfiles()
+	profiles, _ := s.db(r).ListProfiles()
 	rules := make([]BundleHit, 0, len(hits))
 	for _, h := range hits {
 		info := index[h.RuleID]
@@ -252,12 +252,12 @@ func modeCounts(profiles []model.Profile, name string) map[string]int {
 	return counts
 }
 
-func (s *Server) bundleSnapshot() bundleSnapshot {
+func (s *Server) bundleSnapshot(r *http.Request) bundleSnapshot {
 	if s.bundles == nil {
 		return bundleSnapshot{Configured: false, Providers: []providerView{}, Bundles: []bundleView{}}
 	}
 	st := s.bundles.Status()
-	profiles, _ := s.st.ListProfiles()
+	profiles, _ := s.db(r).ListProfiles()
 	out := bundleSnapshot{
 		Providers: make([]providerView, 0, len(st.Providers)),
 		Bundles:   make([]bundleView, 0, len(st.Bundles)),

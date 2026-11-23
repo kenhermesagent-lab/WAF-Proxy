@@ -22,8 +22,8 @@ func GateSessionRef(id string) string {
 // AddUsernameBan blocks a gate username. A permanent row wins over a temporary
 // one, matching the IP ban behaviour.
 func (s *Store) AddUsernameBan(username, reason, createdBy string, expires *time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO username_bans(username, reason, created_by, created_at, expires_at)
-		VALUES(?, ?, ?, ?, ?)
+	_, err := s.db.Exec(`INSERT INTO username_bans(username, reason, created_by, created_at, expires_at, site_id)
+		VALUES(?, ?, ?, ?, ?, ?)
 		ON CONFLICT(username) DO UPDATE SET
 			reason = excluded.reason,
 			created_by = excluded.created_by,
@@ -31,7 +31,7 @@ func (s *Store) AddUsernameBan(username, reason, createdBy string, expires *time
 			expires_at = CASE
 				WHEN excluded.expires_at IS NULL OR username_bans.expires_at IS NULL THEN NULL
 				ELSE excluded.expires_at END`,
-		username, reason, createdBy, stamp(time.Now()), nullTime(expires))
+		username, reason, createdBy, stamp(time.Now()), nullTime(expires), s.site)
 	return err
 }
 
@@ -39,17 +39,18 @@ func (s *Store) AddUsernameBan(username, reason, createdBy string, expires *time
 func (s *Store) UsernameBanned(username string) (bool, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM username_bans
-		WHERE username = ? AND (expires_at IS NULL OR expires_at > ?)`,
-		username, stamp(time.Now())).Scan(&n)
+		WHERE username = ? AND (expires_at IS NULL OR expires_at > ?) AND (? = 0 OR site_id = ?)`,
+		username, stamp(time.Now()), s.site, s.site).Scan(&n)
 	return n > 0, err
 }
 
 // ListUsernameBans returns username blocks, optionally including expired ones.
 func (s *Store) ListUsernameBans(includeExpired bool) ([]model.UsernameBan, error) {
-	q := `SELECT username, reason, created_by, created_at, expires_at FROM username_bans`
-	args := []any{}
+	q := `SELECT username, reason, created_by, created_at, expires_at FROM username_bans
+		WHERE (? = 0 OR site_id = ?)`
+	args := []any{s.site, s.site}
 	if !includeExpired {
-		q += ` WHERE expires_at IS NULL OR expires_at > ?`
+		q += ` AND (expires_at IS NULL OR expires_at > ?)`
 		args = append(args, stamp(time.Now()))
 	}
 	q += ` ORDER BY username`
@@ -75,7 +76,7 @@ func (s *Store) ListUsernameBans(includeExpired bool) ([]model.UsernameBan, erro
 
 // RemoveUsernameBan lifts a username block and reports whether one existed.
 func (s *Store) RemoveUsernameBan(username string) (bool, error) {
-	res, err := s.db.Exec(`DELETE FROM username_bans WHERE username = ?`, username)
+	res, err := s.db.Exec(`DELETE FROM username_bans WHERE username = ? AND (? = 0 OR site_id = ?)`, username, s.site, s.site)
 	if err != nil {
 		return false, err
 	}
@@ -92,7 +93,7 @@ func (s *Store) GateSessions(limit int) ([]model.GateSession, error) {
 	rows, err := s.db.Query(`SELECT gs.id, gs.proxy_id, COALESCE(p.hostname, ''), gs.username,
 		gs.ip, gs.ua, gs.created_at, gs.expires_at
 		FROM gate_sessions gs LEFT JOIN proxies p ON p.id = gs.proxy_id
-		WHERE gs.expires_at > ? ORDER BY gs.created_at DESC LIMIT ?`, stamp(time.Now()), limit)
+		WHERE gs.expires_at > ? AND (? = 0 OR gs.site_id = ?) ORDER BY gs.created_at DESC LIMIT ?`, stamp(time.Now()), s.site, s.site, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +124,7 @@ func (s *Store) DeleteGateSessionByRef(ref string) (*model.GateSession, error) {
 		if sessions[i].Ref != ref {
 			continue
 		}
-		if _, err := s.db.Exec(`DELETE FROM gate_sessions WHERE id = ?`, sessions[i].ID); err != nil {
+		if _, err := s.db.Exec(`DELETE FROM gate_sessions WHERE id = ? AND (? = 0 OR site_id = ?)`, sessions[i].ID, s.site, s.site); err != nil {
 			return nil, err
 		}
 		return &sessions[i], nil
@@ -133,7 +134,7 @@ func (s *Store) DeleteGateSessionByRef(ref string) (*model.GateSession, error) {
 
 // DeleteGateSessionsForIP revokes every live session opened from an address.
 func (s *Store) DeleteGateSessionsForIP(ip string) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM gate_sessions WHERE ip = ?`, ip)
+	res, err := s.db.Exec(`DELETE FROM gate_sessions WHERE ip = ? AND (? = 0 OR site_id = ?)`, ip, s.site, s.site)
 	if err != nil {
 		return 0, err
 	}
@@ -143,14 +144,14 @@ func (s *Store) DeleteGateSessionsForIP(ip string) (int64, error) {
 // CountGateSessions reports how many live visitor sessions exist.
 func (s *Store) CountGateSessions() (int, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM gate_sessions WHERE expires_at > ?`, stamp(time.Now())).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM gate_sessions WHERE expires_at > ? AND (? = 0 OR site_id = ?)`, stamp(time.Now()), s.site, s.site).Scan(&n)
 	return n, err
 }
 
 // CreateMCPToken stores a hashed agent credential and its tool scopes.
 func (s *Store) CreateMCPToken(name, hash, prefix, createdBy string, scopes []string) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO mcp_tokens(name, token_hash, prefix, created_by, created_at, scopes)
-		VALUES(?, ?, ?, ?, ?, ?)`, name, hash, prefix, createdBy, stamp(time.Now()), strings.Join(scopes, ","))
+	res, err := s.db.Exec(`INSERT INTO mcp_tokens(name, token_hash, prefix, created_by, created_at, scopes, site_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?)`, name, hash, prefix, createdBy, stamp(time.Now()), strings.Join(scopes, ","), s.site)
 	if err != nil {
 		return 0, err
 	}
@@ -160,7 +161,7 @@ func (s *Store) CreateMCPToken(name, hash, prefix, createdBy string, scopes []st
 // ListMCPTokens returns every agent credential, active first.
 func (s *Store) ListMCPTokens() ([]model.MCPToken, error) {
 	rows, err := s.db.Query(`SELECT id, name, prefix, created_by, created_at, last_used_at, revoked_at, scopes
-		FROM mcp_tokens ORDER BY revoked_at IS NOT NULL, id DESC LIMIT 200`)
+		FROM mcp_tokens WHERE (? = 0 OR site_id = ?) ORDER BY revoked_at IS NOT NULL, id DESC LIMIT 200`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +189,7 @@ func (s *Store) MCPTokenByHash(hash string) (*model.MCPToken, error) {
 	var created, scopes string
 	var lastUsed, revoked sql.NullString
 	err := s.db.QueryRow(`SELECT id, name, prefix, created_by, created_at, last_used_at, revoked_at, scopes
-		FROM mcp_tokens WHERE token_hash = ? AND revoked_at IS NULL`, hash).
+		FROM mcp_tokens WHERE token_hash = ? AND revoked_at IS NULL AND (? = 0 OR site_id = ?)`, hash, s.site, s.site).
 		Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &created, &lastUsed, &revoked, &scopes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -213,14 +214,14 @@ func splitScopes(raw string) []string {
 // TouchMCPToken records a successful authenticated call without failing the
 // request when the best-effort write is lost.
 func (s *Store) TouchMCPToken(id int64) error {
-	_, err := s.db.Exec(`UPDATE mcp_tokens SET last_used_at = ? WHERE id = ?`, stamp(time.Now()), id)
+	_, err := s.db.Exec(`UPDATE mcp_tokens SET last_used_at = ? WHERE id = ? AND (? = 0 OR site_id = ?)`, stamp(time.Now()), id, s.site, s.site)
 	return err
 }
 
 // RevokeMCPToken disables a credential and reports whether it was active.
 func (s *Store) RevokeMCPToken(id int64) (bool, error) {
-	res, err := s.db.Exec(`UPDATE mcp_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
-		stamp(time.Now()), id)
+	res, err := s.db.Exec(`UPDATE mcp_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL AND (? = 0 OR site_id = ?)`,
+		stamp(time.Now()), id, s.site, s.site)
 	if err != nil {
 		return false, err
 	}

@@ -37,12 +37,12 @@ func validateAgentLink(name, endpoint string) string {
 }
 
 func (s *Server) listAgentLinks(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListAgentLinks()
+	list, err := s.db(r).ListAgentLinks()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	last, err := s.st.LastDeliveries()
+	last, err := s.db(r).LastDeliveries()
 	if err == nil {
 		for i := range list {
 			if d, ok := last[list[i].ID]; ok {
@@ -65,7 +65,7 @@ func (s *Server) listAgentDeliveries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	list, err := s.st.DeliveriesForLink(id, limit)
+	list, err := s.db(r).DeliveriesForLink(id, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -117,12 +117,12 @@ func (s *Server) createAgentLink(w http.ResponseWriter, r *http.Request) {
 		}
 		link.Secret = sealed
 	}
-	id, err := s.st.CreateAgentLink(link)
+	id, err := s.db(r).CreateAgentLink(link)
 	if err != nil {
 		writeError(w, http.StatusConflict, "an agent with that name already exists")
 		return
 	}
-	if saved, err := s.st.GetAgentLink(id); err == nil {
+	if saved, err := s.db(r).GetAgentLink(id); err == nil {
 		link = saved
 	} else {
 		link.ID = id
@@ -130,7 +130,7 @@ func (s *Server) createAgentLink(w http.ResponseWriter, r *http.Request) {
 	link.HasSecret = link.Secret != ""
 	link.Secret = ""
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "agent-link.create", link.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "agent-link.create", link.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, link)
 }
 
@@ -140,7 +140,7 @@ func (s *Server) updateAgentLink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	current, err := s.st.GetAgentLink(id)
+	current, err := s.db(r).GetAgentLink(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -167,14 +167,14 @@ func (s *Server) updateAgentLink(w http.ResponseWriter, r *http.Request) {
 		}
 		current.Secret = sealed
 	}
-	if err := s.st.UpdateAgentLink(current); err != nil {
+	if err := s.db(r).UpdateAgentLink(current); err != nil {
 		writeError(w, http.StatusConflict, "an agent with that name already exists")
 		return
 	}
 	current.HasSecret = current.Secret != ""
 	current.Secret = ""
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "agent-link.update", current.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "agent-link.update", current.Name, clientIP(r))
 	writeJSON(w, http.StatusOK, current)
 }
 
@@ -184,17 +184,17 @@ func (s *Server) deleteAgentLink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	link, err := s.st.GetAgentLink(id)
+	link, err := s.db(r).GetAgentLink(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	if err := s.st.DeleteAgentLink(id); err != nil {
+	if err := s.db(r).DeleteAgentLink(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "agent-link.delete", link.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "agent-link.delete", link.Name, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -209,7 +209,7 @@ func (s *Server) testAgentLink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	link, err := s.st.GetAgentLink(id)
+	link, err := s.db(r).GetAgentLink(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return

@@ -117,11 +117,12 @@ type Engine struct {
 	log   *slog.Logger
 	rl    *limiter
 
-	mu       sync.RWMutex
-	global   ruleSet
-	perProxy map[int64]ruleSet
-	profiles map[int64]model.Profile
-	settings Settings
+	mu         sync.RWMutex
+	global     ruleSet
+	perProxy   map[int64]ruleSet
+	profiles   map[int64]model.Profile
+	settings   Settings
+	siteByHost map[string]int64
 	// bundleRules supplies the installed signature packs whenever an engine
 	// is recompiled. It is a function so the manager can swap packs without
 	// the policy layer holding a reference to it.
@@ -224,6 +225,14 @@ func (e *Engine) Reload() error {
 	if err != nil {
 		return err
 	}
+	proxies, err := e.st.ListProxies()
+	if err != nil {
+		return err
+	}
+	siteByHost := make(map[string]int64, len(proxies))
+	for _, p := range proxies {
+		siteByHost[p.Hostname] = p.SiteID
+	}
 
 	accessProfiles, err := e.st.ListAccessProfiles()
 	if err != nil {
@@ -313,6 +322,7 @@ func (e *Engine) Reload() error {
 	e.accessProfiles = bundles
 	e.policiesByID = byID
 	e.lists = compiled
+	e.siteByHost = siteByHost
 	e.settings = parseSettings(kv)
 	e.mu.Unlock()
 	return nil
@@ -542,6 +552,14 @@ func (e *Engine) DecoyHost(host string) bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.settings.DecoyHosts[NormalizeHost(host)]
+}
+
+// siteFor maps a hostname to the site that owns it, so a ban raised while
+// serving that host is recorded on the site whose console will list it.
+func (e *Engine) siteFor(host string) int64 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.siteByHost[NormalizeHost(host)]
 }
 
 // CurrentSettings returns a copy of the cached settings.
@@ -833,8 +851,9 @@ func (e *Engine) screen(req *Request, live bool) model.Verdict {
 			if live {
 				rawPath := req.Path
 				addr := req.Addr.String()
+				site := e.siteFor(req.Host)
 				go func() {
-					_, _ = e.bans.Add(addr, "decoy path requested: "+rawPath, "decoy", "policy", 0)
+					_, _ = e.bans.AddFor(site, addr, "decoy path requested: "+rawPath, "decoy", "policy", 0)
 				}()
 			}
 			return model.Verdict{Action: "ban", Stage: "decoy", Rule: decoy,
@@ -901,8 +920,9 @@ func (e *Engine) screen(req *Request, live bool) model.Verdict {
 		if allowed, strikeOut := e.rl.Allow(rateKey(req), dosRPS, dosBurst, e.now()); !allowed {
 			if strikeOut {
 				addr := req.Addr.String()
+				site := e.siteFor(req.Host)
 				go func() {
-					_, _ = e.bans.Add(addr, "request rate exceeded", "scan", "ratelimit", 60*time.Second)
+					_, _ = e.bans.AddFor(site, addr, "request rate exceeded", "scan", "ratelimit", 60*time.Second)
 				}()
 			}
 			return model.Verdict{Action: "block", Stage: "dos", Rule: "rate-limit",

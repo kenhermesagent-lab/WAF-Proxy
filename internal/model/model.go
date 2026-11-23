@@ -6,6 +6,7 @@ import "time"
 // Proxy is a hostname routed through the gateway.
 type Proxy struct {
 	ID                  int64  `json:"id"`
+	SiteID              int64  `json:"site_id,omitempty"`
 	Hostname            string `json:"hostname"`
 	Enabled             bool   `json:"enabled"`
 	CertID              *int64 `json:"cert_id,omitempty"`

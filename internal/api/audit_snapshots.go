@@ -43,55 +43,55 @@ type proxySnapshot struct {
 	Routes    []model.Route    `json:"routes"`
 }
 
-func (s *Server) snapshotProxy(id int64) []byte {
-	p, err := s.st.GetProxy(id)
+func (s *Server) snapshotProxy(r *http.Request, id int64) []byte {
+	p, err := s.db(r).GetProxy(id)
 	if err != nil {
 		return nil
 	}
 	snap := proxySnapshot{Proxy: *p, Upstreams: []model.Upstream{}, Routes: []model.Route{}}
-	if ups, err := s.st.ListUpstreams(id); err == nil {
+	if ups, err := s.db(r).ListUpstreams(id); err == nil {
 		snap.Upstreams = ups
 	}
-	if routes, err := s.st.ListRoutes(id); err == nil {
+	if routes, err := s.db(r).ListRoutes(id); err == nil {
 		snap.Routes = routes
 	}
 	return snapshotJSON(snap)
 }
 
-func (s *Server) snapshotPolicy(id int64) []byte {
-	p, err := s.st.GetPolicy(id)
+func (s *Server) snapshotPolicy(r *http.Request, id int64) []byte {
+	p, err := s.db(r).GetPolicy(id)
 	if err != nil {
 		return nil
 	}
 	return snapshotJSON(p)
 }
 
-func (s *Server) snapshotProfile(id int64) []byte {
-	p, err := s.st.GetProfile(id)
+func (s *Server) snapshotProfile(r *http.Request, id int64) []byte {
+	p, err := s.db(r).GetProfile(id)
 	if err != nil {
 		return nil
 	}
 	return snapshotJSON(p)
 }
 
-func (s *Server) snapshotProtectionProfile(id int64) []byte {
-	p, err := s.st.GetProtectionProfile(id)
+func (s *Server) snapshotProtectionProfile(r *http.Request, id int64) []byte {
+	p, err := s.db(r).GetProtectionProfile(id)
 	if err != nil {
 		return nil
 	}
 	return snapshotJSON(p)
 }
 
-func (s *Server) snapshotAccessProfile(id int64) []byte {
-	p, err := s.st.GetAccessProfile(id)
+func (s *Server) snapshotAccessProfile(r *http.Request, id int64) []byte {
+	p, err := s.db(r).GetAccessProfile(id)
 	if err != nil {
 		return nil
 	}
 	return snapshotJSON(p)
 }
 
-func (s *Server) snapshotAccessList(id int64) []byte {
-	l, err := s.st.GetAccessList(id)
+func (s *Server) snapshotAccessList(r *http.Request, id int64) []byte {
+	l, err := s.db(r).GetAccessList(id)
 	if err != nil {
 		return nil
 	}
@@ -100,12 +100,12 @@ func (s *Server) snapshotAccessList(id int64) []byte {
 
 // auditChange writes the audit entry for a mutation. When a before state was
 // captured the entry also stores the state around the change.
-func (s *Server) auditChange(user, action, detail, ip, entity string, id int64, before, after []byte) {
+func (s *Server) auditChange(r *http.Request, user, action, detail, ip, entity string, id int64, before, after []byte) {
 	if before == nil {
-		s.st.AddAudit(user, action, detail, ip)
+		s.db(r).AddAudit(user, action, detail, ip)
 		return
 	}
-	s.st.AddAuditSnapshot(user, action, detail, ip, model.AuditSnapshot{
+	s.db(r).AddAuditSnapshot(user, action, detail, ip, model.AuditSnapshot{
 		Entity: entity, EntityID: id, Before: string(before), After: string(after),
 	})
 }
@@ -117,7 +117,7 @@ func (s *Server) getAuditEntry(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	entry, err := s.st.GetAuditEntry(id)
+	entry, err := s.db(r).GetAuditEntry(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -126,7 +126,7 @@ func (s *Server) getAuditEntry(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	snap, err := s.st.GetAuditSnapshot(id)
+	snap, err := s.db(r).GetAuditSnapshot(id)
 	if errors.Is(err, store.ErrNotFound) {
 		snap = nil
 	} else if err != nil {
@@ -144,7 +144,7 @@ func (s *Server) rollbackAudit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	snap, err := s.st.GetAuditSnapshot(id)
+	snap, err := s.db(r).GetAuditSnapshot(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "this entry has no stored state")
 		return
@@ -172,7 +172,7 @@ func (s *Server) rollbackAudit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "your role does not allow this action")
 		return
 	}
-	if err := s.restoreSnapshot(snap); err != nil {
+	if err := s.restoreSnapshot(r, snap); err != nil {
 		if errors.Is(err, errEntityGone) {
 			writeError(w, http.StatusConflict, "the entity no longer exists")
 			return
@@ -181,13 +181,13 @@ func (s *Server) rollbackAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.reload(r.Context())
-	s.st.AddAudit(sess.Username, snap.Entity+".rollback",
+	s.db(r).AddAudit(sess.Username, snap.Entity+".rollback",
 		fmt.Sprintf("restored entry %d", id), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"restored": snap.Entity, "id": snap.EntityID})
 }
 
 // restoreSnapshot writes the recorded before state back over the entity.
-func (s *Server) restoreSnapshot(snap *model.AuditSnapshot) error {
+func (s *Server) restoreSnapshot(r *http.Request, snap *model.AuditSnapshot) error {
 	switch snap.Entity {
 	case "proxy":
 		var snapIn proxySnapshot
@@ -195,61 +195,61 @@ func (s *Server) restoreSnapshot(snap *model.AuditSnapshot) error {
 			return err
 		}
 		p := snapIn.Proxy
-		if _, err := s.st.GetProxy(p.ID); err != nil {
+		if _, err := s.db(r).GetProxy(p.ID); err != nil {
 			return errEntityGone
 		}
-		if err := s.st.UpdateProxy(&p); err != nil {
+		if err := s.db(r).UpdateProxy(&p); err != nil {
 			return err
 		}
-		if err := s.st.ReplaceUpstreams(p.ID, snapIn.Upstreams); err != nil {
+		if err := s.db(r).ReplaceUpstreams(p.ID, snapIn.Upstreams); err != nil {
 			return err
 		}
-		return s.st.ReplaceRoutes(p.ID, snapIn.Routes)
+		return s.db(r).ReplaceRoutes(p.ID, snapIn.Routes)
 	case "policy":
 		var p model.Policy
 		if err := json.Unmarshal([]byte(snap.Before), &p); err != nil {
 			return err
 		}
-		if _, err := s.st.GetPolicy(p.ID); err != nil {
+		if _, err := s.db(r).GetPolicy(p.ID); err != nil {
 			return errEntityGone
 		}
-		return s.st.UpdatePolicy(&p)
+		return s.db(r).UpdatePolicy(&p)
 	case "profile":
 		var p model.Profile
 		if err := json.Unmarshal([]byte(snap.Before), &p); err != nil {
 			return err
 		}
-		if _, err := s.st.GetProfile(p.ID); err != nil {
+		if _, err := s.db(r).GetProfile(p.ID); err != nil {
 			return errEntityGone
 		}
-		return s.st.UpdateProfile(&p)
+		return s.db(r).UpdateProfile(&p)
 	case "protection_profile":
 		var p model.ProtectionProfile
 		if err := json.Unmarshal([]byte(snap.Before), &p); err != nil {
 			return err
 		}
-		if _, err := s.st.GetProtectionProfile(p.ID); err != nil {
+		if _, err := s.db(r).GetProtectionProfile(p.ID); err != nil {
 			return errEntityGone
 		}
-		return s.st.UpdateProtectionProfile(&p)
+		return s.db(r).UpdateProtectionProfile(&p)
 	case "access_profile":
 		var p model.AccessProfile
 		if err := json.Unmarshal([]byte(snap.Before), &p); err != nil {
 			return err
 		}
-		if _, err := s.st.GetAccessProfile(p.ID); err != nil {
+		if _, err := s.db(r).GetAccessProfile(p.ID); err != nil {
 			return errEntityGone
 		}
-		return s.st.UpdateAccessProfile(&p)
+		return s.db(r).UpdateAccessProfile(&p)
 	case "access_list":
 		var l model.AccessList
 		if err := json.Unmarshal([]byte(snap.Before), &l); err != nil {
 			return err
 		}
-		if _, err := s.st.GetAccessList(l.ID); err != nil {
+		if _, err := s.db(r).GetAccessList(l.ID); err != nil {
 			return errEntityGone
 		}
-		return s.st.UpdateAccessList(&l)
+		return s.db(r).UpdateAccessList(&l)
 	}
 	return errors.New("unknown entity")
 }

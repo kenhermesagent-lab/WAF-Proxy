@@ -106,3 +106,27 @@ func TestPromoteUnknownBan(t *testing.T) {
 		t.Fatalf("promote unknown ban = %v, want ErrNotFound", err)
 	}
 }
+
+func TestAddForRecordsTheBanOnTheObservingSite(t *testing.T) {
+	engine, st := newTestEngine(t)
+	site, err := st.CreateSite("bravo", "Bravo", "console.bravo.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.AddFor(site.ID, "198.51.100.0/24", "request rate exceeded", "ratelimit", "policy", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+
+	bravo := st.InSite(site.ID)
+	bans, err := bravo.ListBans(true)
+	if err != nil || len(bans) != 1 || bans[0].CIDR != "198.51.100.0/24" {
+		t.Fatalf("bravo bans = %+v (%v)", bans, err)
+	}
+	if def, err := st.ListBans(true); err != nil || len(def) != 0 {
+		t.Fatalf("the default site lists another site's ban: %+v (%v)", def, err)
+	}
+	// Records are per site; the address is still dropped for every site.
+	if _, banned := engine.Match(netip.MustParseAddr("198.51.100.5")); !banned {
+		t.Fatal("the kernel set does not hold the ban")
+	}
+}

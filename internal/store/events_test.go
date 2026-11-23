@@ -25,6 +25,10 @@ func TestIPSummariesAndExport(t *testing.T) {
 		{TS: now.Add(-time.Minute), SrcIP: "198.51.100.20", Country: "US", ASN: 456, Host: "app.example.com",
 			Method: "POST", Path: "/login", Status: 200, Action: "allow", Stage: "route", BytesOut: 99},
 	}
+	pid := testProxy(t, st, "app.example.com")
+	for i := range events {
+		events[i].ProxyID = &pid
+	}
 	if err := st.InsertEvents(events); err != nil {
 		t.Fatal(err)
 	}
@@ -87,6 +91,10 @@ func TestEventTotals(t *testing.T) {
 		{TS: now.Add(-2 * time.Minute), SrcIP: "198.51.100.20", Host: "other.example.com", Action: "allow", Stage: "route"},
 		{TS: now.Add(-time.Minute), SrcIP: "198.51.100.20", Host: "app.example.com", Action: "block", Stage: "waf"},
 	}
+	pid := testProxy(t, st, "app.example.com")
+	for i := range events {
+		events[i].ProxyID = &pid
+	}
 	if err := st.InsertEvents(events); err != nil {
 		t.Fatal(err)
 	}
@@ -115,4 +123,15 @@ func TestEventTotals(t *testing.T) {
 	if empty != (EventTotals{}) {
 		t.Fatalf("unmatched totals = %+v, want zero", empty)
 	}
+}
+
+// testProxy registers the hostname the event fixtures belong to. Events are
+// scoped through their proxy, so a fixture without one is host-level noise.
+func testProxy(t *testing.T, st *Store, host string) int64 {
+	t.Helper()
+	id, err := st.CreateProxy(&model.Proxy{Hostname: host, Enabled: true, WAFMode: "inherit", Fingerprint: "strict"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }

@@ -149,12 +149,47 @@ capabilities).
   or the CLI.
 - Gate modes reset to `off` after a restore. Re-enable the mode and re-set the passphrase.
 
+## Sites
+
+One process serves several sites. Each row of configuration belongs to exactly one, and each
+site's console is reached at its own `console_host`:
+
+- `wafproxy sites list` shows the sites, their console hosts and their slug.
+- `wafproxy sites add --slug acme --name "Acme" --console-host console.acme.example
+  --admin ops --print-password` creates the site and its first administrator in one step.
+- `wafproxy sites rename`, `wafproxy sites remove --slug <slug> --yes` change or drop one.
+  `default` cannot be removed; it owns every row written before sites existed.
+- A console reached on a site's host reads and writes that site's rows only: proxies,
+  certificates, bans, policies, lists, feeds, gate accounts, administrators, admins'
+  sessions, events, analytics, audit trail and saved log views. A session issued by one
+  console does not authenticate on another.
+- Process-wide settings stay host-wide and are refused on any console but `default`:
+  `wan_ip`, `wan_port`, `wan_iface`, `lan_ip`, `lan_iface`, `gui_port`,
+  `admin_allow_cidrs`, `home_lat`, `home_lon`, `auto_update_enabled`, `auto_update_time`,
+  `geoip_auto_update`, `crowdsec_enabled`, `crowdsec_url`, `crowdsec_key` and the three
+  `tailscale_*` switches.
+- A kernel ban is host-wide even though the ban record belongs to the site that observed
+  it: the address is dropped for every site, and the console of the site that raised it is
+  the one that lists it. `wafproxy unban <ip>` removes it from the record and the kernel.
+- Events are retained per site from that site's own `retention_days`, so one site keeping
+  a month of history does not shorten another site's week.
+- A hostname belongs to one site. Restoring a backup whose hostname is already in use is
+  refused for that row and reported in `problems`.
+- Each console host needs its own certificate; the listener selects it by SNI, so two
+  consoles on one process each present the certificate issued for their hostname.
+- Switching sites means signing in at the other console's hostname. There is no shared
+  single sign-on, by design.
+
 ## Backup and restore
 
-- Settings → **Download JSON** exports settings, proxies, upstreams, routes, policies,
-  feeds and bans. It intentionally excludes secrets, DNS credentials, certificates/private
-  keys and password hashes; uploaded local blocklist files must be uploaded again.
-- Restore is additive: existing hostnames are skipped and reported in `problems`.
+- Settings → **Download JSON** exports one site's settings, proxies, upstreams, routes,
+  policies, feeds and bans, named `wafproxy-<slug>-backup.json`. It intentionally excludes
+  secrets, DNS credentials, certificates/private keys and password hashes; uploaded local
+  blocklist files must be uploaded again.
+- `wafproxy backup --site <slug>` writes the same document for one site;
+  `wafproxy backup --all` writes one encrypted file per site plus a `sites.json` manifest.
+- Restore is additive and writes only into the site whose console posted it: existing
+  hostnames are skipped and reported in `problems`.
 - After a restore: re-enter DNS credentials, re-issue certificates, reset gate secrets and
   passwords as needed. Gate modes are forced to `off`.
 - The export is plaintext. Store it accordingly; it contains internal addresses and policy.

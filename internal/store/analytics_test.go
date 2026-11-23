@@ -14,6 +14,11 @@ func TestAnalyticsRangeGroupsTrafficAndOutcomes(t *testing.T) {
 	}
 	defer st.Close()
 
+	// Analytics resolves host names through proxies, so the events' proxy ids
+	// have to exist.
+	testProxy(t, st, "app.example.com")
+	testProxy(t, st, "media.example.com")
+
 	now := time.Now().UTC().Truncate(time.Hour)
 	events := []model.Event{
 		{TS: now.Add(5 * time.Minute), ProxyID: int64Ptr(1), Host: "app.example.com", Country: "US", Method: "GET",

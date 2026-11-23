@@ -49,7 +49,7 @@ func validateProtectionProfile(p *model.ProtectionProfile) string {
 }
 
 func (s *Server) listProtectionProfiles(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListProtectionProfiles()
+	list, err := s.db(r).ListProtectionProfiles()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -75,7 +75,7 @@ func (s *Server) createProtectionProfile(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if err := s.st.CreateProtectionProfile(&in); err != nil {
+	if err := s.db(r).CreateProtectionProfile(&in); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			writeError(w, http.StatusConflict, "a profile with that name already exists")
 			return
@@ -85,7 +85,7 @@ func (s *Server) createProtectionProfile(w http.ResponseWriter, r *http.Request)
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "protection_profile.create", in.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "protection_profile.create", in.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, in)
 }
 
@@ -95,7 +95,7 @@ func (s *Server) updateProtectionProfile(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	p, err := s.st.GetProtectionProfile(id)
+	p, err := s.db(r).GetProtectionProfile(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -125,14 +125,14 @@ func (s *Server) updateProtectionProfile(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	before := s.snapshotProtectionProfile(p.ID)
-	if err := s.st.UpdateProtectionProfile(p); err != nil {
+	before := s.snapshotProtectionProfile(r, p.ID)
+	if err := s.db(r).UpdateProtectionProfile(p); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "protection_profile.update", p.Name, clientIP(r), "protection_profile", p.ID, before, s.snapshotProtectionProfile(p.ID))
+	s.auditChange(r, sess.Username, "protection_profile.update", p.Name, clientIP(r), "protection_profile", p.ID, before, s.snapshotProtectionProfile(r, p.ID))
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -142,7 +142,7 @@ func (s *Server) deleteProtectionProfile(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	p, err := s.st.GetProtectionProfile(id)
+	p, err := s.db(r).GetProtectionProfile(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -155,7 +155,7 @@ func (s *Server) deleteProtectionProfile(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusConflict, "built-in profiles cannot be deleted")
 		return
 	}
-	inUse, err := s.st.ProtectionProfileInUse(id)
+	inUse, err := s.db(r).ProtectionProfileInUse(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -164,14 +164,14 @@ func (s *Server) deleteProtectionProfile(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusConflict, inUseMessage(p.Name, inUse))
 		return
 	}
-	before := s.snapshotProtectionProfile(id)
-	if err := s.st.DeleteProtectionProfile(id); err != nil {
+	before := s.snapshotProtectionProfile(r, id)
+	if err := s.db(r).DeleteProtectionProfile(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete profile")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "protection_profile.delete", p.Name, clientIP(r), "protection_profile", id, before, nil)
+	s.auditChange(r, sess.Username, "protection_profile.delete", p.Name, clientIP(r), "protection_profile", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -184,7 +184,7 @@ func inUseMessage(name string, n int) string {
 }
 
 func (s *Server) listAccessProfiles(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListAccessProfiles()
+	list, err := s.db(r).ListAccessProfiles()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -203,11 +203,11 @@ func (s *Server) createAccessProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "a profile name of 1–64 characters is required")
 		return
 	}
-	if msg := s.validateAccessProfile(&in); msg != "" {
+	if msg := s.validateAccessProfile(r, &in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if err := s.st.CreateAccessProfile(&in); err != nil {
+	if err := s.db(r).CreateAccessProfile(&in); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			writeError(w, http.StatusConflict, "a profile with that name already exists")
 			return
@@ -217,7 +217,7 @@ func (s *Server) createAccessProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "access_profile.create", in.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "access_profile.create", in.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, in)
 }
 
@@ -227,7 +227,7 @@ func (s *Server) updateAccessProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	current, err := s.st.GetAccessProfile(id)
+	current, err := s.db(r).GetAccessProfile(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -241,7 +241,7 @@ func (s *Server) updateAccessProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if msg := s.validateAccessProfile(&in); msg != "" {
+	if msg := s.validateAccessProfile(r, &in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -249,14 +249,14 @@ func (s *Server) updateAccessProfile(w http.ResponseWriter, r *http.Request) {
 	current.ListIDs = in.ListIDs
 	current.WAFProfileID = in.WAFProfileID
 	current.ProtectionProfileID = in.ProtectionProfileID
-	before := s.snapshotAccessProfile(current.ID)
-	if err := s.st.UpdateAccessProfile(current); err != nil {
+	before := s.snapshotAccessProfile(r, current.ID)
+	if err := s.db(r).UpdateAccessProfile(current); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "access_profile.update", current.Name, clientIP(r), "access_profile", current.ID, before, s.snapshotAccessProfile(current.ID))
+	s.auditChange(r, sess.Username, "access_profile.update", current.Name, clientIP(r), "access_profile", current.ID, before, s.snapshotAccessProfile(r, current.ID))
 	writeJSON(w, http.StatusOK, current)
 }
 
@@ -266,7 +266,7 @@ func (s *Server) deleteAccessProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	current, err := s.st.GetAccessProfile(id)
+	current, err := s.db(r).GetAccessProfile(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -275,7 +275,7 @@ func (s *Server) deleteAccessProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	inUse, err := s.st.AccessProfileInUse(id)
+	inUse, err := s.db(r).AccessProfileInUse(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -284,20 +284,20 @@ func (s *Server) deleteAccessProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, inUseMessage(current.Name, inUse))
 		return
 	}
-	before := s.snapshotAccessProfile(id)
-	if err := s.st.DeleteAccessProfile(id); err != nil {
+	before := s.snapshotAccessProfile(r, id)
+	if err := s.db(r).DeleteAccessProfile(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete profile")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "access_profile.delete", current.Name, clientIP(r), "access_profile", id, before, nil)
+	s.auditChange(r, sess.Username, "access_profile.delete", current.Name, clientIP(r), "access_profile", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // validateAccessProfile rejects references that do not exist, so a profile
 // cannot silently point at a deleted list or protection profile.
-func (s *Server) validateAccessProfile(a *model.AccessProfile) string {
+func (s *Server) validateAccessProfile(r *http.Request, a *model.AccessProfile) string {
 	for _, r := range a.Rules {
 		switch r.Role {
 		case "", model.AccessRoleAllow, model.AccessRoleDeny, model.AccessRoleInherit:
@@ -306,32 +306,32 @@ func (s *Server) validateAccessProfile(a *model.AccessProfile) string {
 		}
 	}
 	ids := a.PolicyIDs()
-	if msg := s.validateAccessPolicies(ids); msg != "" {
+	if msg := s.validateAccessPolicies(r, ids); msg != "" {
 		return msg
 	}
 	for _, id := range a.ListIDs {
-		if _, err := s.st.GetAccessList(id); err != nil {
+		if _, err := s.db(r).GetAccessList(id); err != nil {
 			return "list " + strconv.FormatInt(id, 10) + " does not exist"
 		}
 	}
 	if a.WAFProfileID != nil {
-		if _, err := s.st.GetProfile(*a.WAFProfileID); err != nil {
+		if _, err := s.db(r).GetProfile(*a.WAFProfileID); err != nil {
 			return "the selected WAF profile does not exist"
 		}
 	}
 	if a.ProtectionProfileID != nil {
-		if _, err := s.st.GetProtectionProfile(*a.ProtectionProfileID); err != nil {
+		if _, err := s.db(r).GetProtectionProfile(*a.ProtectionProfileID); err != nil {
 			return "the selected protection profile does not exist"
 		}
 	}
 	return ""
 }
 
-func (s *Server) validateAccessPolicies(ids []int64) string {
+func (s *Server) validateAccessPolicies(r *http.Request, ids []int64) string {
 	if len(ids) == 0 {
 		return ""
 	}
-	existing, err := s.st.ListPolicies()
+	existing, err := s.db(r).ListPolicies()
 	if err != nil {
 		return "database error"
 	}

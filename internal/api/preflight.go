@@ -88,7 +88,7 @@ func (s *Server) preflightPolicy(w http.ResponseWriter, r *http.Request) {
 	if in.Scope == "proxy" && in.ProxyID != nil {
 		filter.ProxyID = in.ProxyID
 	}
-	events, _, err := s.st.QueryEvents(filter)
+	events, _, err := s.db(r).QueryEvents(filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return

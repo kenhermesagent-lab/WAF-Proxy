@@ -47,7 +47,7 @@ func (s *Server) simulate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "proxy_id is required")
 		return
 	}
-	proxies, err := s.st.ListProxies()
+	proxies, err := s.db(r).ListProxies()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -141,7 +141,7 @@ func (s *Server) simulate(w http.ResponseWriter, r *http.Request) {
 	res.Truncated = truncated
 
 	if res.Verdict.Action != "block" && res.Verdict.Action != "ban" {
-		routes, err := s.st.ListRoutes(site.ID)
+		routes, err := s.db(r).ListRoutes(site.ID)
 		if err == nil {
 			if route, routePath, ok := proxy.RouteFor(routes, u.Path); ok {
 				if route.Kind == model.RouteRedirect {
@@ -151,7 +151,7 @@ func (s *Server) simulate(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		ups, err := s.st.ListUpstreams(site.ID)
+		ups, err := s.db(r).ListUpstreams(site.ID)
 		if err == nil {
 			for _, up := range ups {
 				if up.Enabled && up.URL != "" {
