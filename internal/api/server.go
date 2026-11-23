@@ -1,6 +1,8 @@
 // Package api exposes the authenticated admin API.
 package api
 
+//go:generate go run ../../tools/openapi -src server.go -version-file ../../VERSION -out ../../docs/openapi.yaml
+
 import (
 	"context"
 	"crypto/subtle"
