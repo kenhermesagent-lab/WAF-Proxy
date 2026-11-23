@@ -150,7 +150,6 @@ export default function Activity({
   return (
     <div className="grid" style={{ gap: 14 }}>
       <PageHead
-        title="Activity"
         sub="Every administrator action, with what it changed. The newest 200 entries are shown."
         actions={<button className="small" onClick={load} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>}
       />

@@ -210,7 +210,6 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
   return (
     <div className="grid" style={{ gap: 14 }}>
       <PageHead
-        title="Proxies"
         sub="Hostnames served by this node, their upstreams, protection profile and access gate."
         actions={<button className="primary" onClick={openNew}><Icon name="plus" size={14} /> New proxy</button>}
       />

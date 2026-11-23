@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { confirmDialog, Badge, Card, Empty, errText, fmtAgo } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Info, errText, fmtAgo } from "../ui";
 import type { UpdatePackage, UpdatesSnapshot } from "../types";
 import AutoUpdateCard from "../components/AutoUpdateCard";
 
@@ -322,7 +322,8 @@ export default function UpdatesPage({
         )}
         {snap.app_update_error && (
           <p className="muted" style={{ fontSize: 12, borderLeft: "2px solid #8a6d1d", paddingLeft: 10 }}>
-            Repository check unavailable: {snap.app_update_error}. The installed version is still shown.
+            The latest version could not be checked, so the installed version is shown instead.{" "}
+            <Info label="Repository check detail">{snap.app_update_error}</Info>
           </p>
         )}
       </Card>

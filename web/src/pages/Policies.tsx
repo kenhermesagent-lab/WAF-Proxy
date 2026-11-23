@@ -496,10 +496,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <PageHead
-        title="Policies"
-        sub="Bans, WAF profiles and the lists applied before traffic reaches a proxy."
-      />
+      <PageHead sub="Bans, WAF profiles and the lists applied before traffic reaches a proxy." />
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div className="tabs" style={{ marginBottom: 0, borderBottom: 0 }}>
           <button className={`tab ${tab === "bans" ? "active" : ""}`} onClick={() => setTab("bans")}>Bans</button>
@@ -513,8 +510,12 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           <button className={`tab ${tab === "bots" ? "active" : ""}`} onClick={() => setTab("bots")}>Bot filter</button>
         </div>
         {kernel && (
-          <span className={`badge wrap ${kernel.active ? "ok" : "warn"}`} style={{ marginLeft: "auto", minWidth: 0 }}>
-            kernel: {kernel.active ? "nftables active" : kernel.reason || "unavailable"}
+          <span
+            className={`badge wrap ${kernel.active ? "ok" : "warn"}`}
+            style={{ marginLeft: "auto", minWidth: 0 }}
+            title={kernel.active ? undefined : kernel.reason}
+          >
+            {kernel.active ? "Kernel bans active" : "Kernel bans off"}
           </span>
         )}
       </div>

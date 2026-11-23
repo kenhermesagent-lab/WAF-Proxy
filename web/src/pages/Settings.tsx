@@ -204,7 +204,7 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
       </nav>
 
       <div className="settings-sections">
-        <PageHead title="Settings" sub="Node networking, protection defaults, retention and administrator controls." />
+        <PageHead sub="Node networking, protection defaults, retention and administrator controls." />
 
         <section id="network" className="settings-section card">
           <div className="section-head">
@@ -424,19 +424,22 @@ export default function SettingsPage({ onError, onOK }: { onError: (m: string) =
           </p>
         </section>
 
-        <div className="save-bar">
-          <span className="dirty">
-            {dirty > 0 ? <><b>{dirty} unsaved change{dirty === 1 ? "" : "s"}</b> · changes apply after saving</> : "All changes saved"}
-          </span>
-          <span className="actions">
-            <button disabled={dirty === 0 || saving} onClick={() => { setS({ ...saved }); onOK("Unsaved changes discarded"); }}>
-              Discard
-            </button>
-            <button className="primary" onClick={save} disabled={saving || dirty === 0}>
-              {saving ? "Saving…" : "Save settings"}
-            </button>
-          </span>
-        </div>
+        {/* Only present while something is unsaved, so it never hovers over fields. */}
+        {(dirty > 0 || saving) && (
+          <div className="save-bar">
+            <span className="dirty">
+              <b>{dirty} unsaved change{dirty === 1 ? "" : "s"}</b> · changes apply after saving
+            </span>
+            <span className="actions">
+              <button disabled={saving} onClick={() => { setS({ ...saved }); onOK("Unsaved changes discarded"); }}>
+                Discard
+              </button>
+              <button className="primary" onClick={save} disabled={saving}>
+                {saving ? "Saving…" : "Save settings"}
+              </button>
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

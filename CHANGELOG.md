@@ -11,6 +11,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.21] — 2026-11-23
+
+### Fixed
+
+- **Each page heading is printed once.** The top bar already names the page, so Access gate,
+  Activity, Proxies, Policies, Readiness, Settings and Statistics no longer repeat that name as a
+  second heading, and Certificates no longer repeats it in its card title. Dashboard and
+  Statistics also drop their alternate titles ("Operations overview", "Traffic analytics").
+- **The Settings save bar appears only while something is unsaved**, so it no longer sits over the
+  form's fields while browsing.
+- **The Dashboard throughput card shows an empty state** instead of an axis of repeated "1 B/s"
+  labels until a proxy actually moves traffic.
+- **Kernel and repository failures read in plain language.** Policies shows "Kernel bans off" with
+  the technical reason on hover, and Updates says the latest version could not be checked instead
+  of printing the raw error.
+
 ## [1.47.20] — 2026-11-23
 
 ### Changed

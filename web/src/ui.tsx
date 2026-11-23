@@ -2,13 +2,12 @@ import { ReactNode, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import Icon, { type IconName } from "./components/Icon";
 
-export function PageHead({ title, sub, actions }: { title: string; sub?: ReactNode; actions?: ReactNode }) {
+// The page name already sits in the top bar as the h1, so the page header only
+// carries the description and the page-level actions.
+export function PageHead({ sub, actions }: { sub?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="page-head">
-      <div>
-        <h2>{title}</h2>
-        {sub ? <p>{sub}</p> : null}
-      </div>
+      <div>{sub ? <p>{sub}</p> : null}</div>
       {actions ? <div className="actions">{actions}</div> : null}
     </div>
   );

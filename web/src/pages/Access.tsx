@@ -73,7 +73,6 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
   return (
     <div className="grid" style={{ gap: 14 }}>
       <PageHead
-        title="Access gate"
         sub="Accounts served by the proxy login page, before any request reaches a backend."
         actions={<button className="primary" onClick={() => setOpen(true)}><Icon name="plus" size={14} /> New account</button>}
       />

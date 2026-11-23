@@ -226,6 +226,7 @@ export default function Dashboard({
   }, [metrics]);
 
   const history = metrics?.history ?? [];
+  const hasTraffic = history.some((h) => h.proxy_rx > 0 || h.proxy_tx > 0);
   const chartLabels = history.map((h, i) => historyLabel(h.ts, i, history.length));
 
   const proxyRows = useMemo(() => {
@@ -344,7 +345,6 @@ export default function Dashboard({
     <div className="grid" style={{ gap: 14 }}>
       <div className="page-head">
         <div>
-          <h2>Operations overview</h2>
           <p>Live traffic, blocked requests and upstream health across every proxy on this node.</p>
         </div>
         <div className="actions">
@@ -487,6 +487,10 @@ export default function Dashboard({
       >
         {!metrics ? (
           <Skeleton kind="block" />
+        ) : !hasTraffic ? (
+          <Empty title="No proxy traffic yet" icon="chart">
+            Rates appear here once a proxy serves a request.
+          </Empty>
         ) : (
           <Chart
             series={[

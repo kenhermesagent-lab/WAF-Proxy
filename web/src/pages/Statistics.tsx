@@ -128,7 +128,6 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
   return (
     <div className="grid" style={{ gap: 14 }}>
       <PageHead
-        title="Traffic analytics"
         sub="Request outcomes, policy stages and backend uptime for the selected period."
       />
       <Card

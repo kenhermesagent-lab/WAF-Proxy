@@ -155,7 +155,6 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
   return (
     <div className="grid" style={{ gap: 14 }}>
       <PageHead
-        title="Readiness"
         sub="What a hardened install has that a working one may not. Every row links to the control that fixes it."
       />
 
