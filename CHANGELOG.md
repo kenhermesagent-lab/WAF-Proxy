@@ -12,7 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.48.9] — 2026-11-23
+## [1.49.1] — 2026-11-23
 
 ### Documentation
 
@@ -34,6 +34,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   recipe pages), and the screenshot item is marked delivered.
 - **`docs/openapi.yaml` regenerated** so the route reference and its `info.version` match the
   build again; `go run ./tools/openapi -check` passes.
+
+## [1.49.0] — 2026-11-23
+
+### Added
+
+- **Sites, the foundation for multi-domain hosting.** Every configurable row now carries a site,
+  and a `site_settings` overlay lets a site override its own behaviour while host-wide keys (bind
+  addresses, update schedule, CrowdSec, Tailscale) stay fixed for the process. An existing install
+  is adopted by a single `default` site whose console host is the `base_domain` it already
+  advertised, so nothing has to be reconfigured and no console behaviour changes. `wafproxy sites
+  list|add|rename|remove` manages sites, and a slug, console host or site row is validated and
+  unique before it is written.
 
 ## [1.48.8] — 2026-11-23
 
@@ -57,6 +69,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **SECURITY.md**: removed a duplicated "Reporting a vulnerability" heading, put the delivered
   fixes back in newest-first order, and replaced the claim that `govulncheck` runs in CI with
   what CI actually runs (`go vet`, the race suite, `npm audit --omit=dev`).
+
 ## [1.48.7] — 2026-11-23
 
 ### Fixed

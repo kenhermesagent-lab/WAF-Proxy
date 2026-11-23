@@ -100,6 +100,21 @@ CREATE TABLE IF NOT EXISTS schema_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS sites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  console_host TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_console ON sites(console_host) WHERE console_host <> '';
+CREATE TABLE IF NOT EXISTS site_settings (
+  site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY (site_id, key)
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -452,7 +467,7 @@ CREATE TABLE IF NOT EXISTS log_views (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "20"
+const schemaVersion = "21"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -470,7 +485,10 @@ func (s *Store) migrate() error {
 	if err := s.seedProtectionProfiles(); err != nil {
 		return err
 	}
-	return s.seedFeeds()
+	if err := s.seedFeeds(); err != nil {
+		return err
+	}
+	return s.migrateSites()
 }
 
 // migrateAddColumns adds columns introduced after the first release. The base
@@ -546,6 +564,33 @@ func (s *Store) migrateAddColumns() error {
 		{"certificates", "source", `ALTER TABLE certificates ADD COLUMN source TEXT NOT NULL DEFAULT 'acme'`},
 		// Per-site minimum TLS version; empty means 1.2.
 		{"proxies", "tls_min_version", `ALTER TABLE proxies ADD COLUMN tls_min_version TEXT NOT NULL DEFAULT ''`},
+		// Every configurable row belongs to a site. migrateSites runs after
+		// this pass and hands the rows written before sites existed to the
+		// default site, so 0 only survives for the shared builtin profiles.
+		{"users", "site_id", `ALTER TABLE users ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"sessions", "site_id", `ALTER TABLE sessions ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"profiles", "site_id", `ALTER TABLE profiles ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"certificates", "site_id", `ALTER TABLE certificates ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"dns_credentials", "site_id", `ALTER TABLE dns_credentials ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"auth_providers", "site_id", `ALTER TABLE auth_providers ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"proxies", "site_id", `ALTER TABLE proxies ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"protection_profiles", "site_id", `ALTER TABLE protection_profiles ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"access_profiles", "site_id", `ALTER TABLE access_profiles ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"access_lists", "site_id", `ALTER TABLE access_lists ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"policies", "site_id", `ALTER TABLE policies ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"bans", "site_id", `ALTER TABLE bans ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"feeds", "site_id", `ALTER TABLE feeds ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"alerts", "site_id", `ALTER TABLE alerts ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"audit", "site_id", `ALTER TABLE audit ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"gate_users", "site_id", `ALTER TABLE gate_users ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"agent_deliveries", "site_id", `ALTER TABLE agent_deliveries ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"agent_links", "site_id", `ALTER TABLE agent_links ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"anomaly_events", "site_id", `ALTER TABLE anomaly_events ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"gate_failures", "site_id", `ALTER TABLE gate_failures ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"gate_sessions", "site_id", `ALTER TABLE gate_sessions ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"username_bans", "site_id", `ALTER TABLE username_bans ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"mcp_tokens", "site_id", `ALTER TABLE mcp_tokens ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
+		{"log_views", "site_id", `ALTER TABLE log_views ADD COLUMN site_id INTEGER NOT NULL DEFAULT 0`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)
