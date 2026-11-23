@@ -11,7 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
-## [1.38.0] — 2026-11-22
+## [1.39.0] — 2026-11-23
+
+### Added
+
+- **`wafproxy backup`.** Writes the same configuration document the console exports,
+  encrypted with a passphrase (or `WAFPROXY_BACKUP_PASSPHRASE`), to
+  `<data>/backups/wafproxy-backup-<time>.json.enc` with `0600` permissions, and `--keep N`
+  prunes older backups so a nightly cron entry is one command.
+
+## [1.38.0] — 2026-11-23
 
 ### Added
 

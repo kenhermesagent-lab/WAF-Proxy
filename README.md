@@ -73,6 +73,13 @@ systemd service. Version 1.28.0.
   at rest, an optional admin source allowlist, and RBAC with Administrator, Operator, Read-only
   and Viewer roles plus custom roles.
 
+## Headless commands
+
+- `wafproxy setup --password …` creates the first administrator without a browser.
+- `wafproxy recover --password … --reset-totp` resets a locked-out account.
+- `wafproxy backup --keep 7` writes an encrypted backup and prunes older ones.
+- `wafproxy unban <ip|cidr>` removes a ban while the console is unreachable.
+
 ## How a request is handled
 
 ```

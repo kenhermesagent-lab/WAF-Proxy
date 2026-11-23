@@ -15,6 +15,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/urlguard"
 )
 
@@ -40,23 +41,27 @@ type backupFile struct {
 
 // backupDocument renders the same configuration export the download serves and
 // the scheduler writes, so a scheduled file restores exactly like a manual one.
-func (s *Server) backupDocument() ([]byte, error) {
-	kv, _ := s.st.Settings()
+func (s *Server) backupDocument() ([]byte, error) { return BuildBackupDocument(s.st) }
+
+// BuildBackupDocument renders the export the console, the scheduler and the
+// backup command all write, so every file restores the same way.
+func BuildBackupDocument(st *store.Store) ([]byte, error) {
+	kv, _ := st.Settings()
 	safe := map[string]string{}
 	for _, k := range publicSettingKeys {
 		safe[k] = kv[k]
 	}
-	list, _ := s.st.ListProxies()
+	list, _ := st.ListProxies()
 	proxies := make([]backupProxy, 0, len(list))
 	for _, p := range list {
 		bp := backupProxy{Proxy: p}
-		bp.Upstreams, _ = s.st.ListUpstreams(p.ID)
-		bp.Routes, _ = s.st.ListRoutes(p.ID)
+		bp.Upstreams, _ = st.ListUpstreams(p.ID)
+		bp.Routes, _ = st.ListRoutes(p.ID)
 		proxies = append(proxies, bp)
 	}
-	bans, _ := s.st.ListBans(true)
-	policies, _ := s.st.ListPolicies()
-	feeds, _ := s.st.ListFeeds()
+	bans, _ := st.ListBans(true)
+	policies, _ := st.ListPolicies()
+	feeds, _ := st.ListFeeds()
 
 	backup := backupFile{
 		Version: "1.0", ExportedAt: time.Now().UTC(), Settings: safe,
