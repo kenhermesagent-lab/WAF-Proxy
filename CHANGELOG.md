@@ -61,17 +61,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - `GET /api/audit/{id}` returns an entry with its stored state; `POST /api/audit/{id}/rollback`
   restores an edit after checking the entity's own write permission rather than the route's area.
 
-## [1.36.1] — 2026-11-23
-
-### Fixed
-
-- **Bot challenge on IPv6 sites.** The challenge cookie is signed over the site's host name, and the
-  port was stripped at the first colon, so a `Host` header such as `[2001:db8::1]:443` was reduced to
-  `[2001`. Every host name starting with those characters shared one binding, and a challenge solved
-  on one site was accepted by another from the same client network. The port is now split with the
-  standard host/port parser, and a regression test keeps two IPv6 sites apart.
-
-## [1.37.0] — 2026-11-22
+## [1.37.1] — 2026-11-23
 
 ### Added
 
@@ -91,6 +81,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 - Failed renewals now back off (30 minutes doubling to six hours, with jitter) instead of retrying
   every renewal tick.
+
+## [1.36.1] — 2026-11-23
+
+### Fixed
+
+- **Bot challenge on IPv6 sites.** The challenge cookie is signed over the site's host name, and the
+  port was stripped at the first colon, so a `Host` header such as `[2001:db8::1]:443` was reduced to
+  `[2001`. Every host name starting with those characters shared one binding, and a challenge solved
+  on one site was accepted by another from the same client network. The port is now split with the
+  standard host/port parser, and a regression test keeps two IPv6 sites apart.
 
 ## [1.36.0] — 2026-11-22
 
