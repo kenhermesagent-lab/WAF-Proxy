@@ -69,13 +69,17 @@ func requestOrigin(r *http.Request) string {
 	return scheme + "://" + r.Host
 }
 
-func (s *Server) emailConfigured() bool {
-	return s.notify != nil && s.notify.EmailConfigured()
+// emailConfigured reports whether the console answering this request can send
+// mail. Every site configures its own SMTP server, so it must ask that site's
+// notifier rather than the default one.
+func (s *Server) emailConfigured(r *http.Request) bool {
+	n := s.notifyFor(r)
+	return n != nil && n.EmailConfigured()
 }
 
 // forgotAvailable tells the signed-out login form whether to offer the link.
 func (s *Server) forgotAvailable(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"available": s.emailConfigured()})
+	writeJSON(w, http.StatusOK, map[string]bool{"available": s.emailConfigured(r)})
 }
 
 type forgotRequest struct {
@@ -91,7 +95,7 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "too many attempts")
 		return
 	}
-	if !s.emailConfigured() {
+	if !s.emailConfigured(r) {
 		writeError(w, http.StatusBadRequest, "email notifications are not configured")
 		return
 	}
@@ -107,7 +111,7 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 			link := requestOrigin(r) + "/#/reset-password?token=" + url.QueryEscape(token)
 			text := fmt.Sprintf("Someone asked to reset the WAF-Proxy console password for %q.\n\n"+
 				"This link expires in 30 minutes. If you did not ask for it, ignore this message; the password is unchanged.\n", user.Username)
-			if serr := s.notify.SendMailLink([]string{user.Email}, "Reset your WAF-Proxy console password", text, "Choose a new password", link); serr != nil {
+			if serr := s.notifyFor(r).SendMailLink([]string{user.Email}, "Reset your WAF-Proxy console password", text, "Choose a new password", link); serr != nil {
 				s.log.Warn("password reset email", "err", serr)
 			} else {
 				s.db(r).AddAudit(user.Username, "account.forgot", "reset email sent", ip)

@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,7 +25,7 @@ type inviteBody struct {
 // recipient. The account is created only when that link is opened, so the
 // administrator never has to hand over credentials.
 func (s *Server) inviteUser(w http.ResponseWriter, r *http.Request) {
-	if !s.emailConfigured() {
+	if !s.emailConfigured(r) {
 		writeError(w, http.StatusBadRequest, "email notifications are not configured; set up SMTP first")
 		return
 	}
@@ -65,7 +66,7 @@ func (s *Server) inviteUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot create the invitation")
 		return
 	}
-	link := requestOrigin(r) + "/#/invite?token=" + url.QueryEscape(token)
+	link := s.inviteOrigin(r) + "/#/invite?token=" + url.QueryEscape(token)
 	name := strings.TrimSpace(firstName + " " + lastName)
 	if name == "" {
 		name = email
@@ -74,7 +75,7 @@ func (s *Server) inviteUser(w http.ResponseWriter, r *http.Request) {
 		"You have been invited to administer the WAF-Proxy console.\n\n"+
 		"Open the link below within 7 days to choose a username and password and to enrol an authenticator:\n\n%s\n\n"+
 		"If you were not expecting this invitation, ignore the message; no account exists until the link is used.\n", name, link)
-	if err := s.notify.SendMailLink([]string{email}, "You have been invited to the WAF-Proxy console", text, "Create your account", link); err != nil {
+	if err := s.notifyFor(r).SendMailLink([]string{email}, "You have been invited to the WAF-Proxy console", text, "Create your account", link); err != nil {
 		_ = s.db(r).DeleteInvite(tokenDigest(token))
 		s.log.Warn("invitation email", "err", err)
 		writeError(w, http.StatusBadGateway, "the invitation could not be emailed: "+err.Error())
@@ -83,6 +84,30 @@ func (s *Server) inviteUser(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "user.invite", email, clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "invited", "email": email})
+}
+
+// inviteOrigin is the console origin of the site the invitation belongs to.
+// An administrator can invite into another site through the switcher, and the
+// account is created on that site's console, so the link must name that
+// console's host instead of the one the administrator happens to be using.
+// The port stays the one this request arrived on, because one listener serves
+// every site's console.
+func (s *Server) inviteOrigin(r *http.Request) string {
+	origin := requestOrigin(r)
+	site, err := s.st.SiteByID(s.db(r).SiteID())
+	if err != nil || site == nil || strings.TrimSpace(site.ConsoleHost) == "" {
+		return origin
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return origin
+	}
+	if port := u.Port(); port != "" {
+		u.Host = net.JoinHostPort(site.ConsoleHost, port)
+	} else {
+		u.Host = site.ConsoleHost
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 // inviteInfo lets the signed-out invite page greet the recipient before asking

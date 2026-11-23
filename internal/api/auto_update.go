@@ -2,9 +2,12 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
 type autoUpdateConfig struct {
@@ -41,12 +44,24 @@ func (s *Server) putAutoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the run time must be HH:MM")
 		return
 	}
-	if err := s.db(r).SetSetting("auto_update_enabled", map[bool]string{true: "1", false: "0"}[in.Enabled]); err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot save")
+	// Auto-update belongs to the process, so another site's console is refused
+	// with the same answer the settings form gives instead of a bare 500.
+	set := func(key, value string) bool {
+		err := s.db(r).SetSetting(key, value)
+		if err == nil {
+			return true
+		}
+		if errors.Is(err, store.ErrHostWideSetting) {
+			writeError(w, http.StatusForbidden, err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, "cannot save")
+		}
+		return false
+	}
+	if !set("auto_update_enabled", map[bool]string{true: "1", false: "0"}[in.Enabled]) {
 		return
 	}
-	if err := s.db(r).SetSetting("auto_update_time", in.Time); err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot save")
+	if !set("auto_update_time", in.Time) {
 		return
 	}
 	sess := sessionFrom(r)

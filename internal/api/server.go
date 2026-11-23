@@ -1044,6 +1044,12 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	for _, k := range publicSettingKeys {
 		out[k] = kv[k]
 	}
+	// The console can answer for another site through the switcher, so the form
+	// names the site this request is scoped to rather than the console's own.
+	if site, err := s.st.SiteByID(s.db(r).SiteID()); err == nil && site != nil {
+		out["site_slug"] = site.Slug
+		out["site_name"] = site.Name
+	}
 	// A readable status ("active" or the reason), never Go's map syntax: the
 	// GUI renders this straight into a badge.
 	if active, reason := s.bans.KernelStatus(); active {
@@ -1051,7 +1057,11 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	} else {
 		out["kernel"] = reason
 	}
-	out["geoip"] = fmt.Sprint(s.geo.Available())
+	if s.geo != nil {
+		out["geoip"] = fmt.Sprint(s.geo.Available())
+	} else {
+		out["geoip"] = "false"
+	}
 	// The settings form leaves the process-wide keys out of a non-default
 	// site's save instead of submitting them and earning a refusal.
 	out["host_wide_keys"] = strings.Join(store.HostSettingKeys(), ",")
@@ -1117,12 +1127,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			v = clean
 		case "bot_filter":
-			if v != "off" && v != "scrapers" && v != "all" {
+			// An empty value is not a mode: it is how a settings row that was
+			// never written reads back, and the engine already treats it as the
+			// safe default. Accepting it lets a fresh site save the form.
+			if v != "" && v != "off" && v != "scrapers" && v != "all" {
 				writeError(w, http.StatusBadRequest, "bot_filter must be off, scrapers or all")
 				return
 			}
 		case "normalization_mode":
-			if v != "off" && v != "flag" && v != "block" {
+			if v != "" && v != "off" && v != "flag" && v != "block" {
 				writeError(w, http.StatusBadRequest, "normalization_mode must be off, flag or block")
 				return
 			}

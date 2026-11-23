@@ -103,6 +103,53 @@ describe("Settings configuration transport", () => {
     expect(body.host_wide_keys).toBeUndefined();
   });
 
+  it("saves the site picked in the switcher, not the console's own site", async () => {
+    get.mockImplementation(async (path: string) => {
+      switch (path) {
+        case "/api/settings":
+          return {
+            site_slug: "tenant", site_name: "Tenant",
+            wan_ip: "192.168.1.2", max_body: "131072", retention_days: "17",
+            host_wide_keys: "wan_ip,max_body", kernel: "active", geoip: "false",
+          };
+        case "/api/backup/schedule":
+          return { config: backupConfig, status: {} };
+        case "/api/geoip":
+          return { available: false };
+        case "/api/crowdsec/status":
+          return { configured: false };
+        case "/api/audit":
+          return [];
+        case "/api/updates":
+          return { packages: [], updating: false, app_updating: false };
+        case "/api/certs":
+          return { certs: [] };
+        case "/api/notifications":
+          return { settings: {}, channels: {}, recent: [], event_kinds: [] };
+        default:
+          return {};
+      }
+    });
+    // The console itself is the default site's; only the request is scoped to
+    // the tenant, which is what the switcher does.
+    const me = { username: "admin", site: "default", site_name: "Default", permissions: [] } as unknown as Me;
+    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} me={me} />);
+
+    expect(await screen.findByText("Site: Tenant")).toBeTruthy();
+    const retention = (await screen.findByText(/Event retention/)).parentElement?.querySelector("input");
+    if (!retention) throw new Error("retention field not found");
+    fireEvent.change(retention, { target: { value: "21" } });
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    const body = put.mock.calls[0][1] as Record<string, string>;
+    expect(body.retention_days).toBe("21");
+    expect(body.wan_ip).toBeUndefined();
+    expect(body.max_body).toBeUndefined();
+    expect(body.site_slug).toBeUndefined();
+    expect(body.site_name).toBeUndefined();
+  });
+
   it("downloads both formats, encrypting them when a passphrase is set", async () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     URL.createObjectURL = vi.fn(() => "blob:file");

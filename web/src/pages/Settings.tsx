@@ -10,7 +10,7 @@ import Readiness from "./Readiness";
 
 type Settings = Record<string, string>;
 
-const RUNTIME_KEYS = new Set(["kernel", "geoip", "iface_available", "host_wide_keys"]);
+const RUNTIME_KEYS = new Set(["kernel", "geoip", "iface_available", "host_wide_keys", "site_slug", "site_name"]);
 function editable(s: Settings): Settings {
   const out: Settings = {};
   for (const [k, v] of Object.entries(s)) {
@@ -220,9 +220,12 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
   };
 
   // Network, updates and GeoIP bind the whole process, so their controls are
-  // host-wide. A non-default site's console can read them and is refused on
-  // save, so the form says so and turns them off instead of failing late.
-  const hostWide = !!me?.site && me.site !== "default";
+  // host-wide. The request's site is the one the form saves, which may differ
+  // from the console's own site when an administrator switched through the
+  // topbar, so the server names it with the settings rather than using me.site.
+  const siteSlug = s.site_slug || me?.site || "";
+  const siteName = s.site_name || me?.site_name || "default";
+  const hostWide = !!siteSlug && siteSlug !== "default";
   const hostWideNote = (
     <p className="faint small-text" style={{ marginTop: -2 }}>
       Host-wide setting: it belongs to the default site's console and is read-only here.
@@ -236,10 +239,10 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
     <PageHead
       sub={
         hostWide
-          ? `Settings for ${me?.site_name ?? "this site"}. Protection, retention and backup apply to this site. The inspected body cap and the host-wide sections are read-only here.`
+          ? `Settings for ${siteName}. Protection, retention and backup apply to this site. The inspected body cap and the host-wide sections are read-only here.`
           : "Node networking, protection defaults, retention, updates and the hardening checklist."
       }
-      actions={<Badge tone="info">Site: {me?.site_name ?? "default"}</Badge>}
+      actions={<Badge tone="info">Site: {siteName}</Badge>}
     />
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
@@ -309,7 +312,7 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
             <h2>Protection</h2>
             <p>
               {hostWide
-                ? `Rate limits and normalization apply to ${me?.site_name ?? "this site"}. The max inspected body is one process-wide buffer and is set on the default site's console.`
+                				? `Rate limits and normalization apply to ${siteName}. The max inspected body is one process-wide buffer and is set on the default site's console.`
                 : "Global defaults applied before per-proxy profiles. Rate limits and normalization are per site."}
             </p>
           </div>

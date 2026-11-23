@@ -1,7 +1,7 @@
 # WAF-Proxy roadmap: 1.30 → 1.34 (delivered)
 
 > **Status (2026-11-23):** this plan covered 1.30–1.34 and is kept as delivered history. The
-> current release is **1.57.0**; every shipped change is in [CHANGELOG.md](../CHANGELOG.md).
+> current release is **1.57.1**; every shipped change is in [CHANGELOG.md](../CHANGELOG.md).
 > The deferred list at the end is still accurate.
 
 Release numbers below are provisional: each phase shipped as the next minor version in

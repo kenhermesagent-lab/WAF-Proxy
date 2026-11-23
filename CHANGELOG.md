@@ -12,6 +12,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.57.1] — 2026-11-23
+
+### Fixed
+
+- **Invitations and password-reset mail use the console site's own SMTP server.** Both paths read
+  the default site's notification channels, so an invitation sent from a tenant console went out
+  through the default site's account, and was refused with "email notifications are not
+  configured" when only the tenant had SMTP. The request's site now supplies the channels and the
+  configuration check.
+- **An invitation created for another site links to that site's console.** The account is created
+  on the site the invitation belongs to, but the emailed link named the console the administrator
+  was browsing, so the recipient opened it on the wrong site and was told the invitation was
+  invalid or expired. The link now uses the target site's console host with the request's scheme
+  and port.
+- **A site's Settings page names and saves the site it is editing.** After switching sites in the
+  topbar the page still labelled itself with the console's own site and kept the host-wide network
+  and update controls enabled, so its save posted those keys and failed. The settings response now
+  carries the request's `site_slug` and `site_name`; the page shows that site, leaves the
+  host-wide keys out of its save and disables their controls. A tenant console writing auto-update
+  gets the same `403` as the other host-wide settings instead of a `500`.
+- **Unset bot filtering and normalization no longer block a Settings save.** A site with no rows
+  yet, and an install created by `wafproxy setup`, read those two settings back empty and the API
+  refused the whole form. Empty is accepted as "never set"; the engines already default it to off
+  and flag.
+
 ## [1.57.0] — 2026-11-23
 
 ### Added
