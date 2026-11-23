@@ -11,7 +11,7 @@ LDFLAGS := -s -w \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.BuildDate=$(BUILD_DATE) \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates.AppRepo=$(REPO)
 
-.PHONY: all ui build run test test-release vet fmt docker install clean verify-release sbom perf perf-gate perf-record
+.PHONY: all ui build run test test-release docs-check vet fmt docker install clean verify-release sbom perf perf-gate perf-record
 
 all: ui build
 
@@ -25,7 +25,10 @@ build:
 run: build
 	WAFPROXY_DATA_DIR=./data ./bin/wafproxy
 
-test:
+docs-check:
+	go run ./tools/openapi -check
+
+test: docs-check
 	go test ./...
 
 test-release:

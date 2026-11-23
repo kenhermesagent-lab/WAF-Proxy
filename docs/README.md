@@ -11,7 +11,8 @@
 
 **Operate**
 - [Operations runbook](OPERATIONS.md) — health, logs, backup, alerting, diagnostics, canary
-- [API reference](openapi.yaml) — generated from the routes the console serves
+- [API reference](openapi.yaml) — generated from the routes the console serves, with
+  request and response schemas for sites, bans, certificates, notifications and anomaly
 - [MCP gateway](MCP.md)
 - [Conformance](CONFORMANCE.md)
 - [Benchmarks](BENCHMARKS.md)
@@ -22,4 +23,5 @@
 
 The API reference is generated: run `go generate ./internal/api` after adding or
 changing a route, and commit both `internal/api/server.go` and
-`docs/openapi.yaml`.
+`docs/openapi.yaml`. `go test ./internal/openapi` fails when the committed file is
+stale, so drift is caught before it ships.

@@ -28,6 +28,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/canary"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crowdsec"
@@ -266,9 +267,6 @@ func recoverCLI(args []string) error {
 		if err := st.UpdateUserPassword(account.ID, hash); err != nil {
 			return err
 		}
-		if err := st.DeleteUserSessions(account.ID); err != nil {
-			return err
-		}
 		changed = append(changed, "password")
 	}
 	if *resetTOTP {
@@ -276,6 +274,10 @@ func recoverCLI(args []string) error {
 			return err
 		}
 		changed = append(changed, "TOTP")
+	}
+	// Either change is a credential reset, so a stolen session must not survive it.
+	if err := st.DeleteUserSessions(account.ID); err != nil {
+		return err
 	}
 	fmt.Printf("reset %s for %q; existing sessions were invalidated\n", strings.Join(changed, " and "), *user)
 	return nil
@@ -645,6 +647,9 @@ func run() error {
 	anomalyMon.SetSink(agentLinks.Publish)
 	apiServer.SetAnomaly(anomalyMon)
 	go anomalyMon.Start(ctx)
+	canaryMon := canary.NewMonitor(st, canary.Prober{}, notifier)
+	apiServer.SetCanary(canaryMon)
+	go canaryMon.Start(ctx)
 	apiServer.SetStreaming(streams)
 	apiServer.SetUpdates(updateManager)
 	apiServer.SetUptime(uptimeMon)
