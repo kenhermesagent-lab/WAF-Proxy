@@ -14,8 +14,14 @@ fi
 bad=0
 while IFS= read -r match; do
   line_no=${match%%:*}
+  # Docker has no trailing comments on an instruction: `FROM image # 3.21` is
+  # parsed as extra arguments and fails the build.
+  if [[ ${match#*:} == *"#"* ]]; then
+    echo "Dockerfile:${line_no}: a comment on the FROM line is extra arguments to Docker" >&2
+    bad=1
+    continue
+  fi
   base=${match#*:}
-  base=${base%%#*} # drop a trailing tag comment, such as "# 3.21"
   base=${base#*FROM}
   base=$(printf '%s' "${base%% AS *}" | xargs)
   base=${base%% as *}

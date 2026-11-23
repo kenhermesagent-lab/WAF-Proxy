@@ -45,5 +45,6 @@ expect_fail() {
 expect_fail "a bare tag" "FROM alpine:3.21"
 expect_fail "a tag with a truncated digest" "FROM alpine:3.21@sha256:bc214871"
 expect_fail "a digest on the wrong algorithm" "FROM alpine:3.21@sha512:${digest#sha256:}"
+expect_fail "a comment after FROM" "FROM alpine:3.21@${digest} # 3.21"
 
 echo "image pin check rejects tags and short digests"
