@@ -73,6 +73,9 @@ type Config struct {
 	// address belongs to whichever node is active, so the standby needs a
 	// management listener that never moves.
 	HAMgmtListen string
+	// HALinkListen serves pairing and, later, replication on the private link
+	// between the pair. Empty leaves the node able to run but not to pair.
+	HALinkListen string
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -104,6 +107,7 @@ func Load() (*Config, error) {
 		BundleIntervalSeconds: envInt("WAFPROXY_BUNDLE_INTERVAL", 3600),
 		HAEnabled:             envBoolOr("WAFPROXY_HA_ENABLE", false),
 		HAMgmtListen:          strings.TrimSpace(os.Getenv("WAFPROXY_HA_MGMT_LISTEN")),
+		HALinkListen:          strings.TrimSpace(os.Getenv("WAFPROXY_HA_LINK_LISTEN")),
 	}
 	if c.HAEnabled && c.HAMgmtListen == "" {
 		return nil, errors.New("WAFPROXY_HA_MGMT_LISTEN is required when WAFPROXY_HA_ENABLE=1")

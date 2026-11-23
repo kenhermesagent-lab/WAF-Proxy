@@ -871,6 +871,30 @@ func run() error {
 			cancel()
 		}
 	}
+	if cfg.HAEnabled {
+		ident, err := ha.LoadOrCreateIdentity(cfg.DataDir)
+		if err != nil {
+			return fmt.Errorf("ha identity: %w", err)
+		}
+		log.Info("ha identity ready", "node", ident.Node, "fingerprint", ha.Fingerprint(ident.Leaf))
+		if cfg.HALinkListen != "" {
+			join := ha.NewJoinServer(ident, cfg.DataDir, log)
+			ln, err := tls.Listen("tcp", cfg.HALinkListen, join.TLSConfig())
+			if err != nil {
+				log.Error("ha link listener failed", "addr", cfg.HALinkListen, "err", err)
+				cancel()
+			} else {
+				srv := &http.Server{Handler: join.Handler(), ReadHeaderTimeout: 10 * time.Second}
+				log.Info("ha link listening", "addr", cfg.HALinkListen)
+				go func() {
+					if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+						log.Error("ha link stopped", "err", err)
+						cancel()
+					}
+				}()
+			}
+		}
+	}
 	tailAdminUp := false
 	if tailAdminAddr != "" {
 		if msg := listenGUI(tailAdminAddr, api.TailscaleOnly(gui), false); msg != "" {

@@ -26,7 +26,12 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P1-04 readiness and health | landed | `internal/api` handler tests |
 | P1-05 read-only standby | landed | `internal/api/standby_test.go` |
 | P1-06 console banner | not started | |
-| P2-P8 | not started | |
+| P2-01 cluster identity | partial | self-signed key per node pinned by fingerprint, not a cluster CA; `internal/ha/identity_test.go` |
+| P2-02 pairing code | landed | 128-bit code, hash at rest, 10-minute single use: `internal/ha/pair.go` |
+| P2-03 join handshake | partial | pinned TLS, cluster secret shared, join attempt limit; master key not transferred: `internal/ha/link_test.go` |
+| P2-04 unpair and rekey | not started | |
+| P2-05 pairing CLI | partial | `ha pair` and `ha join`; no audit trail beyond log lines |
+| P3-P8 | not started | |
 
 Gaps inside the landed slice: the role gate wraps the loops started in `run()`, but the
 backup and auto-update managers start inside `internal/api` and still run on a standby until

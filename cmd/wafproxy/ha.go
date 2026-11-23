@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -16,26 +18,32 @@ import (
 // data plane uses, so it cannot disagree with what the node is doing.
 func haCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: wafproxy ha status [--json] [--watch]")
+		return errors.New("usage: wafproxy ha status|pair|join")
 	}
 	switch args[0] {
 	case "status":
 		return haStatusCLI(args[1:])
+	case "pair":
+		return haPairCLI(args[1:])
+	case "join":
+		return haJoinCLI(args[1:])
 	default:
-		return fmt.Errorf("unknown ha command %q (want status)", args[0])
+		return fmt.Errorf("unknown ha command %q (want status, pair or join)", args[0])
 	}
 }
 
 type haStatus struct {
-	Enabled   bool     `json:"enabled"`
-	Paired    bool     `json:"paired"`
-	Role      ha.Role  `json:"role"`
-	State     ha.State `json:"state"`
-	Epoch     int64    `json:"epoch"`
-	Peer      string   `json:"peer,omitempty"`
-	UpdatedAt string   `json:"updated_at,omitempty"`
-	Serving   bool     `json:"serving"`
-	DataDir   string   `json:"data_dir"`
+	Enabled         bool     `json:"enabled"`
+	Paired          bool     `json:"paired"`
+	ClusterID       string   `json:"cluster_id,omitempty"`
+	Role            ha.Role  `json:"role"`
+	State           ha.State `json:"state"`
+	Epoch           int64    `json:"epoch"`
+	Peer            string   `json:"peer,omitempty"`
+	PeerFingerprint string   `json:"peer_fingerprint,omitempty"`
+	UpdatedAt       string   `json:"updated_at,omitempty"`
+	Serving         bool     `json:"serving"`
+	DataDir         string   `json:"data_dir"`
 }
 
 // readHAStatus never fails closed to active: a damaged role file reports
@@ -45,8 +53,14 @@ func readHAStatus(enabled bool, dataDir string) haStatus {
 		return haStatus{Enabled: false, Role: ha.RoleStandalone, State: ha.StateStandalone, Serving: true, DataDir: dataDir}
 	}
 	node, _ := ha.Load(dataDir) // a damaged file already loads as standby
+	pair, _ := ha.LoadPair(dataDir)
 	st := haStatus{Enabled: enabled, Role: node.Role, Epoch: node.Epoch, Peer: node.Peer, UpdatedAt: node.UpdatedAt, DataDir: dataDir}
-	st.Paired = node.NodeID != "" && node.Peer != ""
+	if pair != nil {
+		st.Paired = true
+		st.ClusterID = pair.ClusterID
+		st.Peer = pair.PeerAddr
+		st.PeerFingerprint = pair.PeerFingerprint
+	}
 	st.State = stateForRole(node.Role)
 	st.Serving = !enabled || node.Active()
 	return st
@@ -70,10 +84,7 @@ func haStatusCLI(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	dir := os.Getenv("WAFPROXY_DATA_DIR")
-	if strings.TrimSpace(dir) == "" {
-		dir = "./data"
-	}
+	dir := dataDir()
 	enabled := envFlag("WAFPROXY_HA_ENABLE")
 	print := func() {
 		st := readHAStatus(enabled, dir)
@@ -84,7 +95,7 @@ func haStatusCLI(args []string) error {
 		}
 		pair := "not paired"
 		if st.Paired {
-			pair = "peer " + st.Peer
+			pair = fmt.Sprintf("cluster %s peer %s", st.ClusterID, st.Peer)
 		}
 		fmt.Printf("role=%s state=%s serving=%v epoch=%d %s ha=%v\n", st.Role, st.State, st.Serving, st.Epoch, pair, st.Enabled)
 	}
@@ -96,6 +107,70 @@ func haStatusCLI(args []string) error {
 		time.Sleep(time.Second)
 		print()
 	}
+}
+
+// haPairCLI prepares the node that will stay active: it prints the fingerprint
+// the other node pins and a one-time code it must present.
+func haPairCLI(args []string) error {
+	fs := flag.NewFlagSet("ha pair", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	dir := dataDir()
+	id, err := ha.LoadOrCreateIdentity(dir)
+	if err != nil {
+		return err
+	}
+	code, err := ha.WritePairingCode(dir)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("fingerprint: %s\n", ha.Fingerprint(id.Leaf))
+	fmt.Printf("code:        %s\n", code)
+	fmt.Println("The code expires in 10 minutes and works once.")
+	link := strings.TrimSpace(os.Getenv("WAFPROXY_HA_LINK_LISTEN"))
+	if link == "" {
+		fmt.Println("No link address is configured; set WAFPROXY_HA_LINK_LISTEN and restart the service before joining.")
+		return nil
+	}
+	addr := link
+	if host, port, err := net.SplitHostPort(link); err == nil {
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			addr = "<this-node-ip>:" + port
+		}
+	}
+	fmt.Printf("On the other node run:\n  wafproxy ha join --active %s --fingerprint %s --code %s\n", addr, ha.Fingerprint(id.Leaf), code)
+	return nil
+}
+
+// haJoinCLI pairs this node with an active one. The active must be running with
+// its link listener up, or the connection is refused.
+func haJoinCLI(args []string) error {
+	fs := flag.NewFlagSet("ha join", flag.ContinueOnError)
+	active := fs.String("active", "", "active node link address (host:port)")
+	code := fs.String("code", "", "pairing code printed by the active node")
+	pin := fs.String("fingerprint", "", "active node fingerprint printed by `ha pair`")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *active == "" || *code == "" || *pin == "" {
+		return errors.New("ha join needs --active, --code and --fingerprint")
+	}
+	pair, err := ha.Join(context.Background(), dataDir(), *active, *pin, *code)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("paired: cluster %s peer %s\n", pair.ClusterID, pair.PeerAddr)
+	fmt.Println("Restart the service so the node picks up the pair.")
+	return nil
+}
+
+func dataDir() string {
+	dir := strings.TrimSpace(os.Getenv("WAFPROXY_DATA_DIR"))
+	if dir == "" {
+		dir = "./data"
+	}
+	return dir
 }
 
 func envFlag(name string) bool {

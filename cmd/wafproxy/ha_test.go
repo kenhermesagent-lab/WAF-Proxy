@@ -20,8 +20,15 @@ func TestReadHAStatusFailClosed(t *testing.T) {
 	if err := ha.Save(dir, node); err != nil {
 		t.Fatal(err)
 	}
+	pair, err := ha.NewPair("node-a", "10.0.0.11:9443", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ha.SavePair(dir, pair); err != nil {
+		t.Fatal(err)
+	}
 	st = readHAStatus(true, dir)
-	if !st.Serving || st.State != ha.StateActive || st.Epoch != 4 || !st.Paired {
+	if !st.Serving || st.State != ha.StateActive || st.Epoch != 4 || !st.Paired || st.ClusterID != pair.ClusterID {
 		t.Fatalf("active role = %+v", st)
 	}
 

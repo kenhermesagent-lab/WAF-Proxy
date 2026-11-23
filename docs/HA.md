@@ -277,78 +277,54 @@ Pairing establishes three things once: who the peer is, a shared trust root for 
 replication channel, and the same master key so both nodes decrypt the same secrets
 and accept the same session cookies.
 
-> The pairing code below is 16 base32 characters, about 80 bits. That is below the
-> 256-bit secret the earlier draft claimed while still showing a short code. Settle
-> it one way: either show a 26-character code (128 bits) or state the 80-bit bound
-> and keep the 10-minute single-use window. Do not describe a 256-bit secret and
-> print an 80-bit code.
+> The pairing code is 26 base32 characters: 128 bits, single use, valid for ten
+> minutes. Only its SHA-256 hash is stored on disk.
 
 ### 5.1 On node A (the active)
 
-```bash
-# 1. Run the service normally. The node already serves the VIP.
-sudo systemctl status wafproxy
+Both nodes need `WAFPROXY_HA_ENABLE=1` and `WAFPROXY_HA_MGMT_LISTEN`. Pairing also
+needs `WAFPROXY_HA_LINK_LISTEN` (for example `10.0.0.10:9443`), which must be
+reachable only on the private network between the two nodes.
 
-# 2. Create the pair and print the one-time code.
-sudo wafproxy ha init \
-  --peer 10.0.0.11 \
-  --ha-listen 10.0.0.10:9443 \
-  --mgmt 10.0.0.10 \
-  --vip 203.0.113.10 \
-  --iface eth1
+```bash
+sudo systemctl restart wafproxy   # after setting the variables
+sudo wafproxy ha pair
 ```
 
 Expected output:
 
 ```
-Cluster 5f0c2a7e9b1d4a63 created on node b7c1e0f2a4d94c8f
-HA listener 10.0.0.10:9443 (cluster CA written to data/ha/)
-Pairing code:  WAF-7K3M-9Q2X-4B8N-6T1R
-Fingerprint:   SHA256:3f9c...c21a
-Expires:       10:42 UTC, single use
-Keep this code out of shell history: it transfers the master key.
+fingerprint: 3f9c...c21a
+code:        WAF-7K3M-9Q2X-4B8N-6T1R-A1B2-C3D4
+On the other node run:
+  wafproxy ha join --active 10.0.0.10:9443 --fingerprint 3f9c...c21a --code WAF-...
 ```
 
-`ha init` writes `data/ha/node.json` (`role: active`, `epoch: 1`), generates the
-cluster CA and this node's certificate, and stores only a hash of the pairing
-secret, with a 10-minute expiry. Restart WAF-Proxy after `init` so the HA listener
-and the local control socket exist.
+`ha pair` creates `data/ha/node.json` (standby on first use) and a self-signed
+`data/ha/tls.{crt,key}`, prints the public-key fingerprint an operator compares out
+of band, writes only the hash of the code to `data/ha/pairing.json` (mode `0600`,
+ten minutes, single use), and prints the exact join command. The daemon must be
+running for the join to succeed.
+
+Implemented scope: the pair shares a 256-bit cluster secret and each side pins the
+other's public key. The master key is **not** transferred in-band yet, so a standby
+that has to decrypt replicated secrets needs it provisioned out of band (P2-03 gap).
 
 ### 5.2 On node B (the standby)
 
 ```bash
-# 1. Install the same version. Do not run the setup wizard.
-# 2. Stop the service: the join writes the data directory and the role file.
-sudo systemctl stop wafproxy
-
-# 3. Join. This verifies the pinned fingerprint before sending anything.
 sudo wafproxy ha join \
   --active 10.0.0.10:9443 \
-  --code WAF-7K3M-9Q2X-4B8N-6T1R \
-  --mgmt 10.0.0.11 \
-  --ha-listen 10.0.0.11:9443 \
-  --iface eth1
-
-# 4. Start it and watch the first sync.
-sudo systemctl start wafproxy
+  --fingerprint 3f9c...c21a \
+  --code WAF-7K3M-9Q2X-4B8N-6T1R-A1B2-C3D4
+sudo systemctl restart wafproxy
 sudo wafproxy ha status --watch
 ```
 
-Expected output of `join`:
-
-```
-Pinned 10.0.0.10 fingerprint 3f9c...c21a
-Cluster 5f0c2a7e9b1d4a63, peer node b7c1e0f2a4d94c8f
-Master key received (envelope verified); node certificate issued
-Initial snapshot 184 applied, hash 9d21... verified
-Role: standby. No data-plane listeners are bound.
-```
-
-The master-key envelope is the one step that merits care: it is encrypted under
-`HKDF(pairing secret, handshake transcript)` inside the mutual-TLS channel, so a
-TLS-terminating middlebox on the HA link still cannot read it. An operator who
-prefers not to move the key at all can copy `data/master.key` (mode `0600`) to node
-B out of band and pass `--master-key-file`; the rest of the handshake is unchanged.
+The join verifies the pinned fingerprint before it sends anything; a wrong pin,
+a wrong or expired code, or a missing link listener exits non-zero and leaves no
+pair record. On success both nodes store `data/ha/pair.json` (mode `0600`) with the
+same cluster id and secret. Restart the service so it reads the new pair.
 
 ### 5.3 Verify the pair
 
@@ -356,8 +332,8 @@ B out of band and pass `--master-key-file`; the rest of the handshake is unchang
 # On either node: role, peer, epoch, versions, lag.
 sudo wafproxy ha status
 
-# From the console address of node B.
-curl -fsS http://10.0.0.11:8080/api/ha
+# The HA API route and console page are not implemented yet (P7); use
+# `wafproxy ha status --json` on the node itself.
 
 # Readiness must say standby, not ready to serve traffic.
 curl -s -o /dev/null -w '%{http_code}\n' 'http://10.0.0.11:8080/api/health?ready=1'   # 503
