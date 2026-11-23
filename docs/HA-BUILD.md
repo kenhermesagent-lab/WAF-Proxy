@@ -52,7 +52,8 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P6-04 automatic gate | landed, lab pending | `internal/ha/auto.go`; heartbeat + witness + fence evidence, the automatic sequence skips a dead peer and renews the lease before Serve; `WAFPROXY_HA_AUTO_FAILOVER` requires both witness and fence |
 | P6-05 higher-epoch demotion | landed, lab pending | a heartbeat with a higher epoch makes the active stop serving into `split-brain-risk`; it follows the peer again only after `Reconcile` adopts the peer's epoch |
 | P6-06 guards and flap control | landed | `internal/ha/flap.go`; the fourth automatic move in an hour parks the node with a reason `ha status` shows, and only a manual move clears it |
-| P6-07 partition simulator | not started | |
+| P6-07 partition simulator | landed | `internal/ha/sim_test.go`: the partition matrix plus 200 randomized partitions on a fake clock; every tick asserts at most one live active and every promotion carried an unexpired lease for its own epoch |
+| P7-01 HA API | landed | `internal/api/ha.go`: `GET /api/ha`, `GET /api/ha/events`, `GET /api/ha/diagnostics`, `PUT /api/ha/config`, `POST /api/ha/{pair,join,sync,failover,failback,unpair,notify}`; `ha.read`/`ha.write`, fresh re-authentication, cluster id on failover and unpair, 409 while disabled; the events list is process-local |
 
 **Replication boundary.** Configuration still travels as a whole snapshot, once
 immediately after pairing and every 30 s after that (P3-04's debounce replaces the
@@ -654,8 +655,11 @@ drain and renews the lease once more before Serve. It is enabled only by
 command. P6-05 and P6-06 are built too: the watcher runs on both roles, an active that
 hears a higher epoch stands down into `split-brain-risk` and reconciles only when the
 peer answers again, and more than three automatic moves in an hour parks the pair with
-the reason in `ha status`. The partition simulator (P6-07) is not built; the two-VM
-partition and fencing run is still the gate.
+the reason in `ha status`. P6-07 is built: `internal/ha/sim_test.go` runs the link,
+process, witness, fence, disk and skew failures through the real state machine, heartbeat,
+witness and flap guard on a fake clock, including a 200-partition random run, and asserts
+that no tick leaves two live actives and no promotion runs on an expired or foreign lease.
+The two-VM partition and fencing run is still the gate.
 
 ### P6-01 Heartbeat — M, 2 days
 
@@ -728,7 +732,14 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 
 **Entry:** P5 merged. **Exit:** P7 gate.
 
-### P7-01 HA API — M, 3 days
+### P7-01 HA API — M, 3 days — built
+
+- Built: `internal/api/ha.go`, `cmd/wafproxy/ha_control.go`. The console uses the same move
+  manager, role files and join functions as the CLI. `ha.read` reads, `ha.write` mutates; every
+  mutation re-checks the signed-in user's password and, when enrolled, a live authenticator
+  code; failover and unpair require the cluster id; a disabled host answers 409 on mutations
+  and still answers `GET /api/ha` so the page can explain itself. `GET /api/ha/events` is the
+  last 20 console actions in this process, not a durable transitions table.
 
 - Files: `internal/api/ha.go`, `internal/api/server.go` (`routes` 194), `internal/api/rbac.go`.
 - Change: `GET /api/ha`, `GET /api/ha/events`, `GET /api/ha/diagnostics`, `PUT /api/ha/config`,

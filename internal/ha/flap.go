@@ -48,6 +48,24 @@ func (g *FlapGuard) Check() error {
 	return nil
 }
 
+// Maximum reports the current budget.
+func (g *FlapGuard) Maximum() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.Max
+}
+
+// SetMax changes the budget live, for the console's config route.
+func (g *FlapGuard) SetMax(n int) error {
+	if n < 1 || n > 100 {
+		return fmt.Errorf("ha: the flap budget must be between 1 and 100")
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.Max = n
+	return nil
+}
+
 // Record notes a completed promotion.
 func (g *FlapGuard) Record() {
 	g.mu.Lock()

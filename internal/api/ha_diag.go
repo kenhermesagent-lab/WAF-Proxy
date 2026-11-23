@@ -9,10 +9,7 @@ import (
 // depth, its per-kind breakdown, and how far the peer has acknowledged. A single
 // kind with a growing depth is how a transaction bug in one write path shows up.
 func (s *Server) haDiagnostics(w http.ResponseWriter, r *http.Request) {
-	status := HAStatus{Enabled: s.cfg.HAEnabled, Role: "standalone", State: "standalone", Serving: true}
-	if s.haStatus != nil {
-		status = s.haStatus()
-	}
+	status := s.haStatusOf()
 	body := map[string]any{
 		"enabled": status.Enabled,
 		"role":    status.Role,

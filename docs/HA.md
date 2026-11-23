@@ -14,9 +14,11 @@
 > parks the pair until an operator moves by hand. Automatic failover is opt-in
 > through `WAFPROXY_HA_AUTO_FAILOVER`, which refuses to start without a witness
 > and a fence command. Everything is gated by `WAFPROXY_HA_ENABLE` (off by
-> default), so a single-node install behaves as it did before. The console page
-> (P7), the partition simulator (P6-07) and the two-VM lab gates are not built;
-> sections that describe them state the intended end state. `docs/HA-BUILD.md`
+> default), so a single-node install behaves as it did before. The partition
+> simulator (P6-07) and the guarded HA API (P7-01, including `GET /api/ha`) are
+> built; the console page and its Settings toggle (P7-02 to P7-06) and the two-VM
+> lab gates are not, so sections that describe them state the intended end state.
+> `docs/HA-BUILD.md`
 > carries the per-task status and the known gaps.
 >
 > The document is written so an operator can read the runbooks as the intended

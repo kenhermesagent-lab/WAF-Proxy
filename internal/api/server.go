@@ -98,6 +98,11 @@ type Server struct {
 	// writes counts mutating console requests in flight, so a promotion
 	// preflight can refuse to start while an edit is still landing.
 	writes atomic.Int64
+	// haOps runs the HA mutations; nil means the routes answer 409. haMu and
+	// haLog keep the process-local action history the page shows.
+	haOps HAOps
+	haMu  sync.Mutex
+	haLog []HAEvent
 
 	// CrowdSec one-click install progress, polled by the CrowdSec page.
 	csMu      sync.Mutex
@@ -207,6 +212,10 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/canary", s.authed(s.runCanary))
 	m.HandleFunc("GET /api/health", s.health)
 	m.HandleFunc("GET /api/ha/diagnostics", s.authed(s.haDiagnostics))
+	m.HandleFunc("GET /api/ha", s.authed(s.haRoute))
+	m.HandleFunc("GET /api/ha/events", s.authed(s.haEventsRoute))
+	m.HandleFunc("PUT /api/ha/config", s.authed(s.haConfigRoute))
+	m.HandleFunc("POST /api/ha/{action}", s.authed(s.haAction))
 	m.HandleFunc("GET /api/version", s.versionInfo)
 	m.HandleFunc("GET /api/setup/status", s.setupStatus)
 	m.HandleFunc("POST /api/setup", s.setup)
@@ -679,12 +688,15 @@ func (s *Server) SetCanary(m *canary.Monitor) { s.canary = m }
 // transition is visible without a restart. Enabled is the boot master switch
 // combined with the stored setting; Serving is false on a standby.
 type HAStatus struct {
-	Enabled bool   `json:"enabled"`
-	Role    string `json:"role"`
-	State   string `json:"state"`
-	Serving bool   `json:"serving"`
-	Epoch   int64  `json:"epoch"`
-	Peer    string `json:"peer,omitempty"`
+	Enabled   bool   `json:"enabled"`
+	Paired    bool   `json:"paired"`
+	Role      string `json:"role"`
+	State     string `json:"state"`
+	Serving   bool   `json:"serving"`
+	Epoch     int64  `json:"epoch"`
+	Peer      string `json:"peer,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	ClusterID string `json:"cluster_id,omitempty"`
 	// PeerFingerprint keys the acknowledgement the peer sent for this node's
 	// stream.
 	PeerFingerprint string `json:"peer_fingerprint,omitempty"`

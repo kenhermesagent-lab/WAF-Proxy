@@ -828,15 +828,17 @@ func run() error {
 		n, _ := ha.Load(cfg.DataDir)
 		state := n.EffectiveState()
 		pair, _ := ha.LoadPair(cfg.DataDir)
-		fingerprint := ""
-		if pair != nil {
-			fingerprint = pair.PeerFingerprint
-		}
-		return api.HAStatus{
+		status := api.HAStatus{
 			Enabled: cfg.HAEnabled, Role: string(n.Role), State: string(state),
 			Serving: !cfg.HAEnabled || ha.Serving(state), Epoch: n.Epoch, Peer: n.Peer,
-			PeerFingerprint: fingerprint,
+			Reason: n.Reason,
 		}
+		if pair != nil {
+			status.Paired = true
+			status.ClusterID = pair.ClusterID
+			status.PeerFingerprint = pair.PeerFingerprint
+		}
+		return status
 	})
 	// A standby must not run backups or apply updates: those belong to the
 	// active, and they start again after a promotion.
@@ -1018,8 +1020,12 @@ func run() error {
 			root: ctx, dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
 			plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
 			ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand,
-			flap: ha.NewFlapGuard(cfg.HAMaxFailovers), log: log,
+			flap: ha.NewFlapGuard(flapBudget(st, cfg.HAMaxFailovers)), log: log,
 		}
+		// The manager exists before the control socket so the console routes
+		// can run a move too. serveControl reuses it.
+		rt.mgr = ha.NewManager(cfg.DataDir, rt.hooks())
+		apiServer.SetHAOps(haControl{rt: rt})
 		apiServer.SetWriteGate(haQuiesce.Active)
 		if !node.Active() {
 			// Follow the active's stream until a move makes this node the active.

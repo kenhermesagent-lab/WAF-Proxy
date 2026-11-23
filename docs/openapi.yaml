@@ -1665,6 +1665,34 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+  /api/ha:
+    get:
+      operationId: getApiHa
+      tags: [ha]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/ha/config:
+    put:
+      operationId: putApiHaConfig
+      tags: [ha]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/ha/diagnostics:
     get:
       operationId: getApiHaDiagnostics
@@ -1672,6 +1700,39 @@ paths:
       summary: Authed
       security:
         - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/ha/events:
+    get:
+      operationId: getApiHaEvents
+      tags: [ha]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/ha/{action}:
+    post:
+      operationId: postApiHaAction
+      tags: [ha]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: action
+          in: path
+          required: true
+          schema: {type: string}
       responses:
         "200":
           description: Success

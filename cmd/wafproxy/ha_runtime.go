@@ -74,7 +74,9 @@ func (p *peerWatch) get() (ha.PeerPing, bool) {
 // listens on the network: keepalived and `wafproxy ha` run on the node.
 func (h *haRuntime) serveControl(ctx context.Context) error {
 	path := ha.ControlSocketPath(h.dir)
-	h.mgr = ha.NewManager(h.dir, h.hooks())
+	if h.mgr == nil {
+		h.mgr = ha.NewManager(h.dir, h.hooks())
+	}
 	if _, err := ha.ServeControl(ctx, path, h.mgr, h.log); err != nil {
 		return err
 	}
