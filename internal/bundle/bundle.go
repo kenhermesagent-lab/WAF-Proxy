@@ -72,6 +72,10 @@ type Provider struct {
 	PublicKey string
 }
 
+// SettingsKey is the settings row the console writes provider edits to. When
+// it holds a list, that list replaces the one from the environment.
+const SettingsKey = "bundle_providers"
+
 // Config describes the channel. A provider without both a URL and a public
 // key leaves it disabled: the manager then serves whatever is already on disk.
 type Config struct {
@@ -86,29 +90,58 @@ type Config struct {
 // is [{"name":"vendor","url":"https://…/manifest.json","public_key":"…"}];
 // the legacy pair keeps working as the provider named "default".
 func ParseProviders(raw, legacyURL, legacyKey string) ([]Provider, error) {
-	var out []Provider
-	if raw = strings.TrimSpace(raw); raw != "" {
-		var entries []struct {
-			Name      string `json:"name"`
-			URL       string `json:"url"`
-			PublicKey string `json:"public_key"`
-		}
-		if err := json.Unmarshal([]byte(raw), &entries); err != nil {
-			return nil, fmt.Errorf("WAFPROXY_BUNDLE_PROVIDERS is not a JSON list: %w", err)
-		}
-		for _, e := range entries {
-			name, u, key := strings.TrimSpace(e.Name), strings.TrimSpace(e.URL), strings.TrimSpace(e.PublicKey)
-			if name == "" || u == "" || key == "" {
-				return nil, errors.New("WAFPROXY_BUNDLE_PROVIDERS: every provider needs a name, url and public_key")
-			}
-			out = append(out, Provider{Name: name, URL: u, PublicKey: key})
-		}
+	out, err := ParseProviderList(raw)
+	if err != nil {
+		return nil, err
 	}
 	legacyURL, legacyKey = strings.TrimSpace(legacyURL), strings.TrimSpace(legacyKey)
 	if legacyURL != "" || legacyKey != "" {
 		out = append(out, Provider{Name: "default", URL: legacyURL, PublicKey: legacyKey})
 	}
 	return out, nil
+}
+
+// ParseProviderList reads the JSON form the console stores, so an edit made in
+// the browser lands on the same validation as the environment variable.
+func ParseProviderList(raw string) ([]Provider, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var entries []struct {
+		Name      string `json:"name"`
+		URL       string `json:"url"`
+		PublicKey string `json:"public_key"`
+	}
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		return nil, fmt.Errorf("bundle providers are not a JSON list: %w", err)
+	}
+	out := make([]Provider, 0, len(entries))
+	for _, e := range entries {
+		name, u, key := strings.TrimSpace(e.Name), strings.TrimSpace(e.URL), strings.TrimSpace(e.PublicKey)
+		if name == "" || u == "" || key == "" {
+			return nil, errors.New("every bundle provider needs a name, url and public_key")
+		}
+		out = append(out, Provider{Name: name, URL: u, PublicKey: key})
+	}
+	return out, nil
+}
+
+// MarshalProviders renders the list for the settings row.
+func MarshalProviders(list []Provider) string {
+	type entry struct {
+		Name      string `json:"name"`
+		URL       string `json:"url"`
+		PublicKey string `json:"public_key"`
+	}
+	out := make([]entry, 0, len(list))
+	for _, p := range list {
+		out = append(out, entry{Name: p.Name, URL: p.URL, PublicKey: p.PublicKey})
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return "[]"
+	}
+	return string(raw)
 }
 
 // Status is the channel as the console shows it: one entry per provider and
@@ -130,7 +163,8 @@ type ProviderStatus struct {
 	Error      string     `json:"error,omitempty"`
 }
 
-// BundleStatus is one installed pack.
+// BundleStatus is one pack the console can switch on: an installed download
+// or a pack that ships in the binary.
 type BundleStatus struct {
 	Provider    string     `json:"provider,omitempty"`
 	Name        string     `json:"name"`
@@ -138,6 +172,9 @@ type BundleStatus struct {
 	Rules       int        `json:"rules"`
 	Size        int64      `json:"size"`
 	SHA256      string     `json:"sha256"`
+	Builtin     bool       `json:"builtin,omitempty"`
+	Description string     `json:"description,omitempty"`
+	Enabled     bool       `json:"enabled"`
 	InstalledAt *time.Time `json:"installed_at,omitempty"`
 }
 
@@ -172,6 +209,12 @@ type providerState struct {
 type state struct {
 	Providers map[string]*providerState `json:"providers"`
 	Bundles   []bundleState             `json:"bundles"`
+	// Disabled holds the downloaded packs an administrator switched off. Such
+	// a pack keeps its files and version; it just stops contributing rules.
+	Disabled []string `json:"disabled,omitempty"`
+	// CatalogEnabled holds the shipped packs switched on. They start off, so a
+	// new release cannot start logging new signatures without a decision.
+	CatalogEnabled []string `json:"catalog_enabled,omitempty"`
 	// Legacy single-channel fields. They are read once on Load and then
 	// cleared, so an install from before providers keeps its sequence.
 	Sequence  int64      `json:"sequence,omitempty"`
@@ -185,6 +228,7 @@ type provider struct {
 	name     string
 	url      string
 	pub      ed25519.PublicKey
+	pubText  string
 	keyID    string
 	st       providerState
 	checking atomic.Bool
@@ -202,6 +246,7 @@ type Manager struct {
 	log       *slog.Logger
 	client    *http.Client
 	now       func() time.Time
+	catalog   []waf.Bundle
 	providers []*provider
 
 	mu       sync.RWMutex
@@ -225,17 +270,43 @@ func New(cfg Config) (*Manager, error) {
 		now:      time.Now,
 		index:    map[int]RuleInfo{},
 	}
+	packs, err := catalogPacks()
+	if err != nil {
+		return nil, err
+	}
+	m.catalog = packs
 	if m.interval <= 0 {
 		m.interval = time.Hour
 	}
 	if m.interval < 5*time.Minute {
 		m.interval = 5 * time.Minute
 	}
+	providers, err := buildProviders(cfg.Providers)
+	if err != nil {
+		return nil, err
+	}
+	m.providers = providers
+	if m.dir != "" {
+		if err := os.MkdirAll(m.dir, 0o750); err != nil {
+			return nil, fmt.Errorf("create bundle dir: %w", err)
+		}
+	}
+	return m, nil
+}
+
+// buildProviders validates a provider list. Both startup and a console edit go
+// through it, so an invalid channel is refused before it can replace a working
+// one.
+func buildProviders(list []Provider) ([]*provider, error) {
+	out := make([]*provider, 0, len(list))
 	seen := map[string]bool{}
-	for _, in := range cfg.Providers {
+	for _, in := range list {
 		name := strings.TrimSpace(in.Name)
 		if name == "" || len(name) > 32 || !safeName(name) {
 			return nil, fmt.Errorf("bundle provider %q needs a 1–32 character name of letters, digits, dot, dash or underscore", in.Name)
+		}
+		if name == CatalogProvider {
+			return nil, fmt.Errorf("bundle provider name %q is reserved for the packs that ship with the release", name)
 		}
 		if seen[name] {
 			return nil, fmt.Errorf("bundle provider %q is listed twice", name)
@@ -248,6 +319,7 @@ func New(cfg Config) (*Manager, error) {
 				return nil, fmt.Errorf("bundle provider %s: %w", name, err)
 			}
 			p.pub = pub
+			p.pubText = raw
 			p.keyID = KeyID(pub)
 		}
 		if p.url != "" {
@@ -256,14 +328,9 @@ func New(cfg Config) (*Manager, error) {
 				return nil, fmt.Errorf("bundle provider %s: URL must be an absolute http or https URL", name)
 			}
 		}
-		m.providers = append(m.providers, p)
+		out = append(out, p)
 	}
-	if m.dir != "" {
-		if err := os.MkdirAll(m.dir, 0o750); err != nil {
-			return nil, fmt.Errorf("create bundle dir: %w", err)
-		}
-	}
-	return m, nil
+	return out, nil
 }
 
 // Enabled reports whether any provider can fetch. Without a signed URL and a
@@ -272,6 +339,8 @@ func (m *Manager) Enabled() bool {
 	if m == nil {
 		return false
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	for _, p := range m.providers {
 		if p.configured() {
 			return true
@@ -286,12 +355,138 @@ func (m *Manager) HasProvider(name string) bool {
 	if m == nil {
 		return false
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	for _, p := range m.providers {
 		if p.name == name {
 			return true
 		}
 	}
 	return false
+}
+
+// Providers returns the configured list in the form the settings row stores.
+func (m *Manager) Providers() []Provider {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]Provider, 0, len(m.providers))
+	for _, p := range m.providers {
+		out = append(out, Provider{Name: p.name, URL: p.url, PublicKey: p.pubText})
+	}
+	return out
+}
+
+// SetProviders replaces the channel list with one an administrator edited in
+// the console. Installed packs keep serving; only the refresh sources change.
+func (m *Manager) SetProviders(list []Provider) error {
+	if m == nil {
+		return errors.New("no bundle manager")
+	}
+	providers, err := buildProviders(list)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	for _, p := range providers {
+		if prev := m.st.Providers[p.name]; prev != nil {
+			p.st = *prev
+		}
+	}
+	m.providers = providers
+	err = m.saveLocked()
+	m.mu.Unlock()
+	return err
+}
+
+// SetEnabled switches one pack on or off. A disabled pack keeps its files and
+// version, so switching it back on needs no download.
+func (m *Manager) SetEnabled(name string, enabled bool) error {
+	if m == nil {
+		return errors.New("no bundle manager")
+	}
+	m.mu.Lock()
+	if !m.hasPackLocked(name) {
+		m.mu.Unlock()
+		return fmt.Errorf("unknown bundle %s", name)
+	}
+	if _, shipped := catalogEntry(name); shipped {
+		on := map[string]bool{}
+		for _, n := range m.st.CatalogEnabled {
+			on[n] = true
+		}
+		if enabled {
+			on[name] = true
+		} else {
+			delete(on, name)
+		}
+		m.st.CatalogEnabled = sortedNames(on)
+	} else {
+		off := map[string]bool{}
+		for _, n := range m.st.Disabled {
+			off[n] = true
+		}
+		if enabled {
+			delete(off, name)
+		} else {
+			off[name] = true
+		}
+		m.st.Disabled = sortedNames(off)
+	}
+	m.rebuildLocked()
+	fn := m.onChange
+	err := m.saveLocked()
+	m.mu.Unlock()
+	if err == nil && fn != nil {
+		fn()
+	}
+	return err
+}
+
+// sortedNames flattens a set into the slice the state file stores.
+func sortedNames(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for name, on := range set {
+		if on {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (m *Manager) hasPackLocked(name string) bool {
+	if _, ok := catalogEntry(name); ok {
+		return true
+	}
+	for _, b := range m.st.Bundles {
+		if b.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// packEnabled reports whether a pack contributes rules. A shipped pack is on
+// only when an administrator switched it on; a downloaded pack is on unless
+// they switched it off.
+func (m *Manager) packEnabledLocked(name string) bool {
+	if _, shipped := catalogEntry(name); shipped {
+		for _, n := range m.st.CatalogEnabled {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+	for _, n := range m.st.Disabled {
+		if n == name {
+			return false
+		}
+	}
+	return true
 }
 
 // OnChange registers the callback that recompiles the WAF engines. It is
@@ -372,14 +567,15 @@ func (m *Manager) migrateLocked() {
 }
 
 // Start refreshes once and then on the configured interval. A failure is
-// logged and retried next tick; the installed packs keep serving.
+// logged and retried next tick; the installed packs keep serving. The loop
+// keeps running without a provider so a channel added from the console is
+// picked up on the next tick.
 func (m *Manager) Start(ctx context.Context) {
-	if !m.Enabled() {
-		return
-	}
 	go func() {
-		if err := m.Check(ctx); err != nil {
-			m.log.Warn("bundle channel check failed", "err", err)
+		if m.Enabled() {
+			if err := m.Check(ctx); err != nil {
+				m.log.Warn("bundle channel check failed", "err", err)
+			}
 		}
 		t := time.NewTicker(m.interval)
 		defer t.Stop()
@@ -388,6 +584,9 @@ func (m *Manager) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
+				if !m.Enabled() {
+					continue
+				}
 				if err := m.Check(ctx); err != nil {
 					m.log.Warn("bundle channel check failed", "err", err)
 				}
@@ -403,8 +602,11 @@ func (m *Manager) Check(ctx context.Context) error {
 	if m == nil || !m.Enabled() {
 		return errors.New("no bundle channel is configured")
 	}
-	errs := make([]error, 0, len(m.providers))
-	for _, p := range m.providers {
+	m.mu.RLock()
+	providers := append([]*provider(nil), m.providers...)
+	m.mu.RUnlock()
+	errs := make([]error, 0, len(providers))
+	for _, p := range providers {
 		if !p.configured() {
 			continue
 		}
@@ -421,7 +623,10 @@ func (m *Manager) CheckProvider(ctx context.Context, name string) error {
 	if m == nil {
 		return errors.New("no bundle channel is configured")
 	}
-	for _, p := range m.providers {
+	m.mu.RLock()
+	providers := append([]*provider(nil), m.providers...)
+	m.mu.RUnlock()
+	for _, p := range providers {
 		if p.name != name {
 			continue
 		}
@@ -552,10 +757,19 @@ func (m *Manager) Status() Status {
 		at := b.InstalledAt
 		st.Bundles = append(st.Bundles, BundleStatus{
 			Provider: b.Provider, Name: b.Name, Version: b.Version, Rules: b.Rules, Size: b.Size,
-			SHA256: b.SHA256, InstalledAt: &at,
+			SHA256: b.SHA256, Enabled: m.packEnabledLocked(b.Name), InstalledAt: &at,
+		})
+	}
+	for _, c := range catalog {
+		st.Bundles = append(st.Bundles, BundleStatus{
+			Provider: CatalogProvider, Name: c.Name, Version: c.Version, Rules: len(c.Rules),
+			Builtin: true, Description: c.Description, Enabled: m.packEnabledLocked(c.Name),
 		})
 	}
 	sort.Slice(st.Bundles, func(i, j int) bool {
+		if st.Bundles[i].Builtin != st.Bundles[j].Builtin {
+			return !st.Bundles[i].Builtin
+		}
 		if st.Bundles[i].Provider != st.Bundles[j].Provider {
 			return st.Bundles[i].Provider < st.Bundles[j].Provider
 		}
@@ -696,6 +910,14 @@ func (m *Manager) install(ctx context.Context, p *provider, ref Ref) error {
 		return err
 	}
 
+	if _, taken := catalogEntry(ref.Name); taken {
+		return fmt.Errorf("bundle %s is reserved by the packs that ship with the release", ref.Name)
+	}
+	for _, r := range pack.Rules {
+		if _, taken := catalogRule(r.ID); taken {
+			return fmt.Errorf("rule %d is reserved by a pack that ships with the release", r.ID)
+		}
+	}
 	m.mu.Lock()
 	replaced := false
 	for i := range m.st.Bundles {
@@ -738,11 +960,14 @@ func (m *Manager) recordError(p *provider, err error) {
 // rebuildLocked recomputes the compiled view and the rule index. Callers hold
 // the write lock.
 func (m *Manager) rebuildLocked() {
-	packs := make([]waf.Bundle, 0, len(m.st.Bundles))
+	packs := make([]waf.Bundle, 0, len(m.st.Bundles)+len(m.catalog))
 	index := map[int]RuleInfo{}
 	states := append([]bundleState(nil), m.st.Bundles...)
 	sort.Slice(states, func(i, j int) bool { return states[i].Name < states[j].Name })
 	for _, b := range states {
+		if !m.packEnabledLocked(b.Name) {
+			continue
+		}
 		pack, err := m.readPack(b.Name, b.Version)
 		if err != nil {
 			m.log.Warn("installed bundle unreadable", "bundle", b.Name, "err", err)
@@ -751,6 +976,15 @@ func (m *Manager) rebuildLocked() {
 		packs = append(packs, waf.Bundle{Name: pack.Bundle, Version: pack.Version, Rules: pack.Rules})
 		for _, r := range pack.Rules {
 			index[r.ID] = RuleInfo{Provider: b.Provider, Bundle: pack.Bundle, Version: pack.Version, Message: r.Message}
+		}
+	}
+	for _, b := range m.catalog {
+		if !m.packEnabledLocked(b.Name) {
+			continue
+		}
+		packs = append(packs, b)
+		for _, r := range b.Rules {
+			index[r.ID] = RuleInfo{Provider: CatalogProvider, Bundle: b.Name, Version: b.Version, Message: r.Message}
 		}
 	}
 	m.packs = packs
@@ -790,9 +1024,9 @@ func (m *Manager) saveLocked() error {
 // syncProvidersLocked copies each provider's live state into the document
 // about to be written, so a save never drops a sequence.
 func (m *Manager) syncProvidersLocked() {
-	if m.st.Providers == nil {
-		m.st.Providers = map[string]*providerState{}
-	}
+	// A removed provider loses its sequence with it; keeping it would let a
+	// later provider with the same name inherit an unrelated sequence.
+	m.st.Providers = map[string]*providerState{}
 	for _, p := range m.providers {
 		ps := p.st
 		m.st.Providers[p.name] = &ps

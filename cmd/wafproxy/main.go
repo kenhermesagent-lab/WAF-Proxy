@@ -504,6 +504,14 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("bundle channel: %w", err)
 	}
+	// Providers saved from the console take over from the environment once an
+	// administrator edits the list there.
+	if raw, gerr := st.GetSetting(bundle.SettingsKey); gerr == nil && strings.TrimSpace(raw) != "" {
+		providers, err = bundle.ParseProviderList(raw)
+		if err != nil {
+			return fmt.Errorf("bundle providers saved in the console: %w", err)
+		}
+	}
 	bundles, err := bundle.New(bundle.Config{
 		Dir:       filepath.Join(cfg.DataDir, "bundles"),
 		Providers: providers,

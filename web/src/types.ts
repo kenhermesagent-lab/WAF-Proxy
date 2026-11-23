@@ -317,6 +317,11 @@ export interface BundleStatus {
   rules: number;
   size: number;
   sha256: string;
+  // A pack that ships in the binary rather than arriving from a signed
+  // channel; it is listed even before an administrator enables it.
+  builtin?: boolean;
+  description?: string;
+  enabled: boolean;
   installed_at?: string | null;
   modes: Record<string, number>;
 }

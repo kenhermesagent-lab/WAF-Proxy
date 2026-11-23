@@ -37,6 +37,9 @@ export default function Intel({
   const [bundleHits, setBundleHits] = useState<BundleHit[]>([]);
   // null is idle; "" checks every provider, a name checks only that one.
   const [checkingBundles, setCheckingBundles] = useState<string | null>(null);
+  const [providerForm, setProviderForm] = useState({ name: "", url: "", public_key: "" });
+  const [savingProvider, setSavingProvider] = useState(false);
+  const [togglingBundle, setTogglingBundle] = useState<string | null>(null);
 
   const load = () =>
     api
@@ -83,6 +86,45 @@ export default function Intel({
       onError(errText(e));
     } finally {
       setCheckingBundles(null);
+    }
+  };
+
+  const enableBundle = async (name: string, enabled: boolean) => {
+    setTogglingBundle(name);
+    try {
+      setBundles(await api.post<BundlesSnapshot>("/api/bundles/enable", { name, enabled }));
+      onOK(`${name} ${enabled ? "enabled" : "disabled"}`);
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setTogglingBundle(null);
+    }
+  };
+
+  // A provider saved here is stored in the database, so it survives a restart
+  // without an environment variable.
+  const saveProvider = async () => {
+    setSavingProvider(true);
+    try {
+      setBundles(await api.put<BundlesSnapshot>("/api/bundles/providers", providerForm));
+      setProviderForm({ name: "", url: "", public_key: "" });
+      onOK("Bundle provider saved");
+      loadBundles();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setSavingProvider(false);
+    }
+  };
+
+  const removeProvider = async (name: string) => {
+    if (!(await confirmDialog(`Remove the bundle provider ${name}? Packs it already installed keep serving until you disable them.`))) return;
+    try {
+      setBundles(await api.del<BundlesSnapshot>(`/api/bundles/providers?name=${encodeURIComponent(name)}`));
+      onOK(`${name} removed`);
+      loadBundles();
+    } catch (e) {
+      onError(errText(e));
     }
   };
 
@@ -170,6 +212,9 @@ export default function Intel({
       setChecking(false);
     }
   };
+  const knownBundles = (bundles?.bundles ?? []).filter((b) => b.builtin);
+  const installedBundles = (bundles?.bundles ?? []).filter((b) => !b.builtin);
+
   return (
     <div className="grid" style={{ gap: 14 }}>
       <PageHead sub="Feeds, address lookups, source analysis and the CrowdSec decisions applied to traffic." />
@@ -182,13 +227,49 @@ export default function Intel({
       {tab === "bundles" && (
         <>
           <Card
-            title="Signature bundles"
+            title="Known good bundles"
+            actions={<Badge tone="info">shipped with this release</Badge>}
+          >
+            <p className="muted" style={{ fontSize: 12 }}>
+              Signature packs compiled into this release and validated on startup, so no provider is needed to use them.
+              Enabling one adds its rules to every profile; the profile still decides whether a match is logged or blocked,
+              and a new pack logs only.
+            </p>
+            {!bundles ? (
+              <Empty>Loading…</Empty>
+            ) : knownBundles.length === 0 ? (
+              <Empty>This build ships no signature packs.</Empty>
+            ) : (
+              knownBundles.map((b) => (
+                <div key={b.name} className="provider-row">
+                  <div style={{ minWidth: 0 }}>
+                    <div className="row" style={{ gap: 6 }}>
+                      <b>{b.name}</b>
+                      <span className="faint mono" style={{ fontSize: 11 }}>v{b.version} · {b.rules} rules</span>
+                      {b.enabled ? <Badge tone="ok">enabled</Badge> : <Badge>off</Badge>}
+                    </div>
+                    {b.description ? <div className="faint" style={{ fontSize: 11.5, marginTop: 3 }}>{b.description}</div> : null}
+                  </div>
+                  <button
+                    className="small"
+                    disabled={togglingBundle !== null}
+                    onClick={() => enableBundle(b.name, !b.enabled)}
+                  >
+                    {togglingBundle === b.name ? "Saving…" : b.enabled ? "Disable" : "Enable"}
+                  </button>
+                </div>
+              ))
+            )}
+          </Card>
+
+          <Card
+            title="Installed bundles"
             actions={
               <>
                 <Badge tone={bundles?.configured ? "ok" : "warn"}>
                   {bundles && bundles.providers.filter((p) => p.configured).length > 1
                     ? "signed channels"
-                    : bundles?.configured ? "signed channel" : "not configured"}
+                    : bundles?.configured ? "signed channel" : "no channel"}
                 </Badge>
                 <button
                   className="small"
@@ -202,84 +283,110 @@ export default function Intel({
           >
             {!bundles ? (
               <Empty>Loading…</Empty>
+            ) : installedBundles.length === 0 ? (
+              <Empty>No packs installed from a provider yet. Add a provider below, then press Check.</Empty>
             ) : (
               <>
-                {!bundles.configured ? (
-                  <p className="muted" style={{ fontSize: 12 }}>
-                    No signed bundle provider is configured. Set <code>WAFPROXY_BUNDLE_PROVIDERS</code> (or the single
-                    <code> WAFPROXY_BUNDLE_URL</code> and <code>WAFPROXY_BUNDLE_PUBKEY</code> pair) to receive
-                    attack-signature packs. A pack carries rules only, never addresses, so it can add signatures but
-                    never ban an IP.
-                  </p>
-                ) : null}
-                {bundles.providers.map((p) => (
-                  <div key={p.name} className="provider-row">
-                    <div style={{ minWidth: 0 }}>
-                      <div className="row" style={{ gap: 6 }}>
-                        <b>{p.name}</b>
-                        {p.configured ? <Badge tone="ok">signed</Badge> : <Badge tone="warn">no channel</Badge>}
-                      </div>
-                      {p.configured ? (
-                        <div className="facts" style={{ marginTop: 3 }}>
-                          <span><code>{p.url}</code></span>
-                          <span><b>Publisher</b> <code>{p.key_id}</code></span>
-                          <span><b>Sequence</b> {p.sequence}</span>
-                          <span><b>Checked</b> {fmtAgo(p.last_check)} · next {fmtAgo(p.next_check)}</span>
-                        </div>
-                      ) : null}
-                      {p.error ? <div className="banner warn" style={{ marginTop: 6 }} role="status">{p.error}</div> : null}
-                    </div>
-                    {p.configured ? (
-                      <button
-                        className="small"
-                        onClick={() => checkBundles(p.name)}
-                        disabled={checkingBundles !== null}
-                      >
-                        {checkingBundles === p.name ? "Checking…" : "Check"}
-                      </button>
-                    ) : null}
-                  </div>
-                ))}
-                {bundles.bundles.length === 0 ? (
-                  <Empty>No bundles installed yet.</Empty>
-                ) : (
-                  <>
-                    <div style={{ overflowX: "auto" }} className="mt">
-                      <div className="table-wrap"><table className="bundle-table">
-                        <thead>
-                          <tr><th>Bundle</th><th className="hide-narrow">Version</th><th className="num hide-phone">Rules</th><th className="hide-phone">Installed</th><th>Profile modes</th></tr>
-                        </thead>
-                        <tbody>
-                          {bundles.bundles.map((b) => (
-                            <tr key={`${b.provider || ""}/${b.name}`}>
-                              <td className="bundle-name">
-                                {b.name}
-                                {b.provider ? <div className="faint" style={{ fontSize: 10.5 }}>{b.provider}</div> : null}
-                                <div className="faint mono phone-only" style={{ fontSize: 10.5 }}>{b.version}</div>
-                              </td>
-                              <td className="mono bundle-version hide-narrow">{b.version}</td>
-                              <td className="num hide-phone">{b.rules}</td>
-                              <td className="muted hide-phone">{fmtAgo(b.installed_at)}</td>
-                              <td>
-                                <div className="row" style={{ gap: 4 }}>
-                                  {modeBadges(b.modes).map((m) => <Badge key={m.label} tone={m.tone}>{m.label}</Badge>)}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table></div>
-                    </div>
-                    <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
-                      Every provider's manifest is read hourly and a pack is downloaded only when its version changes.
-                      Each rule runs in log only until a profile allows it to block; the mode is per profile, so one
-                      site can refuse these matches while another only records them.
-                    </p>
-                  </>
-                )}
+                <div style={{ overflowX: "auto" }}>
+                  <div className="table-wrap"><table className="bundle-table">
+                    <thead>
+                      <tr><th>Bundle</th><th className="hide-narrow">Version</th><th className="num hide-phone">Rules</th><th className="hide-phone">Installed</th><th>Profile modes</th><th /></tr>
+                    </thead>
+                    <tbody>
+                      {installedBundles.map((b) => (
+                        <tr key={`${b.provider || ""}/${b.name}`}>
+                          <td className="bundle-name">
+                            {b.name}
+                            {b.provider ? <div className="faint" style={{ fontSize: 10.5 }}>{b.provider}</div> : null}
+                            <div className="faint mono phone-only" style={{ fontSize: 10.5 }}>{b.version}</div>
+                            {!b.enabled ? <div style={{ marginTop: 2 }}><Badge>disabled</Badge></div> : null}
+                          </td>
+                          <td className="mono bundle-version hide-narrow">{b.version}</td>
+                          <td className="num hide-phone">{b.rules}</td>
+                          <td className="muted hide-phone">{fmtAgo(b.installed_at)}</td>
+                          <td>
+                            <div className="row" style={{ gap: 4 }}>
+                              {modeBadges(b.modes).map((m) => <Badge key={m.label} tone={m.tone}>{m.label}</Badge>)}
+                            </div>
+                          </td>
+                          <td className="num">
+                            <button
+                              className="small"
+                              disabled={togglingBundle !== null}
+                              onClick={() => enableBundle(b.name, !b.enabled)}
+                            >
+                              {togglingBundle === b.name ? "Saving…" : b.enabled ? "Disable" : "Enable"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table></div>
+                </div>
+                <p className="muted mt" style={{ fontSize: 12, marginBottom: 0 }}>
+                  Every provider's manifest is read hourly and a pack is downloaded only when its version changes. A
+                  disabled pack keeps its files, so enabling it again needs no download.
+                </p>
               </>
             )}
           </Card>
+
+          <Card
+            title="Bundle providers"
+            sub="Signed manifests the console reads. A provider added here is stored in the database, so it needs no environment variable, and a name that already exists has its URL and key replaced."
+          >
+            {!bundles ? (
+              <Empty>Loading…</Empty>
+            ) : bundles.providers.length === 0 ? (
+              <Empty>No providers added yet.</Empty>
+            ) : (
+              bundles.providers.map((p) => (
+                <div key={p.name} className="provider-row">
+                  <div style={{ minWidth: 0 }}>
+                    <div className="row" style={{ gap: 6 }}>
+                      <b>{p.name}</b>
+                      {p.configured ? <Badge tone="ok">signed</Badge> : <Badge tone="warn">no channel</Badge>}
+                    </div>
+                    <div className="facts" style={{ marginTop: 3 }}>
+                      <span><code>{p.url || "no URL"}</code></span>
+                      {p.key_id ? <span><b>Publisher</b> <code>{p.key_id}</code></span> : null}
+                      <span><b>Sequence</b> {p.sequence}</span>
+                      <span><b>Checked</b> {fmtAgo(p.last_check)} · next {fmtAgo(p.next_check)}</span>
+                    </div>
+                    {p.error ? <div className="banner warn" style={{ marginTop: 6 }} role="status">{p.error}</div> : null}
+                  </div>
+                  <div className="row" style={{ gap: 6 }}>
+                    <button
+                      className="small"
+                      onClick={() => checkBundles(p.name)}
+                      disabled={checkingBundles !== null || !p.configured}
+                    >
+                      {checkingBundles === p.name ? "Checking…" : "Check"}
+                    </button>
+                    <button className="small danger" onClick={() => removeProvider(p.name)}>Remove</button>
+                  </div>
+                </div>
+              ))
+            )}
+            <div className="row grow mt">
+              <Field label="Name"><input value={providerForm.name} onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })} placeholder="vendor" /></Field>
+              <Field label="Manifest URL"><input value={providerForm.url} onChange={(e) => setProviderForm({ ...providerForm, url: e.target.value })} placeholder="https://bundles.example.com/stable/manifest.json" /></Field>
+              <Field label="Publisher public key"><input value={providerForm.public_key} onChange={(e) => setProviderForm({ ...providerForm, public_key: e.target.value })} placeholder="ed25519 key, hex or base64" /></Field>
+              <button
+                className="primary"
+                style={{ marginTop: 18 }}
+                onClick={saveProvider}
+                disabled={savingProvider || !providerForm.name.trim() || !providerForm.url.trim() || !providerForm.public_key.trim()}
+              >
+                {savingProvider ? "Saving…" : "Save provider"}
+              </button>
+            </div>
+            <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+              The key must be the ed25519 publisher key the manifest is signed with. Removing a provider stops future
+              refreshes; packs it already installed keep serving until you disable them.
+            </p>
+          </Card>
+
           <Card
             title="Bundle hits"
             actions={<span className="faint" style={{ fontSize: 11.5 }}>last 24 hours</span>}

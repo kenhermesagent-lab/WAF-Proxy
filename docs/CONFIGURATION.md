@@ -511,8 +511,13 @@ one unreachable publisher cannot hold up the others.
   pass. The previous pack stays on disk as the last known good copy and the swap is atomic. The
   manifest's `sequence` must increase, so a mirror cannot roll the channel back.
 - A refresh reads the manifest only; a pack is downloaded only when its version changes.
-- A bundle is **off, log only or block per WAF profile**, never globally. A new pack starts in log
-  only, and a site whose own WAF mode is `detect` keeps logging even when its profile allows block.
+- A bundle's action is **off, log only or block per WAF profile**. A new pack starts in log only,
+  and a site whose own WAF mode is `detect` keeps logging even when its profile allows block. The
+  console can also switch a whole pack off: it keeps its files and version but contributes no rules.
+
+Three **known good packs** ship inside the binary and are validated at startup: `secret-probes`,
+`exploit-payloads` and `scanner-tools`. They start switched off and need no provider; enabling one
+in the console adds its rules to every profile, where the profile mode still decides log or block.
 
 List providers in `WAFPROXY_BUNDLE_PROVIDERS` (see [Environment variables](#environment-variables)),
 a JSON array of `{"name", "url", "public_key"}`; `WAFPROXY_BUNDLE_INTERVAL` (**3600** seconds, never
@@ -521,6 +526,10 @@ less than five minutes) applies to all of them. The original single-channel pair
 `default`. A provider without both halves is listed in the console as **no channel** and never
 fetched, and with no providers at all whatever packs are already installed keep serving.
 
+Providers can also be added from the console (name, manifest URL and publisher public key). That
+list lives in the `bundle_providers` settings row and replaces the environment list once the first
+one is saved, so the same install can be managed entirely from the browser.
+
 A bundle name belongs to the provider that installed it: profiles switch a bundle by name, so a
 second publisher advertising the same name is refused with an error naming the owner.
 
@@ -528,10 +537,12 @@ second publisher advertising the same name is refused with an error naming the o
 
 | Control | What it does |
 |---|---|
-| Status badge | **signed channel** when at least one provider has a URL and key, otherwise **not configured**. |
+| Status badge | **signed channel** when at least one provider has a URL and key, otherwise **no channel**. |
+| Known good bundles | The three shipped packs with version, rule count and a state badge, each with **Enable**/**Disable**. |
 | Check all | Fetches every provider's manifest immediately instead of waiting for the next interval. |
-| Provider row | Name, manifest URL, publisher key ID, sequence and the last and next check times, with its own **Check** button. |
-| Bundle table | Name with its provider, version, rule count, install time and the modes in use across profiles. |
+| Provider row | Name, manifest URL, publisher key ID, sequence and the last and next check times, with its own **Check** button and **Remove**. |
+| Provider form | Name, manifest URL and publisher public key; saving a name that exists replaces its URL and key. |
+| Bundle table | Installed packs with provider, version, rule count, install time, modes across profiles and an **Enable**/**Disable** button. |
 | Error banner | The last error for that provider (signature, checksum, compile or fetch), when there is one. |
 
 **Bundle hits** lists the rules that matched in the last 24 hours: rule ID, bundle and version,

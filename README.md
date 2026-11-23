@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.49.5.
+systemd service. Version 1.52.0.
 
 ## Contents
 
@@ -122,8 +122,14 @@ phase-1 rules in the profiles that opt in.
   all pass. The previous version stays on disk as the last known good copy, and the swap is atomic.
 - Rules use the reserved range `990000–999999`: above every CRS rule ID (CRS v4 tops out at
   980170) and inside the per-profile exception cap, so an exception can disable one signature.
-- A bundle is **off, log only or block per WAF profile**, never globally. A new pack starts in log
-  only, and a site whose own WAF mode is `detect` keeps logging even when its profile allows block.
+- A bundle's action is **off, log only or block per WAF profile**. A new pack starts in log only,
+  and a site whose own WAF mode is `detect` keeps logging even when its profile allows block. An
+  administrator can also switch a whole pack off from the console; it then contributes no rules to
+  any profile until it is switched back on.
+- **Known good packs ship with the release** and need no provider: `secret-probes` (environment
+  files, Git metadata, cloud credentials, database dumps), `exploit-payloads` (Log4Shell,
+  Shellshock, Spring4Shell, PHP stream wrappers) and `scanner-tools` (scanner user agents and
+  router/NAS exploit paths). They start switched off and are enabled one at a time in the console.
 
 A refresh reads the manifest only (`If-None-Match` answers 304 in the steady state); a pack is
 downloaded only when its version changes. Configure the channel:
@@ -138,8 +144,13 @@ last-error state; they are checked and downloaded independently, so one unreacha
 not hold up the others. Bundle names must be unique across providers, because a profile switches
 them by name. The older single-channel pair `WAFPROXY_BUNDLE_URL` and `WAFPROXY_BUNDLE_PUBKEY`
 still works and becomes the provider named `default`. Without a URL and key the channel stays off
-and the service serves whatever packs are already installed. The manifest and pack shapes are
-documented in `internal/bundle`. To publish:
+and the service serves whatever packs are already installed.
+
+Providers can also be added from **Threat intel → Bundles → Bundle providers** (name, manifest URL,
+publisher public key): the list is stored in the database, applied without a restart, and replaces
+the environment list once the first one is saved. A saved name updates that provider's URL and key;
+removing it stops future refreshes but leaves its installed packs on disk. The manifest and pack
+shapes are documented in `internal/bundle`. To publish:
 
 ```
 go run ./cmd/bundletool keygen -out publisher.key
@@ -147,11 +158,12 @@ go run ./cmd/bundletool sign -dir packs -seq 42 -key publisher.key -base /stable
 ```
 
 The tool validates and compiles every rule before signing, so the channel cannot ship a pack the
-service will reject. In the console, **Threat intel → Bundles** lists each provider with its URL,
-publisher, sequence and last check (each has its own **Check** button, plus **Check all**), then the
-installed versions with the modes across profiles; **Bundle hits** counts the rules that matched in
-the last 24 hours from the request log and names the provider. The switch itself lives in
-**Policies → Profiles → Edit**, next to paranoia and rule exceptions.
+service will reject. In the console, **Threat intel → Bundles** lists the **Known good bundles** with
+an Enable/Disable button, a **Bundle providers** card where channels are added and removed, and the
+installed versions with the modes across profiles. **Bundle hits** counts the rules that matched in
+the last 24 hours from the request log, including matches that were only logged, and names the
+provider. Whether a pack logs or blocks lives in **Policies → Profiles → Edit**, next to paranoia
+and rule exceptions.
 
 ## Requirements
 

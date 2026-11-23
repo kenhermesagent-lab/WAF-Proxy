@@ -77,6 +77,111 @@ func (s *Server) checkBundles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.bundleSnapshot(r))
 }
 
+// enableBundle switches one pack on or off. A disabled pack keeps its files
+// and version, so re-enabling it needs no download.
+func (s *Server) enableBundle(w http.ResponseWriter, r *http.Request) {
+	if s.bundles == nil {
+		writeError(w, http.StatusConflict, "no bundle manager is running")
+		return
+	}
+	var in struct {
+		Name    string `json:"name"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.bundles.SetEnabled(strings.TrimSpace(in.Name), in.Enabled); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sess := sessionFrom(r)
+	action := "bundle.disable"
+	if in.Enabled {
+		action = "bundle.enable"
+	}
+	s.st.AddAudit(sess.Username, action, in.Name, clientIP(r))
+	writeJSON(w, http.StatusOK, s.bundleSnapshot(r))
+}
+
+// saveBundleProvider adds or replaces one channel from the console. The list
+// is stored in the settings table, which takes over from the environment once
+// the first edit is saved here.
+func (s *Server) saveBundleProvider(w http.ResponseWriter, r *http.Request) {
+	if s.bundles == nil {
+		writeError(w, http.StatusConflict, "no bundle manager is running")
+		return
+	}
+	var in struct {
+		Name      string `json:"name"`
+		URL       string `json:"url"`
+		PublicKey string `json:"public_key"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	list := s.bundles.Providers()
+	replaced := false
+	for i := range list {
+		if list[i].Name == strings.TrimSpace(in.Name) {
+			list[i] = bundle.Provider{Name: in.Name, URL: in.URL, PublicKey: in.PublicKey}
+			replaced = true
+		}
+	}
+	if !replaced {
+		list = append(list, bundle.Provider{Name: in.Name, URL: in.URL, PublicKey: in.PublicKey})
+	}
+	if err := s.bundles.SetProviders(list); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.st.SetSetting(bundle.SettingsKey, bundle.MarshalProviders(list)); err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "bundle.provider", "saved "+strings.TrimSpace(in.Name), clientIP(r))
+	writeJSON(w, http.StatusOK, s.bundleSnapshot(r))
+}
+
+// deleteBundleProvider drops one channel. Its installed packs stay on disk and
+// keep serving until an administrator disables them.
+func (s *Server) deleteBundleProvider(w http.ResponseWriter, r *http.Request) {
+	if s.bundles == nil {
+		writeError(w, http.StatusConflict, "no bundle manager is running")
+		return
+	}
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	list := s.bundles.Providers()
+	kept := list[:0]
+	for _, p := range list {
+		if p.Name != name {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) == len(list) {
+		writeError(w, http.StatusNotFound, "unknown bundle provider")
+		return
+	}
+	if err := s.bundles.SetProviders(kept); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.st.SetSetting(bundle.SettingsKey, bundle.MarshalProviders(kept)); err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "bundle.provider", "removed "+name, clientIP(r))
+	writeJSON(w, http.StatusOK, s.bundleSnapshot(r))
+}
+
 // bundleHits groups the rule IDs the event log already recorded. Nothing extra
 // is written per request; this is a query over the WAF stage rows.
 func (s *Server) bundleHits(w http.ResponseWriter, r *http.Request) {
