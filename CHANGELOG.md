@@ -11,6 +11,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.49.0] — 2026-11-23
+
+### Added
+
+- **Sites, the foundation for multi-domain hosting.** Every configurable row now carries a site,
+  and a `site_settings` overlay lets a site override its own behaviour while host-wide keys (bind
+  addresses, update schedule, CrowdSec, Tailscale) stay fixed for the process. An existing install
+  is adopted by a single `default` site whose console host is the `base_domain` it already
+  advertised, so nothing has to be reconfigured and no console behaviour changes. `wafproxy sites
+  list|add|rename|remove` manages sites, and a slug, console host or site row is validated and
+  unique before it is written.
+
 ## [1.48.8] — 2026-11-23
 
 ### Documentation
@@ -33,6 +45,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **SECURITY.md**: removed a duplicated "Reporting a vulnerability" heading, put the delivered
   fixes back in newest-first order, and replaced the claim that `govulncheck` runs in CI with
   what CI actually runs (`go vet`, the race suite, `npm audit --omit=dev`).
+
 ## [1.48.7] — 2026-11-23
 
 ### Fixed

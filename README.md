@@ -83,6 +83,7 @@ systemd service. Version 1.48.8.
 - `wafproxy recover --password … --reset-totp` resets a locked-out account.
 - `wafproxy backup --keep 7` writes an encrypted backup and prunes older ones.
 - `wafproxy unban <ip|cidr>` removes a ban while the console is unreachable.
+- `wafproxy sites list|add|rename|remove` manages the sites one process serves.
 - `bundletool keygen|sign` publishes a signed signature-bundle channel.
 
 ## How a request is handled
@@ -309,6 +310,9 @@ secrets are not part of the document.
   action without exposing the Docker socket to the console.
 - **Agent gateway.** The MCP endpoint is documented in [docs/MCP.md](docs/MCP.md); tokens are
   limited per tool and can be revoked from **AI Agent Access**.
+- **Sites.** Every configurable row belongs to a site. An upgrade adopts the existing install as
+  `default`, with its current `base_domain` as the console host, and `wafproxy sites` manages the
+  rest; per-site console routing is the next step.
 
 ## Development
 
