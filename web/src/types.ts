@@ -185,8 +185,8 @@ export interface Me {
   email: string;
   role: string;
   permissions: string[];
-  // The effective HA switch (boot switch AND stored setting) and, while it is
-  // on, this node's role. The nav item and the page gate on the first.
+  // The effective HA switch and, while it is on, this node's role. The nav
+  // item and the page gate on the first.
   ha_enabled?: boolean;
   ha_role?: string;
   // The site this console was reached on, and the sites its role may switch

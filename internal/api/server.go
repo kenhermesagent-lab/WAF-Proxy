@@ -120,8 +120,9 @@ type Server struct {
 	// haLog keep the process-local action history the page shows.
 	haOps HAOps
 	// haChange starts or stops the HA loops after the switch is saved. It can
-	// refuse, and the save is then rolled back.
-	haChange func(bool, string) error
+	// refuse, and the save is then rolled back. It reports whether the caller
+	// must restart the process.
+	haChange func(bool, string) (bool, error)
 	haMu     sync.Mutex
 	haLog    []HAEvent
 
@@ -738,8 +739,8 @@ func loopbackPeer(r *http.Request) bool {
 func (s *Server) SetCanary(m *canary.Monitor) { s.canary = m }
 
 // HAStatus is the node's effective role, read fresh on each request so a
-// transition is visible without a restart. Enabled is the boot master switch
-// combined with the stored setting; Serving is false on a standby.
+// transition is visible without a restart. Enabled is the stored setting;
+// Serving is false on a standby.
 type HAStatus struct {
 	Enabled   bool   `json:"enabled"`
 	Paired    bool   `json:"paired"`
@@ -1346,21 +1347,24 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if v, ok := next["ha_enabled"]; ok && v != previousHA {
 		changedHA, haOn = true, v == "1"
 	}
+	restartRequired := false
 	// The HA guard runs before any row is written, so a refused switch leaves
 	// the whole save untouched: no other key and no audit row changes. A tenant
 	// console is not the host's decider, so it skips the guard and is refused
 	// by SetSettings below.
 	hostSave := s.db(r).SiteID() == s.st.SiteID()
 	if changedHA && hostSave && s.haChange != nil {
-		if err := s.haChange(haOn, strings.TrimSpace(r.Header.Get("X-HA-Cluster-ID"))); err != nil {
+		restart, err := s.haChange(haOn, strings.TrimSpace(r.Header.Get("X-HA-Cluster-ID")))
+		if err != nil {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
+		restartRequired = restart
 	}
 	if err := s.db(r).SetSettings(next); err != nil {
 		if changedHA && hostSave && s.haChange != nil {
 			// The write failed after the loops moved, so put them back.
-			if rerr := s.haChange(!haOn, ""); rerr != nil {
+			if _, rerr := s.haChange(!haOn, ""); rerr != nil {
 				s.log.Error("cannot undo the HA switch after a failed save", "err", rerr)
 			}
 		}
@@ -1406,7 +1410,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		s.db(r).AddAudit(sess.Username, action, "", clientIP(r))
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "restart_required": restartRequired})
 }
 
 // cleanDecoyHosts normalizes a comma list and refuses entries that collide with

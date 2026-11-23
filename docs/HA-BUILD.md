@@ -757,8 +757,8 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 ### P7-02 Settings key and enablement backend — S, 1 day — built
 
 - Built: missing `ha_enabled` means off; `0`/`1` only; host-wide for tenants and audited
-  separately. `Enabled` is the boot master switch AND the stored setting, computed from the
-  live setting on every `/api/me`, `/api/ha` and health call. Saving the setting starts or
+  separately. `Enabled` is the stored setting, read live on every `/api/me`, `/api/ha` and
+  health call. Saving the setting starts or
   stops the HA loops in the same process (`haRuntime.Start`/`Stop`: control socket,
   replication, lease, failover watcher and outbox capture), while the data plane keeps
   whatever it was doing, so turning HA on or off never moves traffic or drops a listener.
@@ -787,9 +787,8 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 
 ### P7-03 Settings toggle UI — S, 1 day — built
 
-- Built: as specified below, with the help text read from `GET /api/ha` (`boot_enabled`,
-  `paired`, `enabled`) so it matches what the backend actually does. The switch is also
-  disabled while the boot switch is off, rather than letting a save imply it took effect.
+- Built: as specified below, with the help text read from `GET /api/ha` (`paired`,
+  `enabled`) so it matches what the backend actually does.
 
 - Files: `web/src/pages/Settings.tsx`, `web/src/pages/Settings.test.tsx`.
 - Change: section `ha` between `retention` and `backup`, one `Switch` bound to

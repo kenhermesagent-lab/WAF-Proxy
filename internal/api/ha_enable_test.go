@@ -97,9 +97,9 @@ func TestHAEnabledSettingDrivesTheEffectiveValue(t *testing.T) {
 func TestHAChangeFiresOnlyWhenTheSwitchMoves(t *testing.T) {
 	srv, _, token, csrf := newObservabilityServer(t)
 	var calls []bool
-	srv.SetHAChange(func(on bool, _ string) error {
+	srv.SetHAChange(func(on bool, _ string) (bool, error) {
 		calls = append(calls, on)
-		return nil
+		return false, nil
 	})
 	put := func(body string) {
 		t.Helper()
@@ -124,11 +124,11 @@ func TestHARefusedDisableWritesNothing(t *testing.T) {
 	if err := st.SetSettings(map[string]string{"retention_days": "7"}); err != nil {
 		t.Fatal(err)
 	}
-	srv.SetHAChange(func(on bool, _ string) error {
+	srv.SetHAChange(func(on bool, _ string) (bool, error) {
 		if !on {
-			return errors.New("this node is paired; type the cluster id to confirm")
+			return false, errors.New("this node is paired; type the cluster id to confirm")
 		}
-		return nil
+		return false, nil
 	})
 	if rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"1"}`); rec.Code != http.StatusOK {
 		t.Fatalf("enable = %d: %s", rec.Code, rec.Body.String())
@@ -164,14 +164,14 @@ func TestHADisablePassesTheTypedClusterID(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
 	settingDrivenHA(srv)
 	var seen string
-	srv.SetHAChange(func(on bool, confirm string) error {
+	srv.SetHAChange(func(on bool, confirm string) (bool, error) {
 		if !on {
 			seen = confirm
 			if confirm != "cluster-abc" {
-				return errors.New("type the cluster id to confirm")
+				return false, errors.New("type the cluster id to confirm")
 			}
 		}
-		return nil
+		return false, nil
 	})
 	if rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"1"}`); rec.Code != http.StatusOK {
 		t.Fatalf("enable = %d", rec.Code)

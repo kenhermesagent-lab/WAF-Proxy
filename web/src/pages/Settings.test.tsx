@@ -191,6 +191,19 @@ describe("Settings configuration transport", () => {
     expect(onMeChanged).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the restart and reconnects after the first HA enable", async () => {
+    put.mockResolvedValue({ restart_required: true });
+    const onOK = vi.fn();
+    render(<SettingsPage onError={vi.fn()} onOK={onOK} />);
+    const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByText("Save settings"));
+
+    expect(await screen.findByText(/restarts WAF-Proxy/)).toBeTruthy();
+    expect(await screen.findByText(/WAF-Proxy is back/, {}, { timeout: 5000 })).toBeTruthy();
+    expect(onOK).toHaveBeenCalledWith("WAF-Proxy is back; high availability is on");
+  });
+
   it("asks for the cluster id and sends it only with the save that turns HA off", async () => {
     mockHA({ enabled: true, paired: true, cluster_id: "cluster-abc" });
     let storedHA = "1";

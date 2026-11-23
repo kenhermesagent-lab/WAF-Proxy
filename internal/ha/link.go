@@ -283,6 +283,11 @@ func (l *attemptLimiter) allow(key string, now time.Time) bool {
 		l.hits[key] = kept
 		return false
 	}
+	if len(kept) == 0 {
+		// Do not leave an empty bucket behind for every address that only
+		// guessed once.
+		delete(l.hits, key)
+	}
 	l.hits[key] = append(kept, now)
 	return true
 }

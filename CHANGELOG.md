@@ -12,6 +12,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.61.1] — 2026-11-23
+
+### Added
+
+- **A Check for updates button on the WAF-Proxy application card**, so the console can refresh
+  its own repository check from the section that shows the application version, not only the
+  host package check below it.
+
+### Fixed
+
+- **Enabling high availability from Settings now reports the restart and reconnects.** The save
+  answers whether the service must restart, the console shows that it is restarting instead of
+  sending failing requests at the stopping process, and it reloads the switch and the nav once
+  the service answers again.
+- **A peer's outbox acknowledgement is clamped to this node's stream head**, so a stale or
+  malformed acknowledgement cannot prune changes the peer never received.
+- **The HA join attempt limiter drops expired buckets**, so repeated guesses from many addresses
+  no longer leave one empty entry per address behind.
+
 ## [1.61.0] — 2026-11-23
 
 ### Changed

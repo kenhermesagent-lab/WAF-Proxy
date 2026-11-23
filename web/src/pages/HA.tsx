@@ -75,7 +75,7 @@ export default function HAPage({
         address: join.address, fingerprint: join.fingerprint, code: join.code,
         password: confirm.password, totp: confirm.totp,
       });
-      onOK("Joined the pair; restart this node to bring up its HA role");
+      onOK("Joined the pair; this node is restarting as the standby");
       load();
     } catch (e) {
       onError(errText(e));

@@ -1081,11 +1081,14 @@ func run() error {
 	// The settings route flips the loops live; the data plane is untouched.
 	// Turning HA off on a paired standby is refused: it is out of service by
 	// design, and starting it here would give the pair two writers.
-	apiServer.SetHAChange(func(on bool, confirm string) error {
+	apiServer.SetHAChange(func(on bool, confirm string) (bool, error) {
 		if err := haApplyChange(rt, cfg.DataDir, on, confirm); err != nil {
-			return err
+			return false, err
 		}
-		if on && !haOnAtBoot {
+		// The listeners HA adds are bound at boot, so the first enable needs a
+		// restart; a later enable in the same process reuses them.
+		restart := on && !haOnAtBoot
+		if restart {
 			go func() {
 				time.Sleep(500 * time.Millisecond)
 				select {
@@ -1094,7 +1097,7 @@ func run() error {
 				}
 			}()
 		}
-		return nil
+		return restart, nil
 	})
 
 	sig := make(chan os.Signal, 1)

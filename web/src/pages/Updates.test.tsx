@@ -133,7 +133,10 @@ describe("Updates page", () => {
     renderPage();
 
     expect(await screen.findByText(/unavailable inside a container/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled).toBe(false);
+    // One check per card: the application and the host packages.
+    const checks = screen.getAllByRole("button", { name: "Check for updates" });
+    expect(checks).toHaveLength(2);
+    expect(checks.every((b) => !(b as HTMLButtonElement).disabled)).toBe(true);
     expect(screen.getByRole("button", { name: "Update to v1.2.1" })).toBeTruthy();
     expect(screen.getByText(/compiled into the binary/)).toBeTruthy();
   });

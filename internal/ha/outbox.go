@@ -135,15 +135,23 @@ func (s *JoinServer) outboxAck(w http.ResponseWriter, r *http.Request) {
 		writeJoinError(w, http.StatusBadRequest, "invalid acknowledgement")
 		return
 	}
-	if err := s.store.AckPeer(pair.PeerFingerprint, in.Seq); err != nil {
+	// A malformed or stale acknowledgement must not prune changes the peer has
+	// never seen, so the high-water mark is this node's own stream head.
+	head, err := s.store.OutboxSeq()
+	if err != nil {
+		writeJoinError(w, http.StatusInternalServerError, "cannot read the outbox")
+		return
+	}
+	seq := min(in.Seq, head)
+	if err := s.store.AckPeer(pair.PeerFingerprint, seq); err != nil {
 		writeJoinError(w, http.StatusInternalServerError, "cannot record the acknowledgement")
 		return
 	}
-	if err := s.store.PruneOutbox(in.Seq); err != nil {
+	if err := s.store.PruneOutbox(seq); err != nil {
 		writeJoinError(w, http.StatusInternalServerError, "cannot prune the outbox")
 		return
 	}
-	writeJoinJSON(w, http.StatusOK, map[string]int64{"acked": in.Seq})
+	writeJoinJSON(w, http.StatusOK, map[string]int64{"acked": seq})
 }
 
 // ---------- client ----------

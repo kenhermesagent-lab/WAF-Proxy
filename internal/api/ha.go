@@ -46,8 +46,9 @@ func (s *Server) SetHAOps(o HAOps) { s.haOps = o }
 // SetHAChange installs the live switch the settings route calls after saving
 // ha_enabled, so turning HA off stops its loops instead of only hiding it. The
 // second argument is the cluster id the operator typed, if any. A refused
-// change rolls the setting back and answers 409.
-func (s *Server) SetHAChange(fn func(bool, string) error) { s.haChange = fn }
+// change rolls the setting back and answers 409. The bool reports whether the
+// caller must restart the process for the new state to take effect.
+func (s *Server) SetHAChange(fn func(bool, string) (bool, error)) { s.haChange = fn }
 
 // haStatusOf reads the live role, falling back to standalone when HA is off.
 func (s *Server) haStatusOf() HAStatus {
