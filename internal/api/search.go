@@ -30,7 +30,7 @@ func (s *Server) globalSearch(w http.ResponseWriter, r *http.Request) {
 	lower := strings.ToLower(q)
 
 	if sess.Can(rbac.Permission("proxies", "read")) {
-		if list, err := s.st.ListProxies(); err == nil {
+		if list, err := s.db(r).ListProxies(); err == nil {
 			for _, p := range list {
 				if !strings.Contains(strings.ToLower(p.Hostname), lower) {
 					continue
@@ -48,7 +48,7 @@ func (s *Server) globalSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.Can(rbac.Permission("traffic", "read")) {
-		if ips, err := s.st.IPSummaries(store.EventFilter{}, q, 5); err == nil {
+		if ips, err := s.db(r).IPSummaries(store.EventFilter{}, q, 5); err == nil {
 			for _, ip := range ips {
 				sub := "Source IP"
 				if ip.Country != "" {
@@ -65,7 +65,7 @@ func (s *Server) globalSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.Can(rbac.Permission("traffic", "read")) {
-		if events, _, err := s.st.QueryEvents(store.EventFilter{Limit: 200}); err == nil {
+		if events, _, err := s.db(r).QueryEvents(store.EventFilter{Limit: 200}); err == nil {
 			added := 0
 			for _, e := range events {
 				if !strings.Contains(strings.ToLower(e.Host+" "+e.Path+" "+e.RuleMsg+" "+e.Stage), lower) {
@@ -88,7 +88,7 @@ func (s *Server) globalSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.Can(rbac.Permission("policies", "read")) {
-		if bans, err := s.st.ListBans(true); err == nil {
+		if bans, err := s.db(r).ListBans(true); err == nil {
 			for _, b := range bans {
 				if !strings.Contains(strings.ToLower(b.CIDR), lower) {
 					continue

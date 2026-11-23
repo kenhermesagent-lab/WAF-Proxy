@@ -19,7 +19,7 @@ func (s *Server) getGlobeHits(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 && n <= 200 {
 		limit = n
 	}
-	hits, err := s.st.RecentHits(since, limit)
+	hits, err := s.db(r).RecentHits(since, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return

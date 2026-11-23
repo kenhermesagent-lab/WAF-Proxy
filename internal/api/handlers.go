@@ -99,7 +99,7 @@ type proxyView struct {
 }
 
 func (s *Server) listProxies(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListProxies()
+	list, err := s.db(r).ListProxies()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -108,9 +108,9 @@ func (s *Server) listProxies(w http.ResponseWriter, r *http.Request) {
 	out := make([]proxyView, 0, len(list))
 	for _, p := range list {
 		v := proxyView{Proxy: p}
-		v.Upstreams, _ = s.st.ListUpstreams(p.ID)
-		v.Routes, _ = s.st.ListRoutes(p.ID)
-		v.GateUsers, _ = s.st.GateACL(p.ID)
+		v.Upstreams, _ = s.db(r).ListUpstreams(p.ID)
+		v.Routes, _ = s.db(r).ListRoutes(p.ID)
+		v.GateUsers, _ = s.db(r).GateACL(p.ID)
 		if c := met.Proxies[strconv.FormatInt(p.ID, 10)]; c != nil {
 			v.Requests, v.Blocked = c.Requests, c.Blocked
 		}
@@ -125,7 +125,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if msg := s.validateHostname(in.Hostname); msg != "" {
+	if msg := s.validateHostname(r, in.Hostname); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -150,7 +150,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 	if in.Maintenance != nil {
 		p.Maintenance = *in.Maintenance
 	}
-	s.inheritAccessProfile(p)
+	s.inheritAccessProfile(r, p)
 	if msg := validateProxyOptions(in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
@@ -159,7 +159,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if msg := s.checkAuthProvider(in.AuthProviderID); msg != "" {
+	if msg := s.checkAuthProvider(r, in.AuthProviderID); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -183,27 +183,27 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		prof := pre.Profile(p.Hostname)
-		if err := s.st.CreateProfile(&prof); err != nil {
+		if err := s.db(r).CreateProfile(&prof); err != nil {
 			writeError(w, http.StatusInternalServerError, "cannot create the preset's WAF profile")
 			return
 		}
 		p.ProfileID = &prof.ID
 		fromPreset = &prof.ID
 	}
-	id, err := s.st.CreateProxy(p)
+	id, err := s.db(r).CreateProxy(p)
 	if err != nil {
 		// The profile was only created for this proxy; leaving it behind would
 		// litter the list every time a duplicate hostname was offered.
 		if fromPreset != nil {
-			_ = s.st.DeleteProfile(*fromPreset)
+			_ = s.db(r).DeleteProfile(*fromPreset)
 		}
 		writeError(w, http.StatusConflict, "hostname already exists")
 		return
 	}
-	s.saveChildren(id, in)
+	s.saveChildren(r, id, in)
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "proxy.create", p.Hostname, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "proxy.create", p.Hostname, clientIP(r))
 	p.ID = id
 	writeJSON(w, http.StatusCreated, p)
 }
@@ -211,11 +211,11 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 // inheritAccessProfile fills the WAF and protection profile from the selected
 // access profile when the caller did not name them explicitly, so an operator
 // can create a host by choosing one thing. An explicit choice still wins.
-func (s *Server) inheritAccessProfile(p *model.Proxy) {
+func (s *Server) inheritAccessProfile(r *http.Request, p *model.Proxy) {
 	if p == nil || p.AccessProfileID == nil {
 		return
 	}
-	ap, err := s.st.GetAccessProfile(*p.AccessProfileID)
+	ap, err := s.db(r).GetAccessProfile(*p.AccessProfileID)
 	if err != nil {
 		return
 	}
@@ -233,7 +233,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	current, err := s.st.GetProxy(id)
+	current, err := s.db(r).GetProxy(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -244,7 +244,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Hostname != "" && in.Hostname != current.Hostname {
-		if msg := s.validateHostname(in.Hostname); msg != "" {
+		if msg := s.validateHostname(r, in.Hostname); msg != "" {
 			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
@@ -261,7 +261,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	current.ProtectionProfileID = in.ProtectionProfileID
 	current.AccessProfileID = in.AccessProfileID
 	current.AuthProviderID = in.AuthProviderID
-	s.inheritAccessProfile(current)
+	s.inheritAccessProfile(r, current)
 	if in.GateMode != "" {
 		current.GateMode = in.GateMode
 	}
@@ -301,7 +301,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if msg := s.checkAuthProvider(in.AuthProviderID); msg != "" {
+	if msg := s.checkAuthProvider(r, in.AuthProviderID); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -317,15 +317,15 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		current.GateSecret = enc
 	}
-	before := s.snapshotProxy(id)
-	if err := s.st.UpdateProxy(current); err != nil {
+	before := s.snapshotProxy(r, id)
+	if err := s.db(r).UpdateProxy(current); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
-	s.saveChildren(id, in)
+	s.saveChildren(r, id, in)
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "proxy.update", current.Hostname, clientIP(r), "proxy", id, before, s.snapshotProxy(id))
+	s.auditChange(r, sess.Username, "proxy.update", current.Hostname, clientIP(r), "proxy", id, before, s.snapshotProxy(r, id))
 	writeJSON(w, http.StatusOK, current)
 }
 
@@ -491,11 +491,11 @@ func validateUpstreams(ups []upstreamBody) string {
 // gateModes is the set of accepted access-gate modes.
 // checkAuthProvider stops a proxy from pointing at a provider that no longer
 // exists, which would leave the site failing closed with no obvious cause.
-func (s *Server) checkAuthProvider(id *int64) string {
+func (s *Server) checkAuthProvider(r *http.Request, id *int64) string {
 	if id == nil {
 		return ""
 	}
-	if _, err := s.st.GetAuthProvider(*id); err != nil {
+	if _, err := s.db(r).GetAuthProvider(*id); err != nil {
 		return "unknown identity provider"
 	}
 	return ""
@@ -520,7 +520,7 @@ func requireGateSecret(mode, existing, provided string) string {
 	return ""
 }
 
-func (s *Server) saveChildren(proxyID int64, in proxyBody) {
+func (s *Server) saveChildren(r *http.Request, proxyID int64, in proxyBody) {
 	ups := make([]model.Upstream, 0, len(in.Upstreams))
 	for _, u := range in.Upstreams {
 		u.URL = strings.TrimSpace(u.URL)
@@ -540,10 +540,10 @@ func (s *Server) saveChildren(proxyID int64, in proxyBody) {
 		}
 		ups = append(ups, model.Upstream{ProxyID: proxyID, URL: u.URL, Weight: w, Enabled: enabled, MaxConns: u.MaxConns})
 	}
-	_ = s.st.ReplaceUpstreams(proxyID, ups)
-	_ = s.st.ReplaceRoutes(proxyID, in.Routes)
+	_ = s.db(r).ReplaceUpstreams(proxyID, ups)
+	_ = s.db(r).ReplaceRoutes(proxyID, in.Routes)
 	if in.GateUsers != nil {
-		_ = s.st.SetGateACL(proxyID, in.GateUsers)
+		_ = s.db(r).SetGateACL(proxyID, in.GateUsers)
 	}
 }
 
@@ -553,9 +553,9 @@ func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	p, _ := s.st.GetProxy(id)
-	before := s.snapshotProxy(id)
-	if err := s.st.DeleteProxy(id); err != nil {
+	p, _ := s.db(r).GetProxy(id)
+	before := s.snapshotProxy(r, id)
+	if err := s.db(r).DeleteProxy(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
 	}
@@ -565,16 +565,16 @@ func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request) {
 	if p != nil {
 		name = p.Hostname
 	}
-	s.auditChange(sess.Username, "proxy.delete", name, clientIP(r), "proxy", id, before, nil)
+	s.auditChange(r, sess.Username, "proxy.delete", name, clientIP(r), "proxy", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) validateHostname(host string) string {
+func (s *Server) validateHostname(r *http.Request, host string) string {
 	host = strings.ToLower(strings.TrimSpace(host))
 	if !validHostname(host) {
 		return "hostname is not valid"
 	}
-	base, _ := s.st.GetSetting("base_domain")
+	base, _ := s.db(r).GetSetting("base_domain")
 	if base == "" {
 		return "base domain is not configured"
 	}
@@ -588,7 +588,7 @@ func (s *Server) validateHostname(host string) string {
 	if strings.Contains(label, ".") {
 		return "use a single-label subdomain"
 	}
-	if raw, _ := s.st.GetSetting("decoy_hosts"); raw != "" {
+	if raw, _ := s.db(r).GetSetting("decoy_hosts"); raw != "" {
 		for _, d := range strings.Split(raw, ",") {
 			if strings.EqualFold(strings.TrimSpace(d), host) {
 				return "hostname is configured as a decoy"
@@ -604,13 +604,13 @@ func (s *Server) revokeGate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	_ = s.st.DeleteProxyGateSessions(id)
+	_ = s.db(r).DeleteProxyGateSessions(id)
 	sess := sessionFrom(r)
 	detail := strconv.FormatInt(id, 10)
-	if p, err := s.st.GetProxy(id); err == nil && p != nil {
+	if p, err := s.db(r).GetProxy(id); err == nil && p != nil {
 		detail = p.Hostname
 	}
-	s.st.AddAudit(sess.Username, "proxy.gate_revoke", detail, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "proxy.gate_revoke", detail, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -631,7 +631,7 @@ func (s *Server) reload(ctx context.Context) {
 // ---------- profiles ----------
 
 func (s *Server) listProfiles(w http.ResponseWriter, r *http.Request) {
-	profiles, err := s.st.ListProfiles()
+	profiles, err := s.db(r).ListProfiles()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -645,7 +645,7 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	p, err := s.st.GetProfile(id)
+	p, err := s.db(r).GetProfile(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -691,8 +691,8 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	p.MaxResponse, p.LoginPaths, p.LoginRPS = in.MaxResponse, in.LoginPaths, in.LoginRPS
 	p.LoginBurst, p.AdminPaths, p.AdminIPs = in.LoginBurst, in.AdminPaths, in.AdminIPs
-	before := s.snapshotProfile(p.ID)
-	if err := s.st.UpdateProfile(p); err != nil {
+	before := s.snapshotProfile(r, p.ID)
+	if err := s.db(r).UpdateProfile(p); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
@@ -703,7 +703,7 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "profile.update", p.Name, clientIP(r), "profile", p.ID, before, s.snapshotProfile(p.ID))
+	s.auditChange(r, sess.Username, "profile.update", p.Name, clientIP(r), "profile", p.ID, before, s.snapshotProfile(r, p.ID))
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -764,7 +764,7 @@ func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
 	p.BundleModes = bundleModesOrEmpty(in.BundleModes)
 	p.MaxResponse, p.LoginPaths, p.LoginRPS = in.MaxResponse, in.LoginPaths, in.LoginRPS
 	p.LoginBurst, p.AdminPaths, p.AdminIPs = in.LoginBurst, in.AdminPaths, in.AdminIPs
-	if err := s.st.CreateProfile(&p); err != nil {
+	if err := s.db(r).CreateProfile(&p); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			writeError(w, http.StatusConflict, "a profile with that name already exists")
 			return
@@ -778,7 +778,7 @@ func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "profile.create", p.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "profile.create", p.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -827,7 +827,7 @@ func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	p, err := s.st.GetProfile(id)
+	p, err := s.db(r).GetProfile(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -840,7 +840,7 @@ func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "built-in profiles cannot be deleted")
 		return
 	}
-	inUse, err := s.st.ProfileInUse(id)
+	inUse, err := s.db(r).ProfileInUse(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -854,8 +854,8 @@ func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("%s is selected by %d %s; assign another profile first", p.Name, inUse, noun))
 		return
 	}
-	before := s.snapshotProfile(id)
-	if err := s.st.DeleteProfile(id); err != nil {
+	before := s.snapshotProfile(r, id)
+	if err := s.db(r).DeleteProfile(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete profile")
 		return
 	}
@@ -865,7 +865,7 @@ func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "profile.delete", p.Name, clientIP(r), "profile", id, before, nil)
+	s.auditChange(r, sess.Username, "profile.delete", p.Name, clientIP(r), "profile", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -878,7 +878,7 @@ var policyKinds = map[string]bool{
 }
 
 func (s *Server) listPolicies(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListPolicies()
+	list, err := s.db(r).ListPolicies()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -912,7 +912,7 @@ func (s *Server) createPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Enabled = true
-	id, err := s.st.CreatePolicy(&in)
+	id, err := s.db(r).CreatePolicy(&in)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot create")
 		return
@@ -920,7 +920,7 @@ func (s *Server) createPolicy(w http.ResponseWriter, r *http.Request) {
 	in.ID = id
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "policy.create", in.Kind+" "+in.Value, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "policy.create", in.Kind+" "+in.Value, clientIP(r))
 	writeJSON(w, http.StatusCreated, in)
 }
 
@@ -946,7 +946,7 @@ func (s *Server) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	current, err := s.st.GetPolicy(id)
+	current, err := s.db(r).GetPolicy(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -983,14 +983,14 @@ func (s *Server) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	before := s.snapshotPolicy(in.ID)
-	if err := s.st.UpdatePolicy(&in); err != nil {
+	before := s.snapshotPolicy(r, in.ID)
+	if err := s.db(r).UpdatePolicy(&in); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "policy.update", in.Kind+" "+in.Value, clientIP(r), "policy", in.ID, before, s.snapshotPolicy(in.ID))
+	s.auditChange(r, sess.Username, "policy.update", in.Kind+" "+in.Value, clientIP(r), "policy", in.ID, before, s.snapshotPolicy(r, in.ID))
 	writeJSON(w, http.StatusOK, in)
 }
 
@@ -1000,14 +1000,14 @@ func (s *Server) deletePolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	before := s.snapshotPolicy(id)
-	if err := s.st.DeletePolicy(id); err != nil {
+	before := s.snapshotPolicy(r, id)
+	if err := s.db(r).DeletePolicy(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "policy.delete", strconv.FormatInt(id, 10), clientIP(r), "policy", id, before, nil)
+	s.auditChange(r, sess.Username, "policy.delete", strconv.FormatInt(id, 10), clientIP(r), "policy", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -1021,13 +1021,13 @@ func (s *Server) listBans(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	list, err := s.st.ListBansPage(all, limit)
+	list, err := s.db(r).ListBansPage(all, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
 	active, reason := s.bans.KernelStatus()
-	total, err := s.st.CountBans(all)
+	total, err := s.db(r).CountBans(all)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -1091,11 +1091,11 @@ func (s *Server) createBan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot create ban")
 		return
 	}
-	s.st.AddAudit(sess.Username, "ban.create", rec.CIDR+" "+in.Reason, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "ban.create", rec.CIDR+" "+in.Reason, clientIP(r))
 	// Return the stored row, not the engine's Go struct: GET /api/bans serves
 	// model.Ban with lowercase JSON keys, and a caller should see the same shape
 	// (including the new id) whichever endpoint created it.
-	created, err := s.st.BanByCIDR(rec.CIDR)
+	created, err := s.db(r).BanByCIDR(rec.CIDR)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot load the created ban")
 		return
@@ -1123,7 +1123,7 @@ func (s *Server) deleteBan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "ban.delete", b.CIDR+" "+b.Reason, clientIP(r), "ban", b.ID, snapshotJSON(b), nil)
+	s.auditChange(r, sess.Username, "ban.delete", b.CIDR+" "+b.Reason, clientIP(r), "ban", b.ID, snapshotJSON(b), nil)
 }
 
 func (s *Server) promoteBan(w http.ResponseWriter, r *http.Request) {
@@ -1146,7 +1146,7 @@ func (s *Server) promoteBan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "ban.promote", b.CIDR, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "ban.promote", b.CIDR, clientIP(r))
 }
 
 // bulkBans promotes or lifts the selected bans in one call. The UI sends the
@@ -1220,14 +1220,14 @@ func (s *Server) bulkBans(w http.ResponseWriter, r *http.Request) {
 		updated++
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "ban.bulk", fmt.Sprintf("%s %d ban(s)", in.Action, updated), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "ban.bulk", fmt.Sprintf("%s %d ban(s)", in.Action, updated), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]int{"updated": updated, "skipped": skipped})
 }
 
 // ---------- feeds ----------
 
 func (s *Server) listFeeds(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListFeeds()
+	list, err := s.db(r).ListFeeds()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -1252,14 +1252,14 @@ func (s *Server) createFeed(w http.ResponseWriter, r *http.Request) {
 	in.Local = false
 	in.LocalPath = ""
 	in.Filename = ""
-	id, err := s.st.CreateFeed(&in)
+	id, err := s.db(r).CreateFeed(&in)
 	if err != nil {
 		writeError(w, http.StatusConflict, "feed already exists")
 		return
 	}
 	go s.feeds.Refresh(context.Background(), id)
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "feed.create", in.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "feed.create", in.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
@@ -1275,7 +1275,7 @@ func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
-	current, err := s.st.FeedByID(id)
+	current, err := s.db(r).FeedByID(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "feed not found")
 		return
@@ -1292,13 +1292,13 @@ func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 	if in.IntervalS <= 0 {
 		in.IntervalS = 900
 	}
-	if err := s.st.UpdateFeed(&in); err != nil {
+	if err := s.db(r).UpdateFeed(&in); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
 	go s.feeds.Refresh(context.Background(), id)
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "feed.update", strconv.FormatInt(id, 10), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "feed.update", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -1407,7 +1407,7 @@ func (s *Server) uploadFeed(w http.ResponseWriter, r *http.Request) {
 		Name: name, Action: "block", IntervalS: 3600, Enabled: true,
 		Local: true, Filename: filename, LocalPath: localPath,
 	}
-	id, err := s.st.CreateFeed(feed)
+	id, err := s.db(r).CreateFeed(feed)
 	if err != nil {
 		_ = os.Remove(localPath)
 		writeError(w, http.StatusConflict, "a feed with that name already exists")
@@ -1415,7 +1415,7 @@ func (s *Server) uploadFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	go s.feeds.Refresh(context.Background(), id)
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "feed.upload", name+" ("+filename+")", clientIP(r))
+	s.db(r).AddAudit(sess.Username, "feed.upload", name+" ("+filename+")", clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "entries": len(prefixes)})
 }
 
@@ -1425,12 +1425,12 @@ func (s *Server) deleteFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	feed, err := s.st.FeedByID(id)
+	feed, err := s.db(r).FeedByID(id)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	removed, err := s.st.DeleteFeed(id)
+	removed, err := s.db(r).DeleteFeed(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete feed")
 		return
@@ -1446,7 +1446,7 @@ func (s *Server) deleteFeed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "feed.delete", strconv.FormatInt(id, 10), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "feed.delete", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -1463,7 +1463,7 @@ func (s *Server) refreshFeed(w http.ResponseWriter, r *http.Request) {
 // ---------- certificates ----------
 
 func (s *Server) listCerts(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListCerts()
+	list, err := s.db(r).ListCerts()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -1472,7 +1472,7 @@ func (s *Server) listCerts(w http.ResponseWriter, r *http.Request) {
 	for _, c := range list {
 		out = append(out, s.certs.CertSummary(c))
 	}
-	creds, err := s.st.ListDNSCredentials()
+	creds, err := s.db(r).ListDNSCredentials()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -1557,7 +1557,7 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "encryption error")
 			return
 		}
-		if err := s.st.UpsertDNSCredential(in.Provider, in.Provider, enc); err != nil {
+		if err := s.db(r).UpsertDNSCredential(in.Provider, in.Provider, enc); err != nil {
 			writeError(w, http.StatusInternalServerError, "cannot store credentials")
 			return
 		}
@@ -1567,7 +1567,7 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 		Wildcard: strings.Contains(in.Domains, "*."), RenewMode: in.RenewMode,
 		Challenge: in.Challenge,
 	}
-	id, err := s.st.SaveCert(c)
+	id, err := s.db(r).SaveCert(c)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot create certificate")
 		return
@@ -1578,7 +1578,7 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "cert.create", in.Domains, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "cert.create", in.Domains, clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "status": "pending"})
 }
 
@@ -1626,7 +1626,7 @@ func (s *Server) issueInternalCert(w http.ResponseWriter, r *http.Request) {
 		Wildcard:  strings.Contains(strings.Join(hosts, ","), "*."),
 		RenewMode: model.CertRenewBeforeExpiry, Challenge: "internal",
 	}
-	id, err := s.st.SaveCert(c)
+	id, err := s.db(r).SaveCert(c)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot store the certificate")
 		return
@@ -1635,7 +1635,7 @@ func (s *Server) issueInternalCert(w http.ResponseWriter, r *http.Request) {
 		_ = s.certs.Load()
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "cert.internal", c.Domains, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "cert.internal", c.Domains, clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "domains": c.Domains, "expires_at": notAfter})
 }
 
@@ -1704,7 +1704,7 @@ func (s *Server) uploadCert(w http.ResponseWriter, r *http.Request) {
 		Wildcard: strings.Contains(strings.Join(names, ","), "*."), RenewMode: model.CertRenewBeforeExpiry,
 		Challenge: "upload",
 	}
-	id, err := s.st.SaveCert(c)
+	id, err := s.db(r).SaveCert(c)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot store the certificate")
 		return
@@ -1715,7 +1715,7 @@ func (s *Server) uploadCert(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "cert.upload", c.Domains, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "cert.upload", c.Domains, clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "domains": c.Domains, "expires_at": c.ExpiresAt})
 }
 
@@ -1736,7 +1736,7 @@ func (s *Server) updateCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid renewal mode")
 		return
 	}
-	if err := s.st.SetCertRenewMode(id, in.RenewMode); errors.Is(err, store.ErrNotFound) {
+	if err := s.db(r).SetCertRenewMode(id, in.RenewMode); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	} else if err != nil {
@@ -1744,7 +1744,7 @@ func (s *Server) updateCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "cert.renew_policy", strconv.FormatInt(id, 10)+" "+in.RenewMode, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "cert.renew_policy", strconv.FormatInt(id, 10)+" "+in.RenewMode, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "renew_mode": in.RenewMode})
 }
 
@@ -1760,7 +1760,7 @@ func (s *Server) renewCert(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "cert.renew", strconv.FormatInt(id, 10), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "cert.renew", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "renewing"})
 }
 
@@ -1770,7 +1770,7 @@ func (s *Server) revokeCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	cert, err := s.st.GetCert(id)
+	cert, err := s.db(r).GetCert(id)
 	if err != nil || cert == nil {
 		writeError(w, http.StatusNotFound, "certificate not found")
 		return
@@ -1785,7 +1785,7 @@ func (s *Server) revokeCert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.st.DeleteCert(id); err != nil {
+	if err := s.db(r).DeleteCert(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
 	}
@@ -1793,7 +1793,7 @@ func (s *Server) revokeCert(w http.ResponseWriter, r *http.Request) {
 		_ = s.certs.Load()
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "cert.revoke", cert.Domains, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "cert.revoke", cert.Domains, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
@@ -1804,16 +1804,16 @@ func (s *Server) deleteCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	domains := strconv.FormatInt(id, 10)
-	if c, err := s.st.GetCert(id); err == nil && c != nil {
+	if c, err := s.db(r).GetCert(id); err == nil && c != nil {
 		domains = c.Domains
 	}
-	if err := s.st.DeleteCert(id); err != nil {
+	if err := s.db(r).DeleteCert(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
 	}
 	_ = s.certs.Load()
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "cert.delete", domains, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "cert.delete", domains, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -1837,7 +1837,7 @@ func (s *Server) metricsSnapshot() metrics.Snapshot {
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	f := eventFilterFromQuery(r.URL.Query())
-	events, total, err := s.st.QueryEvents(f)
+	events, total, err := s.db(r).QueryEvents(f)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
@@ -1846,7 +1846,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getGlobe(w http.ResponseWriter, r *http.Request) {
-	points, err := s.st.Globe(globeSince(r))
+	points, err := s.db(r).Globe(globeSince(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
@@ -1857,7 +1857,7 @@ func (s *Server) getGlobe(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("format") == "csv" {
 		// The export covers the whole table, not the console's 200-row view.
-		list, err := s.st.ListAuditAll()
+		list, err := s.db(r).ListAuditAll()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "database error")
 			return
@@ -1872,7 +1872,7 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 		cw.Flush()
 		return
 	}
-	list, err := s.st.ListAudit(200)
+	list, err := s.db(r).ListAudit(200)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -1881,8 +1881,8 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 // verifyAudit reports the first row or tail that no longer matches the chain.
-func (s *Server) verifyAudit(w http.ResponseWriter, _ *http.Request) {
-	checked, problem, err := s.st.VerifyAuditChain()
+func (s *Server) verifyAudit(w http.ResponseWriter, r *http.Request) {
+	checked, problem, err := s.db(r).VerifyAuditChain()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -1949,7 +1949,7 @@ func (s *Server) getNotifications(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	recent, err := s.st.RecentAlerts(50)
+	recent, err := s.db(r).RecentAlerts(50)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -2011,7 +2011,7 @@ func (s *Server) testNotification(w http.ResponseWriter, r *http.Request) {
 // ---------- gate users ----------
 
 func (s *Server) listGateUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := s.st.ListGateUsers()
+	users, err := s.db(r).ListGateUsers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -2053,7 +2053,7 @@ func (s *Server) createGateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id, err := s.st.CreateGateUser(in.Username, hash, enc, in.TOTPEnabled)
+	id, err := s.db(r).CreateGateUser(in.Username, hash, enc, in.TOTPEnabled)
 	if err != nil {
 		writeError(w, http.StatusConflict, "username already exists")
 		return
@@ -2064,7 +2064,7 @@ func (s *Server) createGateUser(w http.ResponseWriter, r *http.Request) {
 		resp["totp_secret"] = secret
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "gate_user.create", in.Username, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "gate_user.create", in.Username, clientIP(r))
 	writeJSON(w, http.StatusCreated, resp)
 }
 
@@ -2082,7 +2082,7 @@ func (s *Server) updateGateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	users, _ := s.st.ListGateUsers()
+	users, _ := s.db(r).ListGateUsers()
 	var target *model.GateUser
 	for i := range users {
 		if users[i].ID == id {
@@ -2129,16 +2129,16 @@ func (s *Server) updateGateUser(w http.ResponseWriter, r *http.Request) {
 			fresh = plain
 		}
 	}
-	if err := s.st.UpdateGateUser(id, hash, secret, enabled); err != nil {
+	if err := s.db(r).UpdateGateUser(id, hash, secret, enabled); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
 	if in.Password != "" {
 		// A credential change must end the sessions opened with the old one.
-		_ = s.st.DeleteGateSessionsFor(target.Username)
+		_ = s.db(r).DeleteGateSessionsFor(target.Username)
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "gate_user.update", target.Username, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "gate_user.update", target.Username, clientIP(r))
 	resp := map[string]any{"status": "ok"}
 	if fresh != "" {
 		resp["otpauth_url"] = auth.OTPAuthURL("WAF-Proxy", target.Username, fresh)
@@ -2153,7 +2153,7 @@ func (s *Server) deleteGateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.st.DeleteGateUser(id); errors.Is(err, store.ErrNotFound) {
+	if err := s.db(r).DeleteGateUser(id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	} else if err != nil {
@@ -2161,7 +2161,7 @@ func (s *Server) deleteGateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "gate_user.delete", strconv.FormatInt(id, 10), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "gate_user.delete", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -2194,7 +2194,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "event: metrics\ndata: %s\n\n", data)
 			fl.Flush()
 		case <-globeTick.C:
-			points, err := s.st.Globe(time.Now().Add(-time.Hour))
+			points, err := s.db(r).Globe(time.Now().Add(-time.Hour))
 			if err != nil {
 				continue
 			}

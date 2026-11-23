@@ -15,7 +15,7 @@ const (
 
 // listLogViews returns the views every log reader shares.
 func (s *Server) listLogViews(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListLogViews()
+	list, err := s.db(r).ListLogViews()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -44,11 +44,11 @@ func (s *Server) saveLogView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := sessionFrom(r).Username
-	if err := s.st.SaveLogView(name, query, user); err != nil {
+	if err := s.db(r).SaveLogView(name, query, user); err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	s.st.AddAudit(user, "logs.view.save", name, clientIP(r))
+	s.db(r).AddAudit(user, "logs.view.save", name, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"name": name})
 }
 
@@ -61,13 +61,13 @@ func (s *Server) deleteLogView(w http.ResponseWriter, r *http.Request) {
 	}
 	// Removing a view that is already gone is the caller's intended end state,
 	// so a missing row is not an error.
-	err := s.st.DeleteLogView(name)
+	err := s.db(r).DeleteLogView(name)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
 	if err == nil {
-		s.st.AddAudit(sessionFrom(r).Username, "logs.view.delete", name, clientIP(r))
+		s.db(r).AddAudit(sessionFrom(r).Username, "logs.view.delete", name, clientIP(r))
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

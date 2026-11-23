@@ -143,9 +143,9 @@ func (s *Server) applyBackup(w http.ResponseWriter, r *http.Request, body []byte
 	result := map[string]int{"settings": 0, "proxies": 0, "policies": 0, "feeds": 0, "bans": 0}
 	var problems []string
 
-	result["settings"], problems = s.applySettings(in.Settings, problems)
-	result["proxies"], problems = s.applyProxies(in.Proxies, problems)
-	result["policies"], problems = s.applyPolicies(in.Policies, problems)
+	result["settings"], problems = s.applySettings(r, in.Settings, problems)
+	result["proxies"], problems = s.applyProxies(r, in.Proxies, problems)
+	result["policies"], problems = s.applyPolicies(r, in.Policies, problems)
 
 	for i := range in.Feeds {
 		f := in.Feeds[i]
@@ -164,7 +164,7 @@ func (s *Server) applyBackup(w http.ResponseWriter, r *http.Request, body []byte
 		if f.Action != "block" && f.Action != "challenge" && f.Action != "log" {
 			f.Action = "block"
 		}
-		if _, err := s.st.CreateFeed(&f); err != nil {
+		if _, err := s.db(r).CreateFeed(&f); err != nil {
 			problems = append(problems, "feed "+f.Name+": "+err.Error())
 			continue
 		}
@@ -212,12 +212,12 @@ func (s *Server) applyBackup(w http.ResponseWriter, r *http.Request, body []byte
 		s.metrics.SetInterfaces(iface, in.Settings["lan_iface"])
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, action, fmt.Sprint(result), clientIP(r))
+	s.db(r).AddAudit(sess.Username, action, fmt.Sprint(result), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"imported": result, "problems": problems})
 }
 
 // applySettings imports the settings every configuration document carries.
-func (s *Server) applySettings(in map[string]string, problems []string) (int, []string) {
+func (s *Server) applySettings(r *http.Request, in map[string]string, problems []string) (int, []string) {
 	allowed := map[string]bool{}
 	for _, k := range publicSettingKeys {
 		allowed[k] = true
@@ -244,7 +244,7 @@ func (s *Server) applySettings(in map[string]string, problems []string) (int, []
 				continue
 			}
 		case "decoy_hosts":
-			clean, msg := s.cleanDecoyHosts(v)
+			clean, msg := s.cleanDecoyHosts(r, v)
 			if msg != "" {
 				problems = append(problems, "settings: "+msg+" skipped")
 				continue
@@ -254,7 +254,7 @@ func (s *Server) applySettings(in map[string]string, problems []string) (int, []
 		next[k] = v
 	}
 	if len(next) > 0 {
-		if err := s.st.SetSettings(next); err != nil {
+		if err := s.db(r).SetSettings(next); err != nil {
 			problems = append(problems, "settings: "+err.Error())
 		}
 	}
@@ -262,7 +262,7 @@ func (s *Server) applySettings(in map[string]string, problems []string) (int, []
 }
 
 // applyProxies adds the hosts that do not exist yet.
-func (s *Server) applyProxies(in []backupProxy, problems []string) (int, []string) {
+func (s *Server) applyProxies(r *http.Request, in []backupProxy, problems []string) (int, []string) {
 	added := 0
 	for _, bp := range in {
 		host := strings.ToLower(strings.TrimSpace(bp.Hostname))
@@ -270,7 +270,7 @@ func (s *Server) applyProxies(in []backupProxy, problems []string) (int, []strin
 			problems = append(problems, "proxy "+host+": invalid hostname")
 			continue
 		}
-		if _, err := s.st.ProxyByHost(host); err == nil {
+		if _, err := s.db(r).ProxyByHost(host); err == nil {
 			problems = append(problems, "proxy "+host+": already exists, skipped")
 			continue
 		}
@@ -289,7 +289,7 @@ func (s *Server) applyProxies(in []backupProxy, problems []string) (int, []strin
 		if p.WAFMode == "" {
 			p.WAFMode = "inherit"
 		}
-		id, err := s.st.CreateProxy(&p)
+		id, err := s.db(r).CreateProxy(&p)
 		if err != nil {
 			problems = append(problems, "proxy "+host+": "+err.Error())
 			continue
@@ -302,10 +302,10 @@ func (s *Server) applyProxies(in []backupProxy, problems []string) (int, []strin
 			}
 			ups = append(ups, model.Upstream{URL: strings.TrimSpace(u.URL), Weight: u.Weight, Enabled: u.Enabled, MaxConns: u.MaxConns})
 		}
-		if err := s.st.ReplaceUpstreams(id, ups); err != nil {
+		if err := s.db(r).ReplaceUpstreams(id, ups); err != nil {
 			problems = append(problems, "proxy "+host+" upstreams: "+err.Error())
 		}
-		if err := s.st.ReplaceRoutes(id, bp.Routes); err != nil {
+		if err := s.db(r).ReplaceRoutes(id, bp.Routes); err != nil {
 			problems = append(problems, "proxy "+host+" routes: "+err.Error())
 		}
 		added++
@@ -314,7 +314,7 @@ func (s *Server) applyProxies(in []backupProxy, problems []string) (int, []strin
 }
 
 // applyPolicies adds every valid policy; policies have no name to match on.
-func (s *Server) applyPolicies(in []model.Policy, problems []string) (int, []string) {
+func (s *Server) applyPolicies(r *http.Request, in []model.Policy, problems []string) (int, []string) {
 	validPolicyKind := map[string]bool{
 		model.PolicyIPWhitelist: true, model.PolicyCountryWhitelist: true, model.PolicyCountryBlacklist: true,
 		model.PolicyASNBlock: true, model.PolicyDecoy: true, "rate_limit": true,
@@ -336,7 +336,7 @@ func (s *Server) applyPolicies(in []model.Policy, problems []string) (int, []str
 			continue
 		}
 		p.ID = 0
-		if _, err := s.st.CreatePolicy(&p); err != nil {
+		if _, err := s.db(r).CreatePolicy(&p); err != nil {
 			problems = append(problems, "policy "+p.Value+": "+err.Error())
 			continue
 		}

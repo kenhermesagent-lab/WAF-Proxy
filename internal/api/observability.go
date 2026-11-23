@@ -96,7 +96,7 @@ func (s *Server) exportEventsCSV(w http.ResponseWriter, r *http.Request) {
 	_ = cw.Write(csvHeader)
 	flusher, canFlush := w.(http.Flusher)
 	n := 0
-	if err := s.st.EachEvent(f, limit, func(e model.Event) error {
+	if err := s.db(r).EachEvent(f, limit, func(e model.Event) error {
 		if err := cw.Write([]string{
 			e.TS.UTC().Format(time.RFC3339), e.SrcIP, csvSafe(e.Country), strconv.Itoa(e.ASN), csvSafe(e.Host),
 			csvSafe(e.Method), csvSafe(e.Path), strconv.Itoa(e.Status), csvSafe(e.Action), csvSafe(e.Stage),
@@ -173,7 +173,7 @@ func (s *Server) listIPs(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	list, err := s.st.IPSummaries(f, q.Get("q"), limit)
+	list, err := s.db(r).IPSummaries(f, q.Get("q"), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
@@ -195,12 +195,12 @@ func (s *Server) getIP(w http.ResponseWriter, r *http.Request) {
 	}
 	ip = addr.String()
 	f := eventFilterFromQuery(r.URL.Query())
-	sum, err := s.st.IPSummary(ip, f.From, f.To)
+	sum, err := s.db(r).IPSummary(ip, f.From, f.To)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	events, total, err := s.st.QueryEvents(store.EventFilter{From: f.From, To: f.To, SrcIP: ip, Limit: 100})
+	events, total, err := s.db(r).QueryEvents(store.EventFilter{From: f.From, To: f.To, SrcIP: ip, Limit: 100})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return

@@ -39,7 +39,7 @@ func (s *Server) checkUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "updates.check", "package index refreshed", clientIP(r))
+	s.db(r).AddAudit(sess.Username, "updates.check", "package index refreshed", clientIP(r))
 	writeJSON(w, http.StatusOK, snap)
 }
 
@@ -68,7 +68,7 @@ func (s *Server) applyUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "updates.apply", req.Package, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "updates.apply", req.Package, clientIP(r))
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -91,7 +91,7 @@ func (s *Server) applyAppUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "updates.apply_app", "application rebuild requested", clientIP(r))
+	s.db(r).AddAudit(sess.Username, "updates.apply_app", "application rebuild requested", clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "updating"})
 }
 
@@ -118,7 +118,7 @@ func (s *Server) configureAppUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "updates.configure_app", strings.TrimSpace(req.Path), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "updates.configure_app", strings.TrimSpace(req.Path), clientIP(r))
 	writeJSON(w, http.StatusOK, s.updates.Snapshot(r.Context()))
 }
 

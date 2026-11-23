@@ -33,13 +33,13 @@ func (s *Server) listGateFailures(w http.ResponseWriter, r *http.Request) {
 	from := dayParam(q.Get("from"), now.AddDate(0, 0, -6))
 	to := dayParam(q.Get("to"), now).Add(24 * time.Hour)
 
-	rows, err := s.st.GateFailureReport(from, to, 200)
+	rows, err := s.db(r).GateFailureReport(from, to, 200)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
 	hosts := map[int64]string{}
-	if proxies, err := s.st.ListProxies(); err == nil {
+	if proxies, err := s.db(r).ListProxies(); err == nil {
 		for _, p := range proxies {
 			hosts[p.ID] = p.Hostname
 		}

@@ -278,6 +278,28 @@ func (s *Store) migrateSites() error {
 	return err
 }
 
+// SiteForHost resolves a console hostname to the site that owns it. A host no
+// site and no proxy claims, and a single-site install, both land on the default
+// site, so the console reached the way it always was is unchanged.
+func (s *Store) SiteForHost(host string) int64 {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if host == "" {
+		return s.defaultSite
+	}
+	var id int64
+	if err := s.db.QueryRow(`SELECT id FROM sites WHERE lower(console_host) = ?`, host).Scan(&id); err == nil {
+		return id
+	}
+	var site int64
+	if err := s.db.QueryRow(`SELECT site_id FROM proxies WHERE lower(hostname) = ?`, host).Scan(&site); err == nil && site != 0 {
+		return site
+	}
+	return s.defaultSite
+}
+
 func isUniqueErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }

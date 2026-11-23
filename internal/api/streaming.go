@@ -33,7 +33,7 @@ type streamingView struct {
 }
 
 func (s *Server) getStreaming(w http.ResponseWriter, r *http.Request) {
-	kv, _ := s.st.Settings()
+	kv, _ := s.db(r).Settings()
 	live := map[string]streaming.Status{}
 	if s.streams != nil {
 		for _, st := range s.streams.Statuses() {
@@ -92,7 +92,7 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	lists, err := s.streamingLists()
+	lists, err := s.streamingLists(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -107,7 +107,7 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	kv, _ := s.st.Settings()
+	kv, _ := s.db(r).Settings()
 	if normalized.Enabled {
 		// An empty bind address means "all interfaces", which would publish the
 		// forwarder on every network the host is on.
@@ -130,7 +130,7 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 		"stream_" + def.ID + "_max_conns": strconv.Itoa(normalized.MaxConns),
 		"stream_" + def.ID + "_lists":     joinIDs(normalized.ListIDs),
 	}
-	if err := s.st.SetSettings(next); err != nil {
+	if err := s.db(r).SetSettings(next); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
 		return
 	}
@@ -145,7 +145,7 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 	envPath, envErr := s.streamingEnvFile(def, normalized)
 
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "streaming.update",
+	s.db(r).AddAudit(sess.Username, "streaming.update",
 		def.ID+" enabled="+boolSetting(normalized.Enabled)+" port="+strconv.Itoa(normalized.Port)+" upstream="+normalized.Upstream,
 		clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -158,8 +158,8 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 
 // streamingLists resolves the named block/allow lists for a forwarder. The
 // streaming package works with plain entries so it never imports the store.
-func (s *Server) streamingLists() ([]streaming.List, error) {
-	lists, err := s.st.ListAccessLists()
+func (s *Server) streamingLists(r *http.Request, ) ([]streaming.List, error) {
+	lists, err := s.db(r).ListAccessLists()
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (s *Server) refreshStreamLists() {
 	if s.streams == nil {
 		return
 	}
-	lists, err := s.streamingLists()
+	lists, err := s.streamingLists(nil)
 	if err != nil {
 		s.log.Error("reload streaming lists", "err", err)
 		return
@@ -194,8 +194,8 @@ func (s *Server) refreshStreamLists() {
 
 // streamListUsers names the forwarders that attach a list, so deleting it is
 // refused while a media port still enforces it.
-func (s *Server) streamListUsers(id int64) []string {
-	kv, err := s.st.Settings()
+func (s *Server) streamListUsers(r *http.Request, id int64) []string {
+	kv, err := s.db(r).Settings()
 	if err != nil {
 		return nil
 	}
@@ -353,7 +353,7 @@ func (s *Server) restartProcess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "system.restart", "container restart requested", clientIP(r))
+	s.db(r).AddAudit(sess.Username, "system.restart", "container restart requested", clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]string{
 		"status": "restarting",
 		"hint":   "the service stops and starts again; reconnect in a few seconds",

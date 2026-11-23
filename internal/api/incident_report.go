@@ -28,12 +28,12 @@ func (s *Server) incidentReportMarkdown(w http.ResponseWriter, r *http.Request) 
 	ip = addr.String()
 
 	f := eventFilterFromQuery(r.URL.Query())
-	sum, err := s.st.IPSummary(ip, f.From, f.To)
+	sum, err := s.db(r).IPSummary(ip, f.From, f.To)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	events, total, err := s.st.QueryEvents(store.EventFilter{From: f.From, To: f.To, SrcIP: ip, Limit: 100})
+	events, total, err := s.db(r).QueryEvents(store.EventFilter{From: f.From, To: f.To, SrcIP: ip, Limit: 100})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
@@ -77,19 +77,19 @@ func (s *Server) incidentReportMarkdown(w http.ResponseWriter, r *http.Request) 
 
 	writeReport(w, reportDoc{
 		subject: ip, hours: windowHours(f.From, f.To), summary: summary,
-		events: events, total: total, audit: s.reportAudit(ip),
+		events: events, total: total, audit: s.reportAudit(r, ip),
 	})
 }
 
 // logIncidentReportMarkdown renders the Logs page report for any filter set.
 func (s *Server) logIncidentReportMarkdown(w http.ResponseWriter, r *http.Request) {
 	f := eventFilterFromQuery(r.URL.Query())
-	totals, err := s.st.EventTotals(f)
+	totals, err := s.db(r).EventTotals(f)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	events, _, err := s.st.QueryEvents(f)
+	events, _, err := s.db(r).QueryEvents(f)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
@@ -115,17 +115,17 @@ func (s *Server) logIncidentReportMarkdown(w http.ResponseWriter, r *http.Reques
 
 	writeReport(w, reportDoc{
 		subject: subject, hours: windowHours(f.From, f.To), summary: summary,
-		events: events, total: totals.Total, audit: s.reportAudit(needle),
+		events: events, total: totals.Total, audit: s.reportAudit(r, needle),
 	})
 }
 
 // reportAudit returns the audit rows that mention a subject. A role that
 // cannot read the audit log still gets the traffic half of the report.
-func (s *Server) reportAudit(subject string) []model.AuditEntry {
+func (s *Server) reportAudit(r *http.Request, subject string) []model.AuditEntry {
 	if subject == "" {
 		return nil
 	}
-	list, err := s.st.ListAudit(200)
+	list, err := s.db(r).ListAudit(200)
 	if err != nil {
 		return nil
 	}

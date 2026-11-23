@@ -114,21 +114,21 @@ type configAccessRule struct {
 	Role   string `json:"role"`
 }
 
-func (s *Server) configDocument() (configDoc, error) {
-	kv, _ := s.st.Settings()
+func (s *Server) configDocument(r *http.Request, ) (configDoc, error) {
+	kv, _ := s.db(r).Settings()
 	safe := map[string]string{}
 	for _, k := range publicSettingKeys {
 		safe[k] = kv[k]
 	}
-	allProxies, err := s.st.ListProxies()
+	allProxies, err := s.db(r).ListProxies()
 	if err != nil {
 		return configDoc{}, err
 	}
-	wafAll, _ := s.st.ListProfiles()
-	protectionAll, _ := s.st.ListProtectionProfiles()
-	lists, _ := s.st.ListAccessLists()
-	access, _ := s.st.ListAccessProfiles()
-	policies, _ := s.st.ListPolicies()
+	wafAll, _ := s.db(r).ListProfiles()
+	protectionAll, _ := s.db(r).ListProtectionProfiles()
+	lists, _ := s.db(r).ListAccessLists()
+	access, _ := s.db(r).ListAccessProfiles()
+	policies, _ := s.db(r).ListPolicies()
 
 	wafName := map[int64]string{}
 	// Builtins are seeded on every install, so only operator profiles travel.
@@ -204,11 +204,11 @@ func (s *Server) configDocument() (configDoc, error) {
 		if p.AccessProfileID != nil {
 			row.AccessProfile = accessName[*p.AccessProfileID]
 		}
-		ups, _ := s.st.ListUpstreams(p.ID)
+		ups, _ := s.db(r).ListUpstreams(p.ID)
 		for _, u := range ups {
 			row.Upstreams = append(row.Upstreams, configUpstream{URL: u.URL, Weight: u.Weight, Enabled: u.Enabled, MaxConns: u.MaxConns})
 		}
-		routes, _ := s.st.ListRoutes(p.ID)
+		routes, _ := s.db(r).ListRoutes(p.ID)
 		for _, r := range routes {
 			row.Routes = append(row.Routes, configRoute{Kind: r.Kind, Match: r.Match, Target: r.Target, StripPrefix: r.StripPrefix,
 				Method: r.Method, Header: r.Header, Query: r.Query, Regex: r.Regex,
@@ -245,7 +245,7 @@ func (s *Server) configDocument() (configDoc, error) {
 
 // exportConfigYAML renders the declarative configuration as readable YAML.
 func (s *Server) exportConfigYAML(w http.ResponseWriter, r *http.Request) {
-	doc, err := s.configDocument()
+	doc, err := s.configDocument(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot build the configuration")
 		return
@@ -338,16 +338,16 @@ func (s *Server) importConfigYAML(w http.ResponseWriter, r *http.Request) {
 	}
 	var problems []string
 
-	result["settings"], problems = s.applySettings(in.Settings, problems)
-	result["waf_profiles"], problems = s.applyWAFProfiles(in.WAFProfiles, problems)
-	result["protection_profiles"], problems = s.applyProtectionProfiles(in.ProtectionProfiles, problems)
-	result["access_lists"], problems = s.applyAccessLists(in.AccessLists, problems)
+	result["settings"], problems = s.applySettings(r, in.Settings, problems)
+	result["waf_profiles"], problems = s.applyWAFProfiles(r, in.WAFProfiles, problems)
+	result["protection_profiles"], problems = s.applyProtectionProfiles(r, in.ProtectionProfiles, problems)
+	result["access_lists"], problems = s.applyAccessLists(r, in.AccessLists, problems)
 	// Proxies first: a proxy-scoped policy names its host. The access profile is
 	// linked back afterwards, because it needs the policies created next.
-	result["proxies"], problems = s.applyConfigProxies(in.Proxies, problems)
-	result["policies"], problems = s.applyConfigPolicies(in.Policies, problems)
-	result["access_profiles"], problems = s.applyAccessProfiles(in.AccessProfiles, problems)
-	s.linkConfigProxyAccessProfiles(in.Proxies, problems)
+	result["proxies"], problems = s.applyConfigProxies(r, in.Proxies, problems)
+	result["policies"], problems = s.applyConfigPolicies(r, in.Policies, problems)
+	result["access_profiles"], problems = s.applyAccessProfiles(r, in.AccessProfiles, problems)
+	s.linkConfigProxyAccessProfiles(r, in.Proxies, problems)
 
 	_ = s.policy.Reload()
 	if err := s.proxy.Reload(r.Context()); err != nil {
@@ -357,13 +357,13 @@ func (s *Server) importConfigYAML(w http.ResponseWriter, r *http.Request) {
 		s.metrics.SetInterfaces(iface, in.Settings["lan_iface"])
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "config.import", fmt.Sprint(result), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "config.import", fmt.Sprint(result), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"imported": result, "problems": problems})
 }
 
-func (s *Server) applyWAFProfiles(in []model.Profile, problems []string) (int, []string) {
+func (s *Server) applyWAFProfiles(r *http.Request, in []model.Profile, problems []string) (int, []string) {
 	existing := map[string]bool{}
-	if list, err := s.st.ListProfiles(); err == nil {
+	if list, err := s.db(r).ListProfiles(); err == nil {
 		for _, p := range list {
 			existing[p.Name] = true
 		}
@@ -380,7 +380,7 @@ func (s *Server) applyWAFProfiles(in []model.Profile, problems []string) (int, [
 			continue
 		}
 		p.ID, p.Name, p.Builtin = 0, name, false
-		if err := s.st.CreateProfile(&p); err != nil {
+		if err := s.db(r).CreateProfile(&p); err != nil {
 			problems = append(problems, "waf profile "+name+": "+err.Error())
 			continue
 		}
@@ -390,9 +390,9 @@ func (s *Server) applyWAFProfiles(in []model.Profile, problems []string) (int, [
 	return added, problems
 }
 
-func (s *Server) applyProtectionProfiles(in []model.ProtectionProfile, problems []string) (int, []string) {
+func (s *Server) applyProtectionProfiles(r *http.Request, in []model.ProtectionProfile, problems []string) (int, []string) {
 	existing := map[string]bool{}
-	if list, err := s.st.ListProtectionProfiles(); err == nil {
+	if list, err := s.db(r).ListProtectionProfiles(); err == nil {
 		for _, p := range list {
 			existing[p.Name] = true
 		}
@@ -409,7 +409,7 @@ func (s *Server) applyProtectionProfiles(in []model.ProtectionProfile, problems 
 			continue
 		}
 		p.ID, p.Name, p.Builtin = 0, name, false
-		if err := s.st.CreateProtectionProfile(&p); err != nil {
+		if err := s.db(r).CreateProtectionProfile(&p); err != nil {
 			problems = append(problems, "protection profile "+name+": "+err.Error())
 			continue
 		}
@@ -419,9 +419,9 @@ func (s *Server) applyProtectionProfiles(in []model.ProtectionProfile, problems 
 	return added, problems
 }
 
-func (s *Server) applyAccessLists(in []configAccessList, problems []string) (int, []string) {
+func (s *Server) applyAccessLists(r *http.Request, in []configAccessList, problems []string) (int, []string) {
 	existing := map[string]bool{}
-	if list, err := s.st.ListAccessLists(); err == nil {
+	if list, err := s.db(r).ListAccessLists(); err == nil {
 		for _, l := range list {
 			existing[l.Name] = true
 		}
@@ -442,7 +442,7 @@ func (s *Server) applyAccessLists(in []configAccessList, problems []string) (int
 			continue
 		}
 		list := model.AccessList{Kind: row.Kind, Name: name, IPs: row.IPs, Countries: row.Countries}
-		if err := s.st.CreateAccessList(&list); err != nil {
+		if err := s.db(r).CreateAccessList(&list); err != nil {
 			problems = append(problems, "access list "+name+": "+err.Error())
 			continue
 		}
@@ -454,9 +454,9 @@ func (s *Server) applyAccessLists(in []configAccessList, problems []string) (int
 
 // applyConfigPolicies resolves the proxy hostname before handing the rows to the
 // shared policy importer.
-func (s *Server) applyConfigPolicies(in []configPolicy, problems []string) (int, []string) {
+func (s *Server) applyConfigPolicies(r *http.Request, in []configPolicy, problems []string) (int, []string) {
 	proxyID := map[string]int64{}
-	if list, err := s.st.ListProxies(); err == nil {
+	if list, err := s.db(r).ListProxies(); err == nil {
 		for _, p := range list {
 			proxyID[p.Hostname] = p.ID
 		}
@@ -477,19 +477,19 @@ func (s *Server) applyConfigPolicies(in []configPolicy, problems []string) (int,
 		}
 		rows = append(rows, row)
 	}
-	return s.applyPolicies(rows, problems)
+	return s.applyPolicies(r, rows, problems)
 }
 
 // applyConfigProxies resolves profile names, then uses the shared proxy importer.
-func (s *Server) applyConfigProxies(in []configProxy, problems []string) (int, []string) {
+func (s *Server) applyConfigProxies(r *http.Request, in []configProxy, problems []string) (int, []string) {
 	wafID := map[string]int64{}
-	if list, err := s.st.ListProfiles(); err == nil {
+	if list, err := s.db(r).ListProfiles(); err == nil {
 		for _, p := range list {
 			wafID[p.Name] = p.ID
 		}
 	}
 	protectionID := map[string]int64{}
-	if list, err := s.st.ListProtectionProfiles(); err == nil {
+	if list, err := s.db(r).ListProtectionProfiles(); err == nil {
 		for _, p := range list {
 			protectionID[p.Name] = p.ID
 		}
@@ -535,13 +535,13 @@ func (s *Server) applyConfigProxies(in []configProxy, problems []string) (int, [
 		}
 		rows = append(rows, bp)
 	}
-	return s.applyProxies(rows, problems)
+	return s.applyProxies(r, rows, problems)
 }
 
 // linkConfigProxyAccessProfiles attaches access profiles after they exist.
-func (s *Server) linkConfigProxyAccessProfiles(in []configProxy, problems []string) {
+func (s *Server) linkConfigProxyAccessProfiles(r *http.Request, in []configProxy, problems []string) {
 	accessID := map[string]int64{}
-	if list, err := s.st.ListAccessProfiles(); err == nil {
+	if list, err := s.db(r).ListAccessProfiles(); err == nil {
 		for _, a := range list {
 			accessID[a.Name] = a.ID
 		}
@@ -555,12 +555,12 @@ func (s *Server) linkConfigProxyAccessProfiles(in []configProxy, problems []stri
 			problems = append(problems, "proxy "+p.Hostname+": unknown access profile "+p.AccessProfile)
 			continue
 		}
-		proxy, err := s.st.ProxyByHost(strings.ToLower(strings.TrimSpace(p.Hostname)))
+		proxy, err := s.db(r).ProxyByHost(strings.ToLower(strings.TrimSpace(p.Hostname)))
 		if err != nil {
 			continue
 		}
 		proxy.AccessProfileID = &id
-		if err := s.st.UpdateProxy(proxy); err != nil {
+		if err := s.db(r).UpdateProxy(proxy); err != nil {
 			problems = append(problems, "proxy "+p.Hostname+": "+err.Error())
 		}
 	}
@@ -568,33 +568,33 @@ func (s *Server) linkConfigProxyAccessProfiles(in []configProxy, problems []stri
 
 // applyAccessProfiles resolves the names in the document against profiles,
 // lists and policies that already exist or were imported just before it.
-func (s *Server) applyAccessProfiles(in []configAccessProfile, problems []string) (int, []string) {
+func (s *Server) applyAccessProfiles(r *http.Request, in []configAccessProfile, problems []string) (int, []string) {
 	existing := map[string]bool{}
-	if list, err := s.st.ListAccessProfiles(); err == nil {
+	if list, err := s.db(r).ListAccessProfiles(); err == nil {
 		for _, a := range list {
 			existing[a.Name] = true
 		}
 	}
 	wafID := map[string]int64{}
-	if list, err := s.st.ListProfiles(); err == nil {
+	if list, err := s.db(r).ListProfiles(); err == nil {
 		for _, p := range list {
 			wafID[p.Name] = p.ID
 		}
 	}
 	protectionID := map[string]int64{}
-	if list, err := s.st.ListProtectionProfiles(); err == nil {
+	if list, err := s.db(r).ListProtectionProfiles(); err == nil {
 		for _, p := range list {
 			protectionID[p.Name] = p.ID
 		}
 	}
 	listID := map[string]int64{}
-	if list, err := s.st.ListAccessLists(); err == nil {
+	if list, err := s.db(r).ListAccessLists(); err == nil {
 		for _, l := range list {
 			listID[l.Name] = l.ID
 		}
 	}
 	policyID := map[string]int64{}
-	if list, err := s.st.ListPolicies(); err == nil {
+	if list, err := s.db(r).ListPolicies(); err == nil {
 		for _, p := range list {
 			policyID[strings.TrimSpace(p.Kind+" "+p.Value)] = p.ID
 		}
@@ -648,7 +648,7 @@ func (s *Server) applyAccessProfiles(in []configAccessProfile, problems []string
 			}
 			bundle.Rules = append(bundle.Rules, model.AccessRule{PolicyID: id, Role: role})
 		}
-		if err := s.st.CreateAccessProfile(&bundle); err != nil {
+		if err := s.db(r).CreateAccessProfile(&bundle); err != nil {
 			problems = append(problems, "access profile "+name+": "+err.Error())
 			continue
 		}

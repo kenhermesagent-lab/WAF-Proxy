@@ -53,7 +53,7 @@ type tailscaleView struct {
 func (s *Server) SetTailscaleState(v TailscaleState) { s.tailscale = v }
 
 func (s *Server) getTailscale(w http.ResponseWriter, r *http.Request) {
-	kv, err := s.st.Settings()
+	kv, err := s.db(r).Settings()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -128,7 +128,7 @@ func (s *Server) putTailscale(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	kv, err := s.st.Settings()
+	kv, err := s.db(r).Settings()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -142,12 +142,12 @@ func (s *Server) putTailscale(w http.ResponseWriter, r *http.Request) {
 		"tailscale_proxy_enabled": boolSetting(req.ProxyEnabled),
 		"tailscale_dns_enabled":   boolSetting(req.DNSEnabled),
 	}
-	if err := s.st.SetSettings(next); err != nil {
+	if err := s.db(r).SetSettings(next); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "tailscale.update", "tailscale listeners changed", clientIP(r))
+	s.db(r).AddAudit(sess.Username, "tailscale.update", "tailscale listeners changed", clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "restart_required": true})
 }
 

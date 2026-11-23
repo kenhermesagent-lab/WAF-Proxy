@@ -55,7 +55,7 @@ func parseRangeTime(v string, endOfDay bool) (time.Time, bool) {
 
 func (s *Server) getAnalytics(w http.ResponseWriter, r *http.Request) {
 	from, to := analyticsRange(r)
-	out, err := s.st.AnalyticsRange(from, to)
+	out, err := s.db(r).AnalyticsRange(from, to)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
