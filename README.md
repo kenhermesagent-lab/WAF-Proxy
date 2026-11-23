@@ -167,8 +167,9 @@ in the wizard and in **Settings → Network**, and do not forward the console po
 | Streaming | Byte-relay forwarders for Plex, Jellyfin and similar, with optional lists |
 | Policies | Global profile with policy **Preflight**, WAF and protection profiles, blocklists/whitelists, access profiles, bot filter |
 | Sources | Threat feeds, local lists, CrowdSec status, bans, per-address investigation |
-| Logs | Event search, filters, live tail, the **Why?** request simulator |
+| Logs | Event search, filters, saved views, live tail, bulk source actions, the **Why?** request simulator |
 | Anomaly events | Requests that tripped a rule but were not blocked |
+| Activity | The audit log with before/after diffs and rollback of edits |
 | Access gate | Site accounts, TOTP, gate settings |
 | Threat intel | Feed health and rollup |
 | Certificates | Issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01 |

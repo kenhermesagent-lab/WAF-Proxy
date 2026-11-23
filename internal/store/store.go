@@ -343,6 +343,13 @@ CREATE TABLE IF NOT EXISTS audit (
   hash TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
+CREATE TABLE IF NOT EXISTS audit_snapshots (
+  audit_id INTEGER PRIMARY KEY,
+  entity TEXT NOT NULL,
+  entity_id INTEGER NOT NULL,
+  before TEXT NOT NULL DEFAULT '',
+  after TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS gate_users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
@@ -867,14 +874,69 @@ const auditHeadKey = "audit_head"
 func (s *Store) AddAudit(user, action, detail, ip string) {
 	s.auditMu.Lock()
 	defer s.auditMu.Unlock()
+	s.addAuditLocked(user, action, detail, ip)
+}
+
+// addAuditLocked appends one entry to the chain and returns its id. The caller
+// holds auditMu.
+func (s *Store) addAuditLocked(user, action, detail, ip string) int64 {
 	var prev string
 	_ = s.db.QueryRow(`SELECT hash FROM audit ORDER BY id DESC LIMIT 1`).Scan(&prev)
 	ts := stamp(time.Now())
 	hash := auditHash(prev, ts, user, action, detail, ip)
-	_, _ = s.db.Exec(`INSERT INTO audit(ts, user, action, detail, ip, hash) VALUES(?, ?, ?, ?, ?, ?)`,
+	res, err := s.db.Exec(`INSERT INTO audit(ts, user, action, detail, ip, hash) VALUES(?, ?, ?, ?, ?, ?)`,
 		ts, user, action, detail, ip, hash)
+	if err != nil {
+		return 0
+	}
 	_, _ = s.db.Exec(`INSERT INTO settings(key, value) VALUES(?, ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, auditHeadKey, hash)
+	id, _ := res.LastInsertId()
+	return id
+}
+
+// AddAuditSnapshot records a mutation together with the entity state around it,
+// so a later reader can show the difference or undo the change. It is
+// best-effort: a snapshot failure must never undo or block the change itself.
+func (s *Store) AddAuditSnapshot(user, action, detail, ip string, snap model.AuditSnapshot) {
+	s.auditMu.Lock()
+	defer s.auditMu.Unlock()
+	id := s.addAuditLocked(user, action, detail, ip)
+	if id == 0 {
+		return
+	}
+	_, _ = s.db.Exec(`INSERT OR REPLACE INTO audit_snapshots(audit_id, entity, entity_id, before, after)
+		VALUES(?, ?, ?, ?, ?)`, id, snap.Entity, snap.EntityID, snap.Before, snap.After)
+}
+
+// GetAuditSnapshot returns the stored state for one audit entry.
+func (s *Store) GetAuditSnapshot(auditID int64) (*model.AuditSnapshot, error) {
+	var snap model.AuditSnapshot
+	err := s.db.QueryRow(`SELECT audit_id, entity, entity_id, before, after FROM audit_snapshots WHERE audit_id = ?`, auditID).
+		Scan(&snap.AuditID, &snap.Entity, &snap.EntityID, &snap.Before, &snap.After)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &snap, nil
+}
+
+// GetAuditEntry returns one audit entry by id.
+func (s *Store) GetAuditEntry(id int64) (*model.AuditEntry, error) {
+	var e model.AuditEntry
+	var ts string
+	err := s.db.QueryRow(`SELECT id, ts, user, action, detail, ip FROM audit WHERE id = ?`, id).
+		Scan(&e.ID, &ts, &e.User, &e.Action, &e.Detail, &e.IP)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	e.TS = parseStamp(ts)
+	return &e, nil
 }
 
 func auditHash(prev, ts, user, action, detail, ip string) string {
@@ -936,7 +998,9 @@ func (s *Store) ListAudit(limit int) ([]model.AuditEntry, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
-	rows, err := s.db.Query(`SELECT id, ts, user, action, detail, ip FROM audit ORDER BY id DESC LIMIT ?`, limit)
+	rows, err := s.db.Query(`SELECT a.id, a.ts, a.user, a.action, a.detail, a.ip, COALESCE(s.entity, '')
+		FROM audit a LEFT JOIN audit_snapshots s ON s.audit_id = a.id
+		ORDER BY a.id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -945,7 +1009,7 @@ func (s *Store) ListAudit(limit int) ([]model.AuditEntry, error) {
 	for rows.Next() {
 		var e model.AuditEntry
 		var ts string
-		if err := rows.Scan(&e.ID, &ts, &e.User, &e.Action, &e.Detail, &e.IP); err != nil {
+		if err := rows.Scan(&e.ID, &ts, &e.User, &e.Action, &e.Detail, &e.IP, &e.Entity); err != nil {
 			return nil, err
 		}
 		e.TS = parseStamp(ts)

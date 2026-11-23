@@ -153,6 +153,7 @@ func (s *Server) updateAccessList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current.IPs, current.Countries = in.IPs, in.Countries
+	before := s.snapshotAccessList(current.ID)
 	if err := s.st.UpdateAccessList(current); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update list")
 		return
@@ -160,7 +161,7 @@ func (s *Server) updateAccessList(w http.ResponseWriter, r *http.Request) {
 	s.reload(r.Context())
 	s.refreshStreamLists()
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "access_list.update", current.Name, clientIP(r))
+	s.auditChange(sess.Username, "access_list.update", current.Name, clientIP(r), "access_list", current.ID, before, s.snapshotAccessList(current.ID))
 	writeJSON(w, http.StatusOK, current)
 }
 
@@ -205,6 +206,7 @@ func (s *Server) deleteAccessList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, current.Name+" is attached to "+strings.Join(parts, " and ")+"; detach it first")
 		return
 	}
+	before := s.snapshotAccessList(id)
 	if err := s.st.DeleteAccessList(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete list")
 		return
@@ -212,6 +214,6 @@ func (s *Server) deleteAccessList(w http.ResponseWriter, r *http.Request) {
 	s.reload(r.Context())
 	s.refreshStreamLists()
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "access_list.delete", current.Name, clientIP(r))
+	s.auditChange(sess.Username, "access_list.delete", current.Name, clientIP(r), "access_list", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

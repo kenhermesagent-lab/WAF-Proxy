@@ -700,6 +700,15 @@ export interface AuditEntry {
   action: string;
   detail: string;
   ip: string;
+  entity?: string;
+}
+
+export interface AuditSnapshot {
+  audit_id: number;
+  entity: string;
+  entity_id: number;
+  before?: string;
+  after?: string;
 }
 
 export interface SimStage {

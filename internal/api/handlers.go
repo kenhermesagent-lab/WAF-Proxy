@@ -309,6 +309,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		current.GateSecret = enc
 	}
+	before := s.snapshotProxy(id)
 	if err := s.st.UpdateProxy(current); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
@@ -316,7 +317,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	s.saveChildren(id, in)
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "proxy.update", current.Hostname, clientIP(r))
+	s.auditChange(sess.Username, "proxy.update", current.Hostname, clientIP(r), "proxy", id, before, s.snapshotProxy(id))
 	writeJSON(w, http.StatusOK, current)
 }
 
@@ -542,6 +543,7 @@ func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, _ := s.st.GetProxy(id)
+	before := s.snapshotProxy(id)
 	if err := s.st.DeleteProxy(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
@@ -552,7 +554,7 @@ func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request) {
 	if p != nil {
 		name = p.Hostname
 	}
-	s.st.AddAudit(sess.Username, "proxy.delete", name, clientIP(r))
+	s.auditChange(sess.Username, "proxy.delete", name, clientIP(r), "proxy", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -671,6 +673,7 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	p.MaxResponse, p.LoginPaths, p.LoginRPS = in.MaxResponse, in.LoginPaths, in.LoginRPS
 	p.LoginBurst, p.AdminPaths, p.AdminIPs = in.LoginBurst, in.AdminPaths, in.AdminIPs
+	before := s.snapshotProfile(p.ID)
 	if err := s.st.UpdateProfile(p); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
@@ -682,7 +685,7 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "profile.update", p.Name, clientIP(r))
+	s.auditChange(sess.Username, "profile.update", p.Name, clientIP(r), "profile", p.ID, before, s.snapshotProfile(p.ID))
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -828,6 +831,7 @@ func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("%s is selected by %d %s; assign another profile first", p.Name, inUse, noun))
 		return
 	}
+	before := s.snapshotProfile(id)
 	if err := s.st.DeleteProfile(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete profile")
 		return
@@ -838,7 +842,7 @@ func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "profile.delete", p.Name, clientIP(r))
+	s.auditChange(sess.Username, "profile.delete", p.Name, clientIP(r), "profile", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -956,13 +960,14 @@ func (s *Server) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
+	before := s.snapshotPolicy(in.ID)
 	if err := s.st.UpdatePolicy(&in); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "policy.update", in.Kind+" "+in.Value, clientIP(r))
+	s.auditChange(sess.Username, "policy.update", in.Kind+" "+in.Value, clientIP(r), "policy", in.ID, before, s.snapshotPolicy(in.ID))
 	writeJSON(w, http.StatusOK, in)
 }
 
@@ -972,13 +977,14 @@ func (s *Server) deletePolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
+	before := s.snapshotPolicy(id)
 	if err := s.st.DeletePolicy(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "policy.delete", strconv.FormatInt(id, 10), clientIP(r))
+	s.auditChange(sess.Username, "policy.delete", strconv.FormatInt(id, 10), clientIP(r), "policy", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -1094,7 +1100,7 @@ func (s *Server) deleteBan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "ban.delete", b.CIDR+" "+b.Reason, clientIP(r))
+	s.auditChange(sess.Username, "ban.delete", b.CIDR+" "+b.Reason, clientIP(r), "ban", b.ID, snapshotJSON(b), nil)
 }
 
 func (s *Server) promoteBan(w http.ResponseWriter, r *http.Request) {

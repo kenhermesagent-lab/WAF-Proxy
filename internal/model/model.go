@@ -481,6 +481,19 @@ type AuditEntry struct {
 	Action string    `json:"action"`
 	Detail string    `json:"detail"`
 	IP     string    `json:"ip"`
+	// Entity is set when the entry carries a before/after snapshot.
+	Entity string `json:"entity,omitempty"`
+}
+
+// AuditSnapshot is the state an audited mutation started from and left behind.
+// Empty Before means the change created the entity; empty After means it was
+// removed.
+type AuditSnapshot struct {
+	AuditID  int64  `json:"audit_id"`
+	Entity   string `json:"entity"`
+	EntityID int64  `json:"entity_id"`
+	Before   string `json:"before,omitempty"`
+	After    string `json:"after,omitempty"`
 }
 
 // Verdict is the outcome of the policy pipeline.

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Logs from "./Logs";
 
 vi.mock("../api", () => ({
@@ -60,7 +60,7 @@ describe("Logs request simulator", () => {
   });
 
   it("opens the simulator for a blocked row and renders the returned stages and verdict", async () => {
-    render(<Logs onError={vi.fn()} onOpenSource={vi.fn()} />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Why?" }));
     expect(await screen.findByText(/Why was this request handled this way\? · app.lab.local/)).toBeTruthy();
@@ -81,14 +81,14 @@ describe("Logs request simulator", () => {
 
   it("opens the source drawer from a source cell", async () => {
     const onOpenSource = vi.fn();
-    render(<Logs onError={vi.fn()} onOpenSource={onOpenSource} />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={onOpenSource} canWrite />);
 
     fireEvent.click(await screen.findByRole("button", { name: "203.0.113.7" }));
     expect(onOpenSource).toHaveBeenCalledWith("203.0.113.7");
   });
 
   it("polls the newest page while the live tail is on", async () => {
-    render(<Logs onError={vi.fn()} onOpenSource={vi.fn()} />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
     await screen.findByText("GET /.env");
     const before = get.mock.calls.filter(([path]) => path.startsWith("/api/events")).length;
 
@@ -99,5 +99,75 @@ describe("Logs request simulator", () => {
       () => expect(get.mock.calls.filter(([path]) => path.startsWith("/api/events")).length).toBeGreaterThan(before + 1),
       { timeout: 4000 },
     );
+  });
+
+  it("saves a filter view and reloads it on the next visit", async () => {
+    const store: Record<string, string> = {};
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => { store[k] = v; },
+      removeItem: (k: string) => { delete store[k]; },
+      clear: () => { for (const k of Object.keys(store)) delete store[k]; },
+    });
+    const onOK = vi.fn();
+    render(<Logs onError={vi.fn()} onOK={onOK} onOpenSource={vi.fn()} canWrite />);
+    await screen.findByText("GET /.env");
+
+    fireEvent.change(screen.getByPlaceholderText("203.0.113.7"), { target: { value: "203.0.113.7" } });
+    fireEvent.change(screen.getByPlaceholderText("Port scans"), { target: { value: "Port scans" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+
+    expect(onOK).toHaveBeenCalledWith("View “Port scans” saved");
+    expect(JSON.parse(store["waf.logs.views"])).toEqual([{ name: "Port scans", query: "ip=203.0.113.7" }]);
+
+    // A fresh mount reads the saved view back from storage.
+    cleanup();
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+    expect(await screen.findByRole("option", { name: "Port scans" })).toBeTruthy();
+  });
+
+  it("ignores a corrupt saved-view list", async () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => "{not json",
+      setItem: () => {},
+      removeItem: () => {},
+      clear: () => {},
+    });
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+    expect(await screen.findByText("GET /.env")).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Port scans" })).toBeNull();
+  });
+
+  it("bans the selected sources after confirmation", async () => {
+    const onOK = vi.fn();
+    render(<Logs onError={vi.fn()} onOK={onOK} onOpenSource={vi.fn()} canWrite />);
+    await screen.findByText("GET /.env");
+
+    fireEvent.click(screen.getByLabelText("Select 203.0.113.7"));
+    expect(screen.getByRole("button", { name: "Copy IPs" })).toBeTruthy();
+
+    post.mockResolvedValue({});
+    fireEvent.click(screen.getByRole("button", { name: "Ban 24h" }));
+    const dialog = await screen.findByRole("dialog", { name: "Ban selected sources" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ban 24h" }));
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/bans", {
+        cidr: "203.0.113.7",
+        reason: "bulk ban from log",
+        permanent: false,
+        ttl_seconds: 86400,
+      }),
+    );
+    await waitFor(() => expect(onOK).toHaveBeenCalledWith("1 source banned for 24 hours"));
+  });
+
+  it("hides the bulk ban from a read-only role", async () => {
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite={false} />);
+    await screen.findByText("GET /.env");
+    fireEvent.click(screen.getByLabelText("Select 203.0.113.7"));
+    expect(screen.getByRole("button", { name: "Copy IPs" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ban 24h" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy IPs" })).toBeTruthy();
   });
 });

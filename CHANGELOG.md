@@ -11,6 +11,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.35.0] — 2026-11-22
+
+### Added
+
+- **Activity page.** The audit log as a page: filter by actor, area and window, then expand any entry
+  that changed a proxy, policy, WAF profile, protection profile, access profile or access list to see
+  the field-by-field difference between the state before and after. **Roll back** restores the earlier
+  values, is recorded as its own `*.rollback` entry and leaves the hash chain verifying. A role
+  without that entity's write permission sees the diff but no rollback button. Deletions show the
+  removed state and say to recreate them: rollback restores edits.
+- **Saved log views.** Name the log's current filters, recall them from the dropdown, copy a
+  shareable `#/logs?...` link, or delete a view. Views are stored per browser and a corrupt stored
+  value is ignored.
+- **Bulk actions on the log.** Tick sources — the whole page at once or one by one — and ban them for
+  24 hours, copy the addresses, or clear the selection. Selection is per page, clears on a new search
+  and reports a partial failure by count instead of claiming success.
+
+### Changed
+
+- Audited mutations store the state they changed in `audit_snapshots`, captured before and after the
+  write. Snapshot writes are best-effort and never block the change they describe.
+- `GET /api/audit/{id}` returns an entry with its stored state; `POST /api/audit/{id}/rollback`
+  restores an edit after checking the entity's own write permission rather than the route's area.
+
 ## [1.33.0] — 2026-11-22
 
 ### Added

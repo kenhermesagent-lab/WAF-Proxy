@@ -19,6 +19,7 @@ import Policies from "./pages/Policies";
 import Sources from "./pages/Sources";
 import Intel from "./pages/Intel";
 import Anomalies from "./pages/Anomalies";
+import Activity from "./pages/Activity";
 import Certs from "./pages/Certs";
 import Access from "./pages/Access";
 import Notifications from "./pages/Notifications";
@@ -337,11 +338,20 @@ export default function App() {
               {page === "sources" && <Sources onError={onError} onOpenSource={setSourceIp} />}
               {page === "intel" && <Intel onError={onError} onOK={onOK} />}
               {page === "anomalies" && <Anomalies onError={onError} onOK={onOK} />}
+              {page === "activity" && <Activity onError={onError} onOK={onOK} permissions={me?.permissions ?? []} />}
               {page === "crowdsec" && <CrowdSecPage onError={onError} onOK={onOK} />}
               {page === "certs" && <Certs onError={onError} onOK={onOK} base={me?.base_domain ?? ""} />}
               {page === "access" && <Access onError={onError} onOK={onOK} />}
               {page === "notifications" && <Notifications onError={onError} onOK={onOK} />}
-              {page === "logs" && <Logs onError={onError} query={pageQuery} onOpenSource={setSourceIp} />}
+              {page === "logs" && (
+                <Logs
+                  onError={onError}
+                  onOK={onOK}
+                  query={pageQuery}
+                  onOpenSource={setSourceIp}
+                  canWrite={can(me?.permissions, "policies.write")}
+                />
+              )}
               {page === "settings" && <SettingsPage onError={onError} onOK={onOK} />}
               {page === "account" && (
                 <Account

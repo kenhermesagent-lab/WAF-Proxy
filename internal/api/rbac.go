@@ -28,6 +28,11 @@ func permissionFor(r *http.Request) string {
 	if path == "/api/simulate" {
 		return rbac.Permission("policies", "read")
 	}
+	// A rollback checks the owning entity's write permission itself, because
+	// the area depends on the audited entity rather than the route.
+	if path != "/api/audit" && strings.HasPrefix(path, "/api/audit") && r.Method == http.MethodPost {
+		return ""
+	}
 	area := "settings"
 	switch {
 	case strings.HasPrefix(path, "/api/users"), strings.HasPrefix(path, "/api/roles"):

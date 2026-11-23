@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import Simulator from "../components/Simulator";
-import { Badge, Card, Empty, errText, fmtTime } from "../ui";
+import { Badge, Card, Empty, Field, confirmDialog, errText, fmtTime } from "../ui";
 import { Event } from "../types";
 
 const PAGE = 50;
 const LIVE_MS = 2000;
+const VIEWS_KEY = "waf.logs.views";
+
+type SavedView = { name: string; query: string };
 
 function clockTime(iso: string): string {
   const d = new Date(iso);
@@ -24,14 +27,51 @@ function filtersFromQuery(query?: string) {
   };
 }
 
+type Filters = ReturnType<typeof filtersFromQuery>;
+
+function queryOf(f: Filters): URLSearchParams {
+  const q = new URLSearchParams();
+  if (f.ip) q.set("ip", f.ip);
+  if (f.host) q.set("host", f.host);
+  if (f.stage) q.set("stage", f.stage);
+  if (f.action) q.set("action", f.action);
+  if (f.blocked) q.set("blocked", "1");
+  return q;
+}
+
+// A corrupt or hand-edited preference is ignored rather than breaking the page.
+function readViews(): SavedView[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VIEWS_KEY) ?? "[]") as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(
+      (v): v is SavedView => !!v && typeof v === "object" && typeof (v as SavedView).name === "string" && typeof (v as SavedView).query === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeViews(views: SavedView[]) {
+  try {
+    localStorage.setItem(VIEWS_KEY, JSON.stringify(views));
+  } catch {
+    /* a full or blocked storage keeps the in-memory list */
+  }
+}
+
 export default function Logs({
   onError,
+  onOK,
   query,
   onOpenSource,
+  canWrite,
 }: {
   onError: (m: string) => void;
+  onOK: (m: string) => void;
   query?: string;
   onOpenSource: (ip: string) => void;
+  canWrite: boolean;
 }) {
   const [events, setEvents] = useState<Event[]>([]);
   const [total, setTotal] = useState(0);
@@ -40,6 +80,11 @@ export default function Logs({
   const [loading, setLoading] = useState(false);
   const [live, setLive] = useState(false);
   const [picked, setPicked] = useState<Event | null>(null);
+  const [views, setViews] = useState<SavedView[]>(readViews);
+  const [viewName, setViewName] = useState("");
+  const [viewSel, setViewSel] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   // Only the newest request may paint the table, and a background poll never
@@ -50,16 +95,15 @@ export default function Logs({
   const load = async (nextOffset = offset, active = filters, quiet = false) => {
     if (quiet && busy.current) return;
     const mine = ++seq.current;
-    if (!quiet) busy.current = true;
-    if (!quiet) setLoading(true);
-    const q = new URLSearchParams();
+    if (!quiet) {
+      busy.current = true;
+      setLoading(true);
+      // Selection is per visible page, so a new search starts with none.
+      setSelected([]);
+    }
+    const q = queryOf(active);
     q.set("limit", String(PAGE));
     q.set("offset", String(nextOffset));
-    if (active.ip) q.set("ip", active.ip);
-    if (active.host) q.set("host", active.host);
-    if (active.stage) q.set("stage", active.stage);
-    if (active.action) q.set("action", active.action);
-    if (active.blocked) q.set("blocked", "1");
     try {
       const r = await api.get<{ events: Event[]; total: number }>(`/api/events?${q.toString()}`);
       if (mine !== seq.current) return;
@@ -111,20 +155,114 @@ export default function Logs({
     if (next) load(0, filtersRef.current, true);
   };
 
+  const applyView = (name: string) => {
+    setViewSel(name);
+    const view = views.find((v) => v.name === name);
+    if (!view) return;
+    const f = filtersFromQuery(view.query);
+    setFilters(f);
+    load(0, f);
+  };
+
+  const saveView = () => {
+    const name = viewName.trim();
+    if (!name) return;
+    const next = [...views.filter((v) => v.name !== name), { name, query: queryOf(filters).toString() }];
+    setViews(next);
+    writeViews(next);
+    setViewName("");
+    setViewSel(name);
+    onOK(`View “${name}” saved`);
+  };
+
+  const removeView = () => {
+    if (!viewSel) return;
+    const next = views.filter((v) => v.name !== viewSel);
+    setViews(next);
+    writeViews(next);
+    setViewSel("");
+  };
+
+  const copyLink = async () => {
+    const view = views.find((v) => v.name === viewSel);
+    if (!view) return;
+    const link = `${window.location.origin}${window.location.pathname}#/logs?${view.query}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      onOK("Link copied");
+    } catch {
+      onError("The clipboard is unavailable here; copy the address bar instead");
+    }
+  };
+
+  const toggleSelected = (ip: string) =>
+    setSelected((list) => (list.includes(ip) ? list.filter((x) => x !== ip) : [...list, ip]));
+
+  const pageIps = [...new Set(events.map((e) => e.src_ip))];
+  const allSelected = pageIps.length > 0 && pageIps.every((ip) => selected.includes(ip));
+
+  const bulkBan = async () => {
+    const ok = await confirmDialog(
+      `Ban ${selected.length} source${selected.length === 1 ? "" : "s"} for 24 hours? Every address is audited and can be released later.`,
+      { title: "Ban selected sources", confirmLabel: "Ban 24h" },
+    );
+    if (!ok) return;
+    setBulkBusy(true);
+    try {
+      const results = await Promise.allSettled(
+        selected.map((ip) =>
+          api.post("/api/bans", { cidr: ip, reason: "bulk ban from log", permanent: false, ttl_seconds: 86400 }),
+        ),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      const done = selected.length - failed;
+      if (failed > 0) onError(`${done} banned, ${failed} failed`);
+      else onOK(`${done} source${done === 1 ? "" : "s"} banned for 24 hours`);
+      await load(0);
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const copyIps = async () => {
+    try {
+      await navigator.clipboard.writeText(selected.join(","));
+      onOK(`${selected.length} address${selected.length === 1 ? "" : "es"} copied`);
+    } catch {
+      onError("The clipboard is unavailable here");
+    }
+  };
+
   const exportHref = () => {
-    const q = new URLSearchParams();
+    const q = queryOf(filters);
     q.set("limit", "50000");
-    if (filters.ip) q.set("ip", filters.ip);
-    if (filters.host) q.set("host", filters.host);
-    if (filters.stage) q.set("stage", filters.stage);
-    if (filters.action) q.set("action", filters.action);
-    if (filters.blocked) q.set("blocked", "1");
     return `/api/events/export.csv?${q.toString()}`;
   };
 
   return (
     <div className="grid" style={{ gap: 14 }}>
       <Card title="Filters">
+        <div className="row grow" style={{ marginBottom: 6 }}>
+          <Field label="Saved views">
+            <select value={viewSel} onChange={(e) => applyView(e.target.value)}>
+              <option value="">Choose a view…</option>
+              {views.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Name">
+            <input
+              value={viewName}
+              onChange={(e) => setViewName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveView()}
+              placeholder="Port scans"
+            />
+          </Field>
+          <button style={{ marginTop: 18 }} onClick={saveView} disabled={!viewName.trim()}>Save view</button>
+          <button style={{ marginTop: 18 }} onClick={copyLink} disabled={!viewSel}>Copy link</button>
+          <button style={{ marginTop: 18 }} onClick={removeView} disabled={!viewSel}>Delete view</button>
+        </div>
         <div className="row grow">
           <div className="field"><label>Source IP</label><input value={filters.ip} onChange={(e) => setFilters({ ...filters, ip: e.target.value })} placeholder="203.0.113.7" /></div>
           <div className="field"><label>Host</label><input value={filters.host} onChange={(e) => setFilters({ ...filters, host: e.target.value })} placeholder="app.example.com" /></div>
@@ -188,14 +326,49 @@ export default function Logs({
           </div>
         }
       >
+        {selected.length > 0 && (
+          <div className="banner" role="status" style={{ marginBottom: 10 }}>
+            <span>
+              <b>{selected.length}</b> source{selected.length === 1 ? "" : "s"} selected
+            </span>
+            <span className="banner-actions">
+              {canWrite && (
+                <button className="small danger" onClick={bulkBan} disabled={bulkBusy}>
+                  {bulkBusy ? "Banning…" : "Ban 24h"}
+                </button>
+              )}
+              <button className="small" onClick={copyIps}>Copy IPs</button>
+              <button className="small ghost" onClick={() => setSelected([])}>Clear</button>
+            </span>
+          </div>
+        )}
         {events.length === 0 ? <Empty>No events match these filters.</Empty> : (
           <div className="table-wrap"><table>
               <thead>
-                <tr><th>Time</th><th>Source</th><th className="hide-tablet">Host</th><th>Request</th><th className="hide-tablet">Stage</th><th className="hide-tablet">Rule</th><th className="num">Status</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">Out</th><th /></tr>
+                <tr>
+                  <th style={{ width: 28 }}>
+                    <input
+                      type="checkbox"
+                      style={{ width: "auto" }}
+                      checked={allSelected}
+                      aria-label="Select every source on this page"
+                      onChange={() => setSelected(allSelected ? [] : pageIps)}
+                    />
+                  </th>
+                  <th>Time</th><th>Source</th><th className="hide-tablet">Host</th><th>Request</th><th className="hide-tablet">Stage</th><th className="hide-tablet">Rule</th><th className="num">Status</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">Out</th><th /></tr>
               </thead>
               <tbody>
                 {events.map((e) => (
                   <tr key={e.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        style={{ width: "auto" }}
+                        checked={selected.includes(e.src_ip)}
+                        aria-label={`Select ${e.src_ip}`}
+                        onChange={() => toggleSelected(e.src_ip)}
+                      />
+                    </td>
                     <td className="muted log-time" title={fmtTime(e.ts)}>
                       <span className="log-time-full">{fmtTime(e.ts)}</span>
                       <span className="log-time-clock">{clockTime(e.ts)}</span>
@@ -219,6 +392,9 @@ export default function Logs({
               </tbody>
             </table></div>
         )}
+        <p className="faint small-text" style={{ marginBottom: 0 }}>
+          Selection covers this page only and clears on a new search or page.
+        </p>
       </Card>
 
       {picked && (

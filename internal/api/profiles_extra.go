@@ -125,13 +125,14 @@ func (s *Server) updateProtectionProfile(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
+	before := s.snapshotProtectionProfile(p.ID)
 	if err := s.st.UpdateProtectionProfile(p); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "protection_profile.update", p.Name, clientIP(r))
+	s.auditChange(sess.Username, "protection_profile.update", p.Name, clientIP(r), "protection_profile", p.ID, before, s.snapshotProtectionProfile(p.ID))
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -163,13 +164,14 @@ func (s *Server) deleteProtectionProfile(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusConflict, inUseMessage(p.Name, inUse))
 		return
 	}
+	before := s.snapshotProtectionProfile(id)
 	if err := s.st.DeleteProtectionProfile(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete profile")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "protection_profile.delete", p.Name, clientIP(r))
+	s.auditChange(sess.Username, "protection_profile.delete", p.Name, clientIP(r), "protection_profile", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -247,13 +249,14 @@ func (s *Server) updateAccessProfile(w http.ResponseWriter, r *http.Request) {
 	current.ListIDs = in.ListIDs
 	current.WAFProfileID = in.WAFProfileID
 	current.ProtectionProfileID = in.ProtectionProfileID
+	before := s.snapshotAccessProfile(current.ID)
 	if err := s.st.UpdateAccessProfile(current); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "access_profile.update", current.Name, clientIP(r))
+	s.auditChange(sess.Username, "access_profile.update", current.Name, clientIP(r), "access_profile", current.ID, before, s.snapshotAccessProfile(current.ID))
 	writeJSON(w, http.StatusOK, current)
 }
 
@@ -281,13 +284,14 @@ func (s *Server) deleteAccessProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, inUseMessage(current.Name, inUse))
 		return
 	}
+	before := s.snapshotAccessProfile(id)
 	if err := s.st.DeleteAccessProfile(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete profile")
 		return
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "access_profile.delete", current.Name, clientIP(r))
+	s.auditChange(sess.Username, "access_profile.delete", current.Name, clientIP(r), "access_profile", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
