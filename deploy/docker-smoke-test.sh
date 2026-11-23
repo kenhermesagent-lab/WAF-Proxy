@@ -19,9 +19,12 @@ cleanup() {
 trap cleanup EXIT
 
 # Host networking mirrors the shipped Compose file: the console binds loopback
-# and the proxy binds the first-boot WAN port. NET_ADMIN is not granted, so
-# kernel-mode bans are skipped; the console path under test does not need them.
-docker run -d --name "$name" --network host "$image" >/dev/null
+# and the proxy binds the first-boot WAN port. The two capabilities are the ones
+# Compose grants, and they are not optional: the binary carries them as file
+# capabilities, so without them in the bounding set the exec itself fails with
+# "operation not permitted".
+docker run -d --name "$name" --network host \
+  --cap-add NET_ADMIN --cap-add NET_BIND_SERVICE "$image" >/dev/null
 
 ready=""
 for _ in $(seq 1 60); do
