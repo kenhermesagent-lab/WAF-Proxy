@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.10] — 2026-11-23
+
+### Added
+
+- A regression test drives a canary outage and recovery through the real
+  `notify.Manager` queue and a webhook, proving the recovery is delivered even though
+  the outage is still inside the 24 hour dedupe window.
+
 ## [1.47.9] — 2026-11-23
 
 ### Added
