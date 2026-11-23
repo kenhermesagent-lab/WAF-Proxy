@@ -181,7 +181,7 @@ func itoa(v int64) string {
 // TestBackupAndRestoreStayInsideOneSite proves a backup is one site's
 // configuration and a restore writes only into the console it was posted to.
 func TestBackupAndRestoreStayInsideOneSite(t *testing.T) {
-	srv, st, alphaToken, alphaCSRF := newObservabilityServer(t)
+	srv, st, alphaToken, _ := newObservabilityServer(t)
 	srv.geo = geoip.Open(t.TempDir())
 	if _, err := st.CreateProxy(&model.Proxy{Hostname: "alpha.example.com", Enabled: true, WAFMode: "inherit"}); err != nil {
 		t.Fatal(err)
@@ -209,8 +209,8 @@ func TestBackupAndRestoreStayInsideOneSite(t *testing.T) {
 		}
 		return site, scoped, token, csrf
 	}
-	bravoSite, bravo, bravoToken, bravoCSRF := addSite("bravo", "console.bravo.test", "bravo-admin")
-	charlieSite, charlie, charlieToken, charlieCSRF := addSite("charlie", "console.charlie.test", "charlie-admin")
+	_, bravo, _, _ := addSite("bravo", "console.bravo.test", "bravo-admin")
+	_, charlie, charlieToken, charlieCSRF := addSite("charlie", "console.charlie.test", "charlie-admin")
 	if _, err := bravo.CreateProxy(&model.Proxy{Hostname: "bravo.example.com", Enabled: true, WAFMode: "inherit"}); err != nil {
 		t.Fatal(err)
 	}
@@ -270,6 +270,4 @@ func TestBackupAndRestoreStayInsideOneSite(t *testing.T) {
 	if list, _ := st.ListProxies(); len(list) != 1 || list[0].Hostname != "alpha.example.com" {
 		t.Fatalf("restore changed the default site: %+v", list)
 	}
-	_, _, _ = bravoSite, alphaCSRF, bravoCSRF
-	_, _ = bravoToken, charlieSite
 }
