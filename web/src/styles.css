@@ -265,6 +265,9 @@ code, .mono, kbd {
 .menu-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--border-soft); margin-bottom: 4px; }
 .menu-head strong { display: block; font-size: 12.5px; font-weight: 600; color: var(--text); }
 .menu-head span { display: block; font-size: 11px; color: var(--faint); margin-top: 1px; }
+.menu-label { padding: 6px 10px 2px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); }
+.menu-item.on { color: var(--text); }
+.menu-item .ico:empty { width: 15px; }
 .menu-item {
   display: flex; align-items: center; justify-content: flex-start; gap: 9px; width: 100%;
   padding: 7px 9px; border: 0; border-radius: 6px;

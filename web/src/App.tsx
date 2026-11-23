@@ -379,6 +379,25 @@ export default function App() {
                   <strong>{me?.username}</strong>
                   <span>{me?.role}{me?.totp_enabled ? " · 2FA enabled" : ""}</span>
                 </div>
+                {/* The topbar chip is hidden on a phone; offer the same choice here. */}
+                {me?.can_switch && (me.sites?.length ?? 0) > 1 && (
+                  <>
+                    <div className="menu-label">Site</div>
+                    {(me.sites ?? []).map((s) => (
+                      <button
+                        key={s.slug}
+                        className={s.slug === activeSite ? "menu-item on" : "menu-item"}
+                        role="menuitemradio"
+                        aria-checked={s.slug === activeSite}
+                        onClick={() => { switchSite(s.slug); setUserMenu(false); }}
+                      >
+                        <span className="ico">{s.slug === activeSite ? <Icon name="check" size={15} /> : null}</span>
+                        {s.name}
+                      </button>
+                    ))}
+                    <div className="menu-sep" />
+                  </>
+                )}
                 {can(me?.permissions, "settings.read") && (
                   <button className="menu-item" role="menuitem" onClick={() => { navigate("settings"); setUserMenu(false); }}>
                     <span className="ico"><Icon name="settings" size={15} /></span> Settings
