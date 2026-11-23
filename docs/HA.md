@@ -16,9 +16,10 @@
 > and a fence command. Everything is gated by `WAFPROXY_HA_ENABLE` (off by
 > default), so a single-node install behaves as it did before. The partition
 > simulator (P6-07) and the guarded HA API (P7-01, including `GET /api/ha`) are
-> built; the console page and its Settings toggle (P7-02 to P7-06) and the two-VM
-> lab gates are not, so sections that describe them state the intended end state.
-> `docs/HA-BUILD.md`
+> built, and the `ha_enabled` host-wide switch reports its effective value live
+> (P7-02). The console page and its Settings toggle (P7-03 to P7-06) and the
+> two-VM lab gates are not, so sections that describe them state the intended end
+> state. `docs/HA-BUILD.md`
 > carries the per-task status and the known gaps.
 >
 > The document is written so an operator can read the runbooks as the intended
@@ -296,9 +297,12 @@ and accept the same session cookies.
 
 ### 5.1 On node A (the active)
 
-Both nodes need `WAFPROXY_HA_ENABLE=1` and `WAFPROXY_HA_MGMT_LISTEN`. Pairing also
-needs `WAFPROXY_HA_LINK_LISTEN` (for example `10.0.0.10:9443`), which must be
-reachable only on the private network between the two nodes.
+Both nodes need `WAFPROXY_HA_ENABLE=1`, `WAFPROXY_HA_MGMT_LISTEN`, and the stored
+`ha_enabled=1` (Settings → High availability once P7-03 lands; until then
+`PUT /api/settings {"ha_enabled":"1"}` with the admin session). With the stored
+setting missing the node stays single-node even when the boot switch is on.
+Pairing also needs `WAFPROXY_HA_LINK_LISTEN` (for example `10.0.0.10:9443`),
+which must be reachable only on the private network between the two nodes.
 
 ```bash
 sudo systemctl restart wafproxy   # after setting the variables

@@ -244,6 +244,9 @@ type pendingCode struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
+// PairingCodeTTL is how long a pending pairing code stays usable.
+const PairingCodeTTL = 10 * time.Minute
+
 // WritePairingCode stores a hash of a fresh code with a short expiry. Only the
 // hash is written, so a copy of the data directory cannot be used to join.
 func WritePairingCode(dataDir string) (string, error) {
@@ -251,7 +254,7 @@ func WritePairingCode(dataDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p := pendingCode{Hash: codeHash(code), ExpiresAt: time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)}
+	p := pendingCode{Hash: codeHash(code), ExpiresAt: time.Now().Add(PairingCodeTTL).UTC().Format(time.RFC3339)}
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return "", err

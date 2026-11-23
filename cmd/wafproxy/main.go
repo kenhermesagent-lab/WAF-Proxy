@@ -828,9 +828,12 @@ func run() error {
 		n, _ := ha.Load(cfg.DataDir)
 		state := n.EffectiveState()
 		pair, _ := ha.LoadPair(cfg.DataDir)
+		// The effective switch is read on every request, so turning HA off in
+		// Settings takes effect without a restart. Missing means off.
+		enabled := cfg.HAEnabled && haSettingOn(st)
 		status := api.HAStatus{
-			Enabled: cfg.HAEnabled, Role: string(n.Role), State: string(state),
-			Serving: !cfg.HAEnabled || ha.Serving(state), Epoch: n.Epoch, Peer: n.Peer,
+			Enabled: enabled, Role: string(n.Role), State: string(state),
+			Serving: !enabled || ha.Serving(state), Epoch: n.Epoch, Peer: n.Peer,
 			Reason: n.Reason,
 		}
 		if pair != nil {
@@ -1003,7 +1006,8 @@ func run() error {
 
 	plane := newDataPlane(ctx, px, streams, cfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
 	defer plane.Close()
-	if cfg.HAEnabled && !node.Active() {
+	haOn := cfg.HAEnabled && haSettingOn(st)
+	if haOn && !node.Active() {
 		// Hold the service address without accepting. IP_FREEBIND lets this
 		// succeed before the address has moved to this node, so a promotion
 		// does not wait for a bind.
@@ -1016,32 +1020,38 @@ func run() error {
 		return fmt.Errorf("proxy listener: %w", err)
 	}
 	if cfg.HAEnabled {
-		rt := &haRuntime{
-			root: ctx, dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
-			plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
-			ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand,
-			flap: ha.NewFlapGuard(flapBudget(st, cfg.HAMaxFailovers)), log: log,
+		// The console can pair and sync once the operator turns HA on, even
+		// before the runtime's next boot; a move still needs the runtime.
+		ops := haControl{dir: cfg.DataDir, st: st, fallback: cfg.HAMaxFailovers}
+		if haOn {
+			rt := &haRuntime{
+				root: ctx, dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
+				plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
+				ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand,
+				flap: ha.NewFlapGuard(flapBudget(st, cfg.HAMaxFailovers)), log: log,
+			}
+			// The manager exists before the control socket so the console routes
+			// can run a move too. serveControl reuses it.
+			rt.mgr = ha.NewManager(cfg.DataDir, rt.hooks())
+			apiServer.SetWriteGate(haQuiesce.Active)
+			if !node.Active() {
+				// Follow the active's stream until a move makes this node the active.
+				rt.repl.Start()
+			}
+			if err := rt.serveControl(ctx); err != nil {
+				log.Error("ha control socket failed", "err", err)
+			}
+			if node.Active() {
+				rt.startLease(ctx, node.Epoch)
+			}
+			if cfg.HAAutoFailover {
+				// Both roles: the watcher is idle while active but keeps the
+				// heartbeat and epoch check, so a failback leaves it in place.
+				rt.startAuto(ctx)
+			}
+			ops.rt = rt
 		}
-		// The manager exists before the control socket so the console routes
-		// can run a move too. serveControl reuses it.
-		rt.mgr = ha.NewManager(cfg.DataDir, rt.hooks())
-		apiServer.SetHAOps(haControl{rt: rt})
-		apiServer.SetWriteGate(haQuiesce.Active)
-		if !node.Active() {
-			// Follow the active's stream until a move makes this node the active.
-			rt.repl.Start()
-		}
-		if err := rt.serveControl(ctx); err != nil {
-			log.Error("ha control socket failed", "err", err)
-		}
-		if node.Active() {
-			rt.startLease(ctx, node.Epoch)
-		}
-		if cfg.HAAutoFailover {
-			// Both roles: the watcher is idle while active but keeps the
-			// heartbeat and epoch check, so a failback leaves it in place.
-			rt.startAuto(ctx)
-		}
+		apiServer.SetHAOps(ops)
 	}
 
 	sig := make(chan os.Signal, 1)

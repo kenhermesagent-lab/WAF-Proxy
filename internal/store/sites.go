@@ -44,6 +44,8 @@ var hostSettingKeys = map[string]bool{
 	"crowdsec_enabled": true, "crowdsec_url": true, "crowdsec_key": true,
 	"tailscale_admin_enabled": true, "tailscale_dns_enabled": true,
 	"tailscale_proxy_enabled": true,
+	// Ha is one role machine for the host, not one per site.
+	"ha_enabled": true,
 }
 
 // HostSettingKeys returns the host-wide keys for the console, so the settings

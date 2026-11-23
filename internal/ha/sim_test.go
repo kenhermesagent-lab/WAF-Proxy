@@ -21,24 +21,17 @@ func (c *simClock) Now() time.Time { return c.now }
 func (c *simClock) Advance(d time.Duration) { c.now = c.now.Add(d) }
 
 type simNode struct {
-	name     string
-	dir      string
-	alive    bool
-	fence    bool // the fence command runs and the peer really stops
-	lies     bool // the fence reports success but the peer keeps running
-	diskFull bool
-	witness  *Witness
-	mon      *Monitor
-	guard    *FlapGuard
-	ping     PeerPing
-	havePing bool
-	promos   []simPromotion
-}
-
-type simPromotion struct {
-	epoch int64
-	lease Lease
-	at    time.Time
+	name       string
+	dir        string
+	alive      bool
+	fence      bool // the fence command runs and the peer really stops
+	diskFull   bool
+	witness    *Witness
+	mon        *Monitor
+	guard      *FlapGuard
+	ping       PeerPing
+	havePing   bool
+	promotions int
 }
 
 type simCluster struct {
@@ -230,7 +223,7 @@ func (c *simCluster) act(n *simNode) {
 		c.t.Fatal(err)
 	}
 	n.guard.Record()
-	n.promos = append(n.promos, simPromotion{epoch: role.Epoch, lease: *in.Lease, at: c.clock.Now()})
+	n.promotions++
 }
 
 // fence models the operator's STONITH script: it reports the peer down and the
@@ -239,9 +232,6 @@ func (c *simCluster) fence(n *simNode) error {
 	peer := c.peer(n)
 	if !n.fence {
 		return errors.New("the fence command is not configured")
-	}
-	if n.lies {
-		return nil
 	}
 	peer.alive = false
 	return nil
@@ -273,7 +263,7 @@ func (c *simCluster) report() []string {
 			continue
 		}
 		out = append(out, fmt.Sprintf("%s: %s epoch=%d alive=%v promos=%d",
-			n.name, node.EffectiveState(), node.Epoch, n.alive, len(n.promos)))
+			n.name, node.EffectiveState(), node.Epoch, n.alive, n.promotions))
 	}
 	return out
 }
@@ -284,13 +274,6 @@ func (c *simCluster) setRole(i int, role Role, epoch int64) {
 	if err := Save(c.nodes[i].dir, &Node{NodeID: c.nodes[i].name, Role: role, Epoch: epoch}); err != nil {
 		c.t.Fatal(err)
 	}
-}
-
-func boolText(v bool) string {
-	if v {
-		return "yes"
-	}
-	return "no"
 }
 
 func (c *simCluster) state(i int) State {
@@ -415,9 +398,9 @@ func TestSimPartitionMatrix(t *testing.T) {
 	}
 }
 
-// TestSimHealsTwoActives is P6-05 in the simulator: two nodes believe they are
-// active at different epochs (the lying-fence fault), then the link returns. The
-// lower epoch must stop serving and reconcile to the higher one.
+// TestSimHealsTwoActives is P6-05 in the simulator: a fault leaves two nodes
+// believing they are active at different epochs, then the link returns. The lower
+// epoch must stop serving and reconcile to the higher one.
 func TestSimHealsTwoActives(t *testing.T) {
 	c := newSim(t, false)
 	c.setRole(0, RoleActive, 9)
@@ -475,8 +458,8 @@ func TestSimFlapParksThePair(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		c.tick() // three lost beats, then the promotion
 	}
-	if len(c.nodes[1].promos) != 1 {
-		t.Fatalf("promotions after the first move = %d", len(c.nodes[1].promos))
+	if c.nodes[1].promotions != 1 {
+		t.Fatalf("promotions after the first move = %d", c.nodes[1].promotions)
 	}
 	for i := 0; i < 2; i++ {
 		if _, err := Demote(context.Background(), c.nodes[1].dir, Hooks{}); err != nil {
@@ -484,8 +467,8 @@ func TestSimFlapParksThePair(t *testing.T) {
 		}
 		c.tick()
 	}
-	if len(c.nodes[1].promos) != 3 {
-		t.Fatalf("promotions in the window = %d, want 3", len(c.nodes[1].promos))
+	if c.nodes[1].promotions != 3 {
+		t.Fatalf("promotions in the window = %d, want 3", c.nodes[1].promotions)
 	}
 	if _, err := Demote(context.Background(), c.nodes[1].dir, Hooks{}); err != nil {
 		t.Fatal(err)
@@ -498,8 +481,8 @@ func TestSimFlapParksThePair(t *testing.T) {
 	if node.EffectiveState() != StateParked || node.Reason == "" {
 		t.Fatalf("after the fourth attempt = %+v", node)
 	}
-	if len(c.nodes[1].promos) != 3 {
-		t.Fatalf("a parked node promoted again: %d moves", len(c.nodes[1].promos))
+	if c.nodes[1].promotions != 3 {
+		t.Fatalf("a parked node promoted again: %d moves", c.nodes[1].promotions)
 	}
 	for i := 0; i < 5; i++ {
 		c.tick()

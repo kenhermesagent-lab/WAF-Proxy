@@ -586,7 +586,7 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 		// route at once, including ones added later, instead of trusting each
 		// handler to remember.
 		if s.haStatus != nil {
-			if ha := s.haStatus(); ha.Enabled && !ha.Serving && !standbyAllows(r.Method, r.URL.Path) {
+			if ha := s.haStatusOf(); ha.Enabled && !ha.Serving && !standbyAllows(r.Method, r.URL.Path) {
 				writeError(w, http.StatusConflict, "standby is read-only")
 				return
 			}
@@ -664,7 +664,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		"status": "ok", "version": version.Version, "uptime_s": int(time.Since(s.started).Seconds()),
 	}
 	if s.haStatus != nil {
-		ha := s.haStatus()
+		ha := s.haStatusOf()
 		if ha.Enabled {
 			ready = ready && ha.Serving
 		}
@@ -1105,13 +1105,18 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		email = user.Email
 	}
 	site, _ := s.st.SiteByID(s.consoleSite(r))
+	haOn := s.haStatusOf().Enabled
 	body := map[string]any{
 		"username": sess.Username, "csrf": sess.CSRF, "version": version.Version,
+		"ha_enabled":  haOn,
 		"base_domain": kv["base_domain"], "expires_at": sess.ExpiresAt,
 		"totp_enabled": user != nil && user.TOTPEnabled,
 		"email":        email,
 		"role":         sess.Role, "permissions": sess.Permissions,
 		"can_switch": sess.Can(rbac.Permission("sites", "read")),
+	}
+	if haOn {
+		body["ha_role"] = s.haStatusOf().Role
 	}
 	if site != nil {
 		body["site"] = site.Slug
@@ -1131,7 +1136,7 @@ var publicSettingKeys = []string{
 	"sample_above_rps", "max_body", "protection_enabled", "acme_staging", "acme_email",
 	"gate_ttl_hours", "home_lat", "home_lon", "decoy_hosts",
 	"admin_allow_cidrs", "bot_filter", "bot_filter_allow", "geoip_auto_update",
-	"normalization_mode",
+	"normalization_mode", "ha_enabled",
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -1226,6 +1231,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "normalization_mode must be off, flag or block")
 				return
 			}
+		case "ha_enabled":
+			if v != "0" && v != "1" {
+				writeError(w, http.StatusBadRequest, "ha_enabled must be 0 or 1")
+				return
+			}
 		}
 		switch k {
 		case "dos_rps", "dos_burst", "retention_days", "sample_above_rps", "max_body", "gate_ttl_hours":
@@ -1262,6 +1272,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		next[k] = v
 	}
+	previousHA, _ := s.st.GetSetting("ha_enabled")
 	if err := s.db(r).SetSettings(next); err != nil {
 		if errors.Is(err, store.ErrHostWideSetting) {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -1296,6 +1307,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "settings.update", strings.Join(keys(next), ","), clientIP(r))
+	if v, ok := next["ha_enabled"]; ok && v != previousHA {
+		// This switch changes who can move the service address, so it gets its
+		// own audit row rather than a phrase inside settings.update.
+		action := "ha.enable"
+		if v == "0" {
+			action = "ha.disable"
+		}
+		s.db(r).AddAudit(sess.Username, action, "", clientIP(r))
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

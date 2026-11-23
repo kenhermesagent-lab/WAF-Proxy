@@ -53,6 +53,7 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P6-05 higher-epoch demotion | landed, lab pending | a heartbeat with a higher epoch makes the active stop serving into `split-brain-risk`; it follows the peer again only after `Reconcile` adopts the peer's epoch |
 | P6-06 guards and flap control | landed | `internal/ha/flap.go`; the fourth automatic move in an hour parks the node with a reason `ha status` shows, and only a manual move clears it |
 | P6-07 partition simulator | landed | `internal/ha/sim_test.go`: the partition matrix plus 200 randomized partitions on a fake clock; every tick asserts at most one live active and every promotion carried an unexpired lease for its own epoch |
+| P7-02 `ha_enabled` backend | landed, loops boot-time | `ha_enabled` is host-wide (`publicSettingKeys`, `hostSettingKeys`), accepts only `0`/`1`, is audited as `ha.enable`/`ha.disable`, and the effective value is read per request for `/api/me` and `/api/ha`; the runtime still starts at boot, so turning HA on starts its loops at the next restart |
 | P7-01 HA API | landed | `internal/api/ha.go`: `GET /api/ha`, `GET /api/ha/events`, `GET /api/ha/diagnostics`, `PUT /api/ha/config`, `POST /api/ha/{pair,join,sync,failover,failback,unpair,notify}`; `ha.read`/`ha.write`, fresh re-authentication, cluster id on failover and unpair, 409 while disabled; the events list is process-local |
 
 **Replication boundary.** Configuration still travels as a whole snapshot, once
@@ -749,7 +750,15 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 - Done: a `viewer` gets 403 on every route, `ha.read` can read and cannot post, and HA disabled
   returns 409 with the reason.
 
-### P7-02 Settings key and enablement backend — S, 1 day
+### P7-02 Settings key and enablement backend — S, 1 day — built
+
+- Built: missing `ha_enabled` means off; `0`/`1` only; host-wide for tenants and audited
+  separately. `Enabled` is the boot master switch AND the stored setting, computed from the
+  live setting on every `/api/me`, `/api/ha` and health call, so the console flips without a
+  restart. The runtime itself boots only when both are on, because the HA listener, replay and
+  watcher are started in `run()`; starting them from `reloadEngines` is not wired yet, so an
+  operator who turns HA on starts it with the next restart, as Appendix B.3 describes.
+- Not built: the Settings switch (P7-03) and the nav rule (P7-04).
 
 - Files: `internal/api/server.go` (`publicSettingKeys`, `putSettings`, `/api/me`),
   `internal/store/sites.go` (`hostSettingKeys`), `internal/ha/manager.go`.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ha"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/rbac"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
 // HAOps is the process side of the HA routes. cmd/wafproxy implements it with
@@ -44,7 +45,7 @@ func (s *Server) SetHAOps(o HAOps) { s.haOps = o }
 
 // haStatusOf reads the live role, falling back to standalone when HA is off.
 func (s *Server) haStatusOf() HAStatus {
-	st := HAStatus{Enabled: s.cfg.HAEnabled, Role: "standalone", State: "standalone", Serving: true}
+	st := HAStatus{Role: "standalone", State: "standalone", Serving: true}
 	if s.haStatus != nil {
 		st = s.haStatus()
 	}
@@ -82,10 +83,17 @@ func (s *Server) haRoute(w http.ResponseWriter, r *http.Request) {
 	if sess := sessionFrom(r); sess != nil {
 		canWrite = sess.Can(rbac.Permission("ha", "write"))
 	}
+	reason := st.Reason
+	if !s.cfg.HAEnabled {
+		reason = "this host booted with WAFPROXY_HA_ENABLE=0"
+	} else if !st.Enabled {
+		reason = "high availability is turned off in Settings"
+	}
 	body := map[string]any{
-		"enabled": st.Enabled, "paired": st.Paired, "cluster_id": st.ClusterID,
+		"enabled": st.Enabled, "boot_enabled": s.cfg.HAEnabled,
+		"paired": st.Paired, "cluster_id": st.ClusterID,
 		"role": st.Role, "state": st.State, "serving": st.Serving, "epoch": st.Epoch,
-		"peer": st.Peer, "peer_fingerprint": st.PeerFingerprint, "reason": st.Reason,
+		"peer": st.Peer, "peer_fingerprint": st.PeerFingerprint, "reason": reason,
 		"can_write": canWrite,
 	}
 	if s.haOps != nil {
@@ -136,18 +144,8 @@ func (s *Server) haAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	sess := sessionFrom(r)
-	if sess == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-	user, err := s.db(r).UserByID(sess.UserID)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-	if !s.verifyAdminSecret(r, user, in.Password, in.TOTP, in.Recovery) {
-		writeError(w, http.StatusUnauthorized, "re-enter your password and, when enrolled, a current authenticator code")
+	sess, ok := s.reauthHA(w, r, in.Password, in.TOTP, in.Recovery)
+	if !ok {
 		return
 	}
 	if action == "failover" || action == "unpair" {
@@ -164,6 +162,7 @@ func (s *Server) haAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var res ha.Result
+	var err error
 	switch action {
 	case "pair":
 		code, err := s.haOps.Pair(r.Context())
@@ -175,7 +174,7 @@ func (s *Server) haAction(w http.ResponseWriter, r *http.Request) {
 		s.recordHAEvent("pair", nil, nil)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok": true, "code": code,
-			"expires_at": time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339),
+			"expires_at": time.Now().Add(ha.PairingCodeTTL).UTC().Format(time.RFC3339),
 		})
 		return
 	case "join":
@@ -221,6 +220,28 @@ func (s *Server) haAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res})
 }
 
+// reauthHA re-checks the signed-in user's own credentials before a mutation,
+// and answers 401 with the session when it succeeds.
+func (s *Server) reauthHA(w http.ResponseWriter, r *http.Request, password, totp, recovery string) (*store.Session, bool) {
+	sess := sessionFrom(r)
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	user, err := s.db(r).UserByID(sess.UserID)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	// verifyAdminSecret consumes a recovery code when one is used, so a lost
+	// factor can still confirm a move once.
+	if !s.verifyAdminSecret(r, user, password, totp, recovery) {
+		writeError(w, http.StatusUnauthorized, "re-enter your password and, when enrolled, a current authenticator code")
+		return nil, false
+	}
+	return sess, true
+}
+
 // haFail records the attempt and maps a refused move to 409 with the check that
 // stopped it, so the page can show the reason and the fix.
 func (s *Server) haFail(w http.ResponseWriter, action string, res *ha.Result, err error) {
@@ -255,18 +276,8 @@ func (s *Server) haConfigRoute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	sess := sessionFrom(r)
-	if sess == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-	user, err := s.db(r).UserByID(sess.UserID)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-	if !s.verifyAdminSecret(r, user, in.Password, in.TOTP, in.Recovery) {
-		writeError(w, http.StatusUnauthorized, "re-enter your password and, when enrolled, a current authenticator code")
+	sess, ok := s.reauthHA(w, r, in.Password, in.TOTP, in.Recovery)
+	if !ok {
 		return
 	}
 	if in.MaxFailovers == nil || *in.MaxFailovers < 1 || *in.MaxFailovers > 100 {
