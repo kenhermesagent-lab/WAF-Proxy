@@ -15,6 +15,17 @@ const ENTITY_AREAS: Record<string, string> = {
 
 type Loaded = { entry: AuditEntry; snapshot: AuditSnapshot | null };
 
+// A save rewrites upstream and route rows, so their ids change without the
+// configuration changing. Compare the content only.
+function withoutIds(rows: unknown): unknown {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((row) => {
+    if (!row || typeof row !== "object") return row;
+    const { id: _id, proxy_id: _proxyId, ...rest } = row as Record<string, unknown>;
+    return rest;
+  });
+}
+
 // A proxy snapshot wraps the row and its children; the other entities are flat.
 function flatten(raw?: string): Record<string, unknown> {
   if (!raw) return {};
@@ -23,8 +34,8 @@ function flatten(raw?: string): Record<string, unknown> {
     if (parsed && typeof parsed === "object" && "proxy" in parsed) {
       return {
         ...(parsed.proxy as Record<string, unknown>),
-        upstreams: parsed.upstreams ?? [],
-        routes: parsed.routes ?? [],
+        upstreams: withoutIds(parsed.upstreams ?? []),
+        routes: withoutIds(parsed.routes ?? []),
       };
     }
     return parsed;
@@ -43,7 +54,7 @@ function diffFields(before?: string, after?: string): { field: string; from: str
   const a = flatten(before);
   const b = flatten(after);
   const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort();
-  const out = [];
+  const out: { field: string; from: string; to: string }[] = [];
   for (const key of keys) {
     const from = JSON.stringify(a[key] ?? null);
     const to = JSON.stringify(b[key] ?? null);

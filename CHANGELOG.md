@@ -11,6 +11,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.39.2] — 2026-11-23
+
+### Fixed
+
+- **Proxy 360 no longer rounds a bad day up to 100% uptime**, and a proxy with no blocked
+  requests shows "0.0% of requests" instead of a dash.
+- **Activity stops reporting upstream ids as a change.** Saving a proxy rewrites its upstream and
+  route rows, so their ids differ in every snapshot; the diff compares the configuration only, and
+  a real change still shows.
+- **A long kernel-status badge no longer widens the Policies page on a phone.** The badge wraps
+  instead, and the tab strip wraps with it.
+
 ## [1.39.1] — 2026-11-23
 
 ### Fixed

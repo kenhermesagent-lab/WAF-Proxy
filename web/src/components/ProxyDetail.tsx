@@ -53,6 +53,8 @@ export default function ProxyDetail({
   }, [proxy.id]);
 
   const blockedShare = counters?.requests ? (counters.blocked / counters.requests) * 100 : 0;
+  // A rounded 100 hides a real outage, so only a perfect score prints as 100.
+  const uptime = (pct: number) => (pct >= 99.95 ? "100" : pct.toFixed(1));
 
   return (
     <Drawer
@@ -94,7 +96,7 @@ export default function ProxyDetail({
             <div className="stat">
               <div className="k">Blocked</div>
               <div className="v">{counters ? counters.blocked.toLocaleString() : "—"}</div>
-              <div className="sub">{blockedShare ? `${blockedShare.toFixed(1)}% of requests` : "—"}</div>
+              <div className="sub">{counters?.requests ? `${blockedShare.toFixed(1)}% of requests` : "—"}</div>
             </div>
             <div className="stat">
               <div className="k">Inbound</div>
@@ -125,7 +127,7 @@ export default function ProxyDetail({
                       <td className="mono" style={{ fontSize: 11.5 }} title={t.url}>{t.url}</td>
                       <td><Badge tone={t.state === "up" ? "ok" : t.state === "down" ? "bad" : "warn"}>{t.state}</Badge></td>
                       <td className="num">{t.latency_ms ? `${t.latency_ms} ms` : "—"}</td>
-                      <td className="num">{t.checks_24 ? `${Math.round(t.uptime_24)}%` : "—"}</td>
+                      <td className="num">{t.checks_24 ? `${uptime(t.uptime_24)}%` : "—"}</td>
                       <td className="muted" title={fmtTime(t.last_check)}>{fmtAgo(t.last_check)}</td>
                     </tr>
                   ))}

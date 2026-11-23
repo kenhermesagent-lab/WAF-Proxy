@@ -86,6 +86,28 @@ describe("Activity", () => {
     expect(within(dialog).queryByRole("button", { name: "Roll back" })).toBeNull();
   });
 
+  it("does not report upstream ids as a change", async () => {
+    const snap = (id: number, level: string) =>
+      JSON.stringify({
+        proxy: { id: 1, hostname: "app.lab.local", bot_level: level },
+        upstreams: [{ id, proxy_id: 1, url: "http://10.0.0.10:8080", weight: 1, enabled: true }],
+        routes: [],
+      });
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/audit") return entries;
+      if (path === "/api/audit/12") {
+        return { entry: entries[0], snapshot: { audit_id: 12, entity: "proxy", entity_id: 1, before: snap(4, "light"), after: snap(9, "light") } };
+      }
+      return {};
+    });
+    render(<Activity onError={vi.fn()} onOK={vi.fn()} permissions={["proxies.write"]} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
+
+    const dialog = await screen.findByRole("dialog", { name: /policy.update/ });
+    expect(within(dialog).getByText("Nothing changed")).toBeTruthy();
+    expect(within(dialog).queryByText("upstreams")).toBeNull();
+  });
+
   it("offers no diff for an action that changed no entity", async () => {
     render(<Activity onError={vi.fn()} onOK={vi.fn()} permissions={[]} />);
     await screen.findByText("backup.run");

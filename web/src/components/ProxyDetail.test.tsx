@@ -53,6 +53,20 @@ describe("ProxyDetail", () => {
               uptime_24: 99.5,
               checks_24: 40,
             },
+            {
+              id: "t2",
+              proxy_id: 7,
+              proxy_host: "app.lab.local",
+              url: "http://10.0.0.11:8080",
+              state: "up",
+              status_code: 200,
+              latency_ms: 8,
+              last_check: "2026-11-22T16:03:00Z",
+              last_change: "2026-11-22T15:00:00Z",
+              error: "",
+              uptime_24: 100,
+              checks_24: 40,
+            },
           ],
         };
       }
@@ -78,6 +92,8 @@ describe("ProxyDetail", () => {
     expect(await screen.findByText("120")).toBeTruthy();
     expect(screen.getByText("30")).toBeTruthy();
     expect(screen.getByText("25.0% of requests")).toBeTruthy();
+    // 99.5% is not rounded up to a perfect day.
+    expect(screen.getByText("99.5%")).toBeTruthy();
     expect(screen.getByText("100%")).toBeTruthy();
     expect(screen.getByText("Balanced")).toBeTruthy();
     // Once in the health table and once in the upstream list.

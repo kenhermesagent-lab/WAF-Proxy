@@ -909,6 +909,10 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   .user-btn .user-name { display: none; }
   .toast-stack { right: 10px; bottom: 10px; width: calc(100vw - 20px); }
   .hide-phone { display: none !important; }
+  /* A badge may carry a long reason (kernel status); let that one wrap rather
+     than widen the page past the viewport. */
+  .badge.wrap { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+  .tabs { flex-wrap: wrap; }
   .globe-hud { font-size: 10px; }
   .log-time { white-space: nowrap; }
   .log-request { max-width: 80px; }
