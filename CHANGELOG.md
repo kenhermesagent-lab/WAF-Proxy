@@ -9,7 +9,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - `MAJOR.MINOR.PATCH`, tracked in `VERSION` (single source of truth).
 - Each completed plan phase bumps **MINOR**: `0.1.0` → `0.2.0` → … → `1.0.0`.
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
-- Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
+- Every push to `main` has a matching section here; a release is published with an annotated
+  `vX.Y.Z` tag on the commit that carries its section.
+
+## [1.48.9] — 2026-11-23
+
+### Documentation
+
+- **The release convention no longer claims a tag per push.** The header here said every push to
+  `main` carries an annotated `vX.Y.Z` tag, which the repository does not do; it now says what
+  `docs/OPERATIONS.md` says — every push has a section, and a release is published by tagging the
+  commit that carries it.
+- **`docs/MCP.md` matches the gateway.** The page is **AI Agent Access**, the read-tool table was
+  missing `list_anomalies` (1–200, default 50), and `block_ip`'s `ttl_seconds` is 0–31536000 with
+  `0` meaning 24 hours unless `permanent` is set, not 60–31536000.
+- **`docs/BENCHMARKS.md`** no longer calls 8 MiB the *default* body ceiling: 8 MiB is the hard
+  ceiling on a profile's inspected body and the shipped profiles default to 128 KiB.
+- **`docs/ROADMAP.md` delivery status** was self-contradictory — its Phase 4 bullet said console
+  TLS and revocation were both missing and shipped in 1.40.0, and its Phase 5 bullet listed
+  diagnostics, the canary, the OpenAPI check and the INSTALL split as undelivered while also
+  naming them as done. It now lists what shipped per phase and what is still outstanding
+  (`setup --config` with `WAFPROXY_SETUP_*`, `recover --rotate-master-key`, install-time
+  preflight, per-stage latency metrics, certificate/ACME counters, flap detection, SLO rollups,
+  recipe pages), and the screenshot item is marked delivered.
+- **`docs/openapi.yaml` regenerated** so the route reference and its `info.version` match the
+  build again; `go run ./tools/openapi -check` passes.
 
 ## [1.48.8] — 2026-11-23
 

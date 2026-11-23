@@ -115,7 +115,8 @@ request mix before treating any row as a guarantee.
 | SQLite page cache and WAL | 64–256 MB depending on write rate |
 | Buffered request bodies | up to `WAFPROXY_MAX_INFLIGHT` × the largest inspected body |
 
-The last row is the one to watch. With the default 8 MiB hard body ceiling, 768 in-flight requests
+The last row is the one to watch. With the 8 MiB hard ceiling on a profile's inspected body (the
+shipped profiles default to 128 KiB), 768 in-flight requests
 is a theoretical 6 GB worst case; real traffic bodies are much smaller, but a host that accepts
 large uploads should lower the per-profile body limit or the budget rather than rely on average
 size.
