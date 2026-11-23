@@ -28,6 +28,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/bundle"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/canary"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
@@ -436,11 +437,27 @@ func run() error {
 		return err
 	}
 	feeds := intel.New(st, log, 32<<20)
+	// Signed signature packs. A missing URL or key leaves the channel off, and
+	// the service still loads any pack already on disk.
+	bundles, err := bundle.New(bundle.Config{
+		Dir:       filepath.Join(cfg.DataDir, "bundles"),
+		URL:       cfg.BundleURL,
+		PublicKey: cfg.BundlePublicKey,
+		Interval:  time.Duration(cfg.BundleIntervalSeconds) * time.Second,
+		Log:       log,
+	})
+	if err != nil {
+		return fmt.Errorf("bundle channel: %w", err)
+	}
+	if err := bundles.Load(); err != nil {
+		log.Warn("could not load installed bundles", "err", err)
+	}
 	profiles, err := st.ListProfiles()
 	if err != nil {
 		return err
 	}
 	wafs := waf.NewSet(profiles, log)
+	wafs.SetBundles(bundles.Rules())
 	certs := acme.New(st, box, log)
 	certs.SetDirectory(cfg.ACMEDirectory, cfg.ACMECAFile)
 	notifier := notify.New(st, box, log)
@@ -513,6 +530,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	pol.SetBundleRules(bundles.Rules)
+	// A new pack is compiled into every profile before the next request, the
+	// same path a profile edit already takes.
+	bundles.OnChange(func() {
+		if err := pol.ReloadWAF(); err != nil {
+			log.Error("reload WAF after bundle install", "err", err)
+		}
+	})
 	px, err := proxy.New(proxy.Deps{
 		Store: st, Policy: pol, Gate: gateEngine, Bots: bots, Bans: bans,
 		Geo: geo, Metrics: met, Log: log, ClientIP: trusted,
@@ -637,6 +662,7 @@ func run() error {
 	}()
 	api.SetTrustedProxies(trusted)
 	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
+	apiServer.SetBundles(bundles)
 	apiServer.StartBackup(ctx)
 	apiServer.StartAutoUpdate(ctx)
 	agentLinks := agentlink.New(st, box, log)
@@ -739,6 +765,7 @@ func run() error {
 	go gateEngine.Start(ctx)
 	go bots.Start(ctx)
 	go feeds.Start(ctx)
+	go bundles.Start(ctx)
 	go pol.Start(ctx)
 	go bans.Start(ctx)
 	go certs.RenewLoop(ctx)

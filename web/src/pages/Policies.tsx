@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent, MouseEvent as ReactMouseEvent } from "react";
 import { api } from "../api";
+import { bundleMode, hitsByBundle, profileBundleBadges } from "../bundles";
 import { COUNTRIES, countryFlag, countryName } from "../countries";
 import { confirmDialog, Badge, Card, Empty, Field, Modal, PageHead, errText, fmtAgo } from "../ui";
-import { ASNRecommendations, ASNSuggestion, Ban, GlobalLists, Policy, PolicyPreflight, Profile, Proxy } from "../types";
+import { ASNRecommendations, ASNSuggestion, Ban, BundleHit, BundlesSnapshot, GlobalLists, Policy, PolicyPreflight, Profile, Proxy } from "../types";
 import AccessLists from "../components/AccessLists";
 import AccessProfiles from "../components/AccessProfiles";
 import AuthProviders from "../components/AuthProviders";
@@ -210,7 +211,14 @@ function BanMoveModal({
 }
 
 export default function Policies({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
-  const [tab, setTab] = useState("bans");
+  // The Threat intel page links straight to the WAF profiles tab after a bundle
+  // starts matching, so the operator lands on the switch they need.
+  const [tab, setTab] = useState(() => {
+    const query = window.location.hash.split("?")[1] ?? "";
+    return new URLSearchParams(query).get("tab") ?? "bans";
+  });
+  const [bundles, setBundles] = useState<BundlesSnapshot | null>(null);
+  const [bundleHits, setBundleHits] = useState<BundleHit[]>([]);
   const [bans, setBans] = useState<Ban[]>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [proxies, setProxies] = useState<Proxy[]>([]);
@@ -259,7 +267,12 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       .catch((e) => onError(errText(e)));
     api.get<Policy[]>("/api/policies").then(setPolicies).catch((e) => onError(errText(e)));
     api.get<Proxy[]>("/api/proxies").then(setProxies).catch(() => undefined);
-    api.get<Profile[]>("/api/profiles").then(setProfiles).catch(() => undefined);
+        api.get<Profile[]>("/api/profiles").then(setProfiles).catch(() => undefined);
+    api.get<BundlesSnapshot>("/api/bundles").then(setBundles).catch(() => undefined);
+    api
+      .get<{ hours: number; rules: BundleHit[] }>("/api/bundles/hits?hours=24")
+      .then((r) => setBundleHits(r.rules || []))
+      .catch(() => undefined);
     api.get<ASNRecommendations>("/api/asn-recommendations").then(setAsnRecs).catch(() => undefined);
     loadGlobals();
   };
@@ -475,12 +488,17 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
     login_burst: 0,
     admin_paths: "",
     admin_ips: "",
+    bundle_modes: {},
   });
 
   const needle = banSearch.trim().toLowerCase();
   const matches = needle
     ? bans.filter((b) => b.cidr.toLowerCase().includes(needle) || b.reason.toLowerCase().includes(needle))
     : [];
+  const installedBundles = bundles?.bundles ?? [];
+  const installedNames = installedBundles.map((b) => b.name);
+  const hitTotals = hitsByBundle(bundleHits);
+  const hitsFor = (name: string) => hitTotals[name] ?? 0;
   const whitelists = globals?.lists.filter((l) => l.kind === "whitelist") ?? [];
   const blocklists = globals?.lists.filter((l) => l.kind === "blocklist") ?? [];
   const valuePlaceholder =
@@ -669,7 +687,7 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
             <div style={{ overflowX: "auto" }}>
               <div className="table-wrap"><table>
                 <thead>
-                  <tr><th>Profile</th><th>Mode</th><th className="num">Paranoia</th><th className="num">Anomaly</th><th>Methods</th><th className="num">Max body</th><th /></tr>
+                  <tr><th>Profile</th><th>Mode</th><th className="num">Paranoia</th><th className="num">Anomaly</th><th>Methods</th><th className="num">Max body</th><th>Bundles</th><th /></tr>
                 </thead>
                 <tbody>
                   {profiles.map((p) => (
@@ -692,6 +710,12 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                       <td className="num">{p.anomaly}</td>
                       <td className="muted mono" style={{ fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.allowed_methods}>{p.allowed_methods}</td>
                       <td className="num">{p.max_body.toLocaleString()}</td>
+                      <td>
+                        <div className="row" style={{ gap: 4 }}>
+                          {profileBundleBadges(p, installedNames).map((m) => <Badge key={m.label} tone={m.tone}>{m.label}</Badge>)}
+                          {installedNames.length === 0 ? <span className="faint">—</span> : null}
+                        </div>
+                      </td>
                       <td className="right" style={{ whiteSpace: "nowrap" }}>
                         <button className="small" onClick={() => setProfile({ ...p })}>Edit</button>{" "}
                         {!p.builtin && <button className="small danger" onClick={() => removeProfile(p)}>Delete</button>}
@@ -1011,6 +1035,47 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
               placeholder="only the rules this application needs removed"
             />
           </Field>
+          {installedBundles.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <label>Signature bundle rules</label>
+              <p className="faint" style={{ fontSize: 11, marginTop: 0, lineHeight: 1.55 }}>
+                CRS rules keep following Mode above. Each bundle picks its own action on this profile; a bundle with no
+                choice here logs only. Blocking refuses the match with the profile's normal refusal page.
+              </p>
+              {installedBundles.map((b) => (
+                <div
+                  key={b.name}
+                  className="row"
+                  style={{ justifyContent: "space-between", padding: "7px 0", borderTop: "1px solid var(--border-soft)" }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div>
+                      {b.name}{" "}
+                      {hitsFor(b.name) > 0 ? (
+                        <span className="faint" style={{ fontSize: 11 }}>{hitsFor(b.name).toLocaleString()} hits / 24h</span>
+                      ) : null}
+                    </div>
+                    <div className="faint mono" style={{ fontSize: 11 }}>{b.version} · {b.rules} rules</div>
+                  </div>
+                  <select
+                    aria-label={`Bundle ${b.name} mode`}
+                    style={{ width: 132 }}
+                    value={bundleMode(profile.bundle_modes, b.name)}
+                    onChange={(e) =>
+                      setProfile({
+                        ...profile,
+                        bundle_modes: { ...(profile.bundle_modes ?? {}), [b.name]: e.target.value },
+                      })
+                    }
+                  >
+                    <option value="off">Off</option>
+                    <option value="log">Log only</option>
+                    <option value="block">Block</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="row grow">
             <Field label="Upstream response ceiling (bytes, 0 = unlimited)">
               <input

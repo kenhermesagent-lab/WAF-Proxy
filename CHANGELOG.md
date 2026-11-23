@@ -11,6 +11,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.48.0] — 2026-11-23
+
+### Added
+
+- **Signed signature bundles.** `internal/bundle` follows an ed25519-signed manifest on an hourly
+  schedule, verifies the signature, SHA-256, advertised size and a throwaway compile, then installs
+  a pack atomically and keeps the previous version as the last known good copy. A manifest whose
+  `sequence` does not increase is refused, so a mirror cannot roll the channel back. Packs carry
+  rules only, never addresses.
+- **Per-profile bundle modes.** WAF profiles gained `bundle_modes` (`off`, `log`, `block`; unset
+  means log), and a bundle mode is resolved per profile, never globally. `waf.Match` reports the
+  rule's origin and pack, and the policy layer decides CRS and bundle rules separately. A site
+  pinned to WAF mode `detect` keeps logging even when its profile allows a bundle to block.
+- **Threat intel → Signature bundles** shows the channel, publisher key, installed versions and the
+  modes across profiles, with a manual check. **Bundle hits** groups the rules that matched in the
+  last 24 hours from the existing `events.rule_id` column, so no new write path was added.
+- **Policies → WAF profiles** gained a read-only Bundles column and a per-bundle switch in the
+  profile dialog, next to paranoia and rule exceptions.
+- `GET /api/bundles`, `POST /api/bundles/check` and `GET /api/bundles/hits`, all under the
+  `sources.*` permission area.
+- `cmd/bundletool keygen|sign` publishes a channel and validates every rule before signing it.
+- `WAFPROXY_BUNDLE_URL`, `WAFPROXY_BUNDLE_PUBKEY` and `WAFPROXY_BUNDLE_INTERVAL` configure the
+  channel; without the first two it stays off and only installed packs are served.
+
+### Changed
+
+- `waf.Set` compiles installed packs into each profile engine and exposes `SetBundles`, so an
+  install recompiles the same way a profile edit already did.
+- `README`, `.env.example` and `docs/openapi.yaml` document the channel, the rule format and the
+  new endpoints.
+
 ## [1.47.21] — 2026-11-23
 
 ### Added

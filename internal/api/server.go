@@ -25,6 +25,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/bundle"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/canary"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
@@ -59,6 +60,7 @@ type Server struct {
 	policy     *policy.Engine
 	bans       *ban.Engine
 	feeds      *intel.Manager
+	bundles    *bundle.Manager
 	certs      *acme.Manager
 	cs         *crowdsec.Manager
 	metrics    *metrics.Collector
@@ -236,6 +238,10 @@ func (s *Server) routes() {
 	m.HandleFunc("PUT /api/feeds/{id}", s.authed(s.updateFeed))
 	m.HandleFunc("DELETE /api/feeds/{id}", s.authed(s.deleteFeed))
 	m.HandleFunc("POST /api/feeds/{id}/refresh", s.authed(s.refreshFeed))
+
+	m.HandleFunc("GET /api/bundles", s.authed(s.listBundles))
+	m.HandleFunc("POST /api/bundles/check", s.authed(s.checkBundles))
+	m.HandleFunc("GET /api/bundles/hits", s.authed(s.bundleHits))
 
 	m.HandleFunc("GET /api/certs", s.authed(s.listCerts))
 	m.HandleFunc("POST /api/certs", s.authed(s.createCert))

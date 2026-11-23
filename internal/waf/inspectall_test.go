@@ -10,7 +10,7 @@ import (
 
 // A simulation needs every rule that fired, not only the one the log names.
 func TestInspectAllKeepsEveryMatchedRule(t *testing.T) {
-	e, err := compile(model.Profile{ID: 1, Name: "test", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072})
+	e, err := compile(model.Profile{ID: 1, Name: "test", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

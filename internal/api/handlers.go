@@ -682,6 +682,13 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
+	if in.BundleModes != nil {
+		if msg := validBundleModes(in.BundleModes); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
+		p.BundleModes = bundleModesOrEmpty(in.BundleModes)
+	}
 	p.MaxResponse, p.LoginPaths, p.LoginRPS = in.MaxResponse, in.LoginPaths, in.LoginRPS
 	p.LoginBurst, p.AdminPaths, p.AdminIPs = in.LoginBurst, in.AdminPaths, in.AdminIPs
 	before := s.snapshotProfile(p.ID)
@@ -750,6 +757,11 @@ func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
+	if msg := validBundleModes(in.BundleModes); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	p.BundleModes = bundleModesOrEmpty(in.BundleModes)
 	p.MaxResponse, p.LoginPaths, p.LoginRPS = in.MaxResponse, in.LoginPaths, in.LoginRPS
 	p.LoginBurst, p.AdminPaths, p.AdminIPs = in.LoginBurst, in.AdminPaths, in.AdminIPs
 	if err := s.st.CreateProfile(&p); err != nil {

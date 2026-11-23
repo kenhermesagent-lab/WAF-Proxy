@@ -266,6 +266,38 @@ type Profile struct {
 	// reach. An empty AdminIPs leaves the rule inert.
 	AdminPaths string `json:"admin_paths"`
 	AdminIPs   string `json:"admin_ips"`
+	// BundleModes maps an installed signature bundle to off, log or block for
+	// this profile. A bundle with no entry logs only, so installing a bundle
+	// never starts refusing traffic on its own.
+	BundleModes map[string]string `json:"bundle_modes"`
+}
+
+// Bundle modes. Off skips the pack's rules for this profile, log records the
+// match without refusing it, block refuses it.
+const (
+	BundleOff   = "off"
+	BundleLog   = "log"
+	BundleBlock = "block"
+)
+
+// ValidBundleMode reports whether mode is an accepted bundle mode.
+func ValidBundleMode(mode string) bool {
+	switch mode {
+	case BundleOff, BundleLog, BundleBlock:
+		return true
+	}
+	return false
+}
+
+// BundleMode returns the mode for one bundle on this profile, defaulting to
+// log so an unconfigured bundle is visible in the hit table but never blocks.
+func (p *Profile) BundleMode(name string) string {
+	if p != nil {
+		if mode, ok := p.BundleModes[name]; ok && ValidBundleMode(mode) {
+			return mode
+		}
+	}
+	return BundleLog
 }
 
 // Certificate sources shown in the inventory.

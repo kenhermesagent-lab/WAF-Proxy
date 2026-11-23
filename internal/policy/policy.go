@@ -122,6 +122,10 @@ type Engine struct {
 	perProxy map[int64]ruleSet
 	profiles map[int64]model.Profile
 	settings Settings
+	// bundleRules supplies the installed signature packs whenever an engine
+	// is recompiled. It is a function so the manager can swap packs without
+	// the policy layer holding a reference to it.
+	bundleRules func() []waf.Bundle
 
 	// An access profile is a named selection of policy rows with a role per
 	// row. Keeping the rows themselves as the source of truth means editing a
@@ -959,11 +963,22 @@ func (e *Engine) Start(ctx context.Context) {
 	}()
 }
 
+// SetBundleRules registers the installed signature packs. It must be called
+// before the first ReloadWAF so a profile compiles with the packs on disk.
+func (e *Engine) SetBundleRules(rules func() []waf.Bundle) {
+	e.bundleRules = rules
+}
+
 // ReloadWAF recompiles the protection profiles after an edit.
 func (e *Engine) ReloadWAF() error {
 	profiles, err := e.st.ListProfiles()
 	if err != nil {
 		return err
+	}
+	// SetBundles drops the compiled engines, so it has to run before Reload
+	// repopulates the profile configs.
+	if e.bundleRules != nil {
+		e.wafs.SetBundles(e.bundleRules())
 	}
 	e.wafs.Reload(profiles)
 	e.mu.Lock()
@@ -1163,12 +1178,86 @@ func (e *Engine) inspect(req *Request) (model.Verdict, WAFInfo, []waf.Match) {
 			return model.Verdict{Action: "allow", Stage: "waf"}, info, matches
 		}
 	}
-	if mode == "detect" || !res.Blocked {
-		return model.Verdict{Action: "log", Stage: "waf", Rule: strconv.Itoa(res.RuleID),
-			Reason: res.Message, Status: http.StatusOK}, info, matches
+	// A CRS interruption is decided by the profile mode alone.
+	if res.Blocked {
+		rule, msg := res.RuleID, res.Message
+		if id, m, ok := bestCRSMatch(matches); ok {
+			rule, msg = id, m
+		}
+		if mode == "detect" {
+			return model.Verdict{Action: "log", Stage: "waf", Rule: strconv.Itoa(rule),
+				Reason: msg, Status: http.StatusOK}, info, matches
+		}
+		return model.Verdict{Action: "block", Stage: "waf", Rule: strconv.Itoa(rule),
+			Reason: waf.Label(rule) + ": " + msg, Status: http.StatusForbidden}, info, matches
 	}
-	return model.Verdict{Action: "block", Stage: "waf", Rule: strconv.Itoa(res.RuleID),
-		Reason: res.Label + ": " + res.Message, Status: http.StatusForbidden}, info, matches
+	// A bundle rule resolves by its own per-profile switch: off is filtered at
+	// compile time, log records, block refuses. CRS coverage is untouched by
+	// whichever way this goes.
+	if bm, ok := e.bestBundleMatch(matches, p); ok {
+		info.Matched = true
+		info.RuleID = bm.RuleID
+		info.Message = bm.Message
+		info.Label = "bundle"
+		// A site pinned to detect-only keeps that promise even when its profile
+		// allows the bundle to block: the per-site setting is the narrower one.
+		if e.bundleMode(p, bm.Bundle) == model.BundleBlock && p.WAFMode != "detect" {
+			return model.Verdict{Action: "block", Stage: "waf", Rule: strconv.Itoa(bm.RuleID),
+				Reason: "bundle " + bm.Bundle + ": " + bm.Message, Status: http.StatusForbidden}, info, matches
+		}
+		return model.Verdict{Action: "log", Stage: "waf", Rule: strconv.Itoa(bm.RuleID),
+			Reason: bm.Message, Status: http.StatusOK}, info, matches
+	}
+	return model.Verdict{Action: "log", Stage: "waf", Rule: strconv.Itoa(res.RuleID),
+		Reason: res.Message, Status: http.StatusOK}, info, matches
+}
+
+// bestCRSMatch names the CRS rule a block should be attributed to. A bundle
+// rule can carry a higher severity than the CRS rule that interrupted, so the
+// reported rule must be chosen by origin rather than by the lowest number.
+func bestCRSMatch(matches []waf.Match) (int, string, bool) {
+	best, msg, ok := 0, "", false
+	severity := 999
+	for _, m := range matches {
+		if m.Origin == "bundle" {
+			continue
+		}
+		if m.Severity < severity {
+			best, msg, severity, ok = m.RuleID, m.Message, m.Severity, true
+		}
+	}
+	return best, msg, ok
+}
+
+// bestBundleMatch picks the most severe bundle rule whose mode is not off.
+func (e *Engine) bestBundleMatch(matches []waf.Match, p *model.Proxy) (waf.Match, bool) {
+	best := waf.Match{}
+	severity := 999
+	ok := false
+	for _, m := range matches {
+		if m.Origin != "bundle" || e.bundleMode(p, m.Bundle) == model.BundleOff {
+			continue
+		}
+		if m.Severity < severity {
+			best, severity, ok = m, m.Severity, true
+		}
+	}
+	return best, ok
+}
+
+// bundleMode reads the mode for a bundle on a proxy's profile. A site without
+// a profile keeps the default log mode, matching an unconfigured profile.
+func (e *Engine) bundleMode(p *model.Proxy, name string) string {
+	if p == nil || p.ProfileID == nil {
+		return model.BundleLog
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	prof, ok := e.profiles[*p.ProfileID]
+	if !ok {
+		return model.BundleLog
+	}
+	return prof.BundleMode(name)
 }
 
 // normVerdict turns a normalization finding into a verdict according to the

@@ -28,3 +28,6 @@ node_modules/
 
 # Local verification artefacts
 /artifacts/
+
+# Pipeline state (per-run audit trail, never committed)
+.pipeline/

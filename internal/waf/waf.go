@@ -3,6 +3,7 @@
 package waf
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -32,6 +33,39 @@ type Result struct {
 	Norm []norm.Finding `json:"-"`
 }
 
+// BundleRule is one signature rule delivered by the signed bundle channel.
+// Target and Operator are Coraza variables and an operator expression; the
+// pack never carries whole directives, so a rule cannot reconfigure the
+// engine.
+type BundleRule struct {
+	ID       int    `json:"id"`
+	Message  string `json:"message"`
+	Severity string `json:"severity"`
+	Tag      string `json:"tag,omitempty"`
+	Target   string `json:"target"`
+	Operator string `json:"operator"`
+}
+
+// Bundle is one installed signature pack.
+type Bundle struct {
+	Name    string       `json:"name"`
+	Version string       `json:"version"`
+	Rules   []BundleRule `json:"rules"`
+}
+
+// BundleRuleFirst and BundleRuleLast bound the rule-ID range reserved for
+// bundles. CRS v4 ships rules up to 980170, so the range starts above that and
+// stops at the 999999 exception cap; the anomaly scorer's 949000–950000 and
+// every CRS ID stay outside it, which is what lets the console tell a bundle
+// hit from a CRS hit by the ID alone.
+const (
+	BundleRuleFirst = 990000
+	BundleRuleLast  = 999999
+)
+
+// IsBundleRule reports whether a rule ID belongs to the bundle range.
+func IsBundleRule(id int) bool { return id >= BundleRuleFirst && id <= BundleRuleLast }
+
 // Engine is a compiled WAF for one protection profile.
 type Engine struct {
 	id         int64
@@ -39,7 +73,15 @@ type Engine struct {
 	paranoia   int
 	maxBody    int64
 	exceptions map[int]bool
+	bundles    map[int]bundleOrigin
 	waf        coraza.WAF
+}
+
+// bundleOrigin names the pack a rule came from, so a verdict can say which
+// bundle matched instead of only which ID fired.
+type bundleOrigin struct {
+	name    string
+	version string
 }
 
 // Set lazily compiles and caches one engine per profile.
@@ -47,6 +89,7 @@ type Set struct {
 	log      *slog.Logger
 	mu       sync.RWMutex
 	configs  map[int64]model.Profile
+	bundles  []Bundle
 	engines  map[int64]*Engine
 	fallback *Engine
 }
@@ -64,7 +107,7 @@ func NewSet(profiles []model.Profile, log *slog.Logger) *Set {
 		s.configs[p.ID] = p
 	}
 	fallback := model.Profile{ID: 0, Name: "Default", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072}
-	if eng, err := compile(fallback); err == nil {
+	if eng, err := compile(fallback, nil); err == nil {
 		s.fallback = eng
 	} else {
 		log.Error("compile fallback WAF", "err", err)
@@ -83,6 +126,24 @@ func (s *Set) Reload(profiles []model.Profile) {
 	s.engines = map[int64]*Engine{}
 }
 
+// SetBundles replaces the installed signature packs. Every profile engine is
+// dropped because a bundle's rules and its off/log/block mode are baked in at
+// compile time, which is what makes "off" cost nothing at request time.
+func (s *Set) SetBundles(bundles []Bundle) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.bundles = bundles
+	s.engines = map[int64]*Engine{}
+	// The fallback profile is what a site without a profile gets. Recompile it
+	// too, or those sites would silently see no bundle rules at all.
+	fallback := model.Profile{ID: 0, Name: "Default", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072}
+	if eng, err := compile(fallback, bundles); err == nil {
+		s.fallback = eng
+	} else {
+		s.log.Error("compile fallback WAF", "err", err)
+	}
+}
+
 // For returns the engine for a profile, compiling it on first use.
 func (s *Set) For(profileID *int64) *Engine {
 	if profileID == nil {
@@ -95,11 +156,12 @@ func (s *Set) For(profileID *int64) *Engine {
 		return e
 	}
 	cfg, ok := s.configs[id]
+	bundles := s.bundles
 	s.mu.RUnlock()
 	if !ok {
 		return s.fallback
 	}
-	eng, err := compile(cfg)
+	eng, err := compile(cfg, bundles)
 	if err != nil {
 		s.log.Error("compile WAF profile", "profile", cfg.Name, "err", err)
 		return s.fallback
@@ -110,7 +172,7 @@ func (s *Set) For(profileID *int64) *Engine {
 	return eng
 }
 
-func compile(p model.Profile) (*Engine, error) {
+func compile(p model.Profile, bundles []Bundle) (*Engine, error) {
 	paranoia := p.Paranoia
 	if paranoia < 1 || paranoia > 4 {
 		paranoia = 1
@@ -168,6 +230,9 @@ SecAction "id:9001004,phase:3,nolog,pass,t:none,setvar:tx.blocking_paranoia_leve
 	directives += `SecRule REQUEST_FILENAME "@rx (?i)(?:^|/)(?:etc/(?:passwd|shadow|group|gshadow|sudoers)|proc/(?:self|[0-9]+)/(?:environ|cmdline)|\.ssh/(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|authorized_keys))(?:/|$)" "id:900110,phase:1,deny,status:403,log,severity:'CRITICAL',tag:'attack-lfi',msg:'path-style file access probe'"
 `
 
+	origins := map[int]bundleOrigin{}
+	directives += bundleDirectives(p, bundles, origins)
+
 	w, err := coraza.NewWAF(coraza.NewWAFConfig().
 		WithRootFS(coreruleset.FS).
 		WithDirectives(directives))
@@ -180,8 +245,147 @@ SecAction "id:9001004,phase:3,nolog,pass,t:none,setvar:tx.blocking_paranoia_leve
 		paranoia:   paranoia,
 		maxBody:    maxBody,
 		exceptions: exceptions,
+		bundles:    origins,
 		waf:        w,
 	}, nil
+}
+
+// bundleDirectives turns the installed packs into phase-1 rules for one
+// profile. A rule only matches: the policy layer decides whether the verdict
+// is a block or a log, which is what lets the same pack block on one profile
+// and stay quiet on another. A bundle set to off contributes no rules at all.
+// ValidateBundle checks a downloaded pack before it can replace a working one.
+// It rejects the whole pack when any rule is unusable, so a publisher mistake
+// cannot half-apply.
+func ValidateBundle(b Bundle) error {
+	if strings.TrimSpace(b.Name) == "" || len(b.Name) > 64 {
+		return errors.New("bundle has no usable name")
+	}
+	if strings.TrimSpace(b.Version) == "" || len(b.Version) > 64 {
+		return fmt.Errorf("bundle %s has no usable version", b.Name)
+	}
+	if len(b.Rules) == 0 {
+		return fmt.Errorf("bundle %s contains no rules", b.Name)
+	}
+	seen := map[int]bool{}
+	for _, r := range b.Rules {
+		if !ruleValid(r) {
+			return fmt.Errorf("bundle %s has an unusable rule %d", b.Name, r.ID)
+		}
+		if seen[r.ID] {
+			return fmt.Errorf("bundle %s repeats rule %d", b.Name, r.ID)
+		}
+		seen[r.ID] = true
+	}
+	return nil
+}
+
+// ValidateCompile proves a pack compiles in a throwaway engine. Coraza rejects
+// malformed operators at load time, and a profile must never fall back to the
+// default engine because a downloaded rule was bad.
+func ValidateCompile(name string, rules []BundleRule) error {
+	p := model.Profile{Name: "bundle-check", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072}
+	origins := map[int]bundleOrigin{}
+	directives := bundleDirectives(p, []Bundle{{Name: name, Version: "check", Rules: rules}}, origins)
+	if origins == nil || len(origins) == 0 {
+		return errors.New("bundle produced no usable directives")
+	}
+	cfg := coraza.NewWAFConfig().WithRootFS(coreruleset.FS).WithDirectives("SecRuleEngine On\n" + directives)
+	if _, err := coraza.NewWAF(cfg); err != nil {
+		return fmt.Errorf("bundle does not compile: %w", err)
+	}
+	return nil
+}
+
+// ruleValid applies the shape checks that keep a pack from breaking out of its
+// own directive or reconfiguring the engine.
+func ruleValid(r BundleRule) bool {
+	if !IsBundleRule(r.ID) || len(r.Message) == 0 || len(r.Message) > 512 {
+		return false
+	}
+	severity := strings.ToUpper(strings.TrimSpace(r.Severity))
+	return validBundleSeverity(severity) && validBundleTarget(r.Target) && validBundleOperator(r.Operator)
+}
+
+func bundleDirectives(p model.Profile, bundles []Bundle, origins map[int]bundleOrigin) string {
+	var out strings.Builder
+	seen := map[int]bool{}
+	for _, b := range bundles {
+		if p.BundleMode(b.Name) == model.BundleOff {
+			continue
+		}
+		name := safeTagValue(b.Name)
+		version := safeTagValue(b.Version)
+		for _, r := range b.Rules {
+			if seen[r.ID] || !ruleValid(r) {
+				continue
+			}
+			severity := strings.ToUpper(strings.TrimSpace(r.Severity))
+			seen[r.ID] = true
+			origins[r.ID] = bundleOrigin{name: b.Name, version: b.Version}
+			fmt.Fprintf(&out, "SecRule %s \"%s\" \"id:%d,phase:1,pass,log,severity:'%s',tag:'bundle:%s',tag:'bundle-version:%s',msg:'%s'\"\n",
+				r.Target, escapeDirective(r.Operator), r.ID, severity, name, version, escapeDirective(r.Message))
+		}
+	}
+	return out.String()
+}
+
+// safeTagValue keeps a bundle name or version from breaking out of a tag.
+func safeTagValue(v string) string {
+	var b strings.Builder
+	for _, r := range v {
+		if r == '.' || r == '-' || r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "unknown"
+	}
+	return b.String()
+}
+
+func escapeDirective(v string) string {
+	var b strings.Builder
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f {
+			b.WriteByte(' ')
+			continue
+		}
+		if r == '\\' || r == '\'' || r == '"' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func validBundleSeverity(s string) bool {
+	switch s {
+	case "EMERGENCY", "ALERT", "CRITICAL", "ERROR", "WARNING", "NOTICE", "INFO", "DEBUG":
+		return true
+	}
+	return false
+}
+
+// validBundleTarget accepts a Coraza variable list such as "ARGS|REQUEST_URI".
+func validBundleTarget(s string) bool {
+	if s == "" || len(s) > 200 {
+		return false
+	}
+	for _, r := range s {
+		if r == '_' || r == '|' || r == ',' || r == '&' || r == '!' || r == ' ' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validBundleOperator(s string) bool {
+	if len(s) < 2 || len(s) > 4096 || !strings.HasPrefix(s, "@") {
+		return false
+	}
+	return !strings.ContainsAny(s, "\r\n")
 }
 
 // MaxBody returns the inspected body limit.
@@ -206,6 +410,11 @@ type Match struct {
 	Message    string `json:"message"`
 	Severity   int    `json:"severity"`
 	Disruptive bool   `json:"disruptive"`
+	// Origin is crs or bundle; Bundle and BundleVersion name the pack when the
+	// rule came from one. The policy layer resolves off/log/block per origin.
+	Origin        string `json:"origin"`
+	Bundle        string `json:"bundle,omitempty"`
+	BundleVersion string `json:"bundle_version,omitempty"`
 }
 
 // Inspect evaluates a request. The body must already be read and limited by the
@@ -348,7 +557,14 @@ func (e *Engine) summarise(res Result, matched []types.MatchedRule, interrupted 
 		// that classify an attack are candidates for the logged rule.
 		sev := int(mr.Rule().Severity())
 		if sev >= 0 {
-			found = append(found, Match{RuleID: id, Message: mr.Message(), Severity: sev, Disruptive: mr.Disruptive()})
+			m := Match{RuleID: id, Message: mr.Message(), Severity: sev, Disruptive: mr.Disruptive(), Origin: "crs"}
+			if IsBundleRule(id) {
+				m.Origin = "bundle"
+				if o, ok := e.bundles[id]; ok {
+					m.Bundle, m.BundleVersion = o.name, o.version
+				}
+			}
+			found = append(found, m)
 		}
 		if sev >= 0 && sev < bestSeverity {
 			bestSeverity = sev
