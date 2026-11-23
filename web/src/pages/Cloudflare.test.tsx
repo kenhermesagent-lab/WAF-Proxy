@@ -41,7 +41,18 @@ const base: CloudflareStatus = {
 function renderPage() {
   const onError = vi.fn();
   const onOK = vi.fn();
-  render(<CloudflarePage onError={onError} onOK={onOK} />);
+  render(
+    <CloudflarePage
+      tab="admin"
+      tabs={[
+        { id: "admin", label: "Admin" },
+        { id: "apps", label: "Apps" },
+      ]}
+      onTab={() => {}}
+      onError={onError}
+      onOK={onOK}
+    />,
+  );
   return { onError, onOK };
 }
 

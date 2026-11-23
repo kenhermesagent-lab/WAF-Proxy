@@ -44,6 +44,11 @@ var hostSettingKeys = map[string]bool{
 	"crowdsec_enabled": true, "crowdsec_url": true, "crowdsec_key": true,
 	"tailscale_admin_enabled": true, "tailscale_dns_enabled": true,
 	"tailscale_proxy_enabled": true,
+	// One connector and one token serve the host; only the published hostname
+	// list is per site.
+	"cloudflare_enabled": true, "cloudflare_tunnel_token": true,
+	"cloudflare_tunnel_id": true, "cloudflare_strict_origin": true,
+	"cloudflare_check_nonce": true,
 }
 
 // HostSettingKeys returns the host-wide keys for the console, so the settings

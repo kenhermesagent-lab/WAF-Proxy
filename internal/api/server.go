@@ -102,6 +102,10 @@ type Server struct {
 	cfChecks  []cloudflareCheck
 	cfChecked string
 	cfNonce   atomic.Value
+	// Per-hostname results for the Apps tab, keyed by hostname.
+	cfAppMu      sync.Mutex
+	cfAppChecks  map[string][]cloudflareCheck
+	cfAppChecked map[string]string
 
 	// CrowdSec one-click install progress, polled by the CrowdSec page.
 	csMu      sync.Mutex
@@ -408,6 +412,9 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/cloudflare/install", s.authed(s.startCloudflareInstall))
 	m.HandleFunc("POST /api/cloudflare/connector", s.authed(s.cloudflareConnector))
 	m.HandleFunc("POST /api/cloudflare/check", s.authed(s.cloudflareCheck))
+	m.HandleFunc("GET /api/cloudflare/apps", s.authed(s.getCloudflareApps))
+	m.HandleFunc("PUT /api/cloudflare/apps", s.authed(s.putCloudflareApps))
+	m.HandleFunc("POST /api/cloudflare/apps/check", s.authed(s.checkCloudflareApps))
 
 	m.HandleFunc("GET /api/updates", s.authed(s.getUpdates))
 	m.HandleFunc("POST /api/updates/check", s.authed(s.checkUpdates))

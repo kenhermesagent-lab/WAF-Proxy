@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, PageHead, SaveBar, Switch, confirmDialog, errText } from "../ui";
+import { Badge, Card, PageHead, PageTabs, SaveBar, Switch, confirmDialog, errText } from "../ui";
 import type { CloudflareCheck, CloudflareStatus } from "../types";
+import CloudflareApps from "./CloudflareApps";
+
+type TabProps = { tab: string; tabs: { id: string; label: string }[]; onTab: (id: string) => void };
 
 const DASHBOARD_URL = "https://one.dash.cloudflare.com/";
 
@@ -9,9 +12,12 @@ type Saved = { enabled: boolean; strict: boolean; tunnelID: string };
 type InstallState = { running: boolean; installed: boolean; error?: string; output?: string };
 
 export default function CloudflarePage({
+  tab,
+  tabs,
+  onTab,
   onError,
   onOK,
-}: {
+}: TabProps & {
   onError: (m: string) => void;
   onOK: (m: string) => void;
 }) {
@@ -190,7 +196,9 @@ export default function CloudflarePage({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <PageHead sub="Publish this console through Cloudflare Tunnel, with Access in front of it." />
+      <PageHead sub="Publish this console and its sites through Cloudflare Tunnel, with Access in front of them." />
+      <PageTabs tabs={tabs} active={tab} onSelect={onTab} />
+      {tab === "apps" && <CloudflareApps onError={onError} onOK={onOK} />}
 
       <Card title="Connector">
         <div className="bar-row">
@@ -281,6 +289,8 @@ export default function CloudflarePage({
         )}
       </Card>
 
+      {tab !== "apps" && (
+        <>
       <Card title="1 · Install the connector">
         {cf.installed ? (
           <p className="muted" style={{ marginTop: 0 }}>
@@ -484,8 +494,10 @@ export default function CloudflarePage({
           </button>
         </div>
       </Card>
+        </>
+      )}
 
-      {(changes > 0 || saving) && saved && (
+      {tab !== "apps" && (changes > 0 || saving) && saved && (
         <SaveBar
           note={<><b>Unsaved changes</b> · tunnel settings apply when you save</>}
           saveLabel="Save tunnel settings"

@@ -24,6 +24,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/cloudflared"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/internalca"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
@@ -1557,6 +1558,20 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 		if !validHostname(d) {
 			writeError(w, http.StatusBadRequest, "invalid domain: "+d)
 			return
+		}
+	}
+	// A hostname published through the tunnel is answered by Cloudflare's edge,
+	// so an HTTP-01 or TLS-ALPN-01 order can never validate here. Refusing before
+	// the row is created is clearer than a pending certificate that fails later.
+	if in.Challenge != model.CertChallengeDNS {
+		if kv, err := s.db(r).Settings(); err == nil {
+			for _, d := range strings.Split(in.Domains, ",") {
+				host := strings.TrimPrefix(strings.TrimSpace(d), "*.")
+				if cloudflared.IsPublished(kv, host) {
+					writeError(w, http.StatusConflict, host+" is published through Cloudflare Tunnel, so the edge serves its certificate; choose DNS-01 for a local certificate")
+					return
+				}
+			}
 		}
 	}
 	if len(in.Creds) > 0 && in.Challenge == model.CertChallengeDNS {

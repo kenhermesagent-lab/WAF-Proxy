@@ -90,6 +90,26 @@ export interface CloudflareCheck {
   detail?: string;
 }
 
+export interface CloudflareApp {
+  hostname: string;
+  enabled: boolean;
+  published: boolean;
+  has_cert: boolean;
+  service: string;
+  origin_server_name: string;
+  no_tls_verify: boolean;
+}
+
+export interface CloudflareAppsView {
+  site: string;
+  tunnel_id: string;
+  connected: boolean;
+  wan_port: number;
+  apps: CloudflareApp[];
+  checks: Record<string, CloudflareCheck[]>;
+  checked: Record<string, string>;
+}
+
 export interface CloudflareStatus {
   enabled: boolean;
   installed: boolean;
