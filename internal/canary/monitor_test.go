@@ -91,3 +91,31 @@ func TestMonitorSkipsWhenDisabled(t *testing.T) {
 		t.Fatalf("disabled monitor probed: %+v, calls %d", snap, probe.calls)
 	}
 }
+
+func TestMonitorResetsOutageWhenTheSiteChanges(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.SetSettings(map[string]string{"canary_host": "a.example.com", "canary_retries": "0"}); err != nil {
+		t.Fatal(err)
+	}
+	bad := Result{Failed: "waf", Stages: []Stage{{Name: "waf", OK: false, Detail: "blocked"}}}
+	probe := &fakeProbe{results: []Result{bad}}
+	notify := &fakeNotifier{}
+	m := NewMonitor(st, probe, notify)
+	if snap := m.Check(context.Background()); snap.Failures != 1 || len(notify.texts) != 1 {
+		t.Fatalf("first site outage = %+v, notifications %d", snap, len(notify.texts))
+	}
+	if err := st.SetSettings(map[string]string{"canary_host": "b.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	snap := m.Check(context.Background())
+	if snap.Failures != 1 {
+		t.Fatalf("new site carried the old failure count: %+v", snap)
+	}
+	if len(notify.texts) != 2 || notify.keys[1] != "canary:b.example.com" {
+		t.Fatalf("new site outage was not notified: %v %v", notify.texts, notify.keys)
+	}
+}

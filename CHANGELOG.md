@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.12] — 2026-11-23
+
+### Fixed
+
+- Changing `canary_host` carried the previous site's outage state over: the new site's
+  first failure sent no alert and its consecutive count started above one. The monitor
+  now resets the outage state when the probed host changes.
+
 ## [1.47.11] — 2026-11-23
 
 ### Fixed
