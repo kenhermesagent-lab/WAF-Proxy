@@ -1,6 +1,8 @@
 // Package api exposes the authenticated admin API.
 package api
 
+//go:generate go run ../../tools/openapi -src server.go -version-file ../../VERSION -out ../../docs/openapi.yaml
+
 import (
 	"context"
 	"crypto/subtle"
@@ -122,6 +124,8 @@ func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Serve
 
 func (s *Server) routes() {
 	m := s.mux
+	m.HandleFunc("GET /api/diagnostics", s.authed(s.diagnostics))
+	m.HandleFunc("POST /api/canary", s.authed(s.runCanary))
 	m.HandleFunc("GET /api/health", s.health)
 	m.HandleFunc("GET /api/version", s.versionInfo)
 	m.HandleFunc("GET /api/setup/status", s.setupStatus)
@@ -236,6 +240,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/certs/internal/root", s.authed(s.internalCARoot))
 	m.HandleFunc("PUT /api/certs/{id}", s.authed(s.updateCert))
 	m.HandleFunc("POST /api/certs/{id}/renew", s.authed(s.renewCert))
+	m.HandleFunc("POST /api/certs/{id}/revoke", s.authed(s.revokeCert))
 	m.HandleFunc("DELETE /api/certs/{id}", s.authed(s.deleteCert))
 
 	m.HandleFunc("GET /api/metrics", s.authed(s.getMetrics))

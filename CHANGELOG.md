@@ -11,7 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
-## [1.39.2] — 2026-11-23
+## [1.42.1] — 2026-11-23
 
 ### Fixed
 
@@ -22,6 +22,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   a real change still shows.
 - **A long kernel-status badge no longer widens the Policies page on a phone.** The badge wraps
   instead, and the tab strip wraps with it.
+
+## [1.42.0] — 2026-11-23
+
+### Changed
+
+- `docs/INSTALL.md` is now a hub of task pages under `docs/install/`, and
+  `docs/README.md` indexes the install, operations and project docs.
+- **API reference.** `docs/openapi.yaml` is generated from the routes registered in
+  `internal/api/server.go` (`go generate ./internal/api`), with `-check` to catch a stale
+  file.
+
+## [1.41.0] — 2026-11-23
+
+### Added
+
+- **Diagnostics bundle.** `GET /api/diagnostics` returns versions, listeners,
+  configuration counts, certificate metadata and settings with secrets, URL credentials
+  and query strings redacted.
+- **Synthetic canary.** `POST /api/canary` resolves, connects and requests a benign path
+  through the gateway, reporting every stage and naming the first failure (`waf`,
+  `route` or `upstream`).
+
+## [1.40.1] — 2026-11-23
+
+### Changed
+
+- Threshold alerting and the notification **Test** action are now documented in
+  `docs/OPERATIONS.md`: the three anomaly kinds, their settings and defaults, the
+  24-hour dedupe key, and the `200`/`502` behaviour of `POST /api/notifications/test`.
+
+### Fixed
+
+- Regression tests now cover the parts that had none: a webhook test message reaching a
+  real HTTP endpoint, unknown channels failing, deduplication by alert key, and the API
+  endpoint returning `200` only after the provider accepted the message.
+
+## [1.40.0] — 2026-11-23
+
+### Added
+
+- **HTTPS for the admin console.** Set `WAFPROXY_LISTEN_GUI_TLS=1` and
+  `WAFPROXY_GUI_HOST` and the console serves the certificate the certificate manager
+  already holds for that name; other names still resolve through SNI, and a missing
+  certificate stops the listener instead of falling back to plain HTTP.
+- **Certificate revocation.** `POST /api/certs/{id}/revoke` asks the ACME CA to revoke
+  issued certificates before removing them, and removes uploaded and internal
+  certificates locally. A CA refusal leaves the certificate in place and reports why.
 
 ## [1.39.1] — 2026-11-23
 
@@ -39,7 +86,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   longer ban stays.
 - **Incident reports write an em dash instead of a blank cell** for an event with no rule message, and
   preflight summaries use grammatical singulars ("1 request from 1 address matches").
-
 ## [1.39.0] — 2026-11-23
 
 ### Added

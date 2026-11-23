@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -197,5 +198,63 @@ func TestLegacyBanRowWithCrowdSecSourceIsSuppressed(t *testing.T) {
 	}
 	if states["Temporary ban: 203.0.113.5/32 — port scan (source: scan)"] != "sent" {
 		t.Fatalf("an ordinary ban was not delivered: %v", states)
+	}
+}
+
+func TestTestSendsAREalWebhook(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	box, err := wfcrypto.New(bytes.Repeat([]byte{9}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodies := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies <- string(body)
+	}))
+	defer srv.Close()
+	sealed, err := box.Seal(srv.URL + "/hook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSettings(map[string]string{"notify_webhook_enabled": "1", "notify_webhook_url": sealed}); err != nil {
+		t.Fatal(err)
+	}
+	m := New(st, box, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := m.Test("webhook"); err != nil {
+		t.Fatalf("test delivery: %v", err)
+	}
+	select {
+	case body := <-bodies:
+		if !strings.Contains(body, "Test notification from WAF-Proxy") {
+			t.Fatalf("webhook body = %q", body)
+		}
+	default:
+		t.Fatal("the test notification was not delivered")
+	}
+	if err := m.Test("carrier-pigeon"); err == nil {
+		t.Fatal("an unknown channel was accepted")
+	}
+}
+
+func TestEnqueueDeduplicatesTheSameKey(t *testing.T) {
+	f := newNotifyFixture(t)
+	f.setEvents(t, "")
+	f.mgr.Enqueue("rate_spike", "Request-rate spike: app.example.com", "anomaly:rate_spike:4", true)
+	f.mgr.Enqueue("rate_spike", "Request-rate spike: app.example.com", "anomaly:rate_spike:4", true)
+	alerts, err := f.st.PendingAlerts(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alerts) != 1 {
+		t.Fatalf("queued %d alerts for one key, want 1", len(alerts))
+	}
+	f.mgr.Enqueue("rate_spike", "Request-rate spike: app.example.com", "anomaly:rate_spike:5", true)
+	if alerts, _ := f.st.PendingAlerts(10); len(alerts) != 2 {
+		t.Fatalf("a different key was deduplicated: %d alerts", len(alerts))
 	}
 }

@@ -280,7 +280,9 @@ re-records the performance baseline after a deliberate change.
 ## Documentation
 
 - [SECURITY.md](SECURITY.md) — supported versions, private vulnerability reporting, delivered fixes
-- [docs/INSTALL.md](docs/INSTALL.md) — full deployment walkthrough, router/DNS, streaming, upgrades, uninstall
+- [docs/README.md](docs/README.md) — documentation index, split by task
+- [docs/INSTALL.md](docs/INSTALL.md) — installation hub: Docker, DNS/TLS, first site, bare metal, Tailscale
+- [docs/openapi.yaml](docs/openapi.yaml) — generated reference for every admin API route
 - [docs/MCP.md](docs/MCP.md) — agent gateway, tool reference, containment playbook
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — runbook, troubleshooting, capacity
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology

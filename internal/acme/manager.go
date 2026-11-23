@@ -133,7 +133,13 @@ func splitDomains(s string) []string {
 
 // GetCertificate resolves a certificate for TLS SNI.
 func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	host := strings.ToLower(strings.TrimSuffix(hello.ServerName, "."))
+	return m.CertificateForHost(hello.ServerName)
+}
+
+// CertificateForHost resolves a certificate for a fixed name, which is how the
+// admin console selects its certificate before any SNI is seen.
+func (m *Manager) CertificateForHost(name string) (*tls.Certificate, error) {
+	host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
 	if host == "" {
 		return nil, errors.New("empty server name")
 	}
@@ -143,6 +149,42 @@ func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 		return cert, nil
 	}
 	return nil, fmt.Errorf("no certificate for %s", host)
+}
+
+// Revoke asks the CA to revoke the certificate. Uploaded and internal
+// certificates have no ACME account, so only the local record goes away.
+func (m *Manager) Revoke(id int64) error {
+	row, err := m.st.GetCert(id)
+	if err != nil {
+		return err
+	}
+	if row.Source != model.CertSourceACME || len(row.CertPEM) == 0 {
+		return nil
+	}
+	m.order.Lock()
+	defer m.order.Unlock()
+	acct, err := m.account()
+	if err != nil {
+		return err
+	}
+	cfg := lego.NewConfig(acct)
+	if staging, _ := m.st.GetSetting("acme_staging"); staging == "1" {
+		cfg.CADirURL = lego.LEDirectoryStaging
+	} else {
+		cfg.CADirURL = lego.LEDirectoryProduction
+	}
+	client, err := lego.NewClient(cfg)
+	if err != nil {
+		return err
+	}
+	if acct.reg == nil {
+		reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+		if err != nil {
+			return err
+		}
+		acct.reg = reg
+	}
+	return client.Certificate.Revoke(row.CertPEM)
 }
 
 // CertificateByID returns the certificate a site named explicitly.

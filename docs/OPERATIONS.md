@@ -175,3 +175,93 @@ one JSON object per request instead of nginx combined format. The object carries
 the request ID, host, source, method, path, status, bytes, latency, stage, rule
 and action, so a failed request can be traced to the stage that rejected it.
 The default stays nginx combined format for CrowdSec's nginx parser.
+
+
+## Admin console over HTTPS
+
+The console can serve TLS from the certificates the gateway already manages. Issue or
+upload a certificate whose names include the console host (for example
+`console.home.arpa` from the internal CA), then set:
+
+```
+WAFPROXY_LISTEN_GUI=http://127.0.0.1:8080   # ignored once TLS is on
+WAFPROXY_LISTEN_GUI_TLS=1
+WAFPROXY_GUI_HOST=console.home.arpa
+```
+
+The listener refuses to start when no valid certificate matches the host, so a typo
+cannot silently leave the console on plain HTTP. Browsers need the internal root
+(`GET /api/certs/internal/root`) or a public CA for that name.
+
+## Revoking a certificate
+
+`POST /api/certs/{id}/revoke` revokes an ACME certificate with the CA that issued it,
+then deletes the local record. Uploaded and internal certificates have no ACME account;
+they are deleted locally. If the CA refuses, the endpoint returns `502` with the reason
+and keeps the certificate. Deleting a certificate without revoking it remains available
+through `DELETE /api/certs/{id}`.
+
+
+## Threshold alerting
+
+The detector evaluates one-minute windows per proxy against a rolling baseline and
+raises three event kinds: `egress_spike` (outbound bytes above both a floor and a
+multiple of the median), `rate_spike` (requests per second above both a floor and a
+multiple of the median) and `auth_burst` (failed logins in one minute). Thresholds are
+stored as settings and edited with `PUT /api/anomaly/settings`:
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| `anomaly_enabled` | detector on/off | `1` |
+| `anomaly_egress_mb` | egress floor per minute | `5` |
+| `anomaly_egress_factor` | multiple of the baseline | `4` |
+| `anomaly_rate_rps` | request-rate floor | `200` |
+| `anomaly_rate_factor` | multiple of the baseline | `3` |
+| `anomaly_auth_burst` | failed logins per minute | `20` |
+
+Each raised event is stored once and refreshed while the condition stays open, so a
+long spike is one row, not one row per minute. Alerts are routed through the same
+notification channels and event toggles as bans (`notify_events`), and deduplication
+uses the key `anomaly:<kind>:<proxy id>`: a second alert with the same key inside 24
+hours is dropped before it reaches the queue.
+
+## Testing a notification channel
+
+`POST /api/notifications/test` with `{"channel":"telegram"|"email"|"webhook"}` sends a
+real message through the configured channel, bypassing the event toggles and the
+digest — the button in the console calls this endpoint. It returns `200` when the
+provider accepted the message and `502` with the provider's error when it did not, so a
+bad token or webhook URL fails visibly instead of silently. The test message is not
+deduplicated: every click sends one.
+
+
+## Diagnostics bundle
+
+`GET /api/diagnostics` returns a JSON support bundle: version, Go version, platform,
+listener addresses, configuration counts, certificate metadata (domains, status, source,
+expiry, last error) and the settings map. Secret-bearing keys (`token`, `secret`,
+`password`, `*_key`, `credential`, `webhook`, `*_url`) are replaced with `[redacted]`;
+other URLs keep their host and path but lose credentials, query strings and fragments.
+Copy the response into a ticket; it contains no keys, session tokens or password
+hashes.
+
+## Synthetic canary
+
+`POST /api/canary` probes one site end to end and reports each stage in order, naming
+the first stage that failed:
+
+```
+{"ok": false, "host": "app.example.com", "failed_stage": "upstream",
+ "stages": [{"name":"config","ok":true}, {"name":"dns","ok":true}, ...]}
+```
+
+The body may carry `{"proxy_id": 3}` or `{"host": "app.example.com"}`; with neither,
+the first configured site is used. The probe resolves the name, connects, requests
+`/.well-known/wafproxy-canary` with the site's hostname and classifies the result:
+`403`/`429` fail at **waf**, `421` fails at **route**, `502`/`503`/`5xx` fail at
+**upstream**, and any other status passes. It returns `200` when every stage passed and
+`502` with the same body when one did not.
+
+The probe runs from the gateway itself, so the site must answer on its public hostname
+from that host (split-horizon DNS, hairpin NAT or an internal name may be needed). It
+checks the externally reachable path, not a specific WAF rule.
