@@ -36,7 +36,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `SHA256SUMS` keyless with cosign, attaching a `.sigstore.json` bundle, and publishes build
   provenance with `actions/attest-build-provenance`. A download can be checked against the
   workflow identity instead of a stored key; the commands are in
-  [docs/OPERATIONS.md](docs/OPERATIONS.md#verifying-a-download).
+  [docs/OPERATIONS.md](docs/OPERATIONS.md#verifying-a-download). Its actions are pinned to commit
+  SHAs, so a moved tag cannot change what a verified run executed.
 
 ### Fixed
 

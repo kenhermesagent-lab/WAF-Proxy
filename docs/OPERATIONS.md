@@ -475,7 +475,11 @@ a key, and the Fulcio/Rekor entry records when it was made, so verification need
 key of ours. Each file ships with a `<name>.sigstore.json` bundle.
 
 ```sh
-version=1.55.2
+# Resolve the latest tag from the redirect, so this example never goes stale;
+# for an older release set version to that tag instead.
+version=$(curl -fsS -o /dev/null -w '%{redirect_url}' \
+  https://github.com/kenhermesagent-lab/WAF-Proxy/releases/latest)
+version=${version##*/tag/v}
 base="https://github.com/kenhermesagent-lab/WAF-Proxy/releases/download/v${version}"
 
 for f in SHA256SUMS wafproxy_${version}_linux_amd64; do
@@ -492,7 +496,7 @@ sha256sum -c SHA256SUMS
 gh attestation verify wafproxy_${version}_linux_amd64 --repo kenhermesagent-lab/WAF-Proxy
 ```
 
-The identity regexp accepts both a tag push (`…@refs/tags/v1.55.2`) and a manual run from `main`
+The identity regexp accepts a tag push (`…@refs/tags/` plus the tag) and a manual run from `main`
 (`…@refs/heads/main`); pin it to `refs/tags/` when the release must have been built from a tag. A
 failure on the identity means the bytes came from somewhere other than this workflow, whatever the
 checksum says.

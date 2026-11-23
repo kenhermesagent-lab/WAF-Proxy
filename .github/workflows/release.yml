@@ -25,10 +25,12 @@ jobs:
       TAG: ${{ inputs.tag || github.ref_name }}
       REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to commit SHAs, not tags: a moved tag would otherwise
+      # change what the job runs while the signature still vouches for it.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -51,12 +53,12 @@ jobs:
           (cd dist && sha256sum *_linux_* > SHA256SUMS)
       # Attest before signing so the subjects are the built artifacts, not the bundles.
       - name: Publish build provenance for the artifacts
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: |-
             dist/*_linux_*
             dist/SHA256SUMS
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
         with:
           cosign-release: 'v2.4.1'
       - name: Sign each binary and the checksum list keyless
