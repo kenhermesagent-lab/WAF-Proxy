@@ -11,3 +11,19 @@ export const HELP: Record<string, string> = Object.fromEntries(
 export function helpFor(page: string): string | undefined {
   return HELP[page];
 }
+
+// hrefHelp is the printable copy of a page's help: the same Markdown and
+// renderer, on a route of its own that carries no console chrome.
+export function hrefHelp(page: string): string {
+  return `#/${page}/help`;
+}
+
+// helpPageFromHash returns the page whose printable help the hash asks for,
+// or null for every other route. It only answers for pages that have help, so
+// a mistyped hash still falls through to the normal router.
+export function helpPageFromHash(hash: string): string | null {
+  const path = hash.split("?")[0].replace(/^#\/?/, "");
+  const [page = "", view = "", extra] = path.split("/").filter(Boolean);
+  if (extra !== undefined || view !== "help") return null;
+  return HELP[page] ? page : null;
+}

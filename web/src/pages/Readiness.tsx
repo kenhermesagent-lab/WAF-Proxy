@@ -223,7 +223,7 @@ export default function Readiness({
   const listOf = (list: Row[]) => (
     <div className="grid" style={{ gap: 0 }}>
       {list.map((r) => (
-        <div className="bar-row" key={r.id} style={{ gridTemplateColumns: "minmax(0, 1fr) auto" }}>
+        <div className="bar-row readiness-row" key={r.id}>
           <div style={{ minWidth: 0 }}>
             <div className="row" style={{ gap: 8 }}>
               <span>{r.label}</span>
@@ -232,11 +232,7 @@ export default function Readiness({
             </div>
             <div className="faint small-text" style={{ marginTop: 2 }}>{r.detail}</div>
           </div>
-          {r.ready === true ? (
-            <span className="faint small-text">—</span>
-          ) : (
-            <a className="link-button" href={`#/${r.link}`}>{r.fix}</a>
-          )}
+          {r.ready === true ? null : <a className="link-button readiness-action" href={`#/${r.link}`}>{r.fix}</a>}
         </div>
       ))}
     </div>

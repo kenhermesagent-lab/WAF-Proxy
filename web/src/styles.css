@@ -697,6 +697,31 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 .help-body p { margin: 0 0 10px; line-height: 1.55; }
 .help-body ul { margin: 0 0 12px; padding-left: 18px; }
 .help-body li { margin-bottom: 6px; line-height: 1.5; }
+
+/* Readiness rows carry a short action. Below the phone breakpoint it moves
+   under the text instead of squeezing the explanation into a column. */
+.readiness-row { grid-template-columns: minmax(0, 1fr) auto; }
+@media (max-width: 560px) {
+  .readiness-row { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .readiness-action { margin-top: 2px; justify-self: start; }
+}
+
+/* The printable copy of a page's help, without the console around it. */
+.help-page { display: grid; gap: 12px; max-width: 860px; }
+.help-page-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.help-print h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: -.02em; }
+.help-print .help-body { margin-top: 16px; }
+.help-print .help-body p, .help-print .help-body li { font-size: 13.5px; }
+
+@media print {
+  body { background: #fff; color: #111; }
+  .sidebar, .topbar, .help-page-bar, .toast-stack, .skip-link { display: none !important; }
+  .main, .content { display: block; padding: 0; background: #fff; }
+  .help-page { max-width: none; }
+  .help-print { border: 0; box-shadow: none; background: #fff; color: #111; padding: 0; }
+  .help-print .faint, .help-body h3 { color: #555; }
+  .help-body a { color: #111; text-decoration: underline; }
+}
 .drawer-foot {
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
   padding: 12px 18px; border-top: 1px solid var(--border-soft);

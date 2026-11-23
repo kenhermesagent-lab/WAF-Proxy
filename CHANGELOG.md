@@ -24,7 +24,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   real state — a hostname, a certificate, traffic, an alert target, a second factor, a second admin —
   and switches to the hardening score once those settle. Completed rows fold away per administrator
   (stored server-side in `admin_prefs`), and the empty Proxies, Logs and Notifications states now say
-  what would fill them.
+  what would fill them. Its rows stack their action under the text on phone-width screens.
+- **Page help prints.** `#/<page>/help` renders the same Markdown through the same renderer on a route of
+  its own, with print styles that drop the console chrome; the drawer links to it as **Printable page**.
 
 ### Fixed
 

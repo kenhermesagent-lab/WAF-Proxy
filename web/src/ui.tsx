@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import Icon, { type IconName } from "./components/Icon";
 import { NAV, routeFromHash } from "./nav";
-import { helpFor } from "./help";
+import { helpFor, hrefHelp } from "./help";
 import { HelpBody } from "./help/render";
 
 // The page name already sits in the top bar as the h1, so the page header only
@@ -40,7 +40,12 @@ export function PageHead({ sub, actions }: { sub?: ReactNode; actions?: ReactNod
         ) : null}
       </div>
       {open ? (
-        <Drawer title={`About ${label(open)}`} sub="Ships with this version; no internet needed" onClose={() => setOpen(null)}>
+        <Drawer
+          title={`About ${label(open)}`}
+          sub="Ships with this version; no internet needed"
+          onClose={() => setOpen(null)}
+          footer={<a className="link-button" href={hrefHelp(open)}>Printable page</a>}
+        >
           <HelpBody text={helpFor(open) ?? ""} />
         </Drawer>
       ) : null}

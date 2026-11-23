@@ -26,6 +26,8 @@ import Logs from "./pages/Logs";
 import SettingsPage from "./pages/Settings";
 import Account from "./pages/Account";
 import SitesPage from "./pages/Sites";
+import HelpPage from "./help/HelpPage";
+import { helpPageFromHash } from "./help";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 
@@ -132,7 +134,7 @@ export default function App() {
       // signed-out invite and reset links are not app routes and keep their
       // page so the login form can tell them apart.
       const signedOutLink = /^#\/(invite|reset-password)\b/.test(hash);
-      if (hash && hash !== canonical && !signedOutLink) {
+      if (hash && hash !== canonical && !signedOutLink && !helpPageFromHash(hash)) {
         window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${canonical}`);
       }
       setRoute(next);
@@ -265,6 +267,9 @@ export default function App() {
   const current = NAV.find((n) => n.id === page) ?? visibleNav[0] ?? NAV[0];
   const fallback = visibleNav[0] ?? NAV[0];
   const pageAllowed = allowed(current);
+  // #/<page>/help is its own route: the printable copy of the page's help,
+  // with the same text as the drawer.
+  const helpPage = helpPageFromHash(window.location.hash);
   const tabsFor = (id: string) =>
     (NAV.find((n) => n.id === id)?.tabs ?? []).filter((t) => !t.permission || can(me?.permissions, t.permission));
   const tabProps = (id: string) => ({ tab, tabs: tabsFor(id), onTab: (next: string) => navigate(id, undefined, next) });
@@ -432,6 +437,8 @@ export default function App() {
               <p style={{ marginTop: 0 }}>Your role does not include this page.</p>
               <button className="primary" onClick={() => navigate(fallback.id)}>Open {fallback.label}</button>
             </div>
+          ) : helpPage ? (
+            <HelpPage page={helpPage} />
           ) : (
             <PageBoundary page={page} key={`${page}-${activeSite}`}>
               {page === "dashboard" && <Dashboard onError={onError} home={home} onOpenSource={setSourceIp} />}
