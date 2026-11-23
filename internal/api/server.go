@@ -103,7 +103,7 @@ type Server struct {
 	haOps HAOps
 	// haChange starts or stops the HA loops after the switch is saved. It can
 	// refuse, and the save is then rolled back.
-	haChange func(bool) error
+	haChange func(bool, string) error
 	haMu     sync.Mutex
 	haLog    []HAEvent
 
@@ -703,6 +703,9 @@ type HAStatus struct {
 	// PeerFingerprint keys the acknowledgement the peer sent for this node's
 	// stream.
 	PeerFingerprint string `json:"peer_fingerprint,omitempty"`
+	// UpdatedAt is when the role file last changed, so the page can show how
+	// long this node has been in its current role.
+	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
 // SetHAStatus installs the role source used by health and the standby guard.
@@ -1288,7 +1291,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if v, ok := next["ha_enabled"]; ok && v != previousHA {
 		changedHA, haOn = true, v == "1"
 		if s.haChange != nil {
-			if err := s.haChange(haOn); err != nil {
+			if err := s.haChange(haOn, strings.TrimSpace(r.Header.Get("X-HA-Cluster-ID"))); err != nil {
 				// The switch is refused as a whole, so put back what was there.
 				if rerr := s.db(r).SetSettings(map[string]string{"ha_enabled": previousHA}); rerr != nil {
 					s.log.Error("cannot restore ha_enabled after refusing the change", "err", rerr)

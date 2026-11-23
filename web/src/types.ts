@@ -1,3 +1,42 @@
+// GET /api/ha. The page renders every card from this plus the diagnostics and
+// the console's own action history.
+export interface HAStatus {
+  enabled: boolean;
+  boot_enabled: boolean;
+  paired: boolean;
+  cluster_id?: string;
+  role: string;
+  state: string;
+  serving: boolean;
+  epoch: number;
+  peer?: string;
+  peer_fingerprint?: string;
+  reason?: string;
+  updated_at?: string;
+  can_write?: boolean;
+  max_failovers_per_hour?: number;
+}
+
+export interface HAEventItem {
+  at: string;
+  action: string;
+  ok: boolean;
+  error?: string;
+  epoch?: number;
+  duration_ms?: number;
+}
+
+export interface HADiagnostics {
+  enabled: boolean;
+  role: string;
+  state: string;
+  serving: boolean;
+  epoch: number;
+  peer?: string;
+  outbox?: { depth: number; bytes: number; pending_by_kind?: Record<string, number>; oldest?: string };
+  ack?: { seq: number; at?: string };
+}
+
 export interface SetupStatus {
   needs_setup: boolean;
   base_domain: string;

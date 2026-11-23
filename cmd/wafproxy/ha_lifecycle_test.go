@@ -64,6 +64,28 @@ func TestHABootRoleKeepsAPairedStandbyOutOfService(t *testing.T) {
 	}
 }
 
+func TestHADisableRefusalFollowsTheRoleAndTypedID(t *testing.T) {
+	active := &ha.Node{Role: ha.RoleActive}
+	standby := &ha.Node{Role: ha.RoleStandby}
+	pair := &ha.Pair{ClusterID: "cluster-abc"}
+
+	if got := haDisableRefusal(active, nil, ""); got != "" {
+		t.Fatalf("an unpaired node was refused: %s", got)
+	}
+	if got := haDisableRefusal(active, pair, ""); got == "" {
+		t.Fatal("a paired active node was allowed without the cluster id")
+	}
+	if got := haDisableRefusal(active, pair, "wrong"); got == "" {
+		t.Fatal("a wrong cluster id was accepted")
+	}
+	if got := haDisableRefusal(active, pair, "cluster-abc"); got != "" {
+		t.Fatalf("the right cluster id was refused: %s", got)
+	}
+	if got := haDisableRefusal(standby, pair, "cluster-abc"); got == "" {
+		t.Fatal("a paired standby was allowed to disable even with the cluster id")
+	}
+}
+
 func TestHARuntimeStartsAndStopsLive(t *testing.T) {
 	dir := t.TempDir()
 	st, err := store.Open(dir)

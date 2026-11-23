@@ -88,12 +88,20 @@ func haUser(t *testing.T, st *store.Store, name string, permissions []string) (s
 
 func haCall(t *testing.T, srv *Server, token, csrf, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return haCallHeaders(t, srv, token, csrf, method, path, body, nil)
+}
+
+func haCallHeaders(t *testing.T, srv *Server, token, csrf, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Host = "gui.local"
 	req.RemoteAddr = "127.0.0.1:5000"
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	if csrf != "" {
 		req.Header.Set("X-CSRF-Token", csrf)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)

@@ -100,7 +100,7 @@ func TestHAChangeFiresOnlyWhenTheSwitchMoves(t *testing.T) {
 	srv, _, token, csrf := newObservabilityServer(t)
 	srv.cfg.HAEnabled = true
 	var calls []bool
-	srv.SetHAChange(func(on bool) error {
+	srv.SetHAChange(func(on bool, _ string) error {
 		calls = append(calls, on)
 		return nil
 	})
@@ -125,7 +125,7 @@ func TestHARefusedDisableRollsTheSettingBack(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
 	srv.cfg.HAEnabled = true
 	settingDrivenHA(srv)
-	srv.SetHAChange(func(on bool) error {
+	srv.SetHAChange(func(on bool, _ string) error {
 		if !on {
 			return errors.New("this node is a paired standby; turning high availability off would take it out of service")
 		}
@@ -143,6 +143,39 @@ func TestHARefusedDisableRollsTheSettingBack(t *testing.T) {
 	}
 	if !srv.haStatusOf().Enabled {
 		t.Fatal("a refused disable must leave the runtime reported as on")
+	}
+}
+
+func TestHADisablePassesTheTypedClusterID(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	srv.cfg.HAEnabled = true
+	settingDrivenHA(srv)
+	var seen string
+	srv.SetHAChange(func(on bool, confirm string) error {
+		if !on {
+			seen = confirm
+			if confirm != "cluster-abc" {
+				return errors.New("type the cluster id to confirm")
+			}
+		}
+		return nil
+	})
+	if rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"1"}`); rec.Code != http.StatusOK {
+		t.Fatalf("enable = %d", rec.Code)
+	}
+	if rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"0"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("disable without the id = %d, want 409", rec.Code)
+	}
+	if got, _ := st.GetSetting("ha_enabled"); got != "1" {
+		t.Fatalf("ha_enabled after refusal = %q, want 1", got)
+	}
+	rec := haCallHeaders(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"0"}`,
+		map[string]string{"X-HA-Cluster-ID": "cluster-abc"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable with the id = %d: %s", rec.Code, rec.Body.String())
+	}
+	if seen != "cluster-abc" {
+		t.Fatalf("callback saw %q", seen)
 	}
 }
 

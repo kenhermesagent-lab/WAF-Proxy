@@ -850,7 +850,7 @@ func run() error {
 		status := api.HAStatus{
 			Enabled: enabled, Role: string(n.Role), State: string(state),
 			Serving: ha.Serving(state), Epoch: n.Epoch, Peer: n.Peer,
-			Reason: n.Reason,
+			Reason: n.Reason, UpdatedAt: n.UpdatedAt,
 		}
 		if pair != nil {
 			status.Paired = true
@@ -1056,7 +1056,7 @@ func run() error {
 		// The settings route flips the loops live; the data plane is untouched.
 		// Turning HA off on a paired standby is refused: it is out of service by
 		// design, and starting it here would give the pair two writers.
-		apiServer.SetHAChange(func(on bool) error {
+		apiServer.SetHAChange(func(on bool, confirm string) error {
 			if on {
 				return rt.Start()
 			}
@@ -1064,8 +1064,12 @@ func run() error {
 			if err != nil {
 				return nil
 			}
-			if p, err := ha.LoadPair(cfg.DataDir); err == nil && p != nil && !n.Active() {
-				return errors.New("this node is a paired standby; turning high availability off would take it out of service. Move the service to this node or unpair it first")
+			p, err := ha.LoadPair(cfg.DataDir)
+			if err != nil {
+				return nil
+			}
+			if refusal := haDisableRefusal(n, p, confirm); refusal != "" {
+				return errors.New(refusal)
 			}
 			rt.Stop()
 			return nil

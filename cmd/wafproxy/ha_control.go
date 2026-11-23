@@ -28,6 +28,22 @@ func haBootRole(dir string, node *ha.Node, paired, haOn bool) (*ha.Node, error) 
 	return ha.MakeStandalone(dir, node)
 }
 
+// haDisableRefusal is why turning HA off is refused, or "" when it is allowed.
+// A paired standby never serves, and a paired active needs the cluster id typed
+// so nobody turns off the only node that can take over by accident.
+func haDisableRefusal(node *ha.Node, pair *ha.Pair, confirm string) string {
+	if pair == nil {
+		return ""
+	}
+	if !node.Active() {
+		return "this node is a paired standby; turning high availability off would take it out of service. Move the service to this node or unpair it first"
+	}
+	if strings.TrimSpace(confirm) != pair.ClusterID {
+		return fmt.Sprintf("this node is paired in cluster %s; with high availability off no node takes over if it fails. Type the cluster id to confirm, or unpair first", pair.ClusterID)
+	}
+	return ""
+}
+
 // flapBudget is the console-set budget when there is one, else the environment
 // default. The setting is host-wide; a per-site copy is ignored.
 func flapBudget(st *store.Store, fallback int) int {

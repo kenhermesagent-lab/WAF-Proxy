@@ -11,7 +11,7 @@ import Readiness from "./Readiness";
 type Settings = Record<string, string>;
 
 // The parts of /api/ha the Settings switch needs for its help text.
-type HAInfo = { enabled?: boolean; boot_enabled?: boolean; paired?: boolean; reason?: string };
+type HAInfo = { enabled?: boolean; boot_enabled?: boolean; paired?: boolean; cluster_id?: string; reason?: string };
 
 const RUNTIME_KEYS = new Set(["kernel", "geoip", "iface_available", "host_wide_keys"]);
 function editable(s: Settings): Settings {
@@ -55,6 +55,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   const [chain, setChain] = useState("");
   const [backupPass, setBackupPass] = useState("");
   const [haInfo, setHaInfo] = useState<HAInfo | null>(null);
+  const [haConfirm, setHaConfirm] = useState("");
   const [activeSection, setActiveSection] = useState("network");
   const [iface, setIface] = useState<{ wan: string; lan: string; wanAuto: boolean; lanAuto: boolean; available: string[] }>({
     wan: "", lan: "", wanAuto: false, lanAuto: false, available: [],
@@ -218,7 +219,12 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
     setSaving(true);
     try {
       const posted = siteEditable(s);
-      await api.put("/api/settings", posted);
+      // A paired node needs the cluster id typed before HA may be turned off.
+      const headers =
+        posted.ha_enabled === "0" && haInfo?.paired && haConfirm.trim()
+          ? { "X-HA-Cluster-ID": haConfirm.trim() }
+          : undefined;
+      await api.put("/api/settings", posted, headers);
       onOK("Settings saved");
       setSaved(editable(s));
       load();
@@ -226,6 +232,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
       // depends on /api/me, so both are refreshed instead of guessed at.
       loadHA();
       if (posted.ha_enabled !== saved.ha_enabled) onMeChanged?.();
+      if (posted.ha_enabled === "1") setHaConfirm("");
     } catch (e) {
       onError(errText(e));
     } finally {
@@ -390,6 +397,14 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             onChange={(v) => set("ha_enabled", v ? "1" : "0")}
             disabled={!mayToggleHA || haInfo?.boot_enabled === false}
           />
+          {haInfo?.paired && s.ha_enabled === "0" && !hostWide && (
+            <Field
+              label="Type the cluster id to confirm"
+              hint={`With HA off, no node takes over if this one fails. Type ${haInfo.cluster_id} to confirm, or unpair first on the High availability page.`}
+            >
+              <input value={haConfirm} onChange={(e) => setHaConfirm(e.target.value)} placeholder={haInfo.cluster_id} />
+            </Field>
+          )}
           {hostWide && hostWideNote}
           <p className="faint small-text">
             Status, pairing and moves live on the <a href="#/ha">High availability page</a>.

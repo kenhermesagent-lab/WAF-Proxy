@@ -26,46 +26,13 @@ import Logs from "./pages/Logs";
 import SettingsPage from "./pages/Settings";
 import Account from "./pages/Account";
 import SitesPage from "./pages/Sites";
+import HAPage from "./pages/HA";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 
 type Enrolment = { username: string; secret: string; url: string; codes: string[] };
 type ToastTone = "ok" | "error" | "info" | "warn";
 type Toast = { id: number; tone: ToastTone; title: string; message: string };
-type HAInfo = {
-  paired?: boolean; cluster_id?: string; role?: string; state?: string;
-  serving?: boolean; boot_enabled?: boolean; enabled?: boolean; reason?: string;
-};
-
-// The HA page is P7-05; until then a deep link still says which switch is off
-// and shows the node's place in the pair instead of a blank page.
-function HAPage({ me, onOpenSettings }: { me: Me | null; onOpenSettings: () => void }) {
-  const [ha, setHa] = useState<HAInfo | null>(null);
-  useEffect(() => {
-    api.get<HAInfo>("/api/ha").then(setHa).catch(() => undefined);
-  }, [me?.ha_enabled]);
-  return (
-    <div className="card">
-      <div className="section-head">
-        <h2>High availability</h2>
-        <p>{me?.ha_enabled ? "This node's place in the pair." : ha?.reason || "High availability is not enabled on this node."}</p>
-      </div>
-      {!me?.ha_enabled ? (
-        <p className="faint">Two nodes share one service address. Turn it on in Settings → High availability.</p>
-      ) : (
-        <>
-          <div className="bar-row"><div>Role</div><div>{ha?.role ?? "—"}</div></div>
-          <div className="bar-row"><div>State</div><div>{ha?.state ?? "—"}</div></div>
-          <div className="bar-row"><div>Serving</div><div>{ha ? (ha.serving ? "yes" : "no") : "—"}</div></div>
-          <div className="bar-row"><div>Pair</div><div>{ha?.paired ? `paired, cluster ${ha.cluster_id ?? ""}` : "not paired"}</div></div>
-          {ha?.reason ? <p className="faint small-text">{ha.reason}</p> : null}
-        </>
-      )}
-      <button className="secondary" onClick={onOpenSettings}>Open Settings</button>
-    </div>
-  );
-}
-
 export default function App() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [me, setMe] = useState<Me | null>(null);
@@ -448,7 +415,7 @@ export default function App() {
 
         <div className="content">
           {!pageAllowed && page === "ha" && can(me?.permissions, "ha.read") ? (
-            <HAPage me={me} onOpenSettings={() => navigate("settings")} />
+            <HAPage me={me} version={me?.version ?? ""} onError={onError} onOK={onOK} />
           ) : !pageAllowed ? (
             <div className="card">
               <p style={{ marginTop: 0 }}>Your role does not include this page.</p>
@@ -487,7 +454,7 @@ export default function App() {
                 />
               )}
               {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} onMeChanged={reloadMe} />}
-              {page === "ha" && <HAPage me={me} onOpenSettings={() => navigate("settings")} />}
+              {page === "ha" && <HAPage me={me} version={me?.version ?? ""} onError={onError} onOK={onOK} />}
               {page === "sites" && <SitesPage onError={onError} onOK={onOK} me={me} />}
               {page === "account" && (
                 <Account

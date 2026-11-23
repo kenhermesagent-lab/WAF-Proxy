@@ -55,7 +55,8 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P6-07 partition simulator | landed | `internal/ha/sim_test.go`: the partition matrix plus 200 randomized partitions on a fake clock; every tick asserts at most one live active and every promotion carried an unexpired lease for its own epoch |
 | P7-02 `ha_enabled` backend | landed | `ha_enabled` is host-wide (`publicSettingKeys`, `hostSettingKeys`), accepts only `0`/`1`, is audited as `ha.enable`/`ha.disable`, and the effective value is read per request for `/api/me` and `/api/ha`; saving it starts or stops the HA loops live. An unpaired node with it off serves as a single node; a paired standby stays out of service and a live disable is refused |
 | P7-03 Settings toggle | landed | `web/src/pages/Settings.tsx`: a High availability section between Retention and Backup, one switch saved by the page's SaveBar, help text that distinguishes env-locked, unpaired and paired, read-only for site consoles and `host_admin`, refreshed after every save |
-| P7-04 nav rule and fallback | landed | `navAllowed` in `web/src/nav.ts` honours `requires: "ha_enabled"`; the System item appears once `/api/me` says on (Settings refetches it after saving); `#/ha` renders a status card with the `/api/ha` reason until P7-05 |
+| P7-04 nav rule and fallback | landed | `navAllowed` in `web/src/nav.ts` honours `requires: "ha_enabled"`; the System item appears once `/api/me` says on (Settings refetches it after saving); `#/ha` renders the page, or a status card with the `/api/ha` reason for a role without `ha.read` |
+| P7-05 HA page | landed, partial cards | `web/src/pages/HA.tsx`: four states, pair/join setup with the one-time code, role, peer, replication from `/api/ha/diagnostics`, console action history, and the four re-authenticated actions with typed cluster id. No VIP/keepalived, sessions, bans, witness or runnable-check cards: those fields are not reported yet |
 | P7-01 HA API | landed | `internal/api/ha.go`: `GET /api/ha`, `GET /api/ha/events`, `GET /api/ha/diagnostics`, `PUT /api/ha/config`, `POST /api/ha/{pair,join,sync,failover,failback,unpair,notify}`; `ha.read`/`ha.write`, fresh re-authentication, cluster id on failover and unpair, 409 while disabled; the events list is process-local |
 
 **Replication boundary.** Configuration still travels as a whole snapshot, once
@@ -768,6 +769,9 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
   A live disable on that node is refused with 409 (the setting is rolled back), because
   starting it would give the pair two writers. Live enable starts the loops, not traffic.
 - Not built: nothing in this task; the nav rule is P7-04.
+- Guard: turning it off on a **paired** node needs the cluster id in `X-HA-Cluster-ID`
+  (typed in Settings), and a paired standby is always refused, because with HA off no node
+  takes over. Unpairing first is the other way out.
 
 - Files: `internal/api/server.go` (`publicSettingKeys`, `putSettings`, `/api/me`),
   `internal/store/sites.go` (`hostSettingKeys`), `internal/ha/manager.go`.
@@ -806,7 +810,19 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 - Done: the item is absent while disabled, appears after enabling without a reload, and a deep
   link explains why it is unavailable.
 
-### P7-05 The HA page — L, 3 days
+### P7-05 The HA page — L, 3 days — built, partial
+
+- Built: `web/src/pages/HA.tsx` reads `/api/ha`, `/api/ha/diagnostics` and `/api/ha/events`
+  every 5 s while the tab is visible. Four states: unpaired (create/join with the one-time
+  code and the prerequisites checklist), active, standby (read-only ribbon, disabled actions
+  with a reason), and disabled (reason from `/api/ha`, link to Settings). Cards: role and
+  state (with `updated_at` as "in role since"), peer, replication outbox/ack, this console's
+  actions, and maintenance with Sync now, Fail over, Fail back and Unpair. Every action
+  re-authenticates and the moves default to a dry run; fail over and unpair need the cluster
+  id typed. `X-HA-Cluster-ID` on `PUT /api/settings` is the matching guard for the switch.
+- Missing: VIP/keepalived ownership, session and ban counts, witness state, peer RTT and
+  clock skew, and the runnable diagnostics checks. `/api/ha` does not report them yet, so
+  the page does not invent them; adding those fields is the next backend slice.
 
 - Files: `web/src/pages/HA.tsx`.
 - Change: the cards and four states in HA.md Appendix B.4 — role/state, peer, VIP/network,

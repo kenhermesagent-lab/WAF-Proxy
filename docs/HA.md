@@ -17,10 +17,10 @@
 > default), so a single-node install behaves as it did before. The partition
 > simulator (P6-07) and the guarded HA API (P7-01, including `GET /api/ha`) are
 > built, the `ha_enabled` host-wide switch starts and stops the HA loops live and
-> appears in Settings (P7-02, P7-03), and the nav item is gated on it (P7-04).
-> The HA page itself and its tests (P7-05, P7-06) and the two-VM lab gates are
-> not, so sections that describe them state the intended end state.
-> `docs/HA-BUILD.md`
+> appears in Settings (P7-02, P7-03), the nav item is gated on it (P7-04), and the
+> HA page renders its four states (P7-05) with a partial card set. The page tests
+> (P7-06) and the two-VM lab gates are not, so sections that describe them state
+> the intended end state. `docs/HA-BUILD.md`
 > carries the per-task status and the known gaps.
 >
 > The document is written so an operator can read the runbooks as the intended
@@ -1450,11 +1450,13 @@ Rules:
   watcher, replication on a standby and the witness lease on an active, plus outbox capture.
   No listener moves and no keepalived change happens, so traffic is untouched until a move.
   It also makes `POST /api/ha/pair` and `/api/ha/join` legal and shows the nav entry and page.
-- Disabling stops those loops and closes the HA listener. An active node keeps serving, and
-  an unpaired node returns to the single-node state, but a **paired standby is refused**: it
-  is out of service by design, and starting it would give the pair two writers. The refusal
-  answers 409 with the reason and the setting is rolled back, so `GET /api/ha` keeps
-  reporting `serving: false` and the reason says the node is a paired standby.
+- Disabling stops those loops and closes the HA listener. An unpaired node returns to the
+  single-node state. On a paired node the save must carry the cluster id in the
+  `X-HA-Cluster-ID` header (typed in the Settings field); without it the API answers 409 and
+  rolls the setting back. Unpairing first is the other way out. A **paired standby is always
+  refused**: it is out of service by design, and starting it would give the pair two writers.
+  The refusal answers 409 with the reason, so `GET /api/ha` keeps reporting `serving: false`
+  and the reason says the node is a paired standby.
 - Audit: `settings.update` already records changed keys; add explicit `ha.enable` and
   `ha.disable` rows with the acting administrator and source IP, because this switch
   changes who can move the service address.
