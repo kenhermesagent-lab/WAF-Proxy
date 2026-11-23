@@ -37,6 +37,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **`docs/OPERATIONS.md` describes the per-site instances**, their host-wide exceptions and the
   upgrade fallback.
 
+## [1.53.1] — 2026-11-23
+
+### Changed
+
+- A bundle provider whose last check failed now shows an amber **check failed** badge instead of the
+  green **signed** one. Its already-downloaded packs stay listed, and the badge returns to `signed`
+  with the next successful check.
+
+### Fixed
+
+- The admin menu left-aligns its entries — the shared `button` rule was centring them — and is a
+  little narrower.
+- The administrator activity and managed host package tables in Settings no longer scroll sideways
+  at 360px and 768px: the audit detail is capped and wraps on a phone, the user and source columns
+  drop below 900px, and the package rows wrap their advisory text.
+
 ## [1.53.0] — 2026-11-23
 
 ### Added
