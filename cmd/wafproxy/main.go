@@ -1015,7 +1015,7 @@ func run() error {
 	}
 	if cfg.HAEnabled {
 		rt := &haRuntime{
-			dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
+			root: ctx, dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
 			plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
 			ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand,
 			flap: ha.NewFlapGuard(cfg.HAMaxFailovers), log: log,

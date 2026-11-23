@@ -18,6 +18,10 @@ import (
 // haRuntime ties a move's hooks to the process: preflight reads the live store,
 // and the irreversible steps start and stop the data plane and its loops.
 type haRuntime struct {
+	// root outlives every move. The lease keeper and the data plane belong to
+	// the process, not to the promotion that started them: the manager cancels
+	// the move's context as soon as it returns.
+	root    context.Context
 	dir     string
 	st      *store.Store
 	all     *store.Store
@@ -240,10 +244,13 @@ func (h *haRuntime) startLease(ctx context.Context, epoch int64) {
 	if h.witness == nil || h.mgr == nil {
 		return
 	}
+	if h.root != nil {
+		ctx = h.root
+	}
 	h.stopLease()
 	client := *h.witness
 	keeper := ha.NewLeaseKeeper(&client, epoch)
-	leaseCtx, cancel := context.WithCancel(ctx)
+	leaseCtx, cancel := context.WithCancel(h.root)
 	h.leaseCancel = cancel
 	keeper.OnLoss = func(context.Context) {
 		h.log.Error("witness lease lost; demoting this node", "epoch", epoch)
