@@ -396,7 +396,7 @@ export default function UpdatesPage({
             <Empty>No managed packages were found.</Empty>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <div className="table-wrap"><table>
+              <div className="table-wrap"><table className="packages-table">
                 <thead>
                   <tr>
                     <th>Package</th>

@@ -345,7 +345,9 @@ export default function Intel({
                   <div style={{ minWidth: 0 }}>
                     <div className="row" style={{ gap: 6 }}>
                       <b>{p.name}</b>
-                      {p.configured ? <Badge tone="ok">signed</Badge> : <Badge tone="warn">no channel</Badge>}
+                      {p.error
+                        ? <Badge tone="warn">check failed</Badge>
+                        : p.configured ? <Badge tone="ok">signed</Badge> : <Badge tone="warn">no channel</Badge>}
                     </div>
                     <div className="facts" style={{ marginTop: 3 }}>
                       <span><code>{p.url || "no URL"}</code></span>
