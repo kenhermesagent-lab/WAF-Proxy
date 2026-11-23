@@ -22,3 +22,19 @@ func TestIsLocalAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadRequiresAConsoleHostForTLS(t *testing.T) {
+	t.Setenv("WAFPROXY_DATA_DIR", t.TempDir())
+	t.Setenv("WAFPROXY_LISTEN_GUI_TLS", "1")
+	if _, err := Load(); err == nil {
+		t.Fatal("console TLS started without a host")
+	}
+	t.Setenv("WAFPROXY_GUI_HOST", "console.example.com")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.ListenGUITLS || cfg.GUIHost != "console.example.com" {
+		t.Fatalf("console TLS config = %+v", cfg)
+	}
+}

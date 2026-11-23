@@ -1752,6 +1752,39 @@ func (s *Server) renewCert(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "renewing"})
 }
 
+func (s *Server) revokeCert(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	cert, err := s.st.GetCert(id)
+	if err != nil || cert == nil {
+		writeError(w, http.StatusNotFound, "certificate not found")
+		return
+	}
+	if cert.Source == model.CertSourceACME {
+		if s.certs == nil {
+			writeError(w, http.StatusServiceUnavailable, "certificate manager unavailable")
+			return
+		}
+		if err := s.certs.Revoke(id); err != nil {
+			writeError(w, http.StatusBadGateway, "the CA refused revocation: "+err.Error())
+			return
+		}
+	}
+	if err := s.st.DeleteCert(id); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot delete")
+		return
+	}
+	if s.certs != nil {
+		_ = s.certs.Load()
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "cert.revoke", cert.Domains, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+}
+
 func (s *Server) deleteCert(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {

@@ -236,6 +236,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/certs/internal/root", s.authed(s.internalCARoot))
 	m.HandleFunc("PUT /api/certs/{id}", s.authed(s.updateCert))
 	m.HandleFunc("POST /api/certs/{id}/renew", s.authed(s.renewCert))
+	m.HandleFunc("POST /api/certs/{id}/revoke", s.authed(s.revokeCert))
 	m.HandleFunc("DELETE /api/certs/{id}", s.authed(s.deleteCert))
 
 	m.HandleFunc("GET /api/metrics", s.authed(s.getMetrics))

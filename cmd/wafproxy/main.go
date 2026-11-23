@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -660,6 +661,22 @@ func run() error {
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
 			return err.Error()
+		}
+		if cfg.ListenGUITLS {
+			cert, err := certs.CertificateForHost(cfg.GUIHost)
+			if err != nil {
+				ln.Close()
+				return "console TLS: " + err.Error()
+			}
+			ln = tls.NewListener(ln, &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+					if name := strings.TrimSpace(hello.ServerName); name != "" && !strings.EqualFold(name, cfg.GUIHost) {
+						return certs.CertificateForHost(name)
+					}
+					return cert, nil
+				},
+			})
 		}
 		srv := &http.Server{
 			Handler:           handler,

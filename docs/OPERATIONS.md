@@ -175,3 +175,28 @@ one JSON object per request instead of nginx combined format. The object carries
 the request ID, host, source, method, path, status, bytes, latency, stage, rule
 and action, so a failed request can be traced to the stage that rejected it.
 The default stays nginx combined format for CrowdSec's nginx parser.
+
+
+## Admin console over HTTPS
+
+The console can serve TLS from the certificates the gateway already manages. Issue or
+upload a certificate whose names include the console host (for example
+`console.home.arpa` from the internal CA), then set:
+
+```
+WAFPROXY_LISTEN_GUI=http://127.0.0.1:8080   # ignored once TLS is on
+WAFPROXY_LISTEN_GUI_TLS=1
+WAFPROXY_GUI_HOST=console.home.arpa
+```
+
+The listener refuses to start when no valid certificate matches the host, so a typo
+cannot silently leave the console on plain HTTP. Browsers need the internal root
+(`GET /api/certs/internal/root`) or a public CA for that name.
+
+## Revoking a certificate
+
+`POST /api/certs/{id}/revoke` revokes an ACME certificate with the CA that issued it,
+then deletes the local record. Uploaded and internal certificates have no ACME account;
+they are deleted locally. If the CA refuses, the endpoint returns `502` with the reason
+and keeps the certificate. Deleting a certificate without revoking it remains available
+through `DELETE /api/certs/{id}`.

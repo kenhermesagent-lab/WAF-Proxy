@@ -21,9 +21,13 @@ import (
 type Config struct {
 	DataDir string
 	// ListenHTTP serves ACME HTTP-01 and redirects to HTTPS; empty disables it.
-	ListenHTTP     string
-	ListenWAN      string
-	ListenGUI      string
+	ListenHTTP string
+	ListenWAN  string
+	ListenGUI  string
+	// ListenGUITLS serves the console over HTTPS using the certificate that
+	// matches GUIHost from the certificate manager.
+	ListenGUITLS   bool
+	GUIHost        string
 	WANIface       string
 	LANIface       string
 	GUIPrivateOnly bool
@@ -55,6 +59,8 @@ func Load() (*Config, error) {
 		DataDir:        envOr("WAFPROXY_DATA_DIR", "./data"),
 		ListenWAN:      envOr("WAFPROXY_LISTEN_WAN", ":8443"),
 		ListenGUI:      envOr("WAFPROXY_LISTEN_GUI", "127.0.0.1:8080"),
+		ListenGUITLS:   envBoolOr("WAFPROXY_LISTEN_GUI_TLS", false),
+		GUIHost:        strings.ToLower(strings.TrimSpace(os.Getenv("WAFPROXY_GUI_HOST"))),
 		ListenHTTP:     envOr("WAFPROXY_LISTEN_HTTP", ""),
 		WANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_WAN_IFACE")),
 		LANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_LAN_IFACE")),
@@ -67,6 +73,9 @@ func Load() (*Config, error) {
 		MCPToken:       strings.TrimSpace(os.Getenv("WAFPROXY_MCP_TOKEN")),
 		MCPActor:       envOr("WAFPROXY_MCP_ACTOR", "hermes-agent"),
 		MetricsToken:   strings.TrimSpace(os.Getenv("WAFPROXY_METRICS_TOKEN")),
+	}
+	if c.ListenGUITLS && c.GUIHost == "" {
+		return nil, errors.New("WAFPROXY_GUI_HOST is required when WAFPROXY_LISTEN_GUI_TLS is set")
 	}
 	if c.MCPToken != "" && len(c.MCPToken) < 32 {
 		return nil, errors.New("WAFPROXY_MCP_TOKEN must be at least 32 characters")

@@ -541,8 +541,8 @@ screenshots. None of them are required by a single-node deployment.
   forwarding.
 - **1.37.0 — Phase 4: delivered, except console TLS and revocation.** Certificate upload and
   source tracking, internal CA with a downloadable trust anchor, HTTP-01 served by the gateway's
-  own listener, renewal backoff with jitter, and per-site minimum TLS version. Not delivered:
-  console TLS and certificate revocation.
+  own listener, renewal backoff with jitter, per-site minimum TLS version, console HTTPS and certificate revocation. The console TLS
+  listener and the revoke endpoint shipped in 1.40.0.
 - **1.36.0–1.37.0 — Phase 5: partial.** Request IDs, JSON access logs, unattended
   `wafproxy setup`, and `wafproxy recover`. Not delivered: alerting
   dedupe/Test, diagnostics bundle, SLO rollups, upstream flap detection, synthetic canary, the
