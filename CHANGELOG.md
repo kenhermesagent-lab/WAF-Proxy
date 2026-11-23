@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.11] — 2026-11-23
+
+### Fixed
+
+- **Printing a report printed the console behind it.** The print stylesheet hid the sidebar, top
+  bar and the drawer's buttons, but left the page the drawer was opened over — filters, the event
+  table, Save view / Copy link / Delete view — and the download filename in the output. A printed
+  report is now the report alone (title plus Markdown), checked through Chromium's real print
+  pipeline for both the Logs report and a source drawer's report.
+
 ## [1.47.10] — 2026-11-23
 
 ### Added
