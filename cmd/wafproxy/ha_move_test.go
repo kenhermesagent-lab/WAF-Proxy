@@ -101,6 +101,13 @@ func TestHAMoveCLIRefusalExitsNonZero(t *testing.T) {
 	}
 }
 
+func TestWitnessCLIRequiresAToken(t *testing.T) {
+	t.Setenv("WAFPROXY_HA_WITNESS_TOKEN", "")
+	if err := haWitnessCLI([]string{"--listen", "127.0.0.1:0"}); err == nil {
+		t.Fatal("the witness started without a token")
+	}
+}
+
 func TestHANotifyPassesTheRole(t *testing.T) {
 	_, seen := fakeControl(t, []ha.ControlReply{{OK: true}})
 	if err := haNotifyCLI([]string{"backup"}); err != nil {

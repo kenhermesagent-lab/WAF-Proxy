@@ -41,10 +41,9 @@ func testHooks(log *moveLog, input func() PreflightInput) Hooks {
 			return nil
 		},
 		Serve: func(context.Context) error { record("serve"); log.served = true; return nil },
-		DemotePlane: func(context.Context) error {
+		DemotePlane: func(context.Context) {
 			record("demote-plane")
 			log.demoted = true
-			return nil
 		},
 		StopReplication:  func() { log.stopRepl++ },
 		StartReplication: func() { log.startRepl++ },

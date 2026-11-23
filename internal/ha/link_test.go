@@ -19,12 +19,20 @@ import (
 func discardLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 func startJoinServer(t *testing.T, dataDir string, masterKey []byte, st *store.Store) (*Identity, string) {
+	id, addr, _ := startJoinServerFull(t, dataDir, masterKey, st, nil)
+	return id, addr
+}
+
+// startJoinServerFull is startJoinServer with the quiesce gate a move needs and
+// the server itself, so a test can drive the peer half of a promotion.
+func startJoinServerFull(t *testing.T, dataDir string, masterKey []byte, st *store.Store, q *Quiesce) (*Identity, string, *JoinServer) {
 	t.Helper()
 	id, err := LoadOrCreateIdentity(dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := NewJoinServer(id, dataDir, masterKey, st, discardLog())
+	srv.SetQuiesce(q)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +40,7 @@ func startJoinServer(t *testing.T, dataDir string, masterKey []byte, st *store.S
 	httpSrv := &http.Server{Handler: srv.Handler()}
 	go func() { _ = httpSrv.Serve(tls.NewListener(ln, srv.TLSConfig())) }()
 	t.Cleanup(func() { _ = httpSrv.Close() })
-	return id, ln.Addr().String()
+	return id, ln.Addr().String(), srv
 }
 
 func TestJoinEndToEnd(t *testing.T) {

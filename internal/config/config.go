@@ -76,6 +76,12 @@ type Config struct {
 	// HALinkListen serves pairing and, later, replication on the private link
 	// between the pair. Empty leaves the node able to run but not to pair.
 	HALinkListen string
+	// HAWitness is the witness base URL the active renews its lease with. With
+	// no witness the pair keeps the manual failover of P5.
+	HAWitness string
+	// HAWitnessToken authenticates the active to the witness. It is required
+	// with HAWitness: an open witness grants two actives.
+	HAWitnessToken string
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -108,9 +114,17 @@ func Load() (*Config, error) {
 		HAEnabled:             envBoolOr("WAFPROXY_HA_ENABLE", false),
 		HAMgmtListen:          strings.TrimSpace(os.Getenv("WAFPROXY_HA_MGMT_LISTEN")),
 		HALinkListen:          strings.TrimSpace(os.Getenv("WAFPROXY_HA_LINK_LISTEN")),
+		HAWitness:             strings.TrimSpace(os.Getenv("WAFPROXY_HA_WITNESS")),
+		HAWitnessToken:        strings.TrimSpace(os.Getenv("WAFPROXY_HA_WITNESS_TOKEN")),
 	}
 	if c.HAEnabled && c.HAMgmtListen == "" {
 		return nil, errors.New("WAFPROXY_HA_MGMT_LISTEN is required when WAFPROXY_HA_ENABLE=1")
+	}
+	if (c.HAWitness == "") != (c.HAWitnessToken == "") {
+		return nil, errors.New("WAFPROXY_HA_WITNESS and WAFPROXY_HA_WITNESS_TOKEN must be set together")
+	}
+	if c.HAWitnessToken != "" && len(c.HAWitnessToken) < 32 {
+		return nil, errors.New("WAFPROXY_HA_WITNESS_TOKEN must be at least 32 characters")
 	}
 	if c.ListenGUITLS && c.GUIHost == "" {
 		return nil, errors.New("WAFPROXY_GUI_HOST is required when WAFPROXY_LISTEN_GUI_TLS is set")

@@ -15,25 +15,32 @@ import (
 // haRuntime ties a move's hooks to the process: preflight reads the live store,
 // and the irreversible steps start and stop the data plane and its loops.
 type haRuntime struct {
-	dir    string
-	st     *store.Store
-	all    *store.Store
-	res    *siteres.Set
-	bans   *ban.Engine
-	api    *api.Server
-	plane  *dataPlane
-	active *activeSupervisor
-	repl   *replicator
-	ident  *ha.Identity
-	log    *slog.Logger
+	dir     string
+	st      *store.Store
+	all     *store.Store
+	res     *siteres.Set
+	bans    *ban.Engine
+	api     *api.Server
+	plane   *dataPlane
+	active  *activeSupervisor
+	repl    *replicator
+	ident   *ha.Identity
+	quiesce *ha.Quiesce
+	// mgr is the control-socket move coordinator; a lost witness lease
+	// self-demotes through it, so it never races an operator's move.
+	mgr *ha.Manager
+	// witness is nil unless a lease authority is configured.
+	witness     *ha.WitnessClient
+	leaseCancel context.CancelFunc
+	log         *slog.Logger
 }
 
 // serveControl exposes the move commands on the local Unix socket. Nothing here
 // listens on the network: keepalived and `wafproxy ha` run on the node.
 func (h *haRuntime) serveControl(ctx context.Context) error {
-	mgr := ha.NewManager(h.dir, h.hooks())
 	path := ha.ControlSocketPath(h.dir)
-	if _, err := ha.ServeControl(ctx, path, mgr, h.log); err != nil {
+	h.mgr = ha.NewManager(h.dir, h.hooks())
+	if _, err := ha.ServeControl(ctx, path, h.mgr, h.log); err != nil {
 		return err
 	}
 	h.log.Info("ha control socket listening", "path", path)
@@ -47,9 +54,7 @@ func (h *haRuntime) hooks() ha.Hooks {
 		ResumePeer:  func(ctx context.Context) error { return ha.SetPeerQuiesced(ctx, h.dir, false) },
 		Drain:       func(ctx context.Context) error { return ha.Drain(ctx, h.dir, h.st, 15*time.Second) },
 		Prebind:     func(ctx context.Context) error { return h.plane.Prebind(ctx) },
-		Reload: func(ctx context.Context) error {
-			return h.api.ReloadAll(ctx)
-		},
+		Reload:      h.api.ReloadAll,
 		ReconcileBans: func(context.Context) error {
 			h.bans.Reconcile()
 			return nil
@@ -59,6 +64,34 @@ func (h *haRuntime) hooks() ha.Hooks {
 		StopReplication:  h.repl.Stop,
 		StartReplication: h.repl.Start,
 		OnRollback:       h.repl.Start,
+	}
+}
+
+// startLease renews the active's witness lease and demotes it when the lease
+// can no longer be held. Without a witness the pair stays on P5's manual moves.
+func (h *haRuntime) startLease(ctx context.Context, epoch int64) {
+	if h.witness == nil || h.mgr == nil {
+		return
+	}
+	h.stopLease()
+	client := *h.witness
+	keeper := ha.NewLeaseKeeper(&client, epoch)
+	leaseCtx, cancel := context.WithCancel(ctx)
+	h.leaseCancel = cancel
+	keeper.OnLoss = func(context.Context) {
+		h.log.Error("witness lease lost; demoting this node", "epoch", epoch)
+		if _, err := h.mgr.Failback(context.Background(), ha.MoveOptions{}); err != nil {
+			h.log.Error("self-demotion after losing the lease failed", "err", err)
+		}
+	}
+	go keeper.Run(leaseCtx)
+	h.log.Info("witness lease renewal started", "witness", client.URL, "epoch", epoch)
+}
+
+func (h *haRuntime) stopLease() {
+	if h.leaseCancel != nil {
+		h.leaseCancel()
+		h.leaseCancel = nil
 	}
 }
 
@@ -93,6 +126,9 @@ func (h *haRuntime) preflight(ctx context.Context) (ha.PreflightInput, error) {
 // stream the next standby follows.
 func (h *haRuntime) serveDataPlane(ctx context.Context) error {
 	h.repl.Stop()
+	// A peer may have quiesced this node during the move that made it the
+	// standby; that gate must not outlive the promotion.
+	h.quiesce.Set(false)
 	h.st.SetNodeID(h.ident.Node)
 	h.st.SetAuditEnabled(true)
 	if err := h.plane.Serve(ctx); err != nil {
@@ -101,17 +137,20 @@ func (h *haRuntime) serveDataPlane(ctx context.Context) error {
 		return err
 	}
 	h.active.Start()
+	if node, err := ha.Load(h.dir); err == nil {
+		h.startLease(ctx, node.Epoch)
+	}
 	return nil
 }
 
 // demoteDataPlane stops the loops first, then drains traffic, then gives up
 // capture: nothing written after the role file says standby may enter the
 // active's stream.
-func (h *haRuntime) demoteDataPlane(ctx context.Context) error {
+func (h *haRuntime) demoteDataPlane(ctx context.Context) {
+	h.stopLease()
 	h.active.Stop()
 	h.repl.Stop()
-	err := h.plane.Drain(ctx)
+	h.plane.Drain(ctx)
 	h.st.SetAuditEnabled(false)
 	h.st.SetNodeID("")
-	return err
 }

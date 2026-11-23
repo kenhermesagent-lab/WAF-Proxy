@@ -18,7 +18,7 @@ type Hooks struct {
 	Reload           func(context.Context) error
 	ReconcileBans    func(context.Context) error
 	Serve            func(context.Context) error
-	DemotePlane      func(context.Context) error
+	DemotePlane      func(context.Context)
 	StopReplication  func()
 	StartReplication func()
 	// OnRollback undoes process-side work after a move gave up, such as
@@ -187,7 +187,7 @@ func Demote(ctx context.Context, dataDir string, hooks Hooks) (Result, error) {
 		hooks.StopReplication()
 	}
 	if hooks.DemotePlane != nil {
-		if err := record(ctx, &res, "drain-listeners", func() error { return hooks.DemotePlane(ctx) }); err != nil {
+		if err := record(ctx, &res, "drain-listeners", func() error { hooks.DemotePlane(ctx); return nil }); err != nil {
 			return res, err
 		}
 	}

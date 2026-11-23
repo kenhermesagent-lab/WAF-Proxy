@@ -43,8 +43,8 @@ func newDataPlane(px *proxy.Server, streams *streaming.Manager, cfgs map[string]
 }
 
 // freebind holds an address that is not local yet. IP_FREEBIND is Linux-only;
-// elsewhere the bind falls back to the ordinary one and simply fails until the
-// address moves, which Serve retries.
+// elsewhere the ordinary bind fails until the address moves, and Serve binds
+// again at promotion.
 func freebind(addr string) (net.Listener, error) {
 	ln, err := netbind.Listen("tcp", addr)
 	if err != nil && errors.Is(err, netbind.ErrUnsupported) {
@@ -80,13 +80,6 @@ func (p *dataPlane) Addrs() []string {
 		return p.prebind.Addrs()
 	}
 	return nil
-}
-
-// Serving reports whether traffic is being accepted.
-func (p *dataPlane) Serving() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.serving
 }
 
 // Serve starts the listener, the forwarders and the ACME HTTP listener. It
@@ -142,14 +135,14 @@ func (p *dataPlane) Serve(ctx context.Context) error {
 
 // Drain stops accepting, finishes in-flight requests within a bounded budget,
 // and closes the forwarders. The node keeps its console and control socket.
-func (p *dataPlane) Drain(ctx context.Context) error {
+func (p *dataPlane) Drain(ctx context.Context) {
 	p.mu.Lock()
 	lns, cancel := p.active, p.cancel
 	was := p.serving
 	p.active, p.cancel, p.serving = nil, nil, false
 	p.mu.Unlock()
 	if !was && lns == nil {
-		return nil
+		return
 	}
 	if cancel != nil {
 		cancel()
@@ -157,27 +150,21 @@ func (p *dataPlane) Drain(ctx context.Context) error {
 	if lns != nil {
 		// Give handlers the promotion's budget, capped so a demotion cannot
 		// hang on one slow upload.
-		deadline := 10 * time.Second
+		budget := 10 * time.Second
 		if d, ok := ctx.Deadline(); ok {
-			if left := time.Until(d); left < deadline {
-				deadline = left
-			}
+			budget = min(budget, time.Until(d))
 		}
-		if deadline < time.Second {
-			deadline = time.Second
-		}
-		lns.DrainTimeout(deadline)
+		lns.DrainTimeout(max(budget, time.Second))
 	}
 	p.streams.Close()
 	p.log.Info("data plane drained")
-	return nil
 }
 
 // Close releases everything held for shutdown.
 func (p *dataPlane) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = p.Drain(ctx)
+	p.Drain(ctx)
 	p.mu.Lock()
 	pre := p.prebind
 	p.prebind = nil
@@ -204,14 +191,11 @@ func newActiveSupervisor(root context.Context) *activeSupervisor {
 	return &activeSupervisor{root: root}
 }
 
-// Add registers work to start with the active role.
+// Add registers work to start with the active role. Call it before Start.
 func (a *activeSupervisor) Add(fn func(context.Context)) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.fns = append(a.fns, fn)
-	if a.running {
-		go fn(a.ctx)
-	}
 }
 
 // Start is idempotent.
@@ -240,12 +224,6 @@ func (a *activeSupervisor) Stop() {
 	a.running = false
 }
 
-func (a *activeSupervisor) Active() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.running
-}
-
 // replicator runs the standby's stream follower. It is restartable: a node that
 // is demoted starts it again, and a node that is promoted stops it before it
 // serves, or it would overwrite its own writes from the old active.
@@ -268,6 +246,9 @@ func (r *replicator) Start() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.cancel != nil {
+		return
+	}
+	if pair, err := ha.LoadPair(r.dataDir); err != nil || pair == nil {
 		return
 	}
 	ctx, cancel := context.WithCancel(r.root)

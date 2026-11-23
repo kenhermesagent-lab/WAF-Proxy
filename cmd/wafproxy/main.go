@@ -447,6 +447,19 @@ func run() error {
 		// break it. The console is read-only there, so nothing of value is lost.
 		st.SetAuditEnabled(node.Active())
 	}
+	// The witness is optional: with one, an active that cannot renew its lease
+	// stops serving; without one, moves stay manual.
+	var witness *ha.WitnessClient
+	if cfg.HAEnabled && cfg.HAWitness != "" {
+		if pair, err := ha.LoadPair(cfg.DataDir); err == nil && pair != nil {
+			witness = &ha.WitnessClient{
+				URL: cfg.HAWitness, Token: cfg.HAWitnessToken,
+				ClusterID: pair.ClusterID, Holder: haIdent.Node,
+			}
+		} else {
+			log.Warn("ha witness configured but this node is not paired; no lease is renewed")
+		}
+	}
 
 	kv, err := st.Settings()
 	if err != nil {
@@ -1004,7 +1017,7 @@ func run() error {
 		rt := &haRuntime{
 			dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
 			plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
-			ident: haIdent, log: log,
+			ident: haIdent, quiesce: haQuiesce, witness: witness, log: log,
 		}
 		apiServer.SetWriteGate(haQuiesce.Active)
 		if !node.Active() {
@@ -1013,6 +1026,9 @@ func run() error {
 		}
 		if err := rt.serveControl(ctx); err != nil {
 			log.Error("ha control socket failed", "err", err)
+		}
+		if node.Active() {
+			rt.startLease(ctx, node.Epoch)
 		}
 	}
 

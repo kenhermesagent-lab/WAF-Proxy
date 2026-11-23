@@ -46,7 +46,9 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P5-04 control socket, keepalived | code landed, lab pending | `cmd/wafproxy/ha_move.go`, `deploy/ha/keepalived.conf`, `deploy/ha/notify.sh` |
 | P5-05 drain and rejoin | code landed, lab pending | standby pre-binds with `IP_FREEBIND` and serves nothing; `dataPlane.Drain` closes listeners and forwarders |
 | P5-06 failback | landed | `Demote`, `ha failback`; an abort is refused once the data plane serves |
-| P6-P8 | not started | |
+| P6-01 heartbeat | landed | `/ha/ping` on the pinned link, `internal/ha/heartbeat.go`; two lost beats change nothing, the third trips, recovery resets |
+| P6-02 witness and lease | partial | `internal/ha/witness.go`, `wafproxy ha witness --listen`; the active renews every 3 s and self-demotes after the 10 s TTL; no automatic promotion yet |
+| P6-03 to P6-07 | not started | fencing command, automatic gate, epoch demotion, flap control, partition simulator |
 
 **Replication boundary.** Configuration still travels as a whole snapshot, once
 immediately after pairing and every 30 s after that (P3-04's debounce replaces the
@@ -635,6 +637,14 @@ replication stays, the operator returns to manual stop/start.
 **Goal.** Unattended failover, with a hard guarantee that it cannot produce two active writers.
 
 **Entry:** P5 merged. **Exit:** P6 gate.
+
+**Build note (started, dark).** P6-01 and P6-02's library halves are built: `/ha/ping` on
+the pinned link, a monitor that treats the third lost beat as a decision, and a witness
+with one 10 s lease, a 3 s renewal and a bearer token. The active renews through it and
+demotes itself after the TTL, so a node that cannot prove it still holds the lease stops
+writing. Nothing promotes automatically yet: the heartbeat is not consumed by a move, and
+fencing, the automatic gate, higher-epoch demotion, flap control and the partition
+simulator are P6-03 to P6-07.
 
 ### P6-01 Heartbeat — M, 2 days
 

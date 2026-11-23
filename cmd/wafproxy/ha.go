@@ -20,7 +20,7 @@ import (
 // data plane uses, so it cannot disagree with what the node is doing.
 func haCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: wafproxy ha status|pair|join|unpair|sync|failover|failback|abort|notify")
+		return errors.New("usage: wafproxy ha status|pair|join|unpair|sync|failover|failback|abort|notify|ping|witness")
 	}
 	switch args[0] {
 	case "status":
@@ -39,6 +39,10 @@ func haCLI(args []string) error {
 		return haAbortCLI(args[1:])
 	case "notify":
 		return haNotifyCLI(args[1:])
+	case "ping":
+		return haPingCLI(args[1:])
+	case "witness":
+		return haWitnessCLI(args[1:])
 	default:
 		return fmt.Errorf("unknown ha command %q (want status, pair, join, unpair, sync, failover, failback, abort or notify)", args[0])
 	}

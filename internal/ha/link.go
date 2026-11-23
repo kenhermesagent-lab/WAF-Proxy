@@ -76,6 +76,7 @@ func (s *JoinServer) Handler() http.Handler {
 	mux.HandleFunc("GET /ha/outbox", s.outbox)
 	mux.HandleFunc("POST /ha/outbox/ack", s.outboxAck)
 	mux.HandleFunc("GET /ha/config", s.configHandler)
+	mux.HandleFunc("GET /ha/ping", s.pingNode)
 	mux.HandleFunc("POST /ha/quiesce", s.quiesceNode)
 	return mux
 }
