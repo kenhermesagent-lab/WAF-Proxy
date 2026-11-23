@@ -159,7 +159,7 @@ describe("Logs request simulator", () => {
         ttl_seconds: 86400,
       }),
     );
-    await waitFor(() => expect(onOK).toHaveBeenCalledWith("1 source banned for 24 hours"));
+    await waitFor(() => expect(onOK).toHaveBeenCalledWith("1 source banned"));
   });
 
   it("hides the bulk ban from a read-only role", async () => {

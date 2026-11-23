@@ -16,12 +16,6 @@ type Row = {
   optional?: boolean;
 };
 
-function linkFor(page: string, label: string) {
-  return (
-    <a className="link-button" href={`#/${page}`}>{label}</a>
-  );
-}
-
 export default function Readiness({ me, onError }: { me: Me | null; onError: (m: string) => void }) {
   const [settings, setSettings] = useState<Record<string, string> | null>(null);
   const [certs, setCerts] = useState<Cert[] | null>(null);
@@ -47,7 +41,7 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
           fail("settings");
           onError(errText(e));
         }),
-      api.get<Cert[]>("/api/certs").then((v) => alive && setCerts(v)).catch(() => fail("certs")),
+      api.get<{ certs: Cert[] }>("/api/certs").then((v) => alive && setCerts(v.certs ?? [])).catch(() => fail("certs")),
       api.get<GeoIPStatus>("/api/geoip").then((v) => alive && setGeo(v)).catch(() => fail("geoip")),
       api.get<Backup>("/api/backup/schedule").then((v) => alive && setBackup(v)).catch(() => fail("backup")),
       api.get<AgentLink[]>("/api/agents").then((v) => alive && setAgents(v)).catch(() => fail("agents")),
@@ -62,6 +56,8 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
   }, []);
 
   const has = (name: string) => !failed.includes(name);
+
+  const notifyTargets = agents?.filter((a) => a.enabled).length ?? 0;
 
   const rows: Row[] = [
     {
@@ -91,7 +87,12 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
     {
       id: "kernel",
       label: "Kernel ban enforcement",
-      detail: settings?.kernel === "active" ? "Bans are enforced in the kernel." : `Kernel enforcement is ${settings?.kernel || "unavailable"}; bans apply in user space only.`,
+      detail:
+        settings?.kernel === "active"
+          ? "Bans are enforced in the kernel."
+          : settings?.kernel
+            ? `Bans apply in user space only. ${settings.kernel}.`
+            : "Kernel enforcement status is unknown; bans apply in user space.",
       ready: has("settings") && settings ? settings.kernel === "active" : null,
       fix: "Open Settings",
       link: "settings",
@@ -109,7 +110,9 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
     {
       id: "notify",
       label: "Notification target configured",
-      detail: agents?.some((a) => a.enabled) ? `${agents.filter((a) => a.enabled).length} enabled target(s).` : "No enabled notification target, so alerts go nowhere.",
+      detail: notifyTargets
+        ? `${notifyTargets} enabled target${notifyTargets === 1 ? "" : "s"}.`
+        : "No enabled notification target, so alerts go nowhere.",
       ready: has("agents") && agents ? agents.some((a) => a.enabled) : null,
       fix: "Open Notifications",
       link: "notifications",
@@ -132,7 +135,7 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
     },
     {
       id: "crowdsec",
-      label: "CrowdSec connected (optional)",
+      label: "CrowdSec connected",
       detail: crowdsec?.configured ? `Connected, ${crowdsec.applied} decisions applied.` : "Not connected; the built-in WAF does not need it.",
       ready: has("crowdsec") && crowdsec ? crowdsec.configured : null,
       fix: "Open CrowdSec",
@@ -145,6 +148,8 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
   const met = scored.filter((r) => r.ready).length;
   const unknown = scored.filter((r) => r.ready === null).length;
   const pct = scored.length ? Math.round((met / scored.length) * 100) : 0;
+  const tone = pct === 100 ? "ok" : pct >= 60 ? "warn" : "bad";
+  const verdict = pct === 100 ? "hardened" : pct >= 60 ? "partly hardened" : "not hardened";
 
   return (
     <div className="grid" style={{ gap: 14 }}>
@@ -165,10 +170,10 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
                   {pct}% complete{unknown > 0 ? ` · ${unknown} could not be checked` : ""}
                 </div>
               </div>
-              <Badge tone={pct === 100 ? "ok" : pct >= 60 ? "warn" : "bad"}>{pct === 100 ? "hardened" : pct >= 60 ? "partly hardened" : "not hardened"}</Badge>
+              <Badge tone={tone}>{verdict}</Badge>
             </div>
             <div className="kpi-meter" aria-hidden="true" style={{ marginTop: 12 }}>
-              <span style={{ width: `${pct}%`, background: pct === 100 ? "var(--ok)" : pct >= 60 ? "var(--warn)" : "var(--danger)" }} />
+              <span style={{ width: `${pct}%`, background: `var(--${tone === "bad" ? "danger" : tone})` }} />
             </div>
           </>
         )}
@@ -189,7 +194,11 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
                   </div>
                   <div className="faint small-text" style={{ marginTop: 2 }}>{r.detail}</div>
                 </div>
-                {r.ready === true ? <span className="faint small-text">—</span> : linkFor(r.link, r.fix)}
+                {r.ready === true ? (
+                  <span className="faint small-text">—</span>
+                ) : (
+                  <a className="link-button" href={`#/${r.link}`}>{r.fix}</a>
+                )}
               </div>
             ))}
           </div>

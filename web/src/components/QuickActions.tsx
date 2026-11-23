@@ -20,9 +20,9 @@ const TITLES: Record<CommandId, string> = {
 };
 
 const KINDS = [
-  { value: "ip", label: "IP or subnet" },
-  { value: "country", label: "Country (ISO code)" },
-  { value: "asn", label: "ASN (number)" },
+  { value: "ip_blacklist", label: "IP or subnet", placeholder: "203.0.113.7" },
+  { value: "country_blacklist", label: "Country (ISO code)", placeholder: "RU" },
+  { value: "asn_block", label: "ASN (number)", placeholder: "64500" },
 ];
 
 export default function QuickActions({
@@ -45,7 +45,7 @@ export default function QuickActions({
   const [banId, setBanId] = useState("");
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [proxyId, setProxyId] = useState("");
-  const [kind, setKind] = useState("ip");
+  const [kind, setKind] = useState("ip_blacklist");
   const [value, setValue] = useState("");
   const [check, setCheck] = useState<PolicyPreflight | null>(null);
   const [busy, setBusy] = useState(false);
@@ -53,8 +53,8 @@ export default function QuickActions({
   useEffect(() => {
     if (command === "unban") {
       api
-        .get<Ban[]>("/api/bans")
-        .then((r) => setBans(r ?? []))
+        .get<{ bans: Ban[] }>("/api/bans")
+        .then((r) => setBans(r.bans ?? []))
         .catch((e) => onError(errText(e)));
     }
     if (command === "disable-proxy") {
@@ -79,7 +79,9 @@ export default function QuickActions({
     setBusy(true);
     try {
       await api.post("/api/bans", { cidr: target, reason: reason.trim() || "manual from console", permanent: false, ttl_seconds: ttl * 3600 });
-      onOK(`${target} banned for ${ttl} hours`);
+      // The server keeps a stricter existing ban, so the message does not promise
+      // that this request set the duration.
+      onOK(`${target} banned`);
       onClose();
     } catch (e) {
       onError(errText(e));
@@ -246,7 +248,7 @@ export default function QuickActions({
               </select>
             </Field>
             <Field label="Value">
-              <input value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "country" ? "RU" : kind === "asn" ? "64500" : "203.0.113.7"} />
+              <input value={value} onChange={(e) => setValue(e.target.value)} placeholder={KINDS.find((k) => k.value === kind)?.placeholder ?? ""} />
             </Field>
           </div>
           <p className="faint small-text" style={{ marginTop: -4 }}>
@@ -257,8 +259,8 @@ export default function QuickActions({
               <div className={`banner ${check.matched === 0 ? "" : "warn"}`.trim()} role="status">
                 <span>
                   {check.matched === 0
-                    ? `No requests in the last ${check.hours}h match ${check.kind} ${check.value}.`
-                    : `${check.matched.toLocaleString()} requests from ${check.addresses} address${check.addresses === 1 ? "" : "es"} match; ${check.allowed.toLocaleString()} are served and ${check.blocked.toLocaleString()} refused today.`}
+                    ? `No requests in the last ${check.hours}h match ${KINDS.find((k) => k.value === kind)?.label.toLowerCase()} ${check.value}.`
+                    : `${check.matched.toLocaleString()} request${check.matched === 1 ? "" : "s"} from ${check.addresses} address${check.addresses === 1 ? "" : "es"} match; ${check.allowed.toLocaleString()} ${check.allowed === 1 ? "is" : "are"} served and ${check.blocked.toLocaleString()} refused today.`}
                 </span>
               </div>
               {check.notes.map((n) => <div className="faint small-text" key={n}>{n}</div>)}

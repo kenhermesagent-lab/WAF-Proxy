@@ -36,6 +36,8 @@ function policyKind(type: string, action: string): string {
   return type;
 }
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+
 const stamp = (iso?: string | null) => (iso ? iso.slice(0, 16).replace("T", " ") : "—");
 
 function listSummary(l: { ips: string; countries: string }): string {
@@ -780,9 +782,11 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
                   <span>
                     {check.matched === 0
                       ? `No requests in the last ${check.hours}h match this rule. It would change nothing on this traffic.`
-                      : pol.action === "allow"
-                        ? `${check.matched.toLocaleString()} requests from ${check.addresses} address${check.addresses === 1 ? "" : "es"} match; ${check.blocked.toLocaleString()} are refused today and would be allowed.`
-                        : `${check.matched.toLocaleString()} requests from ${check.addresses} address${check.addresses === 1 ? "" : "es"} match; ${check.allowed.toLocaleString()} are served today and would be refused.`}
+                      : `${plural(check.matched, "request")} from ${plural(check.addresses, "address", "addresses")} match; ${
+                          pol.action === "allow"
+                            ? `${check.blocked.toLocaleString()} ${check.blocked === 1 ? "is" : "are"} refused today and would be allowed.`
+                            : `${check.allowed.toLocaleString()} ${check.allowed === 1 ? "is" : "are"} served today and would be refused.`
+                        }`}
                   </span>
                 </div>
                 {check.notes.map((n) => (

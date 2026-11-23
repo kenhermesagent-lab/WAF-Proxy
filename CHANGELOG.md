@@ -11,6 +11,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.38.1] — 2026-11-23
+
+### Fixed
+
+- **Readiness renders again.** `/api/certs` answers `{certs: […]}`; the page read it as a bare array
+  and the section failed with "f.some is not a function". The CrowdSec row is also no longer labelled
+  optional twice, and the kernel row reads as a sentence.
+- **The palette's "Release a ban" verb opens again.** `/api/bans` answers `{bans: […]}`; the unban
+  dialog read that object as an array, which blanked the console.
+- **The palette's preflight verb sends real policy kinds** (`ip_blacklist`, `country_blacklist`,
+  `asn_block`) instead of values the endpoint rejects, so it no longer fails with "unknown policy kind".
+- **Ban dialogs and toasts no longer promise a duration the server may not set.** A stricter existing
+  permanent ban stays in force, so the messages say "banned" and the source drawer says an existing
+  longer ban stays.
+- **Incident reports write an em dash instead of a blank cell** for an event with no rule message, and
+  preflight summaries use grammatical singulars ("1 request from 1 address matches").
+
 ## [1.38.0] — 2026-11-22
 
 ### Added

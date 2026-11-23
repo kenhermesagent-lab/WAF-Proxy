@@ -15,7 +15,8 @@ function slug(text: string): string {
 }
 
 function cell(text?: string | number | null): string {
-  return String(text ?? "—").replace(/\|/g, "\\|");
+  const value = String(text ?? "");
+  return value === "" ? "—" : value.replace(/\|/g, "\\|");
 }
 
 export function reportFilename(subject: string): string {

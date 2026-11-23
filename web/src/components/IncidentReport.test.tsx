@@ -44,6 +44,17 @@ describe("incident report", () => {
     expect(md).toContain("| ban.create |");
   });
 
+  it("writes a dash rather than a blank cell when a rule has no message", () => {
+    const md = buildReport({
+      subject: "log window",
+      window: "every event",
+      summary: ["Matching events: 1"],
+      events: [{ ...event, stage: "route", action: "allow", rule_id: "", rule_msg: "" }],
+    });
+    expect(md).toContain("| route | allow | 1 |");
+    expect(md).toContain("| route | — | 403 |");
+  });
+
   it("says so when the window has no events instead of inventing any", () => {
     const md = buildReport({ subject: "198.51.100.9", window: "last 1h", summary: ["Requests: 0"], events: [], total: 0 });
     expect(md).toContain("## No events");

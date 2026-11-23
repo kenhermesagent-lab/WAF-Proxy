@@ -41,8 +41,28 @@ describe("palette command actions", () => {
         ttl_seconds: 86400,
       }),
     );
-    expect(onOK).toHaveBeenCalledWith("203.0.113.9 banned for 24 hours");
+    expect(onOK).toHaveBeenCalledWith("203.0.113.9 banned");
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("releases a chosen ban from the bans endpoint's wrapped list", async () => {
+    get.mockResolvedValue({
+      active: 1,
+      total: 1,
+      bans: [{ id: 9, cidr: "198.51.100.4/32", reason: "scan", source: "manual", permanent: false, hits: 2, created_by: "admin", created_at: "" }],
+    });
+    const del = vi.mocked(api.del);
+    del.mockResolvedValue({});
+    const onOK = vi.fn();
+    render(<QuickActions command="unban" canWrite onClose={vi.fn()} onError={vi.fn()} onOK={onOK} />);
+
+    fireEvent.change(await screen.findByRole("combobox"), { target: { value: "9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Release" }));
+    const confirm = await screen.findByRole("dialog", { name: "Release ban" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Unban" }));
+
+    await waitFor(() => expect(del).toHaveBeenCalledWith("/api/bans/9"));
+    expect(onOK).toHaveBeenCalledWith("198.51.100.4/32 unbanned");
   });
 
   it("disables the chosen proxy through the full update payload", async () => {
@@ -82,7 +102,7 @@ describe("palette command actions", () => {
 
   it("preflights a rule against recorded traffic without saving anything", async () => {
     post.mockResolvedValue({
-      kind: "country",
+      kind: "country_blacklist",
       value: "RU",
       hours: 24,
       scanned: 10,
@@ -96,14 +116,14 @@ describe("palette command actions", () => {
     });
     render(<QuickActions command="preflight" canWrite onClose={vi.fn()} onError={vi.fn()} onOK={vi.fn()} />);
 
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "country" } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "country_blacklist" } });
     fireEvent.change(screen.getByPlaceholderText("RU"), { target: { value: "RU" } });
     fireEvent.click(screen.getByRole("button", { name: "Preflight" }));
 
     expect(await screen.findByText(/requests from 2 addresses match/)).toBeTruthy();
     expect(screen.getByText("Shadowed by a whitelist on app.example.com")).toBeTruthy();
     expect(post).toHaveBeenCalledWith("/api/policies/preflight", {
-      kind: "country",
+      kind: "country_blacklist",
       value: "RU",
       scope: "global",
       proxy_id: null,

@@ -83,7 +83,7 @@ export default function SourceDrawer({
 
   const ban = async () => {
     const ok = await confirmDialog(
-      `Every request from ${ip} will be refused for 24 hours. The ban is audited and can be released from here.`,
+      `Requests from ${ip} will be refused for 24 hours. An existing longer ban stays in force; either can be released from here.`,
       { title: "Ban source", confirmLabel: "Ban 24h" },
     );
     if (!ok) return;
@@ -95,7 +95,7 @@ export default function SourceDrawer({
         permanent: false,
         ttl_seconds: 86400,
       });
-      handlers.current.onOK(`${ip} banned for 24 hours`);
+      handlers.current.onOK(`${ip} banned`);
       await reload();
     } catch (e) {
       handlers.current.onError(errText(e));

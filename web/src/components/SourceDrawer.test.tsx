@@ -99,7 +99,7 @@ describe("SourceDrawer", () => {
         ttl_seconds: 86400,
       }),
     );
-    await waitFor(() => expect(onOK).toHaveBeenCalledWith("203.0.113.7 banned for 24 hours"));
+    await waitFor(() => expect(onOK).toHaveBeenCalledWith("203.0.113.7 banned"));
   });
 
   it("hides the ban controls from a read-only role", async () => {

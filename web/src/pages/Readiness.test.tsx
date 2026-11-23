@@ -38,7 +38,7 @@ describe("Readiness", () => {
         case "/api/settings":
           return settings();
         case "/api/certs":
-          return [{ id: 1, domains: "waf.example.com", status: "issued" }];
+          return { certs: [{ id: 1, domains: "waf.example.com", status: "issued" }] };
         case "/api/geoip":
           return geoip();
         case "/api/backup/schedule":

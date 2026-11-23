@@ -230,7 +230,7 @@ export default function Logs({
       const failed = results.filter((r) => r.status === "rejected").length;
       const done = selected.length - failed;
       if (failed > 0) onError(`${done} banned, ${failed} failed`);
-      else onOK(`${done} source${done === 1 ? "" : "s"} banned for 24 hours`);
+      else onOK(`${done} source${done === 1 ? "" : "s"} banned`);
       await load(0);
     } catch (e) {
       onError(errText(e));
