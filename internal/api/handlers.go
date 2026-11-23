@@ -25,6 +25,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/internalca"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
@@ -78,6 +79,7 @@ type proxyBody struct {
 	Retries              *int             `json:"retries"`
 	RequestHeaders       []model.HeaderOp `json:"request_headers"`
 	ResponseHeaders      []model.HeaderOp `json:"response_headers"`
+	TLSMinVersion        string           `json:"tls_min_version"`
 	// Preset names an application preset to turn into a WAF profile when the
 	// proxy is created. It is ignored on update: the profile is edited directly
 	// from then on.
@@ -142,6 +144,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		HealthExpect:    defaultStr(in.HealthExpect, "200-399"),
 		RequestHeaders:  in.RequestHeaders,
 		ResponseHeaders: in.ResponseHeaders,
+		TLSMinVersion:   in.TLSMinVersion,
 	}
 	applyProxyNumbers(p, in)
 	if in.Maintenance != nil {
@@ -286,6 +289,9 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	if in.ResponseHeaders != nil {
 		current.ResponseHeaders = in.ResponseHeaders
 	}
+	if in.TLSMinVersion != "" {
+		current.TLSMinVersion = in.TLSMinVersion
+	}
 	applyProxyNumbers(current, in)
 	if msg := validateProxyOptions(in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
@@ -413,6 +419,9 @@ func validHealthExpect(s string) bool {
 }
 
 func validateProxyOptions(in proxyBody) string {
+	if in.TLSMinVersion != "" && in.TLSMinVersion != "1.2" && in.TLSMinVersion != "1.3" {
+		return "the minimum TLS version must be 1.2 or 1.3"
+	}
 	if in.LBPolicy != "" && !validLBPolicy(in.LBPolicy) {
 		return "invalid balancing policy"
 	}
@@ -1559,6 +1568,76 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "cert.create", in.Domains, clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "status": "pending"})
+}
+
+// issueInternalCert signs a certificate from the local root for an install
+// without a public domain.
+func (s *Server) issueInternalCert(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Domains []string `json:"domains"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	hosts := make([]string, 0, len(in.Domains))
+	for _, raw := range in.Domains {
+		host := strings.ToLower(strings.TrimSpace(raw))
+		if host == "" {
+			continue
+		}
+		base := strings.TrimPrefix(host, "*.")
+		if !validHostname(base) {
+			writeError(w, http.StatusBadRequest, "invalid domain: "+host)
+			return
+		}
+		hosts = append(hosts, host)
+	}
+	if len(hosts) == 0 || len(hosts) > 32 {
+		writeError(w, http.StatusBadRequest, "name between 1 and 32 domains")
+		return
+	}
+	auth, err := internalca.Load(s.cfg.DataDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "the internal CA is unavailable: "+err.Error())
+		return
+	}
+	certPEM, keyPEM, notBefore, notAfter, err := auth.Issue(hosts)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot issue the certificate")
+		return
+	}
+	c := &model.Cert{
+		Domains: strings.Join(hosts, ","), Provider: "internal", Status: "issued",
+		Source: model.CertSourceInternal, CertPEM: certPEM, KeyPEM: keyPEM,
+		IssuedAt: &notBefore, ExpiresAt: &notAfter,
+		Wildcard:  strings.Contains(strings.Join(hosts, ","), "*."),
+		RenewMode: model.CertRenewBeforeExpiry, Challenge: "internal",
+	}
+	id, err := s.st.SaveCert(c)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot store the certificate")
+		return
+	}
+	if s.certs != nil {
+		_ = s.certs.Load()
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "cert.internal", c.Domains, clientIP(r))
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "domains": c.Domains, "expires_at": notAfter})
+}
+
+// internalCARoot serves the trust anchor clients install to accept internal
+// certificates.
+func (s *Server) internalCARoot(w http.ResponseWriter, r *http.Request) {
+	auth, err := internalca.Load(s.cfg.DataDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "the internal CA is unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-pem-file")
+	w.Header().Set("Content-Disposition", `attachment; filename="wafproxy-internal-ca.pem"`)
+	_, _ = w.Write(auth.RootPEM())
 }
 
 // uploadCert stores an operator-supplied certificate and key. The pair must

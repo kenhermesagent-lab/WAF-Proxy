@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net"
@@ -20,6 +21,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/agentlink"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/anomaly"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/api"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
@@ -48,12 +50,23 @@ import (
 func main() {
 	// Emergency recovery path: `docker exec wafproxy unban <ip>` works even
 	// when the admin GUI is unreachable or the operator is locked out.
-	if len(os.Args) > 1 && os.Args[1] == "unban" {
-		if err := unbanCLI(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "unban:", err)
+	if len(os.Args) > 1 {
+		var err error
+		switch os.Args[1] {
+		case "unban":
+			err = unbanCLI(os.Args[2:])
+		case "setup":
+			err = setupCLI(os.Args[2:])
+		case "recover":
+			err = recoverCLI(os.Args[2:])
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, os.Args[1]+":", err)
 			os.Exit(1)
 		}
-		return
+		if os.Args[1] == "unban" || os.Args[1] == "setup" || os.Args[1] == "recover" {
+			return
+		}
 	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "fatal:", err)
@@ -83,6 +96,102 @@ func unbanCLI(args []string) error {
 		return err
 	}
 	fmt.Printf("ban for %s removed; the running proxy reconciles within 30s\n", args[0])
+	return nil
+}
+
+// setupCLI creates the first administrator without a browser, for image builds
+// and configuration management. It refuses to touch an initialized install.
+func setupCLI(args []string) error {
+	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
+	user := fs.String("user", "admin", "administrator username")
+	pass := fs.String("password", "", "administrator password (required)")
+	base := fs.String("base-domain", "", "base domain for site hostnames")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(*pass) < 12 {
+		return errors.New("the password must be at least 12 characters")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if n, err := st.CountUsers(); err != nil {
+		return err
+	} else if n > 0 {
+		return errors.New("this install already has an administrator")
+	}
+	hash, err := auth.HashPassword(*pass)
+	if err != nil {
+		return err
+	}
+	if _, err := st.CreateFirstUser(strings.TrimSpace(*user), hash, "", "", false); err != nil {
+		return err
+	}
+	if domain := strings.TrimSpace(*base); domain != "" {
+		if err := st.SetSettings(map[string]string{"base_domain": domain}); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("administrator %q created; sign in at the console with %s\n", *user, cfg.ListenGUI)
+	return nil
+}
+
+// recoverCLI is the break-glass path when the console is unreachable: it
+// changes a password and/or clears TOTP directly in the database.
+func recoverCLI(args []string) error {
+	fs := flag.NewFlagSet("recover", flag.ContinueOnError)
+	user := fs.String("user", "admin", "administrator username")
+	pass := fs.String("password", "", "new password (optional)")
+	resetTOTP := fs.Bool("reset-totp", false, "disable TOTP for this account")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *pass == "" && !*resetTOTP {
+		return errors.New("nothing to do: pass --password and/or --reset-totp")
+	}
+	if *pass != "" && len(*pass) < 12 {
+		return errors.New("the password must be at least 12 characters")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	account, err := st.UserByUsername(strings.TrimSpace(*user))
+	if err != nil {
+		return fmt.Errorf("user %q: %w", *user, err)
+	}
+	changed := []string{}
+	if *pass != "" {
+		hash, err := auth.HashPassword(*pass)
+		if err != nil {
+			return err
+		}
+		if err := st.UpdateUserPassword(account.ID, hash); err != nil {
+			return err
+		}
+		if err := st.DeleteUserSessions(account.ID); err != nil {
+			return err
+		}
+		changed = append(changed, "password")
+	}
+	if *resetTOTP {
+		if err := st.UpdateUserTOTP(account.ID, "", "", false); err != nil {
+			return err
+		}
+		changed = append(changed, "TOTP")
+	}
+	fmt.Printf("reset %s for %q; existing sessions were invalidated\n", strings.Join(changed, " and "), *user)
 	return nil
 }
 
@@ -307,6 +416,9 @@ func run() error {
 	// TLS-ALPN-01 validations are answered by the WAN listener itself; lego's
 	// own server would have to bind port 443 a second time.
 	px.SetALPNProvider(certs.TLSALPN())
+	// HTTP-01 tokens are served by our own plain-HTTP listener, not a second
+	// bind on port 80 started from inside the ACME client.
+	px.SetHTTPChallengeHandler(certs.HTTP01())
 	cur := pol.CurrentSettings()
 	px.SetBodyLimit(cur.MaxBody)
 	bans.SetStealth(cur.StealthPing, cur.WANIface)
@@ -529,6 +641,11 @@ func run() error {
 
 	proxyErr := make(chan error, 1)
 	go func() { proxyErr <- px.Run(ctx, cfg.ListenWAN, tailProxyAddr) }()
+	go func() {
+		if err := px.RunHTTP(ctx, cfg.ListenHTTP); err != nil {
+			log.Warn("http listener failed", "addr", cfg.ListenHTTP, "err", err)
+		}
+	}()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

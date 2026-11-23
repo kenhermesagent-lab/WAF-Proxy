@@ -539,11 +539,14 @@ screenshots. None of them are required by a single-node deployment.
   forwarding through the Custom TCP stream service (with bans, allow lists and caps). Not
   delivered: per-upstream transports with DNS TTL, explicit Happy Eyeballs tuning, UDP
   forwarding.
-- **1.35.0 — Phase 4: partial.** Certificate upload with pair/expiry validation, certificate
-  source tracking (acme/uploaded/internal) and the inventory field. Not delivered: internal CA
-  and domain-less installs, HTTP-01 inside the listener, renewal jitter/backoff/429, per-site TLS
-  policy, revocation, console TLS.
-- **1.36.0 — Phase 5: partial.** Request-ID propagation and JSON access logs with stage, rule,
+- **1.37.0 — Phase 4: delivered, except console TLS and revocation.** Certificate upload and
+  source tracking, internal CA with a downloadable trust anchor, HTTP-01 served by the gateway's
+  own listener, renewal backoff with jitter, and per-site minimum TLS version. Not delivered:
+  console TLS and certificate revocation.
+- **1.36.0–1.37.0 — Phase 5: partial.** Request IDs, JSON access logs, unattended
+  `wafproxy setup`, and `wafproxy recover`. Not delivered: encrypted backup CLI, alerting
+  dedupe/Test, diagnostics bundle, SLO rollups, upstream flap detection, synthetic canary, the
+  INSTALL split, generated OpenAPI, recipes. Request-ID propagation and JSON access logs with stage, rule,
   latency and action. Not delivered: unattended setup, preflight is in the console only,
   break-glass recovery, CLI encrypted backup and retention, per-stage latency metrics, alerting
   dedupe/Test, diagnostics bundle, SLO rollups, certificate/ACME counters, upstream flap
