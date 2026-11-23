@@ -20,8 +20,8 @@ func TestRolesSeedAndAssign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roles) != 4 {
-		t.Fatalf("seeded roles = %d, want 4", len(roles))
+	if len(roles) != 5 {
+		t.Fatalf("seeded roles = %d, want 5", len(roles))
 	}
 	viewer := findRole(t, roles, "Viewer")
 

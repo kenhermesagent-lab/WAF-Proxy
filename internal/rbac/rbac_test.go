@@ -1,6 +1,10 @@
 package rbac
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+)
 
 func TestAllowsWriteImpliesRead(t *testing.T) {
 	perms := []string{Permission("policies", "write")}
@@ -31,10 +35,31 @@ func TestNormalizeRejectsUnknown(t *testing.T) {
 	}
 }
 
+// TestHostAdminCannotManageSites pins the role the console keys its switcher
+// and Sites page off: it edits its own site and never the set of sites.
+func TestHostAdminCannotManageSites(t *testing.T) {
+	var hostAdmin *model.Role
+	for _, role := range Builtins() {
+		if role.Name == HostAdmin {
+			r := role
+			hostAdmin = &r
+		}
+	}
+	if hostAdmin == nil {
+		t.Fatal("the host_admin role is not built in")
+	}
+	if Allows(hostAdmin.Permissions, Permission("sites", "read")) {
+		t.Fatal("host_admin must not read the sites list")
+	}
+	if !Allows(hostAdmin.Permissions, Permission("proxies", "write")) || !Allows(hostAdmin.Permissions, Permission("settings", "write")) {
+		t.Fatal("host_admin must still run its own site")
+	}
+}
+
 func TestBuiltinsCoverEveryArea(t *testing.T) {
 	roles := Builtins()
-	if len(roles) != 4 {
-		t.Fatalf("built-ins = %d, want 4", len(roles))
+	if len(roles) != 5 {
+		t.Fatalf("built-ins = %d, want 5", len(roles))
 	}
 	for _, role := range roles {
 		if role.Name == "" || len(role.Permissions) == 0 {

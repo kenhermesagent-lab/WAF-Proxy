@@ -206,6 +206,17 @@ code, .mono, kbd {
 .env-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(62, 207, 142, .12); }
 .env-dot.warn { background: var(--warn); box-shadow: 0 0 0 3px rgba(229, 165, 75, .12); }
 
+/* The site switcher keeps the chip's shape so the topbar row stays calm; the
+   native select inherits the chip's type and keeps its keyboard behaviour. */
+.site-switch { padding-right: 4px; }
+.site-switch-label { color: var(--faint); }
+.site-switch select {
+  height: 20px; padding: 0 2px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--text); font: inherit; font-size: 11.5px;
+  font-weight: 550; cursor: pointer; max-width: 180px;
+}
+.site-switch select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; padding: 0;

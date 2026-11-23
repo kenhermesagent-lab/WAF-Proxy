@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { api, setCSRF } from "./api";
+import { api, setCSRF, setSite } from "./api";
 import { COFFEE_URL, DOCS_URL } from "./links";
 import { errText } from "./ui";
 import PageBoundary from "./components/PageBoundary";
@@ -25,6 +25,7 @@ import Notifications from "./pages/Notifications";
 import Logs from "./pages/Logs";
 import SettingsPage from "./pages/Settings";
 import Account from "./pages/Account";
+import SitesPage from "./pages/Sites";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 
@@ -51,6 +52,9 @@ export default function App() {
   const [sourceIp, setSourceIp] = useState<string | null>(null);
   const [command, setCommand] = useState<CommandId | null>(null);
   const [userMenu, setUserMenu] = useState(false);
+  // The site every view below answers for. Kept in localStorage so a reload
+  // returns to the site the operator was looking at.
+  const [activeSite, setActiveSite] = useState(() => localStorage.getItem("waf.site") ?? "");
   const [adminsOnline, setAdminsOnline] = useState(false);
   const toastSeq = useRef(0);
   const userWrap = useRef<HTMLDivElement>(null);
@@ -75,6 +79,24 @@ export default function App() {
     setSourceIp(null);
     setCommand(null);
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
+  };
+
+  // rememberSite restores the stored choice when the role can still read it,
+  // and otherwise falls back to the site this console was reached on.
+  const rememberSite = (m: Me) => {
+    const saved = localStorage.getItem("waf.site") ?? "";
+    const slug = (m.sites ?? []).some((s) => s.slug === saved) ? saved : m.site ?? "";
+    setActiveSite(slug);
+    setSite(slug && slug !== m.site ? slug : "");
+    if (slug) localStorage.setItem("waf.site", slug);
+    else localStorage.removeItem("waf.site");
+  };
+
+  const switchSite = (slug: string) => {
+    setActiveSite(slug);
+    setSite(slug === me?.site ? "" : slug);
+    localStorage.setItem("waf.site", slug);
+    loadHome();
   };
 
   const loadHome = () =>
@@ -165,6 +187,7 @@ export default function App() {
           const m = await api.get<Me>("/api/me");
           setCSRF(m.csrf);
           setMe(m);
+          rememberSite(m);
           setPhase("app");
           loadHome();
         } catch {
@@ -223,6 +246,7 @@ export default function App() {
         onDone={(m) => {
           setCSRF(m.csrf);
           setMe(m);
+          rememberSite(m);
           setPhase("app");
           loadHome();
         }}
@@ -230,7 +254,8 @@ export default function App() {
     );
   }
 
-  const allowed = (n: NavItem) => !n.permission || can(me?.permissions, n.permission);
+  const allowed = (n: NavItem) =>
+    (!n.permission || can(me?.permissions, n.permission)) && !(n.hideFor ?? []).includes(me?.role ?? "");
   const visibleNav = NAV.filter(allowed);
   // The crumb names the page the URL asked for, even when the role cannot read
   // it; the card offers the first page the role can open instead.
@@ -311,13 +336,31 @@ export default function App() {
             <span>Search</span>
             <kbd>⌘K</kbd>
           </button>
-          {me?.base_domain && (
+          {me?.can_switch && (me.sites?.length ?? 0) > 1 ? (
+            <label className="env-chip site-switch" title="Every page answers for this site">
+              <span className="env-dot" />
+              <span className="site-switch-label">Site</span>
+              <select value={activeSite} onChange={(e) => switchSite(e.target.value)} aria-label="Active site">
+                {(me.sites ?? []).map((s) => (
+                  <option key={s.slug} value={s.slug}>{s.name}</option>
+                ))}
+              </select>
+            </label>
+          ) : me?.site_name ? (
+            <span
+              className="env-chip"
+              title={me.can_switch ? "The only site configured" : "You administer this site only; switching needs the Sites permission"}
+            >
+              <span className="env-dot" />
+              <b className="env-domain">{me.site_name}</b>
+            </span>
+          ) : me?.base_domain ? (
             <span className="env-chip" title="Self-hosted deployment">
               <span className="env-dot" />
               <span>Self-hosted</span>
               <b className="env-domain">{me.base_domain}</b>
             </span>
-          )}
+          ) : null}
           <a className="icon-btn" href={DOCS_URL} target="_blank" rel="noreferrer" aria-label="Documentation">
             <Icon name="help" />
           </a>
@@ -368,7 +411,7 @@ export default function App() {
               <button className="primary" onClick={() => navigate(fallback.id)}>Open {fallback.label}</button>
             </div>
           ) : (
-            <PageBoundary page={page}>
+            <PageBoundary page={page} key={`${page}-${activeSite}`}>
               {page === "dashboard" && <Dashboard onError={onError} home={home} onOpenSource={setSourceIp} />}
               {page === "statistics" && <Statistics onError={onError} {...tabProps("statistics")} />}
               {page === "proxies" && <Proxies onError={onError} onOK={onOK} base={me?.base_domain ?? ""} {...tabProps("proxies")} />}
@@ -400,6 +443,7 @@ export default function App() {
                 />
               )}
               {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} />}
+              {page === "sites" && <SitesPage onError={onError} onOK={onOK} me={me} />}
               {page === "account" && (
                 <Account
                   me={me}

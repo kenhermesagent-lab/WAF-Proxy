@@ -179,6 +179,15 @@ site's console is reached at its own `console_host`:
   consoles on one process each present the certificate issued for their hostname.
 - Switching sites means signing in at the other console's hostname. There is no shared
   single sign-on, by design.
+- An administrator whose role holds `sites.read` sees a switcher in the console's topbar; the
+  choice is sent as `X-WAF-Site` on every request and remembered in the browser. The switch is
+  still served by one process, so certificates and console hosts do not change with it.
+- The built-in `host_admin` role runs one site and nothing else: no sites area, so no Sites page
+  and no switcher, and the server ignores a site header from it. Give it to a tenant's own
+  operator, not to the host's administrator.
+- Deleting a site removes its hostnames, certificates, bans, gate accounts, administrators,
+  events, audit trail and saved views. The console refuses to delete the site whose console the
+  request came from; sign in on `default` to remove it.
 
 ## Backup and restore
 

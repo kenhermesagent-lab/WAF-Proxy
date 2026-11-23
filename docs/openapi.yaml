@@ -2,7 +2,7 @@
 openapi: 3.0.3
 info:
   title: WAF-Proxy admin API
-  version: "1.52.0"
+  version: "1.53.0"
   description: |
     Routes registered by the admin console. Every `/api` route except setup,
     login, health and version requires the session cookie and, for mutations,
@@ -2485,6 +2485,70 @@ paths:
       summary: Authed
       security:
         - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/sites:
+    get:
+      operationId: getApiSites
+      tags: [sites]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+    post:
+      operationId: postApiSites
+      tags: [sites]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/sites/{slug}:
+    delete:
+      operationId: deleteApiSitesSlug
+      tags: [sites]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+    put:
+      operationId: putApiSitesSlug
+      tags: [sites]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: {type: string}
       responses:
         "200":
           description: Success
