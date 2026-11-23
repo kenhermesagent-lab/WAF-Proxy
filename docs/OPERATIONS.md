@@ -65,8 +65,9 @@ sudo env WAFPROXY_DATA_DIR=/var/lib/waf-proxy/data wafproxy recover \
   --user admin --password 'a-new-12-plus-passphrase' --reset-totp
 ```
 
-`recover` rewrites the password hash and, with `--reset-totp`, disables the authenticator so
-the next sign-in enrols a new one. Only the account you name is touched.
+`recover` rewrites the password hash, signs that account out everywhere and, with `--reset-totp`,
+disables its authenticator — sign in with the new password and add a new one from **Account →
+This account**. Only the account you name is touched.
 
 If the database itself is unusable, stop the stack, back up the data volume, and remove
 `wafproxy.db` to re-run the setup wizard. This deletes proxies, bans, feeds, certificates and
