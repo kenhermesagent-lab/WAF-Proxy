@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+# Actions are pinned to commit SHAs, not tags: a moved tag would otherwise
+# change what CI runs for a commit that was already reviewed.
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -22,8 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref_type != 'tag'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -46,8 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref_type != 'tag'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -78,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref_type != 'tag'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Shell syntax
         run: for f in deploy/wafproxy-self-update.sh deploy/wafproxy-update-lib.sh deploy/install.sh; do bash -n "$f"; done
       - name: A built checkout blocks git pull and the restore step lets it through
@@ -91,8 +94,8 @@ jobs:
     name: Release metadata and SBOM
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -102,7 +105,7 @@ jobs:
         run: bash deploy/check-version_test.sh
       - name: Module SBOM
         run: make sbom
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sbom
           path: dist/sbom.cyclonedx.json
@@ -112,8 +115,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref_type != 'tag'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -125,10 +128,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: Build image without pushing
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           push: false
