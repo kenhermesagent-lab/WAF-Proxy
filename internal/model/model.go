@@ -266,6 +266,13 @@ type Profile struct {
 	AdminIPs   string `json:"admin_ips"`
 }
 
+// Certificate sources shown in the inventory.
+const (
+	CertSourceACME     = "acme"
+	CertSourceUploaded = "uploaded"
+	CertSourceInternal = "internal"
+)
+
 // Certificate renewal policies.
 const (
 	CertRenewMonthly      = "monthly"
@@ -315,6 +322,8 @@ type Cert struct {
 	Challenge string     `json:"challenge"`
 	LastError string     `json:"last_error,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
+	// Source is where the certificate came from: acme, uploaded or internal.
+	Source string `json:"source"`
 }
 
 // Policy kinds.

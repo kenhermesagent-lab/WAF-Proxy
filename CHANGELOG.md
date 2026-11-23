@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.35.0] — 2026-11-22
+
+### Added
+
+- **Certificate upload.** `POST /api/certs/upload` accepts a PEM certificate and key, checks that
+  they match and parse, reads the names and validity from the certificate itself, rejects expired
+  certificates, and activates the result immediately.
+- **Certificate source in the inventory.** Every certificate now records whether it came from
+  ACME, an upload or the internal CA, and the field is part of the certificate list.
+
 ## [1.34.0] — 2026-11-22
 
 ### Added
