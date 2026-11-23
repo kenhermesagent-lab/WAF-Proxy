@@ -1,6 +1,10 @@
-# WAF-Proxy roadmap: 1.30 → 1.34
+# WAF-Proxy roadmap: 1.30 → 1.34 (delivered)
 
-Release numbers below are provisional: each phase ships as the next minor version in
+> **Status (2026-11-23):** this plan covered 1.30–1.34 and is kept as delivered history. The
+> current release is **1.55.2**; every shipped change is in [CHANGELOG.md](../CHANGELOG.md).
+> The deferred list at the end is still accurate.
+
+Release numbers below are provisional: each phase shipped as the next minor version in
 `VERSION` at the time, because the console work lands in parallel.
 
 This roadmap turns the external review into five releases that stay inside the
@@ -554,3 +558,8 @@ docs. None of them are required by a single-node deployment.
   7/30-day SLO rollups, and per-application recipe pages (the presets themselves ship).
 - **1.48.8 — screenshots.** `docs/screenshots/` now captures every console page, so the
   refreshed-screenshots item is done; contributor docs are still deferred.
+- **1.49.0–1.55.2 — multi-site and hardening.** Sites with per-site console hosts, admins,
+  retention and policy instances; the `host_admin` role and site isolation tests; signed
+  signature bundles with providers; saved log views keyed per site; and the ban and saved-view
+  migration merges that let a rolled-back install start again. See `CHANGELOG.md` for each
+  release.

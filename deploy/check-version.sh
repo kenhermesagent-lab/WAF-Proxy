@@ -24,7 +24,34 @@ if [[ $default != "$version" ]]; then
   exit 1
 fi
 
-# Only set by GitHub Actions; a local run checks the two files above.
+# The security policy, the console package and the Compose defaults also name
+# the release; a stale copy misleads whoever reads them next.
+minor="${version%.*}"
+supported=$(sed -nE 's/^\| *([0-9]+\.[0-9]+)\.x *\| *Yes *\|.*/\1/p' "$root/SECURITY.md" | head -1)
+if [[ $supported != "$minor" ]]; then
+  echo "SECURITY.md supports '${supported:-none}.x', VERSION is ${version}" >&2
+  exit 1
+fi
+
+npm=$(sed -nE 's/^[[:space:]]*"version": "([^"]+)".*/\1/p' "$root/web/package.json" | head -1)
+if [[ $npm != "$version" ]]; then
+  echo "web/package.json version is '${npm:-none}', VERSION is ${version}" >&2
+  exit 1
+fi
+
+pins=$(grep -oE 'VERSION:-[0-9]+\.[0-9]+\.[0-9]+' "$root/deploy/docker-compose.yml" || true)
+if [[ -z $pins ]]; then
+  echo "deploy/docker-compose.yml does not pin a VERSION" >&2
+  exit 1
+fi
+while IFS= read -r pin; do
+  if [[ $pin != "VERSION:-$version" ]]; then
+    echo "deploy/docker-compose.yml pins '${pin}', VERSION is ${version}" >&2
+    exit 1
+  fi
+done <<< "$pins"
+
+# Only set by GitHub Actions; a local run checks the files above.
 if [[ ${GITHUB_REF_TYPE:-} == tag ]]; then
   tag=${GITHUB_REF_NAME#v}
   if [[ $tag != "$version" ]]; then
