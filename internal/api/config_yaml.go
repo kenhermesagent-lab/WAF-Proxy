@@ -349,10 +349,7 @@ func (s *Server) importConfigYAML(w http.ResponseWriter, r *http.Request) {
 	result["access_profiles"], problems = s.applyAccessProfiles(r, in.AccessProfiles, problems)
 	s.linkConfigProxyAccessProfiles(r, in.Proxies, problems)
 
-	_ = s.policy.Reload()
-	if err := s.proxy.Reload(r.Context()); err != nil {
-		problems = append(problems, "reload: "+err.Error())
-	}
+	s.reloadEngines(r.Context())
 	if iface := in.Settings["wan_iface"]; iface != "" {
 		s.metrics.SetInterfaces(iface, in.Settings["lan_iface"])
 	}

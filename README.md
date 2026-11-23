@@ -317,7 +317,10 @@ secrets are not part of the document.
   events, audit trail and settings. One process serves every console, each with the certificate
   issued for its own hostname. Process-wide settings (WAN/LAN addressing, the admin source
   allowlist, CrowdSec, auto-update) stay host-wide: any site reads them, only `default` sets them,
-  and the others are refused.
+  and the others are refused. A ban is host-wide at the kernel but recorded on the site that
+  observed it, retention follows each site's own `retention_days`, and
+  `wafproxy backup --site <slug>` / `--all` export one file per site while a restore writes
+  only into the site whose console posted it.
 
 ## Development
 

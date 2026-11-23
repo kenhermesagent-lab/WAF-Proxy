@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -116,11 +117,16 @@ func backupCLI(args []string) error {
 	out := fs.String("out", "", "output file (default: <data>/backups/wafproxy-backup-<time>.json.enc)")
 	pass := fs.String("passphrase", os.Getenv("WAFPROXY_BACKUP_PASSPHRASE"), "encryption passphrase, at least 16 characters")
 	keep := fs.Int("keep", 0, "keep only the newest N backups in the output directory")
+	site := fs.String("site", "", "back up one site by slug (default: every site in one file)")
+	all := fs.Bool("all", false, "write one file per site plus a sites manifest")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if len(*pass) < 16 {
 		return errors.New("the passphrase must be at least 16 characters")
+	}
+	if *site != "" && *all {
+		return errors.New("--site and --all are mutually exclusive")
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -138,7 +144,18 @@ func backupCLI(args []string) error {
 		}
 		*out = filepath.Join(dir, "wafproxy-backup-"+time.Now().UTC().Format("20060102T150405Z")+".json.enc")
 	}
-	doc, err := api.BuildBackupDocument(st)
+	if *all {
+		return backupAllSites(st, *out, *pass)
+	}
+	target := st.Unscoped()
+	if *site != "" {
+		s, err := st.SiteBySlug(*site)
+		if err != nil {
+			return fmt.Errorf("site %q: %w", *site, err)
+		}
+		target = st.InSite(s.ID)
+	}
+	doc, err := api.BuildBackupDocument(target)
 	if err != nil {
 		return err
 	}
@@ -159,6 +176,42 @@ func backupCLI(args []string) error {
 	}
 	fmt.Printf("wrote %s\n", *out)
 	return nil
+}
+
+// backupAllSites writes one encrypted file per site plus a plain manifest, so a
+// restore can name a site without decrypting every file.
+func backupAllSites(st *store.Store, out, pass string) error {
+	sites, err := st.ListSites()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(out)
+	base := strings.TrimSuffix(filepath.Base(out), ".enc")
+	manifest := make([]map[string]string, 0, len(sites))
+	for _, site := range sites {
+		doc, err := api.BuildBackupDocument(st.InSite(site.ID))
+		if err != nil {
+			return err
+		}
+		sealed, err := backup.Encrypt(pass, doc)
+		if err != nil {
+			return err
+		}
+		name := filepath.Join(dir, base+"-"+site.Slug+".enc")
+		if err := os.WriteFile(name, sealed, 0o600); err != nil {
+			return err
+		}
+		manifest = append(manifest, map[string]string{
+			"slug": site.Slug, "name": site.Name,
+			"console_host": site.ConsoleHost, "file": filepath.Base(name),
+		})
+		fmt.Printf("wrote %s\n", name)
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "sites.json"), data, 0o600)
 }
 
 // pruneBackups keeps the newest keep files matching the backup name.

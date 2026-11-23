@@ -12,6 +12,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.51.0] — 2026-11-23
+
+### Added
+
+- **Per-site backups and restores.** Settings → **Download JSON** now exports the calling
+  site only and names the file after it (`wafproxy-<slug>-backup.json`). The new
+  `wafproxy backup --site <slug>` writes the same document for one site, and
+  `wafproxy backup --all` writes one encrypted file per site plus a `sites.json` manifest
+  naming each slug, console host and file. Restoring a document writes only into the site
+  whose console posted it.
+- **Scheduled backups cover the whole install.** The nightly job was building its document
+  from the default site's handle, so every other site was silently missing from the file.
+
+### Changed
+
+- **A runtime ban belongs to the site that observed it.** A ban raised by the decoy trap or
+  the rate limiter is recorded against the hostname's site, so that site's console lists
+  it, while the kernel set it feeds stays the union of every site's bans and keeps dropping
+  the address for all of them.
+- **Retention is per site.** The hourly loop reads each site's own `retention_days`, so one
+  site shortening its history can no longer delete another site's events.
+- **`docs/OPERATIONS.md` has a Sites section** covering console hosts, the host/tenant
+  settings split, host-wide kernel bans, per-site retention and restore boundaries.
+
 ## [1.50.0] — 2026-11-23
 
 ### Added

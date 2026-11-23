@@ -12,6 +12,7 @@ import (
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
 // TestConsoleHostSeesOnlyItsSite drives the console the way a browser does, on
@@ -175,4 +176,100 @@ func TestConsoleHostSeesOnlyItsSite(t *testing.T) {
 func itoa(v int64) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// TestBackupAndRestoreStayInsideOneSite proves a backup is one site's
+// configuration and a restore writes only into the console it was posted to.
+func TestBackupAndRestoreStayInsideOneSite(t *testing.T) {
+	srv, st, alphaToken, alphaCSRF := newObservabilityServer(t)
+	srv.geo = geoip.Open(t.TempDir())
+	if _, err := st.CreateProxy(&model.Proxy{Hostname: "alpha.example.com", Enabled: true, WAFMode: "inherit"}); err != nil {
+		t.Fatal(err)
+	}
+
+	addSite := func(slug, host, user string) (*model.Site, *store.Store, string, string) {
+		t.Helper()
+		site, err := st.CreateSite(slug, slug, host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scoped := st.InSite(site.ID)
+		hash, err := auth.HashPassword("a sufficiently long password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		uid, err := scoped.CreateUser(user, hash, "", "", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		token, _ := wfcrypto.RandomToken(32)
+		csrf, _ := wfcrypto.RandomToken(24)
+		if err := scoped.CreateSession(token, uid, csrf, "127.0.0.1", "test", time.Now().Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		return site, scoped, token, csrf
+	}
+	bravoSite, bravo, bravoToken, bravoCSRF := addSite("bravo", "console.bravo.test", "bravo-admin")
+	charlieSite, charlie, charlieToken, charlieCSRF := addSite("charlie", "console.charlie.test", "charlie-admin")
+	if _, err := bravo.CreateProxy(&model.Proxy{Hostname: "bravo.example.com", Enabled: true, WAFMode: "inherit"}); err != nil {
+		t.Fatal(err)
+	}
+
+	call := func(host, method, path, token, csrf string, body []byte) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(string(body)))
+		req.Host = host
+		req.RemoteAddr = "127.0.0.1:5000"
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		if csrf != "" {
+			req.Header.Set("X-CSRF-Token", csrf)
+		}
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	// The default console's backup covers the default site only.
+	rec := call("gui.local", http.MethodGet, "/api/backup", alphaToken, "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("backup download = %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "bravo.example.com") {
+		t.Fatalf("the default site's backup contains another site's proxy: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "alpha.example.com") {
+		t.Fatalf("the default site's backup lost its own proxy: %s", rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "wafproxy-default-backup.json") {
+		t.Fatalf("backup file name = %q", got)
+	}
+
+	// A site's backup restores into another site and nowhere else. The source
+	// hostname is released first, because one hostname belongs to one site.
+	_, delta, deltaToken, _ := addSite("delta", "console.delta.test", "delta-admin")
+	pid, err := delta.CreateProxy(&model.Proxy{Hostname: "delta.example.com", Enabled: true, WAFMode: "inherit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = call("console.delta.test", http.MethodGet, "/api/backup", deltaToken, "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delta backup = %d", rec.Code)
+	}
+	doc := rec.Body.Bytes()
+	if err := delta.DeleteProxy(pid); err != nil {
+		t.Fatal(err)
+	}
+	if rec := call("console.charlie.test", http.MethodPost, "/api/backup/restore", charlieToken, charlieCSRF, doc); rec.Code != http.StatusOK {
+		t.Fatalf("restore into charlie = %d: %s", rec.Code, rec.Body.String())
+	}
+	if list, _ := charlie.ListProxies(); len(list) != 1 || list[0].Hostname != "delta.example.com" {
+		t.Fatalf("charlie did not receive the restore: %+v", list)
+	}
+	if list, _ := bravo.ListProxies(); len(list) != 1 || list[0].Hostname != "bravo.example.com" {
+		t.Fatalf("restore changed bravo: %+v", list)
+	}
+	if list, _ := st.ListProxies(); len(list) != 1 || list[0].Hostname != "alpha.example.com" {
+		t.Fatalf("restore changed the default site: %+v", list)
+	}
+	_, _, _ = bravoSite, alphaCSRF, bravoCSRF
+	_, _ = bravoToken, charlieSite
 }

@@ -378,6 +378,19 @@ func (s *Server) db(r *http.Request) *store.Store {
 	return s.st.InSite(id)
 }
 
+// reloadEngines recompiles the policy and proxy tables after a write. A server
+// built without those engines (CLI paths and tests) skips the reload.
+func (s *Server) reloadEngines(ctx context.Context) {
+	if s.policy != nil {
+		_ = s.policy.Reload()
+	}
+	if s.proxy != nil {
+		if err := s.proxy.Reload(ctx); err != nil {
+			s.log.Error("reload after write", "err", err)
+		}
+	}
+}
+
 // SecurityHeaders applies the admin UI hardening headers. It is exported so the
 // static SPA handler, which is mounted outside the API mux, gets them too.
 func SecurityHeaders(next http.Handler) http.Handler {

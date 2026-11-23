@@ -39,9 +39,9 @@ type backupFile struct {
 	Bans       []model.Ban       `json:"bans"`
 }
 
-// backupDocument renders the same configuration export the download serves and
-// the scheduler writes, so a scheduled file restores exactly like a manual one.
-func (s *Server) backupDocument() ([]byte, error) { return BuildBackupDocument(s.st) }
+// backupDocument renders the scheduled file. It covers the whole install, so a
+// nightly job does not silently drop every site but the default one.
+func (s *Server) backupDocument() ([]byte, error) { return BuildBackupDocument(s.st.Unscoped()) }
 
 // BuildBackupDocument renders the export the console, the scheduler and the
 // backup command all write, so every file restores the same way.
@@ -87,7 +87,8 @@ func sealDownload(r *http.Request, data []byte) ([]byte, bool, error) {
 }
 
 func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
-	data, err := s.backupDocument()
+	// The download is what the caller can see: one site's configuration.
+	data, err := BuildBackupDocument(s.db(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot build the backup")
 		return
@@ -97,7 +98,11 @@ func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	name, kind := "wafproxy-backup.json", "application/json"
+	name := "wafproxy-backup.json"
+	if site, err := s.st.SiteByID(s.db(r).SiteID()); err == nil {
+		name = "wafproxy-" + site.Slug + "-backup.json"
+	}
+	kind := "application/json"
 	if sealed {
 		name, kind = name+".enc", "application/octet-stream"
 	}
@@ -204,10 +209,7 @@ func (s *Server) applyBackup(w http.ResponseWriter, r *http.Request, body []byte
 		result["bans"]++
 	}
 
-	_ = s.policy.Reload()
-	if err := s.proxy.Reload(r.Context()); err != nil {
-		problems = append(problems, "reload: "+err.Error())
-	}
+	s.reloadEngines(r.Context())
 	if iface := in.Settings["wan_iface"]; iface != "" {
 		s.metrics.SetInterfaces(iface, in.Settings["lan_iface"])
 	}
