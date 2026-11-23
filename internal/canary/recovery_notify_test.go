@@ -116,3 +116,65 @@ func waitDrained(t *testing.T, st *store.Store) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// The outage dedupe lives in stored alert rows, not in memory, so a restarted
+// notifier must not re-send an outage the previous process already delivered.
+func TestOutageDedupeSurvivesNotifierRestart(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	box, err := wfcrypto.New(bytes.Repeat([]byte{0x32}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodies := make(chan string, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var payload struct{ Text string }
+		_ = json.Unmarshal(body, &payload)
+		bodies <- payload.Text
+	}))
+	t.Cleanup(srv.Close)
+	sealed, err := box.Seal(srv.URL + "/hook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSettings(map[string]string{
+		"notify_webhook_enabled": "1",
+		"notify_webhook_url":     sealed,
+		"canary_host":            "app.example.com",
+		"canary_retries":         "0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	start := func(ctx context.Context) *notify.Manager {
+		mgr := notify.New(st, box, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		mgr.Start(ctx)
+		return mgr
+	}
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	mgr1 := start(ctx1)
+	if snap := NewMonitor(st, &switchProbe{}, mgr1).Check(ctx1); snap.OK {
+		t.Fatalf("failure snapshot = %+v", snap)
+	}
+	if first := waitBody(t, bodies); !strings.Contains(first, "Canary failed") {
+		t.Fatalf("first delivery = %q", first)
+	}
+	waitDrained(t, st)
+	cancel1()
+
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	t.Cleanup(cancel2)
+	mgr2 := start(ctx2)
+	if snap := NewMonitor(st, &switchProbe{}, mgr2).Check(ctx2); snap.OK {
+		t.Fatalf("failure snapshot = %+v", snap)
+	}
+	select {
+	case duplicate := <-bodies:
+		t.Fatalf("restart re-sent the outage: %q", duplicate)
+	case <-time.After(500 * time.Millisecond):
+	}
+}

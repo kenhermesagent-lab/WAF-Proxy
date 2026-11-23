@@ -11,7 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
-## [1.47.13] — 2026-11-23
+## [1.47.14] — 2026-11-23
 
 ### Fixed
 
@@ -20,6 +20,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   table, Save view / Copy link / Delete view — and the download filename in the output. A printed
   report is now the report alone (title plus Markdown), checked through Chromium's real print
   pipeline for both the Logs report and a source drawer's report.
+
+## [1.47.13] — 2026-11-23
+
+### Added
+
+- A focused test feeds a deliberately broken document (missing `$ref` and a duplicate
+  `operationId`) to the OpenAPI validation guard, so the guard itself is covered.
+- A canary test restarts the notifier and checks that an already delivered outage is
+  still deduplicated from stored alert rows, not process memory.
 
 ## [1.47.12] — 2026-11-23
 
