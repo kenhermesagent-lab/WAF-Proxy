@@ -57,6 +57,7 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P7-03 Settings toggle | landed | `web/src/pages/Settings.tsx`: a High availability section between Retention and Backup, one switch saved by the page's SaveBar, help text that distinguishes env-locked, unpaired and paired, read-only for site consoles and `host_admin`, refreshed after every save |
 | P7-04 nav rule and fallback | landed | `navAllowed` in `web/src/nav.ts` honours `requires: "ha_enabled"`; the System item appears once `/api/me` says on (Settings refetches it after saving); `#/ha` renders the page, or a status card with the `/api/ha` reason for a role without `ha.read` |
 | P7-05 HA page | landed, partial cards | `web/src/pages/HA.tsx`: four states, pair/join setup with the one-time code, role, peer, replication from `/api/ha/diagnostics`, console action history, and the four re-authenticated actions with typed cluster id. No VIP/keepalived, sessions, bans, witness or runnable-check cards: those fields are not reported yet |
+| P7-06 Page tests | landed | `web/src/pages/HA.test.tsx` covers the unpaired, active, standby and disabled states plus the disabled-action reasons; `Settings.test.tsx` covers the toggle PUT and the cluster-id header; `nav.test.tsx` covers `requires` and `hideFor` |
 | P7-01 HA API | landed | `internal/api/ha.go`: `GET /api/ha`, `GET /api/ha/events`, `GET /api/ha/diagnostics`, `PUT /api/ha/config`, `POST /api/ha/{pair,join,sync,failover,failback,unpair,notify}`; `ha.read`/`ha.write`, fresh re-authentication, cluster id on failover and unpair, 409 while disabled; the events list is process-local |
 
 **Replication boundary.** Configuration still travels as a whole snapshot, once
@@ -771,7 +772,9 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 - Not built: nothing in this task; the nav rule is P7-04.
 - Guard: turning it off on a **paired** node needs the cluster id in `X-HA-Cluster-ID`
   (typed in Settings), and a paired standby is always refused, because with HA off no node
-  takes over. Unpairing first is the other way out.
+  takes over. Unpairing first is the other way out. The guard runs before anything is
+  written, so a refused save changes no key and writes no audit row; Settings clears the
+  typed id after the save either way.
 
 - Files: `internal/api/server.go` (`publicSettingKeys`, `putSettings`, `/api/me`),
   `internal/store/sites.go` (`hostSettingKeys`), `internal/ha/manager.go`.
@@ -831,7 +834,12 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 - Done: every card renders from `/api/ha*` alone, and no action is offered that the role or
   state cannot perform.
 
-### P7-06 Page tests — M, 2 days
+### P7-06 Page tests — M, 2 days — built
+
+- Built: the four page states, the permission-based disable rule and the action reasons in
+  `HA.test.tsx`; the toggle PUT and the typed cluster-id header in `Settings.test.tsx`; the
+  `requires`/`hideFor` rule in `nav.test.tsx`. Removing `requires` from `navAllowed`, or the
+  role check in `actionDisabled`, fails a test.
 
 - Files: `web/src/pages/HA.test.tsx`, `web/src/pages/Settings.test.tsx`, `web/src/nav.test.tsx`.
 - Change: four page states, toggle PUT, nav visibility, disabled-action reasons.

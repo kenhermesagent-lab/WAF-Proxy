@@ -144,6 +144,33 @@ describe("Settings configuration transport", () => {
     expect(onMeChanged).toHaveBeenCalledTimes(1);
   });
 
+  it("asks for the cluster id and sends it only with the save that turns HA off", async () => {
+    mockHA({ enabled: true, boot_enabled: true, paired: true, cluster_id: "cluster-abc" });
+    let storedHA = "1";
+    const beforeSettings = get.getMockImplementation();
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/settings") return { ha_enabled: storedHA };
+      return beforeSettings ? beforeSettings(path) : {};
+    });
+    put.mockImplementation(async () => {
+      storedHA = "0";
+      return undefined;
+    });
+    renderPage();
+    const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(toggle);
+
+    const field = await screen.findByPlaceholderText("cluster-abc");
+    fireEvent.change(field, { target: { value: "cluster-abc" } });
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect((put.mock.calls[0][1] as Record<string, string>).ha_enabled).toBe("0");
+    expect(put.mock.calls[0][2]).toEqual({ "X-HA-Cluster-ID": "cluster-abc" });
+    await waitFor(() => expect((screen.getByPlaceholderText("cluster-abc") as HTMLInputElement).value).toBe(""));
+  });
+
   it("says the boot switch is in the way and disables the toggle", async () => {
     mockHA({ enabled: false, boot_enabled: false, paired: false, reason: "this host booted with WAFPROXY_HA_ENABLE=0" });
     renderPage();

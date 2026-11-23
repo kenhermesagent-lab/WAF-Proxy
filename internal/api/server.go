@@ -1279,27 +1279,34 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		next[k] = v
 	}
 	previousHA, _ := s.st.GetSetting("ha_enabled")
+	changedHA, haOn := false, false
+	if v, ok := next["ha_enabled"]; ok && v != previousHA {
+		changedHA, haOn = true, v == "1"
+	}
+	// The HA guard runs before any row is written, so a refused switch leaves
+	// the whole save untouched: no other key and no audit row changes. A tenant
+	// console is not the host's decider, so it skips the guard and is refused
+	// by SetSettings below.
+	hostSave := s.db(r).SiteID() == s.st.SiteID()
+	if changedHA && hostSave && s.haChange != nil {
+		if err := s.haChange(haOn, strings.TrimSpace(r.Header.Get("X-HA-Cluster-ID"))); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
 	if err := s.db(r).SetSettings(next); err != nil {
+		if changedHA && hostSave && s.haChange != nil {
+			// The write failed after the loops moved, so put them back.
+			if rerr := s.haChange(!haOn, ""); rerr != nil {
+				s.log.Error("cannot undo the HA switch after a failed save", "err", rerr)
+			}
+		}
 		if errors.Is(err, store.ErrHostWideSetting) {
 			writeError(w, http.StatusForbidden, err.Error())
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
 		return
-	}
-	changedHA, haOn := false, false
-	if v, ok := next["ha_enabled"]; ok && v != previousHA {
-		changedHA, haOn = true, v == "1"
-		if s.haChange != nil {
-			if err := s.haChange(haOn, strings.TrimSpace(r.Header.Get("X-HA-Cluster-ID"))); err != nil {
-				// The switch is refused as a whole, so put back what was there.
-				if rerr := s.db(r).SetSettings(map[string]string{"ha_enabled": previousHA}); rerr != nil {
-					s.log.Error("cannot restore ha_enabled after refusing the change", "err", rerr)
-				}
-				writeError(w, http.StatusConflict, err.Error())
-				return
-			}
-		}
 	}
 	if _, ok := next["admin_allow_cidrs"]; ok {
 		if err := s.loadAdminAllowlist(); err != nil {

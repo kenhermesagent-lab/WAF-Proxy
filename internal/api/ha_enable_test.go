@@ -121,25 +121,43 @@ func TestHAChangeFiresOnlyWhenTheSwitchMoves(t *testing.T) {
 	}
 }
 
-func TestHARefusedDisableRollsTheSettingBack(t *testing.T) {
+func TestHARefusedDisableWritesNothing(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
 	srv.cfg.HAEnabled = true
 	settingDrivenHA(srv)
+	if err := st.SetSettings(map[string]string{"retention_days": "7"}); err != nil {
+		t.Fatal(err)
+	}
 	srv.SetHAChange(func(on bool, _ string) error {
 		if !on {
-			return errors.New("this node is a paired standby; turning high availability off would take it out of service")
+			return errors.New("this node is paired; type the cluster id to confirm")
 		}
 		return nil
 	})
 	if rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"1"}`); rec.Code != http.StatusOK {
 		t.Fatalf("enable = %d: %s", rec.Code, rec.Body.String())
 	}
-	rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"0"}`)
+	before, err := st.ListAudit(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"0","retention_days":"3"}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("refused disable = %d, want 409", rec.Code)
 	}
+	// A refused save must change no key at all, not just the switch.
 	if got, _ := st.GetSetting("ha_enabled"); got != "1" {
 		t.Fatalf("ha_enabled after a refused disable = %q, want 1", got)
+	}
+	if got, _ := st.GetSetting("retention_days"); got != "7" {
+		t.Fatalf("retention_days after a refused disable = %q, want 7", got)
+	}
+	after, err := st.ListAudit(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("a refused save wrote %d audit rows", len(after)-len(before))
 	}
 	if !srv.haStatusOf().Enabled {
 		t.Fatal("a refused disable must leave the runtime reported as on")

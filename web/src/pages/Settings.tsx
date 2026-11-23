@@ -232,7 +232,8 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
       // depends on /api/me, so both are refreshed instead of guessed at.
       loadHA();
       if (posted.ha_enabled !== saved.ha_enabled) onMeChanged?.();
-      if (posted.ha_enabled === "1") setHaConfirm("");
+      // The typed id belongs to one save; never leave it in the field.
+      if ("ha_enabled" in posted) setHaConfirm("");
     } catch (e) {
       onError(errText(e));
     } finally {
