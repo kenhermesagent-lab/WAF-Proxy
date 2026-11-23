@@ -951,6 +951,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		next[k] = v
 	}
 	if err := s.db(r).SetSettings(next); err != nil {
+		if errors.Is(err, store.ErrHostWideSetting) {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
 		return
 	}
@@ -959,13 +963,17 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("reload admin allowlist", "err", err)
 		}
 	}
-	_ = s.policy.Reload()
-	cur := s.policy.CurrentSettings()
-	s.proxy.SetBodyLimit(cur.MaxBody)
-	s.bans.SetStealth(cur.StealthPing, cur.WANIface)
-	s.metrics.SetInterfaces(cur.WANIface, cur.LANIface)
-	if err := s.proxy.Reload(r.Context()); err != nil {
-		s.log.Error("reload after settings", "err", err)
+	if s.policy != nil {
+		_ = s.policy.Reload()
+		cur := s.policy.CurrentSettings()
+		s.proxy.SetBodyLimit(cur.MaxBody)
+		s.bans.SetStealth(cur.StealthPing, cur.WANIface)
+		s.metrics.SetInterfaces(cur.WANIface, cur.LANIface)
+	}
+	if s.proxy != nil {
+		if err := s.proxy.Reload(r.Context()); err != nil {
+			s.log.Error("reload after settings", "err", err)
+		}
 	}
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "settings.update", strings.Join(keys(next), ","), clientIP(r))

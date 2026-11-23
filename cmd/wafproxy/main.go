@@ -286,10 +286,11 @@ func recoverCLI(args []string) error {
 	return nil
 }
 
-// consoleTLSConfig serves the certificate configured for the console host. The
-// callback resolves through the certificate manager on each handshake rather
-// than capturing the certificate at startup, so a renewal or replacement is
-// picked up without restarting the listener.
+// consoleTLSConfig serves the certificate that matches the requested console
+// host. The callback resolves through the certificate manager on each
+// handshake rather than capturing the certificate at startup, so a renewal or
+// replacement is picked up without restarting the listener, and a second site's
+// console host gets its own certificate from the same listener.
 func consoleTLSConfig(certs *acme.Manager, host string) (*tls.Config, error) {
 	if _, err := certs.CertificateForHost(host); err != nil {
 		return nil, err
@@ -432,13 +433,17 @@ func run() error {
 		log.Warn("no GeoIP database found; country and ASN policy will be unavailable")
 	}
 
+	// The proxy side serves every hostname, so its engines see every site's
+	// rows. The console keeps the default-scoped handle and narrows per request.
+	all := st.Unscoped()
+
 	met := metrics.New(wanIface, lanIface)
 	kernel := ban.NewKernel(log)
-	bans, err := ban.New(st, log, kernel)
+	bans, err := ban.New(all, log, kernel)
 	if err != nil {
 		return err
 	}
-	feeds := intel.New(st, log, 32<<20)
+	feeds := intel.New(all, log, 32<<20)
 	// Signed signature packs. Each provider is one manifest plus the key it must
 	// be signed with; a provider missing either half stays off, and the service
 	// still loads any pack already on disk.
@@ -458,16 +463,16 @@ func run() error {
 	if err := bundles.Load(); err != nil {
 		log.Warn("could not load installed bundles", "err", err)
 	}
-	profiles, err := st.ListProfiles()
+	profiles, err := all.ListProfiles()
 	if err != nil {
 		return err
 	}
 	wafs := waf.NewSet(profiles, log)
 	wafs.SetBundles(bundles.Rules())
-	certs := acme.New(st, box, log)
+	certs := acme.New(all, box, log)
 	certs.SetDirectory(cfg.ACMEDirectory, cfg.ACMECAFile)
-	notifier := notify.New(st, box, log)
-	uptimeMon := uptime.New(st, notifier, log)
+	notifier := notify.New(all, box, log)
+	uptimeMon := uptime.New(all, notifier, log)
 
 	// Assigned once the listeners exist; the ban callback needs it to cut
 	// streams that were already running when the ban landed.
@@ -502,7 +507,7 @@ func run() error {
 		}
 	}
 
-	gateEngine := gate.New(st, box, bans, log)
+	gateEngine := gate.New(all, box, bans, log)
 	gateEngine.OnBan = func(ip, reason string, permanent bool) {
 		kind := "Temporary ban"
 		if permanent {
@@ -510,7 +515,7 @@ func run() error {
 		}
 		notifier.Enqueue("gate", fmt.Sprintf("%s: %s — access gate (%s)", kind, ip, reason), "gate:"+ip, permanent)
 	}
-	bots := botguard.New(cfg.MasterKey, bans, st, log)
+	bots := botguard.New(cfg.MasterKey, bans, all, log)
 	csURL, csKey := cfg.CrowdSecURL, cfg.CrowdSecKey
 	csEnabled := true
 	if raw, ok := kv["crowdsec_enabled"]; ok {
@@ -532,7 +537,7 @@ func run() error {
 		log.Info("crowdsec bouncer enabled", "lapi", csURL)
 	}
 
-	pol, err := policy.New(st, bans, feeds, geo, wafs, log)
+	pol, err := policy.New(all, bans, feeds, geo, wafs, log)
 	if err != nil {
 		return err
 	}
@@ -545,7 +550,7 @@ func run() error {
 		}
 	})
 	px, err := proxy.New(proxy.Deps{
-		Store: st, Policy: pol, Gate: gateEngine, Bots: bots, Bans: bans,
+		Store: all, Policy: pol, Gate: gateEngine, Bots: bots, Bans: bans,
 		Geo: geo, Metrics: met, Log: log, ClientIP: trusted,
 	})
 	if err != nil {
@@ -675,7 +680,7 @@ func run() error {
 	agentLinks.SetRouting(notifier.EventEnabled)
 	apiServer.SetAgentLinks(agentLinks)
 	go agentLinks.Start(ctx)
-	anomalyMon := anomaly.New(st, met, notifier, log)
+	anomalyMon := anomaly.New(all, met, notifier, log)
 	anomalyMon.SetSink(agentLinks.Publish)
 	apiServer.SetAnomaly(anomalyMon)
 	go anomalyMon.Start(ctx)

@@ -509,7 +509,8 @@ func (s *Store) DeleteGateUser(id int64) error {
 		}
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM gate_sessions WHERE username = ?`, username); err != nil {
+	if _, err := tx.Exec(`DELETE FROM gate_sessions WHERE username = ? AND (? = 0 OR site_id = ?)`,
+		username, s.site, s.site); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM gate_acl WHERE username = ?`, username); err != nil {

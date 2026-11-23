@@ -553,7 +553,11 @@ func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	p, _ := s.db(r).GetProxy(id)
+	p, err := s.db(r).GetProxy(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
 	before := s.snapshotProxy(r, id)
 	if err := s.db(r).DeleteProxy(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")

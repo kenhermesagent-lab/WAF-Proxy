@@ -274,8 +274,39 @@ func (s *Store) migrateSites() error {
 	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_bans_site_cidr ON bans(site_id, cidr)`); err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_proxies_site ON proxies(site_id)`)
-	return err
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_proxies_site ON proxies(site_id)`); err != nil {
+		return err
+	}
+	// A saved log view's name is only unique inside its site. Older databases
+	// key on the name alone, so the table is rebuilt once.
+	var keyed int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('log_views')
+		WHERE name = 'site_id' AND pk > 0`).Scan(&keyed); err != nil {
+		return err
+	}
+	if keyed == 0 {
+		if _, err := s.db.Exec(`CREATE TABLE log_views_sites (
+			name TEXT NOT NULL,
+			query TEXT NOT NULL,
+			updated_by TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL,
+			site_id INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY(site_id, name)
+		)`); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO log_views_sites(name, query, updated_by, updated_at, site_id)
+			SELECT name, query, updated_by, updated_at, site_id FROM log_views`); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`DROP TABLE log_views`); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`ALTER TABLE log_views_sites RENAME TO log_views`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SiteForHost resolves a console hostname to the site that owns it. A host no
