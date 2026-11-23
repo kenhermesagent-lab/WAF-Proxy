@@ -333,7 +333,8 @@ func (s *Store) UpdateProfile(p *model.Profile) error {
 // CreateProfile inserts an operator-defined CRS profile.
 func (s *Store) CreateProfile(p *model.Profile) error {
 	var exists int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM profiles WHERE name = ?`, p.Name).Scan(&exists); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM profiles WHERE name = ? AND (site_id = 0 OR site_id = ?)`,
+		p.Name, s.site).Scan(&exists); err != nil {
 		return err
 	}
 	if exists > 0 {

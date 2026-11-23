@@ -121,7 +121,8 @@ func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Serve
 		limiter: auth.NewLimiter(), mux: http.NewServeMux(), started: time.Now(),
 		totpPending: map[string]pendingTOTP{},
 	}
-	s.backup = backup.New(st, box, log, s.backupDocument)
+	// A backup covers the whole install, not just the default site.
+	s.backup = backup.New(st.Unscoped(), box, log, s.backupDocument)
 	if err := s.loadAdminAllowlist(); err != nil {
 		log.Warn("admin allowlist not loaded", "err", err)
 	}

@@ -46,6 +46,62 @@ func consoleCert(t *testing.T, serial int64, domain string) (string, string) {
 		string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
 }
 
+func TestOneListenerServesEachConsoleHostsCertificate(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	expires := time.Now().Add(time.Hour)
+
+	site, err := st.CreateSite("bravo", "Bravo", "console.bravo.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for serial, pair := range map[int64]struct {
+		host    string
+		account *store.Store
+	}{
+		1: {"console.example.com", st},
+		2: {"console.bravo.test", st.InSite(site.ID)},
+	} {
+		certPEM, keyPEM := consoleCert(t, serial, pair.host)
+		if _, err := pair.account.SaveCert(&model.Cert{
+			Domains: pair.host, Status: "issued", ExpiresAt: &expires,
+			CertPEM: []byte(certPEM), KeyPEM: []byte(keyPEM), Source: model.CertSourceUploaded,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The proxy side runs unscoped, so certificates from every site are loaded.
+	m := acme.New(st.Unscoped(), nil, log)
+	cfg, err := consoleTLSConfig(m, "console.example.com")
+	if err != nil {
+		t.Fatalf("console TLS config: %v", err)
+	}
+	for host, want := range map[string]int64{"console.example.com": 1, "console.bravo.test": 2} {
+		cert, err := cfg.GetCertificate(&tls.ClientHelloInfo{ServerName: host})
+		if err != nil {
+			t.Fatalf("%s: %v", host, err)
+		}
+		leaf, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := leaf.SerialNumber.Int64(); got != want {
+			t.Fatalf("%s served serial %d, want %d", host, got, want)
+		}
+	}
+	if id := st.SiteForHost("console.bravo.test"); id != site.ID {
+		t.Fatalf("console.bravo.test resolved to site %d, want %d", id, site.ID)
+	}
+	if id := st.SiteForHost("nothing.example.com:8443"); id != st.SiteID() {
+		t.Fatalf("an unknown host did not fall back to the default site: %d", id)
+	}
+}
+
 func TestConsoleTLSPicksUpAReplacementCertificate(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {

@@ -158,7 +158,7 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 
 // streamingLists resolves the named block/allow lists for a forwarder. The
 // streaming package works with plain entries so it never imports the store.
-func (s *Server) streamingLists(r *http.Request, ) ([]streaming.List, error) {
+func (s *Server) streamingLists(r *http.Request) ([]streaming.List, error) {
 	lists, err := s.db(r).ListAccessLists()
 	if err != nil {
 		return nil, err

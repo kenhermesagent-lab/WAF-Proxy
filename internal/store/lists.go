@@ -51,7 +51,8 @@ func (s *Store) GetAccessList(id int64) (*model.AccessList, error) {
 // operator never has to guess which "Office" a profile refers to.
 func (s *Store) CreateAccessList(l *model.AccessList) error {
 	var exists int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM access_lists WHERE name = ?`, l.Name).Scan(&exists); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM access_lists WHERE name = ? AND (? = 0 OR site_id = ?)`,
+		l.Name, s.site, s.site).Scan(&exists); err != nil {
 		return err
 	}
 	if exists > 0 {

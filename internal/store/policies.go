@@ -601,8 +601,9 @@ func (s *Store) LookupGateSession(id string, proxyID int64) (string, bool) {
 	err := s.db.QueryRow(`SELECT gs.username FROM gate_sessions gs
 		WHERE gs.id = ? AND gs.proxy_id = ? AND gs.expires_at > ? AND (? = 0 OR gs.site_id = ?)
 		AND NOT EXISTS (SELECT 1 FROM username_bans ub
-			WHERE ub.username = gs.username AND (ub.expires_at IS NULL OR ub.expires_at > ?))`,
-		id, proxyID, now, s.site, s.site, now).Scan(&username)
+			WHERE ub.username = gs.username AND (ub.expires_at IS NULL OR ub.expires_at > ?)
+			AND (? = 0 OR ub.site_id = ?))`,
+		id, proxyID, now, s.site, s.site, now, s.site, s.site).Scan(&username)
 	if err != nil {
 		return "", false
 	}

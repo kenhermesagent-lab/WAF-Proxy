@@ -147,7 +147,7 @@ func modeCounts(profiles []model.Profile, name string) map[string]int {
 	return counts
 }
 
-func (s *Server) bundleSnapshot(r *http.Request, ) bundleSnapshot {
+func (s *Server) bundleSnapshot(r *http.Request) bundleSnapshot {
 	if s.bundles == nil {
 		return bundleSnapshot{Configured: false, Providers: []providerView{}, Bundles: []bundleView{}}
 	}

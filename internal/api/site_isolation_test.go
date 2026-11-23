@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
+	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
-	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 )
 
 // TestConsoleHostSeesOnlyItsSite drives the console the way a browser does, on

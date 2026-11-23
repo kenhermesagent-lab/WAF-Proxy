@@ -114,7 +114,7 @@ type configAccessRule struct {
 	Role   string `json:"role"`
 }
 
-func (s *Server) configDocument(r *http.Request, ) (configDoc, error) {
+func (s *Server) configDocument(r *http.Request) (configDoc, error) {
 	kv, _ := s.db(r).Settings()
 	safe := map[string]string{}
 	for _, k := range publicSettingKeys {
