@@ -9,13 +9,15 @@
 > notify hook. P6-01 to P6-04 are built: `/ha/ping` with a three-beat heartbeat
 > monitor, a witness that grants one 10 s lease (the active renews and demotes
 > itself when it cannot), a fence hook, and an automatic promotion gate that needs
-> all three plus the local preflight. Automatic failover is opt-in through
-> `WAFPROXY_HA_AUTO_FAILOVER`, which refuses to start without a witness and a fence
-> command. Everything is gated by `WAFPROXY_HA_ENABLE` (off by default), so a
-> single-node install behaves as it did before. Higher-epoch demotion, flap control,
-> the console page (P7) and the two-VM lab gates are not built; sections that
-> describe them state the intended end state. `docs/HA-BUILD.md` carries the
-> per-task status and the known gaps.
+> all three plus the local preflight. An active that hears a higher epoch stands
+> down into `split-brain-risk`, and more than three automatic moves in an hour
+> parks the pair until an operator moves by hand. Automatic failover is opt-in
+> through `WAFPROXY_HA_AUTO_FAILOVER`, which refuses to start without a witness
+> and a fence command. Everything is gated by `WAFPROXY_HA_ENABLE` (off by
+> default), so a single-node install behaves as it did before. The console page
+> (P7), the partition simulator (P6-07) and the two-VM lab gates are not built;
+> sections that describe them state the intended end state. `docs/HA-BUILD.md`
+> carries the per-task status and the known gaps.
 >
 > The document is written so an operator can read the runbooks as the intended
 > end state and an implementer can build against them. Each section that asserts

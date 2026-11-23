@@ -225,6 +225,17 @@ func PromoteWith(ctx context.Context, dataDir string, hooks Hooks, opts PromoteO
 // Demote steps an active node down. Listeners close before the role file says
 // standby, so a crash in between never leaves a standby that still answers.
 func Demote(ctx context.Context, dataDir string, hooks Hooks) (Result, error) {
+	return demote(ctx, dataDir, hooks, StateStandby)
+}
+
+// SelfDemote is Demote for an active node that observed a higher epoch. It
+// stops serving and stays split-brain-risk, and it does not start replication:
+// the node must reconcile with the peer before it follows it.
+func SelfDemote(ctx context.Context, dataDir string, hooks Hooks) (Result, error) {
+	return demote(ctx, dataDir, hooks, StateSplitBrainRisk)
+}
+
+func demote(ctx context.Context, dataDir string, hooks Hooks, state State) (Result, error) {
 	res := Result{}
 	node, err := Load(dataDir)
 	if err != nil {
@@ -242,13 +253,13 @@ func Demote(ctx context.Context, dataDir string, hooks Hooks) (Result, error) {
 			return res, err
 		}
 	}
-	role, err := ReturnToStandby(dataDir, node)
+	role, err := EnterState(dataDir, node, state)
 	if err != nil {
 		return res, err
 	}
 	res.Epoch = role.Epoch
-	addStep(&res, "role", true, "standby", 0)
-	if hooks.StartReplication != nil {
+	addStep(&res, "role", true, string(state), 0)
+	if state == StateStandby && hooks.StartReplication != nil {
 		hooks.StartReplication()
 	}
 	return res, nil

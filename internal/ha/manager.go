@@ -111,6 +111,16 @@ func (m *Manager) failover(ctx context.Context, opts PromoteOptions, autoIn *Aut
 // Failback drains this node and returns it to standby. Promoting the other node
 // is a separate move, run on that node.
 func (m *Manager) Failback(ctx context.Context, opts MoveOptions) (Result, error) {
+	return m.demote(ctx, false)
+}
+
+// SelfDemote stands this node down after it observed a higher epoch, leaving it
+// in split-brain-risk for an operator to reconcile.
+func (m *Manager) SelfDemote(ctx context.Context) (Result, error) {
+	return m.demote(ctx, true)
+}
+
+func (m *Manager) demote(ctx context.Context, splitBrain bool) (Result, error) {
 	m.mu.Lock()
 	if m.running {
 		m.mu.Unlock()
@@ -123,7 +133,13 @@ func (m *Manager) Failback(ctx context.Context, opts MoveOptions) (Result, error
 	m.lastErr = ""
 	m.mu.Unlock()
 
-	res, err := Demote(runCtx, m.dataDir, m.hooks)
+	var res Result
+	var err error
+	if splitBrain {
+		res, err = SelfDemote(runCtx, m.dataDir, m.hooks)
+	} else {
+		res, err = Demote(runCtx, m.dataDir, m.hooks)
+	}
 	cancel()
 
 	m.mu.Lock()

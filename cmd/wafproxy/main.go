@@ -999,7 +999,7 @@ func run() error {
 		}(gl)
 	}
 
-	plane := newDataPlane(px, streams, cfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
+	plane := newDataPlane(ctx, px, streams, cfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
 	defer plane.Close()
 	if cfg.HAEnabled && !node.Active() {
 		// Hold the service address without accepting. IP_FREEBIND lets this
@@ -1017,7 +1017,8 @@ func run() error {
 		rt := &haRuntime{
 			dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
 			plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
-			ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand, log: log,
+			ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand,
+			flap: ha.NewFlapGuard(cfg.HAMaxFailovers), log: log,
 		}
 		apiServer.SetWriteGate(haQuiesce.Active)
 		if !node.Active() {
@@ -1029,7 +1030,10 @@ func run() error {
 		}
 		if node.Active() {
 			rt.startLease(ctx, node.Epoch)
-		} else if cfg.HAAutoFailover {
+		}
+		if cfg.HAAutoFailover {
+			// Both roles: the watcher is idle while active but keeps the
+			// heartbeat and epoch check, so a failback leaves it in place.
 			rt.startAuto(ctx)
 		}
 	}

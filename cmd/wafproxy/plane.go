@@ -22,6 +22,11 @@ import (
 // address without accepting, so a promotion serves without waiting for a bind
 // and a demotion gives the address up without exiting the process.
 type dataPlane struct {
+	// root outlives every move: listeners and the ACME HTTP listener belong to
+	// the process, not to the promotion that started them. Deriving them from
+	// the move's context would stop port 80 and the event writer the moment the
+	// manager released its run context.
+	root    context.Context
 	px      *proxy.Server
 	streams *streaming.Manager
 	cfgs    map[string]streaming.Config
@@ -37,9 +42,9 @@ type dataPlane struct {
 	serving bool
 }
 
-func newDataPlane(px *proxy.Server, streams *streaming.Manager, cfgs map[string]streaming.Config,
+func newDataPlane(root context.Context, px *proxy.Server, streams *streaming.Manager, cfgs map[string]streaming.Config,
 	wan, httpAddr, tail string, log *slog.Logger) *dataPlane {
-	return &dataPlane{px: px, streams: streams, cfgs: cfgs, wan: wan, http: httpAddr, tail: tail, log: log}
+	return &dataPlane{root: root, px: px, streams: streams, cfgs: cfgs, wan: wan, http: httpAddr, tail: tail, log: log}
 }
 
 // freebind holds an address that is not local yet. IP_FREEBIND is Linux-only;
@@ -93,7 +98,7 @@ func (p *dataPlane) Serve(ctx context.Context) error {
 	}
 	lns := p.prebind
 	p.prebind = nil
-	serveCtx, cancel := context.WithCancel(ctx)
+	serveCtx, cancel := context.WithCancel(p.root)
 	p.mu.Unlock()
 
 	p.px.SetDraining(false)

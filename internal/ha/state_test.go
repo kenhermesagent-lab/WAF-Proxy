@@ -60,7 +60,7 @@ func TestServingStates(t *testing.T) {
 			t.Errorf("%s should serve", s)
 		}
 	}
-	for _, s := range []State{StateStandby, StateReadyStandby, StateDraining, StatePromoting, StateDemoting, StateFenced, StateSplitBrainRisk} {
+	for _, s := range []State{StateStandby, StateReadyStandby, StateDraining, StatePromoting, StateDemoting, StateFenced, StateSplitBrainRisk, StateParked} {
 		if Serving(s) {
 			t.Errorf("%s must not serve", s)
 		}

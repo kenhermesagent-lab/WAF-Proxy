@@ -95,9 +95,8 @@ func trippedMonitor(t *testing.T) *Monitor {
 func autoPromoter(t *testing.T, m *Monitor, promoted *bool, mutate func(*AutoPromoter)) *AutoPromoter {
 	t.Helper()
 	ap := &AutoPromoter{
-		Monitor:    m,
-		LocalNode:  "node-a",
-		LocalEpoch: func() int64 { return 9 },
+		Monitor:   m,
+		LocalNode: "node-a",
 		Gather: func(context.Context) (PreflightInput, error) {
 			in := goodPreflight()
 			in.LocalEpoch = 9

@@ -50,7 +50,9 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P6-02 witness and lease | landed | `internal/ha/witness.go`, `wafproxy ha witness --listen`; the active renews every 3 s and self-demotes after the 10 s TTL |
 | P6-03 fencing hook | landed | `internal/ha/fence.go`; `{peer}` is shell-quoted, a timeout kills the whole process group, exit 0 means down |
 | P6-04 automatic gate | landed, lab pending | `internal/ha/auto.go`; heartbeat + witness + fence evidence, the automatic sequence skips a dead peer and renews the lease before Serve; `WAFPROXY_HA_AUTO_FAILOVER` requires both witness and fence |
-| P6-05 to P6-07 | not started | higher-epoch demotion, flap control, partition simulator |
+| P6-05 higher-epoch demotion | landed, lab pending | a heartbeat with a higher epoch makes the active stop serving into `split-brain-risk`; it follows the peer again only after `Reconcile` adopts the peer's epoch |
+| P6-06 guards and flap control | landed | `internal/ha/flap.go`; the fourth automatic move in an hour parks the node with a reason `ha status` shows, and only a manual move clears it |
+| P6-07 partition simulator | not started | |
 
 **Replication boundary.** Configuration still travels as a whole snapshot, once
 immediately after pairing and every 30 s after that (P3-04's debounce replaces the
@@ -649,8 +651,11 @@ next epoch, a successful fence, matching last-known schema and protocol, and the
 database, disk, certificate and in-flight-write checks; the move then skips quiesce and
 drain and renews the lease once more before Serve. It is enabled only by
 `WAFPROXY_HA_AUTO_FAILOVER`, which refuses to load without both the witness and the fence
-command. Higher-epoch demotion, flap control and the partition simulator are P6-05 to
-P6-07.
+command. P6-05 and P6-06 are built too: the watcher runs on both roles, an active that
+hears a higher epoch stands down into `split-brain-risk` and reconciles only when the
+peer answers again, and more than three automatic moves in an hour parks the pair with
+the reason in `ha status`. The partition simulator (P6-07) is not built; the two-VM
+partition and fencing run is still the gate.
 
 ### P6-01 Heartbeat — M, 2 days
 

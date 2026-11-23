@@ -27,7 +27,9 @@ type Node struct {
 	Role   Role   `json:"role"`
 	// State is the finer-grained place in a move. It is optional so a role file
 	// written before P5 still loads; an empty state is derived from the role.
-	State     State  `json:"state,omitempty"`
+	State State `json:"state,omitempty"`
+	// Reason explains a parked or split-brain state, so `ha status` says why.
+	Reason    string `json:"reason,omitempty"`
 	Epoch     int64  `json:"epoch"`
 	Peer      string `json:"peer,omitempty"`
 	UpdatedAt string `json:"updated_at"`
@@ -154,7 +156,7 @@ func validRole(r Role) bool {
 func validState(s State) bool {
 	switch s {
 	case StateStandalone, StateStandby, StateReadyStandby, StatePromoting,
-		StateActive, StateDraining, StateDemoting, StateFenced, StateSplitBrainRisk:
+		StateActive, StateDraining, StateDemoting, StateFenced, StateSplitBrainRisk, StateParked:
 		return true
 	}
 	return false
@@ -186,6 +188,7 @@ func Activate(dataDir string, n *Node, epoch int64) (*Node, error) {
 	out := *n
 	out.Role = RoleActive
 	out.State = StateActive
+	out.Reason = ""
 	out.Epoch = epoch
 	if err := Save(dataDir, &out); err != nil {
 		return nil, err
@@ -196,9 +199,59 @@ func Activate(dataDir string, n *Node, epoch int64) (*Node, error) {
 // ReturnToStandby records that this node no longer serves. It keeps the epoch,
 // because a later promotion must still move past it.
 func ReturnToStandby(dataDir string, n *Node) (*Node, error) {
+	return EnterState(dataDir, n, StateStandby)
+}
+
+// EnterState records that a standby is in a named state, keeping its epoch. It
+// is how split-brain-risk and parked survive a restart.
+func EnterState(dataDir string, n *Node, state State) (*Node, error) {
+	if !validState(state) {
+		return nil, errors.New("ha: invalid state")
+	}
+	out := *n
+	out.Role = RoleStandby
+	out.State = state
+	if state == StateStandby {
+		out.Reason = ""
+	}
+	if err := Save(dataDir, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Reconcile clears split-brain-risk once the peer answers again: this node stays
+// a standby and adopts the peer's epoch, so its next move starts above it.
+func Reconcile(dataDir string, n *Node, peerEpoch int64) (*Node, error) {
+	if n.State != StateSplitBrainRisk {
+		return nil, fmt.Errorf("ha: reconcile needs a split-brain-risk node, not %s", n.EffectiveState())
+	}
 	out := *n
 	out.Role = RoleStandby
 	out.State = StateStandby
+	out.Reason = ""
+	if peerEpoch > out.Epoch {
+		out.Epoch = peerEpoch
+	}
+	if err := Save(dataDir, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Park stops automatic moves until an operator moves by hand. The reason is
+// kept so a restart cannot quietly resume a flapping pair.
+func Park(dataDir string, n *Node, reason string) (*Node, error) {
+	if n.Active() {
+		return nil, errors.New("ha: park a standby, not an active node")
+	}
+	if len(reason) > 200 {
+		reason = reason[:200]
+	}
+	out := *n
+	out.Role = RoleStandby
+	out.State = StateParked
+	out.Reason = reason
 	if err := Save(dataDir, &out); err != nil {
 		return nil, err
 	}

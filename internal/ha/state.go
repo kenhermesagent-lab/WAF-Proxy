@@ -16,6 +16,9 @@ const (
 	StateDemoting       State = "demoting"
 	StateFenced         State = "fenced"
 	StateSplitBrainRisk State = "split-brain-risk"
+	// StateParked is a standby whose automatic moves stopped after the pair
+	// moved too often. Only an operator clears it, with a manual move.
+	StateParked State = "parked"
 )
 
 // Event is something that happened, not something an operator wants. Keeping
@@ -106,6 +109,10 @@ func Next(state State, event Event) (State, []Action, error) {
 			return StateStandby, nil, nil
 		}
 	case StateSplitBrainRisk:
+		if event == EventRecover {
+			return StateStandby, nil, nil
+		}
+	case StateParked:
 		if event == EventRecover {
 			return StateStandby, nil, nil
 		}

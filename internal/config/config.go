@@ -88,6 +88,8 @@ type Config struct {
 	// HAFenceCommand runs on the local node before an automatic promotion, with
 	// {peer} substituted. Exit 0 means the peer is down.
 	HAFenceCommand string
+	// HAMaxFailovers is where automatic moves park the pair for an operator.
+	HAMaxFailovers int
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -124,6 +126,7 @@ func Load() (*Config, error) {
 		HAWitnessToken:        strings.TrimSpace(os.Getenv("WAFPROXY_HA_WITNESS_TOKEN")),
 		HAAutoFailover:        envBoolOr("WAFPROXY_HA_AUTO_FAILOVER", false),
 		HAFenceCommand:        strings.TrimSpace(os.Getenv("WAFPROXY_HA_FENCE_COMMAND")),
+		HAMaxFailovers:        envInt("WAFPROXY_HA_MAX_FAILOVERS_PER_HOUR", 3),
 	}
 	if c.HAEnabled && c.HAMgmtListen == "" {
 		return nil, errors.New("WAFPROXY_HA_MGMT_LISTEN is required when WAFPROXY_HA_ENABLE=1")
@@ -143,6 +146,9 @@ func Load() (*Config, error) {
 		}
 		if c.HAFenceCommand == "" {
 			return nil, errors.New("WAFPROXY_HA_AUTO_FAILOVER needs WAFPROXY_HA_FENCE_COMMAND: a promotion without a fence is unsafe")
+		}
+		if c.HAMaxFailovers < 1 {
+			return nil, errors.New("WAFPROXY_HA_MAX_FAILOVERS_PER_HOUR must be at least 1")
 		}
 	}
 	if c.ListenGUITLS && c.GUIHost == "" {

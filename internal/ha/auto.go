@@ -165,14 +165,13 @@ func lastEpoch(p *PeerPing) int64 {
 // AutoPromoter runs the unattended path. Its inputs are functions so a test can
 // drive the whole decision without a peer, a witness or a fence script.
 type AutoPromoter struct {
-	Monitor    *Monitor
-	LocalNode  string
-	LocalEpoch func() int64
-	Gather     func(context.Context) (PreflightInput, error)
-	Peer       func() (PeerPing, bool)
-	Lease      func(context.Context, int64) (Lease, error)
-	Fence      func(context.Context) error
-	Promote    func(context.Context, AutoInput) (Result, error)
+	Monitor   *Monitor
+	LocalNode string
+	Gather    func(context.Context) (PreflightInput, error)
+	Peer      func() (PeerPing, bool)
+	Lease     func(context.Context, int64) (Lease, error)
+	Fence     func(context.Context) error
+	Promote   func(context.Context, AutoInput) (Result, error)
 }
 
 // Step makes one automatic decision. It returns promoted=false without an

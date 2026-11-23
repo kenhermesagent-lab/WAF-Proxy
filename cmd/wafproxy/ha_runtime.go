@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/api"
@@ -34,12 +35,35 @@ type haRuntime struct {
 	// witness is nil unless a lease authority is configured.
 	witness     *ha.WitnessClient
 	leaseCancel context.CancelFunc
-	// auto is nil unless unattended promotion is enabled. autoCtx is the
-	// process context the watcher lives on, so a demoted node can resume it.
+	// auto is nil unless unattended promotion is enabled. The watcher runs on
+	// both roles: an active node uses it for the epoch conflict check, a
+	// standby for the promotion gate.
 	auto    *ha.AutoPromoter
-	autoCtx context.Context
+	monitor *ha.Monitor
+	peer    *peerWatch
+	flap    *ha.FlapGuard
 	fence   string
 	log     *slog.Logger
+}
+
+// peerWatch is the last heartbeat, shared by the probe and the watcher.
+type peerWatch struct {
+	mu       sync.Mutex
+	last     ha.PeerPing
+	have     bool
+	conflict atomic.Bool
+}
+
+func (p *peerWatch) set(ping ha.PeerPing) {
+	p.mu.Lock()
+	p.last, p.have = ping, true
+	p.mu.Unlock()
+}
+
+func (p *peerWatch) get() (ha.PeerPing, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.last, p.have
 }
 
 // serveControl exposes the move commands on the local Unix socket. Nothing here
@@ -66,17 +90,12 @@ func (h *haRuntime) hooks() ha.Hooks {
 			h.bans.Reconcile()
 			return nil
 		},
-		Serve:           h.serveDataPlane,
-		DemotePlane:     h.demoteDataPlane,
-		StopReplication: h.repl.Stop,
-		StartReplication: func() {
-			h.repl.Start()
-			// A node that just stepped down is a standby again, so unattended
-			// promotion applies to it too.
-			h.resumeAuto()
-		},
-		OnRollback:   h.repl.Start,
-		RecheckLease: h.recheckLease,
+		Serve:            h.serveDataPlane,
+		DemotePlane:      h.demoteDataPlane,
+		StopReplication:  h.repl.Stop,
+		StartReplication: h.repl.Start,
+		OnRollback:       h.repl.Start,
+		RecheckLease:     h.recheckLease,
 	}
 }
 
@@ -94,8 +113,10 @@ func (h *haRuntime) recheckLease(ctx context.Context) error {
 	return err
 }
 
-// startAuto watches the peer and promotes when the heartbeat, the witness lease
-// and the fence all agree. It runs on a standby only.
+// startAuto watches the peer on both roles. The monitor keeps the last
+// heartbeat and raises a conflict when the peer reports a higher epoch; the
+// loop promotes only while this node is a standby, so a node that booted
+// active keeps its watcher after it steps down.
 func (h *haRuntime) startAuto(ctx context.Context) {
 	if h.witness == nil || h.mgr == nil {
 		h.log.Error("automatic failover needs a witness and the move manager; not starting")
@@ -106,40 +127,31 @@ func (h *haRuntime) startAuto(ctx context.Context) {
 		h.log.Error("automatic failover needs a paired node; not starting")
 		return
 	}
-	var mu sync.Mutex
-	var last ha.PeerPing
-	have := false
+	h.peer = &peerWatch{}
 	monitor := ha.NewMonitor(func(ctx context.Context) error {
 		ping, err := ha.PingPeer(ctx, h.dir)
 		if err != nil {
 			return err
 		}
-		mu.Lock()
-		last, have = ping, true
-		mu.Unlock()
+		h.peer.set(ping)
+		if n, err := ha.Load(h.dir); err == nil && n.Active() && ping.Epoch > n.Epoch {
+			h.peer.conflict.Store(true)
+		}
 		return nil
 	})
 	fencer := ha.Fencer{Command: h.fence, Peer: pair.PeerAddr}
+	h.monitor = monitor
 	h.auto = &ha.AutoPromoter{
-		Monitor:    monitor,
-		LocalNode:  h.ident.Node,
-		LocalEpoch: func() int64 { n, _ := ha.Load(h.dir); return n.Epoch },
-		Gather:     h.preflight,
-		Peer:       func() (ha.PeerPing, bool) { mu.Lock(); defer mu.Unlock(); return last, have },
-		Lease:      h.witness.Acquire,
-		Fence:      fencer.Run,
-		Promote:    h.mgr.FailoverAuto,
+		Monitor:   monitor,
+		LocalNode: h.ident.Node,
+		Gather:    h.preflight,
+		Peer:      h.peer.get,
+		Lease:     h.witness.Acquire,
+		Fence:     fencer.Run,
+		Promote:   h.mgr.FailoverAuto,
 	}
-	h.autoCtx = ctx
 	go monitor.Run(ctx)
 	go h.runAuto(ctx)
-}
-
-func (h *haRuntime) resumeAuto() {
-	if h.auto == nil || h.autoCtx == nil {
-		return
-	}
-	go h.runAuto(h.autoCtx)
 }
 
 func (h *haRuntime) runAuto(ctx context.Context) {
@@ -152,7 +164,26 @@ func (h *haRuntime) runAuto(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
-		if node, err := ha.Load(h.dir); err != nil || node.Active() {
+		node, err := ha.Load(h.dir)
+		if err != nil {
+			continue
+		}
+		if h.peer.conflict.Swap(false) {
+			h.selfDemote(ctx, node)
+			continue
+		}
+		if node.Active() {
+			continue
+		}
+		switch node.EffectiveState() {
+		case ha.StateParked, ha.StateFenced:
+			continue
+		case ha.StateSplitBrainRisk:
+			h.tryReconcile(node)
+			continue
+		}
+		if err := h.flap.Check(); err != nil {
+			h.park(node, err)
 			return
 		}
 		res, acted, err := h.auto.Step(ctx)
@@ -165,10 +196,42 @@ func (h *haRuntime) runAuto(ctx context.Context) {
 		}
 		lastReason = ""
 		if acted {
+			h.flap.Record()
 			h.log.Info("automatic failover promoted this node", "epoch", res.Epoch, "steps", len(res.Steps))
-			return
 		}
 	}
+}
+
+// selfDemote stops serving after the peer reports a higher epoch. The node
+// stays split-brain-risk until the peer is reachable and the epochs settle.
+func (h *haRuntime) selfDemote(ctx context.Context, node *ha.Node) {
+	ping, _ := h.peer.get()
+	h.log.Error("the peer reports a higher epoch; standing down",
+		"local_epoch", node.Epoch, "peer_epoch", ping.Epoch)
+	if _, err := h.mgr.SelfDemote(ctx); err != nil {
+		h.log.Error("self-demotion failed", "err", err)
+	}
+}
+
+func (h *haRuntime) tryReconcile(node *ha.Node) {
+	ping, ok := h.peer.get()
+	if !ok || h.monitor == nil || !h.monitor.Health().Reachable || ping.Epoch < node.Epoch {
+		return
+	}
+	if _, err := ha.Reconcile(h.dir, node, ping.Epoch); err != nil {
+		h.log.Error("reconcile split-brain-risk", "err", err)
+		return
+	}
+	h.log.Info("split-brain-risk cleared; following the peer", "epoch", ping.Epoch)
+	h.repl.Start()
+}
+
+// park stops automatic moves for good, until an operator moves by hand.
+func (h *haRuntime) park(node *ha.Node, reason error) {
+	if _, err := ha.Park(h.dir, node, reason.Error()); err != nil {
+		h.log.Error("park the pair", "err", err)
+	}
+	h.log.Error("automatic failover parked; investigate, then move by hand", "reason", reason)
 }
 
 // startLease renews the active's witness lease and demotes it when the lease

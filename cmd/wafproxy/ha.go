@@ -55,6 +55,7 @@ type haStatus struct {
 	Role            ha.Role         `json:"role"`
 	State           ha.State        `json:"state"`
 	Epoch           int64           `json:"epoch"`
+	Reason          string          `json:"reason,omitempty"`
 	Peer            string          `json:"peer,omitempty"`
 	PeerFingerprint string          `json:"peer_fingerprint,omitempty"`
 	UpdatedAt       string          `json:"updated_at,omitempty"`
@@ -119,7 +120,7 @@ func readHAStatus(enabled bool, dataDir string) haStatus {
 	}
 	node, _ := ha.Load(dataDir) // a damaged file already loads as standby
 	pair, _ := ha.LoadPair(dataDir)
-	st := haStatus{Enabled: enabled, Role: node.Role, Epoch: node.Epoch, Peer: node.Peer, UpdatedAt: node.UpdatedAt, DataDir: dataDir}
+	st := haStatus{Enabled: enabled, Role: node.Role, Epoch: node.Epoch, Reason: node.Reason, Peer: node.Peer, UpdatedAt: node.UpdatedAt, DataDir: dataDir}
 	if pair != nil {
 		st.Paired = true
 		st.ClusterID = pair.ClusterID
@@ -155,6 +156,9 @@ func haStatusCLI(args []string) error {
 			pair = fmt.Sprintf("cluster %s peer %s", st.ClusterID, st.Peer)
 		}
 		line := fmt.Sprintf("role=%s state=%s serving=%v epoch=%d %s ha=%v", st.Role, st.State, st.Serving, st.Epoch, pair, st.Enabled)
+		if st.Reason != "" {
+			line += fmt.Sprintf(" reason=%q", st.Reason)
+		}
 		if st.Outbox != nil {
 			line += fmt.Sprintf(" outbox=%d acked=%d lag=%s", st.Outbox.Depth, st.Outbox.AckedSeq,
 				time.Duration(st.Outbox.LagSeconds*float64(time.Second)).Round(time.Second))
