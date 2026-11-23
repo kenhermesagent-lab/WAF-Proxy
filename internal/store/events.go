@@ -54,7 +54,7 @@ type EventFilter struct {
 
 // QueryEvents returns matching events newest first.
 func (s *Store) QueryEvents(f EventFilter) ([]model.Event, int, error) {
-	conds, args := eventWhere(f)
+	conds, args := s.eventWhere(f)
 	var total int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE `+conds, args...).Scan(&total); err != nil {
 		return nil, 0, err
@@ -81,6 +81,20 @@ func (s *Store) QueryEvents(f EventFilter) ([]model.Event, int, error) {
 	}
 	return out, total, rows.Err()
 }
+
+// eventWhere limits a filter to this store's site. Events carry no site of
+// their own; the proxy that recorded them does.
+func (s *Store) eventWhere(f EventFilter) (string, []any) {
+	conds, args := eventWhere(f)
+	conds += ` AND ` + eventSiteSQL
+	args = append(args, s.site, s.site, s.site, s.defaultSite)
+	return conds, args
+}
+
+// eventSiteSQL owns an event through its proxy, and gives events that never
+// reached one to the default site so an install's history stays visible.
+const eventSiteSQL = `(? = 0 OR proxy_id IN (SELECT id FROM proxies WHERE site_id = ?)
+	OR (proxy_id IS NULL AND ? = ?))`
 
 func eventWhere(f EventFilter) (string, []any) {
 	where := []string{"ts >= ?", "ts <= ?"}
@@ -125,7 +139,7 @@ func (s *Store) EachEvent(f EventFilter, limit int, fn func(model.Event) error) 
 	if limit > 100000 {
 		limit = 100000
 	}
-	conds, args := eventWhere(f)
+	conds, args := s.eventWhere(f)
 	args = append(args, limit)
 	rows, err := s.db.Query(`SELECT id, ts, proxy_id, host, src_ip, country, asn, lat, lon, method, path, status,
 		bytes_in, bytes_out, latency_ms, stage, rule_id, rule_msg, action, ua, sample
@@ -182,7 +196,7 @@ func (s *Store) IPSummaries(f EventFilter, q string, limit int) ([]IPSummary, er
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	conds, args := eventWhere(f)
+	conds, args := s.eventWhere(f)
 	if q = strings.TrimSpace(q); q != "" {
 		esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q)
 		conds += ` AND src_ip LIKE ? ESCAPE '\'`
@@ -208,7 +222,7 @@ func (s *Store) IPSummaries(f EventFilter, q string, limit int) ([]IPSummary, er
 // IPSummary aggregates exactly one address; a missing address yields a zero
 // summary so the detail view can still show ban state.
 func (s *Store) IPSummary(ip string, from, to time.Time) (IPSummary, error) {
-	conds, args := eventWhere(EventFilter{From: from, To: to, SrcIP: ip})
+	conds, args := s.eventWhere(EventFilter{From: from, To: to, SrcIP: ip})
 	sum, err := scanIPSummary(s.db.QueryRow(ipAggregate+conds+` GROUP BY src_ip`, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return IPSummary{IP: ip}, nil
@@ -240,7 +254,7 @@ type EventTotals struct {
 }
 
 func (s *Store) EventTotals(f EventFilter) (EventTotals, error) {
-	conds, args := eventWhere(f)
+	conds, args := s.eventWhere(f)
 	var t EventTotals
 	err := s.db.QueryRow(`SELECT COUNT(*),
 		COALESCE(SUM(CASE WHEN action IN ('block','ban','challenge') THEN 1 ELSE 0 END),0),
@@ -251,7 +265,8 @@ func (s *Store) EventTotals(f EventFilter) (EventTotals, error) {
 
 // DeleteEventsBefore drops events older than the retention window.
 func (s *Store) DeleteEventsBefore(t time.Time) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM events WHERE ts < ?`, stamp(t))
+	res, err := s.db.Exec(`DELETE FROM events WHERE ts < ? AND `+eventSiteSQL,
+		stamp(t), s.site, s.site, s.site, s.defaultSite)
 	if err != nil {
 		return 0, err
 	}
@@ -261,7 +276,8 @@ func (s *Store) DeleteEventsBefore(t time.Time) (int64, error) {
 // CountEvents returns the number of stored events.
 func (s *Store) CountEvents() (int64, error) {
 	var n int64
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE `+eventSiteSQL,
+		s.site, s.site, s.site, s.defaultSite).Scan(&n)
 	return n, err
 }
 
@@ -289,7 +305,8 @@ func (s *Store) TopBy(column string, since time.Time, limit int) ([]NamedCount, 
 		limit = 10
 	}
 	rows, err := s.db.Query(`SELECT `+col+`, COUNT(*) AS n FROM events
-		WHERE ts >= ? AND `+col+` <> '' GROUP BY `+col+` ORDER BY n DESC LIMIT ?`, stamp(since), limit)
+		WHERE ts >= ? AND `+col+` <> '' AND `+eventSiteSQL+`
+		GROUP BY `+col+` ORDER BY n DESC LIMIT ?`, stamp(since), s.site, s.site, s.site, s.defaultSite, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +356,9 @@ type GlobePoint struct {
 func (s *Store) Globe(since time.Time) ([]GlobePoint, error) {
 	rows, err := s.db.Query(`SELECT country, host, stage, COUNT(*), MAX(ts), AVG(lat), AVG(lon)
 		FROM events WHERE ts >= ? AND action IN ('block','ban','challenge') AND country <> ''
-		GROUP BY country, host, stage ORDER BY COUNT(*) DESC LIMIT 300`, stamp(since))
+		AND `+eventSiteSQL+`
+		GROUP BY country, host, stage ORDER BY COUNT(*) DESC LIMIT 300`,
+		stamp(since), s.site, s.site, s.site, s.defaultSite)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +395,8 @@ func (s *Store) RecentHits(since time.Time, limit int) ([]GlobeHit, error) {
 	}
 	rows, err := s.db.Query(`SELECT id, ts, country, host, stage, status, lat, lon
 		FROM events WHERE ts >= ? AND action IN ('block','ban','challenge') AND country <> ''
-		ORDER BY ts DESC, id DESC LIMIT ?`, stamp(since), limit)
+		AND `+eventSiteSQL+`
+		ORDER BY ts DESC, id DESC LIMIT ?`, stamp(since), s.site, s.site, s.site, s.defaultSite, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +432,8 @@ func (s *Store) ListFlows(limit int) ([]model.Flow, error) {
 		limit = 168
 	}
 	rows, err := s.db.Query(`SELECT hour, proxy_id, reqs, bytes_in, bytes_out, blocked
-		FROM flows ORDER BY hour DESC LIMIT ?`, limit)
+		FROM flows WHERE (? = 0 OR proxy_id IN (SELECT id FROM proxies WHERE site_id = ?))
+		ORDER BY hour DESC LIMIT ?`, s.site, s.site, limit)
 	if err != nil {
 		return nil, err
 	}

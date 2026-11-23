@@ -265,6 +265,15 @@ func (s *Store) migrateSites() error {
 	// From here on the plain handle is the default site's, so every existing
 	// caller keeps seeing exactly the rows it saw before sites existed.
 	s.site = id
+	s.defaultSite = id
+	// Bans are per site: the same address may be banned on one host and
+	// allowed on another, so the key is the pair.
+	if _, err := s.db.Exec(`DROP INDEX IF EXISTS idx_bans_cidr`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_bans_site_cidr ON bans(site_id, cidr)`); err != nil {
+		return err
+	}
 	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_proxies_site ON proxies(site_id)`)
 	return err
 }

@@ -25,7 +25,7 @@ func scanAuthProvider(row interface{ Scan(...any) error }) (*model.AuthProvider,
 
 // ListAuthProviders returns the configured forward-auth providers.
 func (s *Store) ListAuthProviders() ([]model.AuthProvider, error) {
-	rows, err := s.db.Query(`SELECT ` + authProviderColumns + ` FROM auth_providers ORDER BY name`)
+	rows, err := s.db.Query(`SELECT ` + authProviderColumns + ` FROM auth_providers WHERE (? = 0 OR site_id = ?) ORDER BY name`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func (s *Store) ListAuthProviders() ([]model.AuthProvider, error) {
 
 // GetAuthProvider loads one provider.
 func (s *Store) GetAuthProvider(id int64) (*model.AuthProvider, error) {
-	return scanAuthProvider(s.db.QueryRow(`SELECT `+authProviderColumns+` FROM auth_providers WHERE id = ?`, id))
+	return scanAuthProvider(s.db.QueryRow(`SELECT `+authProviderColumns+` FROM auth_providers WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
 }
 
 // CreateAuthProvider inserts a provider and returns its ID.
@@ -55,9 +55,9 @@ func (s *Store) CreateAuthProvider(p *model.AuthProvider) (int64, error) {
 	if exists > 0 {
 		return 0, ErrDuplicate
 	}
-	res, err := s.db.Exec(`INSERT INTO auth_providers(name, kind, verify_url, login_url, header, secret, created_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?)`,
-		p.Name, p.Kind, p.VerifyURL, p.LoginURL, p.Header, p.Secret, stamp(time.Now()))
+	res, err := s.db.Exec(`INSERT INTO auth_providers(name, kind, verify_url, login_url, header, secret, created_at, site_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.Name, p.Kind, p.VerifyURL, p.LoginURL, p.Header, p.Secret, stamp(time.Now()), s.site)
 	if err != nil {
 		return 0, err
 	}
@@ -74,8 +74,8 @@ func (s *Store) UpdateAuthProvider(p *model.AuthProvider) error {
 		return ErrDuplicate
 	}
 	_, err := s.db.Exec(`UPDATE auth_providers SET name = ?, kind = ?, verify_url = ?, login_url = ?,
-		header = ?, secret = ? WHERE id = ?`,
-		p.Name, p.Kind, p.VerifyURL, p.LoginURL, p.Header, p.Secret, p.ID)
+		header = ?, secret = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
+		p.Name, p.Kind, p.VerifyURL, p.LoginURL, p.Header, p.Secret, p.ID, s.site, s.site)
 	return err
 }
 
@@ -90,6 +90,6 @@ func (s *Store) DeleteAuthProvider(id int64) (bool, error) {
 	if used > 0 {
 		return true, nil
 	}
-	_, err := s.db.Exec(`DELETE FROM auth_providers WHERE id = ?`, id)
+	_, err := s.db.Exec(`DELETE FROM auth_providers WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
 	return false, err
 }

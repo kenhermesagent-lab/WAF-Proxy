@@ -28,6 +28,8 @@ type Store struct {
 	db *sql.DB
 	// site owns the rows this handle reads and writes. 0 means every site.
 	site int64
+	// defaultSite owns the rows that name no site of their own.
+	defaultSite int64
 	// sessionKey hides session cookies in the database, so a copy of the file
 	// does not hand out live admin sessions.
 	sessionKey []byte
@@ -38,6 +40,9 @@ type Store struct {
 
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
+
+// ErrHostWideSetting refuses to move a process-wide key into one site.
+var ErrHostWideSetting = errors.New("host-wide setting cannot be set per site")
 
 // ErrDuplicate is returned when a unique name is already taken.
 var ErrDuplicate = errors.New("duplicate")
@@ -749,18 +754,23 @@ func (s *Store) GetSetting(key string) (string, error) {
 
 // SetSetting writes one setting.
 func (s *Store) SetSetting(key, value string) error {
+	if hostSettingKeys[key] {
+		if s.site != 0 && s.site != s.defaultSite {
+			return ErrHostWideSetting
+		}
+		return s.setHostSettings(map[string]string{key: value})
+	}
 	if s.site != 0 {
 		return s.SetSettingsFor(s.site, map[string]string{key: value})
 	}
-	_, err := s.db.Exec(`INSERT INTO settings(key, value) VALUES(?, ?)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
-	return err
+	return s.setHostSettings(map[string]string{key: value})
 }
 
-// SetSettings writes several settings atomically.
-func (s *Store) SetSettings(kv map[string]string) error {
-	if s.site != 0 {
-		return s.SetSettingsFor(s.site, kv)
+// setHostSettings writes process-wide keys. They live in the host table, so a
+// site reads them and never changes them.
+func (s *Store) setHostSettings(kv map[string]string) error {
+	if len(kv) == 0 {
+		return nil
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -774,6 +784,27 @@ func (s *Store) SetSettings(kv map[string]string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// SetSettings writes several settings atomically. A site may set its own
+// keys only; host-wide keys in the same map go to the host table as before.
+func (s *Store) SetSettings(kv map[string]string) error {
+	if s.site == 0 {
+		return s.setHostSettings(kv)
+	}
+	host := map[string]string{}
+	for k, v := range kv {
+		if hostSettingKeys[k] {
+			if s.site != s.defaultSite {
+				return ErrHostWideSetting
+			}
+			host[k] = v
+		}
+	}
+	if err := s.setHostSettings(host); err != nil {
+		return err
+	}
+	return s.SetSettingsFor(s.site, kv)
 }
 
 // ---------- users and sessions ----------
