@@ -46,13 +46,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
-- **Printing a non-help page is unchanged.** The white background, hidden sidebar and flat cards that the
-  printable help needs are now applied only while `#/<page>/help` is on screen (the body carries a
-  `help-doc` class for that route), so a dashboard, log or report prints exactly as it did before the
-  route existed.
-- **Readiness and the help drawer hold up at tablet widths.** Checked at 600, 680, 720 and 768 px: no row
-  or drawer content crosses its container, the drawer keeps its 620 px column and only goes full width
-  below it, and row actions stay beside the text until the phone breakpoint stacks them.
+- **The printable help cannot restyle another page's print.** The route sets a `help-doc` class on the
+  body, and the print rules that hide the action bar and flatten the help card are scoped to it, so a
+  dashboard, log or report still prints with the console's existing print block. The two print blocks in
+  `styles.css` are now one.
 
 ## [1.57.1] — 2026-11-23
 
