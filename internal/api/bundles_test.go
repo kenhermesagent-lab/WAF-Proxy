@@ -7,7 +7,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/bundle"
@@ -119,5 +121,93 @@ func TestBundleSnapshotListsProviders(t *testing.T) {
 	bad := authed(t, srv, token, csrf, http.MethodPost, "/api/bundles/check?provider=nobody", "")
 	if bad.Code != http.StatusBadRequest {
 		t.Fatalf("checking an unknown provider = %d, want 400: %s", bad.Code, bad.Body.String())
+	}
+}
+
+// TestBundleEnableAndConsoleProviders covers the console-managed bundle page:
+// shipped packs start off and can be switched on, and providers are added and
+// removed from the database instead of an environment variable.
+func TestBundleEnableAndConsoleProviders(t *testing.T) {
+	srv, _, token, csrf := newObservabilityServer(t)
+	m, err := bundle.New(bundle.Config{
+		Dir: t.TempDir(),
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	srv.SetBundles(m)
+
+	snapshot := func(rec *httptest.ResponseRecorder) bundleSnapshot {
+		t.Helper()
+		var snap bundleSnapshot
+		if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+			t.Fatal(err)
+		}
+		return snap
+	}
+	find := func(snap bundleSnapshot, name string) bundleView {
+		t.Helper()
+		for _, b := range snap.Bundles {
+			if b.Name == name {
+				return b
+			}
+		}
+		t.Fatalf("bundle %s missing from the snapshot", name)
+		return bundleView{}
+	}
+
+	snap := snapshot(authed(t, srv, token, csrf, http.MethodGet, "/api/bundles", ""))
+	if b := find(snap, "secret-probes"); !b.Builtin || b.Enabled {
+		t.Fatalf("shipped pack = %+v, want built-in and off", b)
+	}
+
+	on := authed(t, srv, token, csrf, http.MethodPost, "/api/bundles/enable", `{"name":"secret-probes","enabled":true}`)
+	if on.Code != http.StatusOK {
+		t.Fatalf("enable = %d: %s", on.Code, on.Body.String())
+	}
+	if b := find(snapshot(on), "secret-probes"); !b.Enabled {
+		t.Fatalf("pack still off after enabling: %+v", b)
+	}
+	if unknown := authed(t, srv, token, csrf, http.MethodPost, "/api/bundles/enable", `{"name":"nope","enabled":true}`); unknown.Code != http.StatusBadRequest {
+		t.Fatalf("unknown bundle = %d, want 400", unknown.Code)
+	}
+
+	priv, err := bundle.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
+	body := `{"name":"vendor-a","url":"https://a.example/manifest.json","public_key":"` + pub + `"}`
+	saved := authed(t, srv, token, csrf, http.MethodPut, "/api/bundles/providers", body)
+	if saved.Code != http.StatusOK {
+		t.Fatalf("save provider = %d: %s", saved.Code, saved.Body.String())
+	}
+	if snap := snapshot(saved); len(snap.Providers) != 1 || !snap.Configured {
+		t.Fatalf("providers after save = %+v", snap.Providers)
+	}
+	raw, err := srv.st.GetSetting(bundle.SettingsKey)
+	if err != nil || !strings.Contains(raw, "vendor-a") {
+		t.Fatalf("stored providers = %q, err %v", raw, err)
+	}
+
+	bad := authed(t, srv, token, csrf, http.MethodPut, "/api/bundles/providers",
+		`{"name":"vendor-b","url":"ftp://a.example/manifest.json","public_key":"`+pub+`"}`)
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("invalid provider = %d, want 400: %s", bad.Code, bad.Body.String())
+	}
+
+	removed := authed(t, srv, token, csrf, http.MethodDelete, "/api/bundles/providers?name=vendor-a", "")
+	if removed.Code != http.StatusOK {
+		t.Fatalf("remove provider = %d: %s", removed.Code, removed.Body.String())
+	}
+	if snap := snapshot(removed); len(snap.Providers) != 0 || snap.Configured {
+		t.Fatalf("providers after removal = %+v", snap.Providers)
+	}
+	if missing := authed(t, srv, token, csrf, http.MethodDelete, "/api/bundles/providers?name=vendor-a", ""); missing.Code != http.StatusNotFound {
+		t.Fatalf("removing an unknown provider = %d, want 404", missing.Code)
 	}
 }

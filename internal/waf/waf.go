@@ -358,6 +358,10 @@ func safeTagValue(v string) string {
 	return b.String()
 }
 
+// escapeDirective keeps a message, tag or operator from closing the quoted
+// directive. Backslashes are left alone: Coraza hands the operator expression
+// to the regex engine verbatim, so doubling them turned `\.` into a literal
+// backslash and the rule stopped matching.
 func escapeDirective(v string) string {
 	var b strings.Builder
 	for _, r := range v {
@@ -365,7 +369,7 @@ func escapeDirective(v string) string {
 			b.WriteByte(' ')
 			continue
 		}
-		if r == '\\' || r == '\'' || r == '"' {
+		if r == '\'' || r == '"' {
 			b.WriteByte('\\')
 		}
 		b.WriteRune(r)

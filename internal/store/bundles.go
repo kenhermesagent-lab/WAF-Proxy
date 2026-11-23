@@ -47,14 +47,16 @@ type RuleHit struct {
 // BundleHits counts the bundle rules that fired since a time. Bundle rule IDs
 // live in the reserved 990000–999999 range, above every CRS ID, which is why
 // this is a plain query over the existing event log: no extra write path, no
-// second source of truth.
+// second source of truth. The stage is not filtered: a rule that only logged
+// leaves the request to continue, so its event ends up named after the later
+// stage while still carrying the bundle rule ID.
 func (s *Store) BundleHits(since time.Time) ([]RuleHit, error) {
 	rows, err := s.db.Query(`SELECT rule_id, COUNT(*), COUNT(DISTINCT src_ip),
 			SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END),
 			SUM(CASE WHEN action <> 'block' THEN 1 ELSE 0 END),
 			MAX(ts), MAX(rule_msg)
 		FROM events
-		WHERE ts >= ? AND stage = 'waf' AND LENGTH(rule_id) = 6 AND rule_id >= '990000' AND rule_id <= '999999'
+		WHERE ts >= ? AND LENGTH(rule_id) = 6 AND rule_id >= '990000' AND rule_id <= '999999'
 		GROUP BY rule_id
 		ORDER BY COUNT(*) DESC
 		LIMIT 100`, stamp(since))

@@ -164,7 +164,17 @@ func TestBundleChannelReachesABlockingVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := m.Status()
-	if first.Providers[0].Sequence != 1 || len(first.Bundles) != 1 || first.Bundles[0].Version != "2026.11.23-1" {
+	installed := 0
+	for _, b := range first.Bundles {
+		if b.Builtin {
+			continue
+		}
+		installed++
+		if b.Version != "2026.11.23-1" {
+			t.Fatalf("installed pack = %+v, want the advertised version", b)
+		}
+	}
+	if first.Providers[0].Sequence != 1 || installed != 1 {
 		t.Fatalf("after first check = %+v, want sequence 1 and the advertised pack", first)
 	}
 	if got := m.RuleIndex()[990417]; got.Version != "2026.11.23-1" {
@@ -185,7 +195,7 @@ func TestBundleChannelReachesABlockingVerdict(t *testing.T) {
 	if fetches != 2 || notModified != 1 {
 		t.Fatalf("channel saw %d fetches and %d 304s, want 2 and 1", fetches, notModified)
 	}
-	if again := m.Status(); again.Providers[0].Sequence != 1 || len(again.Bundles) != 1 || again.Bundles[0].Version != "2026.11.23-1" {
+	if again := m.Status(); again.Providers[0].Sequence != 1 || installedVersion(again) != "2026.11.23-1" {
 		t.Fatalf("after 304 = %+v, want the state to be untouched", again)
 	}
 
@@ -195,7 +205,7 @@ func TestBundleChannelReachesABlockingVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 	bumped := m.Status()
-	if bumped.Providers[0].Sequence != 2 || len(bumped.Bundles) != 1 || bumped.Bundles[0].Version != "2026.11.23-2" {
+	if bumped.Providers[0].Sequence != 2 || installedVersion(bumped) != "2026.11.23-2" {
 		t.Fatalf("after bump = %+v, want sequence 2 and the new version", bumped)
 	}
 	if got := m.RuleIndex()[990417]; got.Version != "2026.11.23-2" {
@@ -231,4 +241,15 @@ func TestBundleChannelReachesABlockingVerdict(t *testing.T) {
 	if v, _ := inspect("/index.html"); v.Action == "block" {
 		t.Fatalf("an unrelated request was refused: %+v", v)
 	}
+}
+
+// installedVersion is the version of the single downloaded pack; the shipped
+// catalog is part of the status but is not installed by the channel.
+func installedVersion(st bundle.Status) string {
+	for _, b := range st.Bundles {
+		if !b.Builtin {
+			return b.Version
+		}
+	}
+	return ""
 }

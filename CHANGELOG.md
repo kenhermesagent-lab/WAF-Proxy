@@ -12,6 +12,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.49.6] — 2026-11-23
+
+### Added
+
+- **Known good signature bundles.** Three packs now ship inside the binary — `secret-probes`,
+  `exploit-payloads` and `scanner-tools` — validated and compiled at startup, listed under
+  **Threat intel → Bundles** with an **Enable**/**Disable** button each. They start switched off, so
+  a release never begins logging new signatures without a decision.
+- **Bundle providers can be managed from the console.** The new **Bundle providers** card adds a
+  channel by name, manifest URL and ed25519 publisher key, replaces one by saving the same name, and
+  removes one with **Remove**. The list is stored in the database and applied without a restart;
+  `WAFPROXY_BUNDLE_PROVIDERS` and the single-channel pair keep working until the first provider is
+  saved here.
+- **Every installed pack can be switched off globally.** A disabled pack keeps its files and version
+  (so re-enabling needs no download) and contributes no rules to any profile; the per-profile
+  off/log/block mode still applies to the packs that are enabled.
+
+### Fixed
+
+- **Bundle rules that used a regex escape never matched.** `\.` in an operator was doubled on the way
+  into the Coraza directive, which turned it into a literal backslash, so a downloaded pack's
+  path-anchored rules silently stopped matching. Operators now reach the engine as written.
+- **Bundle hits missed every rule that only logged.** The query required the event's final stage to be
+  `waf`, but a log-only match lets the request continue, so its event was named after the later stage
+  even though it carried the bundle rule ID. Hits now count the reserved bundle ID range regardless
+  of stage.
+
 ## [1.49.5] — 2026-11-23
 
 ### Changed

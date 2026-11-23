@@ -90,3 +90,27 @@ func TestBundleValidation(t *testing.T) {
 		t.Fatalf("a valid bundle did not compile: %v", err)
 	}
 }
+
+// A regex operator reaches the engine as written. Escaping its backslashes for
+// the directive parser turned `\.ssh/` into a literal backslash, so every rule
+// that anchored a dotted path silently stopped matching.
+func TestBundleRegexEscapesSurviveTheDirective(t *testing.T) {
+	s := NewSet(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s.SetBundles([]Bundle{{Name: "paths", Version: "1", Rules: []BundleRule{{
+		ID: 990431, Message: "site archive request", Severity: "CRITICAL",
+		Target: "REQUEST_FILENAME", Operator: `@rx (?i)backup\.zip$`,
+	}}}})
+	s.Reload([]model.Profile{{ID: 1, Name: "web", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072}})
+	id := int64(1)
+	req := httptest.NewRequest("GET", "https://app.example/assets/backup.zip", nil)
+	_, matches := s.For(&id).InspectAll(req, nil, netip.MustParseAddr("203.0.113.9"))
+	var found bool
+	for _, m := range matches {
+		if m.RuleID == 990431 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("a regex bundle rule did not match: %+v", matches)
+	}
+}

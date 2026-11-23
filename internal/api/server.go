@@ -241,6 +241,9 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/bundles", s.authed(s.listBundles))
 	m.HandleFunc("POST /api/bundles/check", s.authed(s.checkBundles))
+	m.HandleFunc("POST /api/bundles/enable", s.authed(s.enableBundle))
+	m.HandleFunc("PUT /api/bundles/providers", s.authed(s.saveBundleProvider))
+	m.HandleFunc("DELETE /api/bundles/providers", s.authed(s.deleteBundleProvider))
 	m.HandleFunc("GET /api/bundles/hits", s.authed(s.bundleHits))
 
 	m.HandleFunc("GET /api/certs", s.authed(s.listCerts))
