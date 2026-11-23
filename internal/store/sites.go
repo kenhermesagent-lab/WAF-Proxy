@@ -284,11 +284,12 @@ func (s *Store) migrateSites() error {
 		return fmt.Errorf("read default site: %w", err)
 	}
 	for _, table := range scopedTables {
-		// A binary rolled back to before sites keeps syncing bans that name no
-		// site, and one of them can repeat an address the default site already
-		// bans. The (site_id, cidr) key refuses the adoption, so keep the
-		// stronger row of each pair and drop the rest before moving them.
-		if table == "bans" {
+		// A binary rolled back to before sites keeps writing rows that name no
+		// site, and bans and saved views can repeat one the default site already
+		// has. Their per-site keys refuse the adoption, so keep the stronger ban
+		// or the newer view of each pair and drop the rest before moving them.
+		switch table {
+		case "bans":
 			if _, err := s.db.Exec(`DELETE FROM bans WHERE site_id IN (0, ?) AND id NOT IN (
 				SELECT id FROM (
 					SELECT id, ROW_NUMBER() OVER (
@@ -297,6 +298,15 @@ func (s *Store) migrateSites() error {
 					) AS rn FROM bans WHERE site_id IN (0, ?)
 				) WHERE rn = 1)`, id, id); err != nil {
 				return fmt.Errorf("merge bans rows: %w", err)
+			}
+		case "log_views":
+			if _, err := s.db.Exec(`DELETE FROM log_views WHERE site_id IN (0, ?) AND (name, site_id) NOT IN (
+				SELECT name, site_id FROM (
+					SELECT name, site_id, ROW_NUMBER() OVER (
+						PARTITION BY name ORDER BY updated_at DESC, site_id DESC
+					) AS rn FROM log_views WHERE site_id IN (0, ?)
+				) WHERE rn = 1)`, id, id); err != nil {
+				return fmt.Errorf("merge log_views rows: %w", err)
 			}
 		}
 		if _, err := s.db.Exec(`UPDATE `+table+` SET site_id = ? WHERE site_id = 0`, id); err != nil {

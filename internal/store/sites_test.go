@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func openTempStore(t *testing.T) *Store {
@@ -180,5 +181,43 @@ func TestDeleteSiteRemovesOnlyItsRows(t *testing.T) {
 	}
 	if _, err := st.SiteBySlug("acme"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted site still resolves: %v", err)
+	}
+}
+
+// A rolled-back binary keeps saving views that name no site. When one repeats
+// a name the default site already saved, the next start must keep the newer
+// definition instead of stopping at the (site_id, name) key.
+func TestReopenMergesLogViewLeftUnownedByRolledBackBinary(t *testing.T) {
+	dir := t.TempDir()
+	st, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveLogView("errors", "status = 500", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`INSERT INTO log_views(name, query, updated_by, updated_at, site_id)
+		VALUES('errors', 'status >= 400', 'ops', ?, 0)`, stamp(time.Now().Add(time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatalf("reopen after an unowned duplicate view: %v", err)
+	}
+	defer reopened.Close()
+	views, err := reopened.ListLogViews()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].Name != "errors" || views[0].Query != "status >= 400" || views[0].UpdatedBy != "ops" {
+		t.Fatalf("adopted views = %+v, want only the newer errors view", views)
+	}
+	var site int64
+	if err := reopened.db.QueryRow(`SELECT site_id FROM log_views WHERE name = 'errors'`).Scan(&site); err != nil || site != reopened.SiteID() {
+		t.Fatalf("view site = %d (%v), want %d", site, err, reopened.SiteID())
 	}
 }

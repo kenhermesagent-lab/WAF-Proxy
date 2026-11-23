@@ -23,6 +23,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   updater rolled back again, and every restart left more unowned rows. The per-site migration now
   keeps the stronger of the two bans (permanent first, then the later expiry), adopts it and drops
   the duplicate, so the install boots again without a manual cleanup.
+- **The same rollback could stop on `adopt log_views rows`.** A saved view the older binary
+  rewrites is only unique per site, so a name the default site also has failed the adoption with
+  `UNIQUE constraint failed: log_views.site_id, log_views.name`. The migration now keeps the most
+  recently updated definition of a duplicated name and adopts it.
 
 ## [1.55.1] — 2026-11-23
 
