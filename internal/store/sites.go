@@ -183,10 +183,20 @@ func (s *Store) DeleteSite(id int64) error {
 // SettingsFor returns the settings a site sees: the host's table with the
 // site's own overrides on top. Host-wide keys always come from the host.
 func (s *Store) SettingsFor(siteID int64) (map[string]string, error) {
-	out, err := s.Settings()
+	out := map[string]string{}
+	host, err := s.db.Query(`SELECT key, value FROM settings`)
 	if err != nil {
 		return nil, err
 	}
+	for host.Next() {
+		var k, v string
+		if err := host.Scan(&k, &v); err != nil {
+			host.Close()
+			return nil, err
+		}
+		out[k] = v
+	}
+	host.Close()
 	rows, err := s.db.Query(`SELECT key, value FROM site_settings WHERE site_id = ?`, siteID)
 	if err != nil {
 		return nil, err
@@ -252,6 +262,9 @@ func (s *Store) migrateSites() error {
 			return fmt.Errorf("adopt %s rows: %w", table, err)
 		}
 	}
+	// From here on the plain handle is the default site's, so every existing
+	// caller keeps seeing exactly the rows it saw before sites existed.
+	s.site = id
 	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_proxies_site ON proxies(site_id)`)
 	return err
 }
