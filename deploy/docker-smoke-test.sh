@@ -25,14 +25,19 @@ docker run -d --name "$name" --network host "$image" >/dev/null
 
 ready=""
 for _ in $(seq 1 60); do
-  if curl -fsS --max-time 5 "$url/api/health" -o "$work/health.json"; then
+  if curl -fsS --max-time 5 "$url/api/health" -o "$work/health.json" 2>/dev/null; then
     ready=1
     break
   fi
-  if [[ $(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || echo false) != true ]]; then
-    echo "the container exited before the console answered" >&2
-    exit 1
-  fi
+  # Only a container that has finished failing is a failure: right after
+  # `docker run -d` it can still be in "created" before it is started.
+  case $(docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null || echo gone) in
+    exited | dead | gone)
+      echo "the container exited before the console answered" >&2
+      docker logs "$name" 2>&1 | tail -40 >&2 || true
+      exit 1
+      ;;
+  esac
   sleep 1
 done
 if [[ -z $ready ]]; then
@@ -40,12 +45,14 @@ if [[ -z $ready ]]; then
   exit 1
 fi
 
-grep -q '"status":"ok"' "$work/health.json" || {
+# Compare without whitespace so the check does not depend on JSON spacing.
+health=$(tr -d '[:space:]' <"$work/health.json")
+grep -qF '"status":"ok"' <<<"$health" || {
   echo "health did not report ok: $(cat "$work/health.json")" >&2
   exit 1
 }
 if [[ -n $want ]]; then
-  grep -qF "\"version\":\"${want}\"" "$work/health.json" || {
+  grep -qF "\"version\":\"${want}\"" <<<"$health" || {
     echo "health reports $(cat "$work/health.json"), want version ${want}" >&2
     exit 1
   }
