@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -220,4 +221,51 @@ func TestReopenMergesLogViewLeftUnownedByRolledBackBinary(t *testing.T) {
 	if err := reopened.db.QueryRow(`SELECT site_id FROM log_views WHERE name = 'errors'`).Scan(&site); err != nil || site != reopened.SiteID() {
 		t.Fatalf("view site = %d (%v), want %d", site, err, reopened.SiteID())
 	}
+}
+
+// TestAdoptionMergesEverySiteUniqueKey keeps a new per-site key from bringing
+// back the adoption loop: every unique key that includes site_id on an adopted
+// table must have an entry in adoptMerges.
+func TestAdoptionMergesEverySiteUniqueKey(t *testing.T) {
+	st := openTempStore(t)
+	adopted := map[string]bool{}
+	for _, table := range scopedTables {
+		adopted[table] = true
+	}
+	for _, table := range queryStrings(t, st, `SELECT name FROM sqlite_master
+		WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`) {
+		if !adopted[table] {
+			continue
+		}
+		for _, index := range queryStrings(t, st, `SELECT name FROM pragma_index_list(?) WHERE "unique" = 1`, table) {
+			cols := queryStrings(t, st, `SELECT name FROM pragma_index_info(?) ORDER BY seqno`, index)
+			if !slices.Contains(cols, "site_id") {
+				continue
+			}
+			if _, ok := adoptMerges[table]; !ok {
+				t.Errorf("%s has a unique key on %v that includes site_id, but adoptMerges has no entry for it", table, cols)
+			}
+		}
+	}
+}
+
+func queryStrings(t *testing.T, st *Store, query string, args ...any) []string {
+	t.Helper()
+	rows, err := st.db.Query(query, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

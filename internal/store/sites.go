@@ -261,6 +261,28 @@ func (s *Store) SetSettingsFor(siteID int64, kv map[string]string) error {
 	return tx.Commit()
 }
 
+// adoptMerges resolves the rows a binary rolled back to before sites leaves
+// without a site. Such a row can repeat one the default site already has under
+// a key that includes site_id, which the adoption update refuses, so each table
+// keeps one row per key first: the stronger ban, the newer saved view. Every
+// table whose uniqueness includes site_id needs an entry here;
+// TestAdoptionMergesEverySiteUniqueKey fails without one.
+var adoptMerges = map[string]string{
+	"bans": `DELETE FROM bans WHERE site_id IN (0, ?) AND id NOT IN (
+		SELECT id FROM (
+			SELECT id, ROW_NUMBER() OVER (
+				PARTITION BY cidr
+				ORDER BY permanent DESC, COALESCE(expires_at, '9999') DESC, created_at DESC, id DESC
+			) AS rn FROM bans WHERE site_id IN (0, ?)
+		) WHERE rn = 1)`,
+	"log_views": `DELETE FROM log_views WHERE site_id IN (0, ?) AND (name, site_id) NOT IN (
+		SELECT name, site_id FROM (
+			SELECT name, site_id, ROW_NUMBER() OVER (
+				PARTITION BY name ORDER BY updated_at DESC, site_id DESC
+			) AS rn FROM log_views WHERE site_id IN (0, ?)
+		) WHERE rn = 1)`,
+}
+
 // migrateSites creates the site that adopts the install's existing rows and
 // assigns every unowned row to it. It runs after the builtin seeds, so a fresh
 // database and an upgraded one end up with the same single site.
@@ -284,29 +306,9 @@ func (s *Store) migrateSites() error {
 		return fmt.Errorf("read default site: %w", err)
 	}
 	for _, table := range scopedTables {
-		// A binary rolled back to before sites keeps writing rows that name no
-		// site, and bans and saved views can repeat one the default site already
-		// has. Their per-site keys refuse the adoption, so keep the stronger ban
-		// or the newer view of each pair and drop the rest before moving them.
-		switch table {
-		case "bans":
-			if _, err := s.db.Exec(`DELETE FROM bans WHERE site_id IN (0, ?) AND id NOT IN (
-				SELECT id FROM (
-					SELECT id, ROW_NUMBER() OVER (
-						PARTITION BY cidr
-						ORDER BY permanent DESC, COALESCE(expires_at, '9999') DESC, created_at DESC, id DESC
-					) AS rn FROM bans WHERE site_id IN (0, ?)
-				) WHERE rn = 1)`, id, id); err != nil {
-				return fmt.Errorf("merge bans rows: %w", err)
-			}
-		case "log_views":
-			if _, err := s.db.Exec(`DELETE FROM log_views WHERE site_id IN (0, ?) AND (name, site_id) NOT IN (
-				SELECT name, site_id FROM (
-					SELECT name, site_id, ROW_NUMBER() OVER (
-						PARTITION BY name ORDER BY updated_at DESC, site_id DESC
-					) AS rn FROM log_views WHERE site_id IN (0, ?)
-				) WHERE rn = 1)`, id, id); err != nil {
-				return fmt.Errorf("merge log_views rows: %w", err)
+		if merge, ok := adoptMerges[table]; ok {
+			if _, err := s.db.Exec(merge, id, id); err != nil {
+				return fmt.Errorf("merge %s rows: %w", table, err)
 			}
 		}
 		if _, err := s.db.Exec(`UPDATE `+table+` SET site_id = ? WHERE site_id = 0`, id); err != nil {
