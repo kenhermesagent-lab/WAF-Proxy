@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
+import { Badge, Card, Empty, Field, errText, fmtAgo, PageHead } from "../ui";
 import type { AnomalyConfig, AnomalyEvent } from "../types";
 
 const LABELS: Record<string, string> = {
@@ -64,6 +64,7 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="Behavioural detections with the thresholds that open them." />
       <Card
         title="Detection"
         actions={<button className="small primary" onClick={save} disabled={saving || !cfg}>{saving ? "Saving…" : "Save"}</button>}

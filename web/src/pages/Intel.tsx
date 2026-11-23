@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { confirmDialog, Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, errText, fmtAgo, PageHead } from "../ui";
 import { modeBadges } from "../bundles";
 import { BundleHit, BundlesSnapshot, CrowdSecBlocklists, Feed, IntelLookup } from "../types";
 
@@ -165,6 +165,7 @@ export default function Intel({ onError, onOK }: { onError: (m: string) => void;
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="Threat feeds, address lookups and CrowdSec lists applied before traffic reaches a proxy." />
       <div className="grid cols-3">
         <Card>
           <div className="stat"><div className="k">Merged entries</div><div className="v">{total.toLocaleString()}</div><div className="sub">deduplicated CIDRs in memory</div></div>

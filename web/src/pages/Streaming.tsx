@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { confirmDialog, Badge, Card, Field, errText } from "../ui";
+import { confirmDialog, Badge, Card, Field, errText, PageHead } from "../ui";
 import type { AccessList, StreamingService } from "../types";
 
 type Form = {
@@ -193,6 +193,7 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="TCP forwarding for media servers and other long-lived streams." />
       <Card title="How forwarding works">
         <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.7, maxWidth: "88ch" }}>
           Each enabled application gets its own listener on a port on this host, relaying TCP byte for byte. TLS
@@ -214,9 +215,14 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
               <Card
                 title={`${svc.label} forwarding`}
                 actions={
-                  <Badge tone={saved ? (svc.bound ? "ok" : "warn") : ""}>
-                    {saved ? (svc.bound ? "listening" : "enabled, not bound") : "off"}
-                  </Badge>
+                  <>
+                    <Badge tone={saved ? (svc.bound ? "ok" : "warn") : ""}>
+                      {saved ? (svc.bound ? "listening" : "enabled, not bound") : "off"}
+                    </Badge>
+                    <button className="small primary" onClick={() => save(svc)} disabled={saving === svc.id}>
+                      {saving === svc.id ? "Saving…" : "Save"}
+                    </button>
+                  </>
                 }
               >
                 <label
@@ -314,9 +320,6 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
                   </>
                 )}
 
-                <button className="primary mt" onClick={() => save(svc)} disabled={saving === svc.id}>
-                  {saving === svc.id ? "Saving…" : "Save and apply"}
-                </button>
               </Card>
 
               <Card title="Status">
@@ -326,8 +329,10 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
                     <div>
                       {svc.bound ? (
                         <Badge tone="ok">{svc.listen_addr}</Badge>
+                      ) : saved ? (
+                        <Badge tone="warn">not bound</Badge>
                       ) : (
-                        <Badge tone="warn">{saved ? "not bound" : "disabled"}</Badge>
+                        <Badge>disabled</Badge>
                       )}
                     </div>
                   </div>

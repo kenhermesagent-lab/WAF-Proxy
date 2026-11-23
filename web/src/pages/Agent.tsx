@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { confirmDialog, Badge, Card, Empty, Field, Modal, errText, fmtAgo, fmtTime } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, Modal, errText, fmtAgo, fmtTime, PageHead } from "../ui";
 import type { MCPStatus, MCPToken } from "../types";
 import AgentLinks from "../components/AgentLinks";
 
@@ -81,6 +81,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="MCP endpoint, tokens and webhooks that let an agent query this node." />
       <AgentLinks onError={onError} onOK={onOK} />
 
       <Card

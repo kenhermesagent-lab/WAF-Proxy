@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
+import { Badge, Card, Empty, Field, SaveBar, errText, fmtAgo, fmtTime, PageHead } from "../ui";
 
 type Settings = Record<string, string>;
 type Alert = { id: number; channel: string; kind: string; payload: string; state: string; created_at: string; sent_at?: string | null; class?: string; muted?: boolean };
@@ -18,6 +18,7 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
   const [channels, setChannels] = useState<Record<string, boolean>>({});
   const [recent, setRecent] = useState<Alert[]>([]);
   const [kinds, setKinds] = useState<EventKind[]>(FALLBACK_KINDS);
+  const [saving, setSaving] = useState(false);
 
   const load = () =>
     api
@@ -53,12 +54,15 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
   };
 
   const save = async () => {
+    setSaving(true);
     try {
       await api.put("/api/notifications", settings);
       onOK("Notification settings saved");
       load();
     } catch (e) {
       onError(errText(e));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -74,11 +78,12 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="Alert channels and the event classes that reach them." />
       <div className="grid cols-3">
         <Card>
           <div className="row" style={{ justifyContent: "space-between" }}>
             <h2 style={{ margin: 0 }}>Telegram</h2>
-            <Badge tone={channels.telegram ? "ok" : "warn"}>{channels.telegram ? "configured" : "not configured"}</Badge>
+            {channels.telegram ? <Badge tone="ok">configured</Badge> : <Badge>not configured</Badge>}
           </div>
           <div className="mt">
             <Field label="Bot token"><input type="password" value={settings.telegram_token ?? ""} onChange={(e) => set("telegram_token", e.target.value)} placeholder="123456:ABC..." /></Field>
@@ -96,7 +101,7 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
         <Card>
           <div className="row" style={{ justifyContent: "space-between" }}>
             <h2 style={{ margin: 0 }}>Email / Gmail</h2>
-            <Badge tone={channels.email ? "ok" : "warn"}>{channels.email ? "configured" : "not configured"}</Badge>
+            {channels.email ? <Badge tone="ok">configured</Badge> : <Badge>not configured</Badge>}
           </div>
           <div className="mt">
             <Field label="SMTP host"><input value={settings.smtp_host ?? ""} onChange={(e) => set("smtp_host", e.target.value)} placeholder="smtp.gmail.com" /></Field>
@@ -119,7 +124,7 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
         <Card>
           <div className="row" style={{ justifyContent: "space-between" }}>
             <h2 style={{ margin: 0 }}>Webhook</h2>
-            <Badge tone={channels.webhook ? "ok" : "warn"}>{channels.webhook ? "configured" : "not configured"}</Badge>
+            {channels.webhook ? <Badge tone="ok">configured</Badge> : <Badge>not configured</Badge>}
           </div>
           <div className="mt">
             <Field label="Slack / Teams / generic URL">
@@ -156,13 +161,12 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
         </p>
       </Card>
 
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-          Ban additions are batched into a five-minute digest. Permanent bans, feed freezes and certificate problems are sent
-          immediately. Muting a class also suppresses what is already queued for it.
-        </p>
-        <button className="primary" onClick={save}>Save settings</button>
-      </div>
+      <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+        Ban additions are batched into a five-minute digest. Permanent bans, feed freezes and certificate problems are sent
+        immediately. Muting a class also suppresses what is already queued for it.
+      </p>
+
+      <SaveBar note="Saving applies to every channel and the routing grid." saving={saving} onSave={save} />
 
       <Card title="Recent deliveries">
         {recent.length === 0 ? <Empty>No notifications sent yet.</Empty> : (
@@ -171,7 +175,7 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
             <tbody>
               {recent.map((a) => (
                 <tr key={a.id}>
-                  <td className="muted">{fmtAgo(a.created_at)}</td>
+                  <td className="muted" title={fmtTime(a.created_at)}>{fmtAgo(a.created_at)}</td>
                   <td>{a.channel}</td>
                   <td className="muted">
                     <div>{a.kind}</div>

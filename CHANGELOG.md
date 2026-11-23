@@ -11,6 +11,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.48.2] — 2026-11-23
+
+### Changed
+
+- **Badge colour now means status, never category.** A plain badge is an intentional off state
+  (Tailscale listeners, a disabled stream, an unconfigured notification channel), amber is
+  "enabled but not working", red is a failure, green is healthy. Audit action names and Logs stage
+  labels no longer change colour by what kind of event they are; the Logs table says in one line
+  that its stage colour follows the outcome.
+- **One absolute time format.** `fmtTime` prints `2026-11-23 20:03` regardless of browser locale;
+  relative timestamps keep the relative label and carry the absolute time on hover. Raw
+  `toLocaleString`/`toLocaleDateString` calls in Updates and the quick-action ban list use it too.
+- **Two save patterns instead of four.** Settings, Notifications and Tailscale share the sticky
+  footer (`SaveBar`), which states what will change and stays hidden until it is needed; a form
+  that lives inside one card (CrowdSec bouncer, Streaming service, Anomalies detection,
+  Auto-update) saves from that card's header. Labels are "Save settings" or "Save" — no more
+  "Save and apply" in one place and a button at the bottom in another.
+- **Every page has a description.** Logs, Sources, Threat intel, CrowdSec, Certificates,
+  Notifications, Updates, Tailscale, Agent access, Account, Anomalies and Streaming gained the same
+  one-line page header subtitle the rest of the console already had.
+
 ## [1.48.1] — 2026-11-23
 
 ### Fixed
