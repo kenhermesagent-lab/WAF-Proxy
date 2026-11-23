@@ -12,7 +12,7 @@ schema and the unit files.
 
 | Version | Supported |
 |---|---|
-| 1.48.x | Yes |
+| 1.49.x | Yes |
 | 1.47.x and older | No — upgrade first (`deploy/install.sh`, or the Update button) |
 
 The version you run is shown on **Updates** and in `GET /api/health`. If a report only

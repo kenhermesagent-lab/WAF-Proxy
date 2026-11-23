@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.48.2.
+systemd service. Version 1.49.0.
 
 ## Contents
 
@@ -141,9 +141,9 @@ go run ./cmd/bundletool sign -dir packs -seq 42 -key publisher.key -base /stable
 ```
 
 The tool validates and compiles every rule before signing, so the channel cannot ship a pack the
-service will reject. In the console, **Threat intel → Signature bundles** shows the channel, the
+service will reject. In the console, **Threat intel → Bundles** shows the channel, the
 installed versions and the modes across profiles; **Bundle hits** counts the rules that matched in
-the last 24 hours from the request log. The switch itself lives in **Policies → WAF profiles →
+the last 24 hours from the request log. The switch itself lives in **Policies → Profiles →
 Edit**, next to paranoia and rule exceptions.
 
 ## Requirements
@@ -217,22 +217,17 @@ in the wizard and in **Settings → Network**, and do not forward the console po
 |---|---|
 | Dashboard | Needs-attention queue, live requests and byte rates, attack globe with country drill-down, top sources, upstream health |
 | Statistics | Request/block totals, per-site series, countries, stages, uptime |
-| Proxies | Hostnames, upstreams, routes, health checks, maintenance, presets, per-site **360** view |
-| Streaming | Byte-relay forwarders for Plex, Jellyfin and similar, with optional lists |
-| Policies | Global profile with policy **Preflight**, WAF and protection profiles, blocklists/whitelists, access profiles, bot filter |
-| Sources | Threat feeds, local lists, CrowdSec status, bans, per-address investigation |
+| Proxies | **Sites** (hostnames, upstreams, routes, health checks, maintenance, presets, per-site **360** view), **Certificates** (issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01) and **Streaming** (byte-relay forwarders for Plex, Jellyfin and similar) |
+| Policies | **Bans**, **Profiles** (global profile with policy **Preflight**, WAF and protection profiles), **Access profiles**, **Lists** (blocklists/whitelists) and **Bot filter** |
 | Logs | Event search, filters, saved views, live tail, bulk source actions, incident report, the **Why?** request simulator |
-| Anomaly events | Requests that tripped a rule but were not blocked |
+| Threat intel | **Feeds** (health and rollup), **Lookup**, **Sources** (per-address investigation), **Bundles** and **CrowdSec** |
+| Anomalies | Requests that tripped a rule but were not blocked |
+| Access gate | **Accounts** (site accounts, TOTP) and **Identity providers** |
 | Activity | The audit log with before/after diffs and rollback of edits |
-| Readiness | A scored hardening checklist, each gap linking to the control that fixes it |
-| Access gate | Site accounts, TOTP, gate settings |
-| Threat intel | Feed health and rollup |
-| Certificates | Issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01 |
-| AI Agent Access | MCP endpoint, tokens and their per-tool scopes |
+| Agent access | MCP endpoint, tokens and their per-tool scopes |
 | Notifications | Webhook routing |
-| Updates | Version, release check, one-click update |
 | Tailscale | Listener on the tailnet address |
-| Settings | Network, protection, retention, backup, GeoIP, audit, YAML/JSON transport |
+| Settings | **General** (network, protection, retention, backup, GeoIP, audit, YAML/JSON transport), **Updates** (version, release check, one-click update) and **Readiness** (a scored hardening checklist, each gap linking to the control that fixes it) |
 | Account | Password, authenticator rotation, recovery codes, administrators and roles |
 
 **Investigating a source.** Any address in the log, dashboard, attack map, source explorer or ⌘K
@@ -301,7 +296,7 @@ secrets are not part of the document.
   roll back on failure. A Docker host can install `deploy/install-docker-updater.sh` for the same
   action without exposing the Docker socket to the console.
 - **Agent gateway.** The MCP endpoint is documented in [docs/MCP.md](docs/MCP.md); tokens are
-  limited per tool and can be revoked from **AI Agent Access**.
+  limited per tool and can be revoked from **Agent access**.
 
 ## Development
 

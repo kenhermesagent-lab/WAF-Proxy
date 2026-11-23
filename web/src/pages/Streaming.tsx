@@ -98,7 +98,7 @@ function guideSteps(id: string, label: string, f: Form): ReactNode[] {
   }
 }
 
-export default function Streaming({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
+export default function Streaming({ onError, onOK, head = true }: { onError: (m: string) => void; onOK: (m: string) => void; head?: boolean }) {
   const [services, setServices] = useState<StreamingService[]>([]);
   const [lists, setLists] = useState<AccessList[]>([]);
   const [forms, setForms] = useState<Record<string, Form>>({});
@@ -193,7 +193,7 @@ export default function Streaming({ onError, onOK }: { onError: (m: string) => v
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <PageHead sub="TCP forwarding for media servers and other long-lived streams." />
+      {head && <PageHead sub="TCP forwarding for media servers and other long-lived streams." />}
       <Card title="How forwarding works">
         <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.7, maxWidth: "88ch" }}>
           Each enabled application gets its own listener on a port on this host, relaying TCP byte for byte. TLS

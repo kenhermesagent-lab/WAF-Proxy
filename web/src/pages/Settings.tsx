@@ -2,9 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import { COFFEE_URL, DOCS_URL } from "../links";
-import { Badge, Field, PageHead, SaveBar, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
-import type { AuditEntry, CrowdSecStatus, GeoIPStatus } from "../types";
+import { Badge, Field, PageHead, PageTabs, SaveBar, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
+import type { AuditEntry, CrowdSecStatus, GeoIPStatus, Me } from "../types";
+import { NAV, type NavTab } from "../nav";
 import BackupCard from "../components/BackupCard";
+import UpdatesPage from "./Updates";
+import Readiness from "./Readiness";
 
 type Settings = Record<string, string>;
 
@@ -29,7 +32,52 @@ const SECTIONS = [
   { id: "about", label: "About" },
 ];
 
-export default function SettingsPage({ onError, onOK, version = "" }: { onError: (m: string) => void; onOK: (m: string) => void; version?: string }) {
+export default function SettingsPage({
+  onError,
+  onOK,
+  version = "",
+  me,
+  tab: routeTab = "general",
+  tabs = NAV.find((n) => n.id === "settings")?.tabs ?? [],
+  onTab,
+}: {
+  onError: (m: string) => void;
+  onOK: (m: string) => void;
+  version?: string;
+  me?: Me | null;
+  tab?: string;
+  tabs?: NavTab[];
+  onTab?: (id: string) => void;
+}) {
+  // The route owns the tab; the local copy keeps the page usable on its own
+  // and follows the URL when the operator navigates.
+  const [tab, setTab] = useState(routeTab);
+  useEffect(() => setTab(routeTab), [routeTab]);
+  const select = (id: string) => {
+    setTab(id);
+    onTab?.(id);
+  };
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <PageHead
+        sub={
+          tab === "updates"
+            ? "Console and host package versions, with the restart that applies a rebuild."
+            : tab === "readiness"
+              ? "What a hardened install has that a working one may not. Every row links to the control that fixes it."
+              : "Node networking, protection defaults, retention and administrator controls."
+        }
+      />
+      <PageTabs tabs={tabs} active={tab} onSelect={select} />
+      {tab === "general" && <SettingsGeneral onError={onError} onOK={onOK} version={version} />}
+      {tab === "updates" && <UpdatesPage onError={onError} onOK={onOK} head={false} />}
+      {tab === "readiness" && <Readiness me={me ?? null} onError={onError} head={false} />}
+    </div>
+  );
+}
+
+function SettingsGeneral({ onError, onOK, version = "" }: { onError: (m: string) => void; onOK: (m: string) => void; version?: string }) {
   const [s, setS] = useState<Settings>({});
   const [saved, setSaved] = useState<Settings>({});
   const [saving, setSaving] = useState(false);
@@ -207,8 +255,6 @@ export default function SettingsPage({ onError, onOK, version = "" }: { onError:
       </nav>
 
       <div className="settings-sections">
-        <PageHead sub="Node networking, protection defaults, retention and administrator controls." />
-
         <section id="network" className="settings-section card">
           <div className="section-head">
             <h2>Network</h2>
@@ -293,7 +339,7 @@ export default function SettingsPage({ onError, onOK, version = "" }: { onError:
           </div>
           <div className="bar-row">
             <div>Kernel ban enforcement</div>
-            <div>{s.kernel === "active" ? <Badge tone="ok">active</Badge> : <Badge tone="warn">{s.kernel || "unknown"}</Badge>}</div>
+            <div>{s.kernel === "active" ? <Badge tone="ok">active</Badge> : <span className="badge wrap warn">{s.kernel || "unknown"}</span>}</div>
           </div>
           <div className="bar-row">
             <div>GeoIP database</div>

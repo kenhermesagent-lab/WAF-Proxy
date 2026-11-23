@@ -31,9 +31,11 @@ function statusLabel(p: UpdatePackage): string {
 export default function UpdatesPage({
   onError,
   onOK,
+  head = true,
 }: {
   onError: (m: string) => void;
   onOK: (m: string) => void;
+  head?: boolean;
 }) {
   const [snap, setSnap] = useState<UpdatesSnapshot | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -186,7 +188,7 @@ export default function UpdatesPage({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <PageHead sub="Console and host package versions, with the restart that applies a rebuild." />
+      {head && <PageHead sub="Console and host package versions, with the restart that applies a rebuild." />}
       <Card
         title="WAF-Proxy application"
         actions={

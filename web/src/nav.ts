@@ -1,6 +1,17 @@
 import type { IconName } from "./components/Icon";
 
-export type NavItem = { id: string; label: string; icon: IconName; permission?: string; hint?: string };
+export type NavTab = { id: string; label: string; permission?: string };
+export type NavItem = {
+  id: string;
+  label: string;
+  icon: IconName;
+  permission?: string;
+  hint?: string;
+  tabs?: NavTab[];
+  defaultTab?: string;
+};
+
+export type Route = { page: string; tab: string };
 
 // Grouped so the sidebar reads as a few areas instead of one long list.
 // Settings and Account stay pinned at the bottom.
@@ -15,46 +26,141 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "Traffic",
     items: [
-      { id: "proxies", label: "Proxies", icon: "proxies", permission: "proxies.read", hint: "Sites, upstreams and certificates" },
-      { id: "streaming", label: "Streaming", icon: "play", permission: "streaming.read", hint: "Media and long-lived streams" },
-      { id: "policies", label: "Policies", icon: "shield", permission: "policies.read", hint: "Bans, lists and WAF profiles" },
-      { id: "sources", label: "Sources", icon: "radio", permission: "sources.read", hint: "Threat feeds and agents" },
+      {
+        id: "proxies",
+        label: "Proxies",
+        icon: "proxies",
+        permission: "proxies.read",
+        hint: "Sites, certificates and streaming forwards",
+        defaultTab: "sites",
+        tabs: [
+          { id: "sites", label: "Sites" },
+          { id: "certs", label: "Certificates", permission: "certificates.read" },
+          { id: "streaming", label: "Streaming", permission: "streaming.read" },
+        ],
+      },
+      {
+        id: "policies",
+        label: "Policies",
+        icon: "shield",
+        permission: "policies.read",
+        hint: "Bans, profiles and lists",
+        defaultTab: "bans",
+        tabs: [
+          { id: "bans", label: "Bans" },
+          { id: "profiles", label: "Profiles" },
+          { id: "access", label: "Access profiles" },
+          { id: "lists", label: "Lists" },
+          { id: "bots", label: "Bot filter" },
+        ],
+      },
       { id: "logs", label: "Logs", icon: "logs", permission: "traffic.read", hint: "Request event log" },
     ],
   },
   {
-    title: "Security",
+    title: "Threat",
     items: [
-      { id: "anomalies", label: "Anomaly events", icon: "alert", permission: "traffic.read", hint: "Behavioural detections" },
+      {
+        id: "intel",
+        label: "Threat intel",
+        icon: "intel",
+        permission: "sources.read",
+        hint: "Feeds, lookups and CrowdSec",
+        defaultTab: "feeds",
+        tabs: [
+          { id: "feeds", label: "Feeds" },
+          { id: "lookup", label: "Lookup" },
+          { id: "explorer", label: "Sources" },
+          { id: "bundles", label: "Bundles" },
+          { id: "crowdsec", label: "CrowdSec" },
+        ],
+      },
+      { id: "anomalies", label: "Anomalies", icon: "alert", permission: "traffic.read", hint: "Behavioural detections" },
+    ],
+  },
+  {
+    title: "Access",
+    items: [
+      {
+        id: "access",
+        label: "Access gate",
+        icon: "lock",
+        permission: "policies.read",
+        hint: "Gate accounts and identity providers",
+        defaultTab: "accounts",
+        tabs: [
+          { id: "accounts", label: "Accounts" },
+          { id: "providers", label: "Identity providers" },
+        ],
+      },
       { id: "activity", label: "Activity", icon: "clock", permission: "traffic.read", hint: "Audited changes with diffs and rollback" },
-      { id: "access", label: "Access gate", icon: "lock", permission: "policies.read", hint: "Gate accounts and TOTP" },
-      { id: "intel", label: "Threat intel", icon: "intel", permission: "sources.read", hint: "Feeds and lookups" },
-      { id: "crowdsec", label: "CrowdSec", icon: "crowdsec", permission: "sources.read", hint: "Community decisions" },
-      { id: "certs", label: "Certificates", icon: "certificate", permission: "certificates.read", hint: "ACME and TLS" },
     ],
   },
   {
     title: "System",
     items: [
-      { id: "agent", label: "AI Agent Access", icon: "terminal", permission: "settings.read", hint: "MCP endpoint and tokens" },
+      { id: "agent", label: "Agent access", icon: "terminal", permission: "settings.read", hint: "MCP endpoint and tokens" },
       { id: "notifications", label: "Notifications", icon: "mail", permission: "settings.read", hint: "Alert channels" },
-      { id: "updates", label: "Updates", icon: "upload", permission: "system.read", hint: "Application and packages" },
       { id: "tailscale", label: "Tailscale", icon: "network", permission: "settings.read", hint: "Private network access" },
-      { id: "readiness", label: "Readiness", icon: "shield", permission: "settings.read", hint: "Hardening checklist with a fix for each gap" },
     ],
   },
 ];
 
 export const NAV_UTILITY: NavItem[] = [
-  { id: "settings", label: "Settings", icon: "settings", permission: "settings.read", hint: "Network, protection and backup" },
+  {
+    id: "settings",
+    label: "Settings",
+    icon: "settings",
+    permission: "settings.read",
+    hint: "Network, protection, backup, updates and readiness",
+    defaultTab: "general",
+    tabs: [
+      { id: "general", label: "General" },
+      { id: "updates", label: "Updates", permission: "system.read" },
+      { id: "readiness", label: "Readiness" },
+    ],
+  },
   { id: "account", label: "Account", icon: "user", hint: "Password, authenticator and team" },
 ];
 
 export const NAV: NavItem[] = [...NAV_GROUPS.flatMap((g) => g.items), ...NAV_UTILITY];
 
-// pageFromHash maps "#/crowdsec" to a page id. An empty or unknown hash opens
-// the dashboard, so a stale bookmark still lands somewhere usable.
-export function pageFromHash(hash: string): string {
-  const id = hash.split("?")[0].replace(/^#\/?/, "").replace(/\/+$/, "");
-  return NAV.some((n) => n.id === id) ? id : "dashboard";
+// The old page ids that the restructure folded into a parent page's tab. Kept
+// so a bookmark or an in-app link written before the move still lands right.
+const LEGACY_ROUTES: Record<string, Route> = {
+  proxies: { page: "proxies", tab: "sites" },
+  sources: { page: "intel", tab: "explorer" },
+  intel: { page: "intel", tab: "feeds" },
+  crowdsec: { page: "intel", tab: "crowdsec" },
+  certs: { page: "proxies", tab: "certs" },
+  streaming: { page: "proxies", tab: "streaming" },
+  updates: { page: "settings", tab: "updates" },
+  readiness: { page: "settings", tab: "readiness" },
+};
+
+// routeFromHash maps "#/intel/explorer?ip=1.2.3.4" to { page: "intel", tab:
+// "explorer" }. A bare page hash opens its default tab, and an unknown tab
+// falls back to it. An empty or unknown page opens the dashboard.
+export function routeFromHash(hash: string): Route {
+  const path = hash.split("?")[0].replace(/^#\/?/, "");
+  const [id = "", wanted = ""] = path.split("/").filter(Boolean);
+  const legacy = LEGACY_ROUTES[id];
+  const item = NAV.find((n) => n.id === (legacy ? legacy.page : id));
+  if (!item) return { page: "dashboard", tab: "" };
+
+  const tabs = item.tabs ?? [];
+  if (tabs.length === 0) return { page: item.id, tab: "" };
+
+  const tab = tabs.some((t) => t.id === wanted)
+    ? wanted
+    : legacy && !wanted
+      ? legacy.tab
+      : item.defaultTab ?? tabs[0].id;
+  return { page: item.id, tab };
+}
+
+// href builds the canonical hash for a page and tab, so redirects and in-app
+// links share one shape.
+export function href(page: string, tab?: string): string {
+  return `#/${page}${tab ? `/${tab}` : ""}`;
 }

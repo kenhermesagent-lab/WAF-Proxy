@@ -6,9 +6,11 @@ import type { IPSummary } from "../types";
 export default function Sources({
   onError,
   onOpenSource,
+  head = true,
 }: {
   onError: (m: string) => void;
   onOpenSource: (ip: string) => void;
+  head?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [hours, setHours] = useState("24");
@@ -37,7 +39,7 @@ export default function Sources({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <PageHead sub="Source addresses ranked by request volume, with block counts and a link to their events." />
+      {head && <PageHead sub="Source addresses ranked by request volume, with block counts and a link to their events." />}
       <Card title="Source IP explorer">
         <div className="row grow">
           <Field label="IP prefix">

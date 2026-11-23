@@ -45,7 +45,7 @@ describe("Policies preflight", () => {
     });
 
     render(<Policies onError={vi.fn()} onOK={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Global Profile" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Profiles" }));
 
     const countrySelect = screen
       .getAllByRole("combobox")

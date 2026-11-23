@@ -3,11 +3,11 @@ import type { DragEvent, MouseEvent as ReactMouseEvent } from "react";
 import { api } from "../api";
 import { bundleMode, hitsByBundle, profileBundleBadges } from "../bundles";
 import { COUNTRIES, countryFlag, countryName } from "../countries";
-import { confirmDialog, Badge, Card, Empty, Field, Modal, PageHead, errText, fmtAgo } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, Modal, PageHead, PageTabs, errText, fmtAgo } from "../ui";
+import { NAV, type NavTab } from "../nav";
 import { ASNRecommendations, ASNSuggestion, Ban, BundleHit, BundlesSnapshot, GlobalLists, Policy, PolicyPreflight, Profile, Proxy } from "../types";
 import AccessLists from "../components/AccessLists";
 import AccessProfiles from "../components/AccessProfiles";
-import AuthProviders from "../components/AuthProviders";
 import BotFilter from "../components/BotFilter";
 import ProtectionProfiles from "../components/ProtectionProfiles";
 
@@ -210,13 +210,27 @@ function BanMoveModal({
   );
 }
 
-export default function Policies({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
-  // The Threat intel page links straight to the WAF profiles tab after a bundle
-  // starts matching, so the operator lands on the switch they need.
-  const [tab, setTab] = useState(() => {
-    const query = window.location.hash.split("?")[1] ?? "";
-    return new URLSearchParams(query).get("tab") ?? "bans";
-  });
+export default function Policies({
+  onError,
+  onOK,
+  tab: routeTab = "bans",
+  tabs = NAV.find((n) => n.id === "policies")?.tabs ?? [],
+  onTab,
+}: {
+  onError: (m: string) => void;
+  onOK: (m: string) => void;
+  tab?: string;
+  tabs?: NavTab[];
+  onTab?: (id: string) => void;
+}) {
+  // The route owns the tab. The local copy keeps the page usable on its own and
+  // follows the URL when the operator navigates.
+  const [tab, setTab] = useState(routeTab);
+  useEffect(() => setTab(routeTab), [routeTab]);
+  const select = (id: string) => {
+    setTab(id);
+    onTab?.(id);
+  };
   const [bundles, setBundles] = useState<BundlesSnapshot | null>(null);
   const [bundleHits, setBundleHits] = useState<BundleHit[]>([]);
   const [bans, setBans] = useState<Ban[]>([]);
@@ -514,19 +528,9 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <PageHead sub="Bans, WAF profiles and the lists applied before traffic reaches a proxy." />
+      <PageHead sub="Bans, WAF and access profiles, and the lists applied before traffic reaches a proxy." />
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <div className="tabs" style={{ marginBottom: 0, borderBottom: 0 }}>
-          <button className={`tab ${tab === "bans" ? "active" : ""}`} onClick={() => setTab("bans")}>Bans</button>
-          <button className={`tab ${tab === "global" ? "active" : ""}`} onClick={() => setTab("global")}>Global Profile</button>
-          <button className={`tab ${tab === "profiles" ? "active" : ""}`} onClick={() => setTab("profiles")}>WAF profiles</button>
-          <button className={`tab ${tab === "protection" ? "active" : ""}`} onClick={() => setTab("protection")}>Protection profiles</button>
-          <button className={`tab ${tab === "blocklists" ? "active" : ""}`} onClick={() => setTab("blocklists")}>Blocklist profiles</button>
-          <button className={`tab ${tab === "whitelists" ? "active" : ""}`} onClick={() => setTab("whitelists")}>Whitelist profiles</button>
-          <button className={`tab ${tab === "access" ? "active" : ""}`} onClick={() => setTab("access")}>Access profiles</button>
-          <button className={`tab ${tab === "providers" ? "active" : ""}`} onClick={() => setTab("providers")}>Identity providers</button>
-          <button className={`tab ${tab === "bots" ? "active" : ""}`} onClick={() => setTab("bots")}>Bot filter</button>
-        </div>
+        <PageTabs tabs={tabs} active={tab} onSelect={select} />
         {kernel && (
           <span
             className={`badge wrap ${kernel.active ? "ok" : "warn"}`}
@@ -680,70 +684,6 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
       )}
 
       {tab === "profiles" && (
-        <Card
-          title="CRS protection profiles"
-          actions={<button className="small primary" onClick={() => setProfile(newProfile())}>New profile</button>}
-        >
-          {profiles.length === 0 ? <Empty>No profiles available.</Empty> : (
-            <div style={{ overflowX: "auto" }}>
-              <div className="table-wrap"><table>
-                <thead>
-                  <tr><th>Profile</th><th>Mode</th><th className="num">Paranoia</th><th className="num">Anomaly</th><th>Methods</th><th className="num">Max body</th><th>Bundles</th><th /></tr>
-                </thead>
-                <tbody>
-                  {profiles.map((p) => (
-                    <tr key={p.id}>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        {p.name}
-                        {p.exceptions ? <div className="faint" style={{ fontSize: 11 }}>{p.exceptions.split(",").filter(Boolean).length} rule exception(s)</div> : null}
-                        {(p.login_rps > 0 || p.max_response > 0 || (p.admin_paths && p.admin_ips)) && (
-                          <div className="faint" style={{ fontSize: 11 }}>
-                            {[
-                              p.login_rps > 0 ? `logins ${p.login_rps}/s` : "",
-                              p.max_response > 0 ? `responses ${Math.round(p.max_response / 1024)} KiB` : "",
-                              p.admin_paths && p.admin_ips ? "admin paths" : "",
-                            ].filter(Boolean).join(" · ")}
-                          </div>
-                        )}
-                      </td>
-                      <td><Badge tone={p.mode === "block" ? "ok" : p.mode === "detect" ? "info" : "warn"}>{p.mode}</Badge></td>
-                      <td className="num">{p.paranoia}</td>
-                      <td className="num">{p.anomaly}</td>
-                      <td className="muted mono" style={{ fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.allowed_methods}>{p.allowed_methods}</td>
-                      <td className="num">{p.max_body.toLocaleString()}</td>
-                      <td>
-                        <div className="row" style={{ gap: 4 }}>
-                          {profileBundleBadges(p, installedNames).map((m) => <Badge key={m.label} tone={m.tone}>{m.label}</Badge>)}
-                          {installedNames.length === 0 ? <span className="faint">—</span> : null}
-                        </div>
-                      </td>
-                      <td className="right" style={{ whiteSpace: "nowrap" }}>
-                        <button className="small" onClick={() => setProfile({ ...p })}>Edit</button>{" "}
-                        {!p.builtin && <button className="small danger" onClick={() => removeProfile(p)}>Delete</button>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table></div>
-            </div>
-          )}
-          <p className="muted" style={{ fontSize: 12 }}>
-            A proxy with WAF mode <code>inherit</code> uses its selected profile. Paranoia 1 is the CRS default and
-            3–4 is strict enough to block some legitimate applications. Rule exceptions remove an OWASP CRS rule ID
-            for this profile only. Changes reload the WAF without dropping connections.
-          </p>
-        </Card>
-      )}
-
-      {tab === "protection" && <ProtectionProfiles onError={onError} onOK={onOK} />}
-
-      {tab === "blocklists" && <AccessLists kind="blocklist" onError={onError} onOK={onOK} />}
-      {tab === "whitelists" && <AccessLists kind="whitelist" onError={onError} onOK={onOK} />}
-      {tab === "access" && <AccessProfiles policies={policies} onError={onError} onOK={onOK} />}
-      {tab === "providers" && <AuthProviders onError={onError} onOK={onOK} />}
-      {tab === "bots" && <BotFilter onError={onError} onOK={onOK} />}
-
-      {tab === "global" && (
         <>
           <Card title="Add policy">
             <div className="row grow">
@@ -967,6 +907,76 @@ export default function Policies({ onError, onOK }: { onError: (m: string) => vo
           </Card>
         </>
       )}
+
+
+      {tab === "profiles" && (
+        <Card
+          title="CRS protection profiles"
+          actions={<button className="small primary" onClick={() => setProfile(newProfile())}>New profile</button>}
+        >
+          {profiles.length === 0 ? <Empty>No profiles available.</Empty> : (
+            <div style={{ overflowX: "auto" }}>
+              <div className="table-wrap"><table>
+                <thead>
+                  <tr><th>Profile</th><th>Mode</th><th className="num">Paranoia</th><th className="num">Anomaly</th><th>Methods</th><th className="num">Max body</th><th>Bundles</th><th /></tr>
+                </thead>
+                <tbody>
+                  {profiles.map((p) => (
+                    <tr key={p.id}>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {p.name}
+                        {p.exceptions ? <div className="faint" style={{ fontSize: 11 }}>{p.exceptions.split(",").filter(Boolean).length} rule exception(s)</div> : null}
+                        {(p.login_rps > 0 || p.max_response > 0 || (p.admin_paths && p.admin_ips)) && (
+                          <div className="faint" style={{ fontSize: 11 }}>
+                            {[
+                              p.login_rps > 0 ? `logins ${p.login_rps}/s` : "",
+                              p.max_response > 0 ? `responses ${Math.round(p.max_response / 1024)} KiB` : "",
+                              p.admin_paths && p.admin_ips ? "admin paths" : "",
+                            ].filter(Boolean).join(" · ")}
+                          </div>
+                        )}
+                      </td>
+                      <td><Badge tone={p.mode === "block" ? "ok" : p.mode === "detect" ? "info" : "warn"}>{p.mode}</Badge></td>
+                      <td className="num">{p.paranoia}</td>
+                      <td className="num">{p.anomaly}</td>
+                      <td className="muted mono" style={{ fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.allowed_methods}>{p.allowed_methods}</td>
+                      <td className="num">{p.max_body.toLocaleString()}</td>
+                      <td>
+                        <div className="row" style={{ gap: 4 }}>
+                          {profileBundleBadges(p, installedNames).map((m) => <Badge key={m.label} tone={m.tone}>{m.label}</Badge>)}
+                          {installedNames.length === 0 ? <span className="faint">—</span> : null}
+                        </div>
+                      </td>
+                      <td className="right" style={{ whiteSpace: "nowrap" }}>
+                        <button className="small" onClick={() => setProfile({ ...p })}>Edit</button>{" "}
+                        {!p.builtin && <button className="small danger" onClick={() => removeProfile(p)}>Delete</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+            </div>
+          )}
+          <p className="muted" style={{ fontSize: 12 }}>
+            A proxy with WAF mode <code>inherit</code> uses its selected profile. Paranoia 1 is the CRS default and
+            3–4 is strict enough to block some legitimate applications. Rule exceptions remove an OWASP CRS rule ID
+            for this profile only. Changes reload the WAF without dropping connections.
+          </p>
+        </Card>
+      )}
+
+      {tab === "profiles" && <ProtectionProfiles onError={onError} onOK={onOK} />}
+
+      {tab === "access" && <AccessProfiles policies={policies} onError={onError} onOK={onOK} />}
+
+      {tab === "lists" && (
+        <>
+          <AccessLists kind="blocklist" onError={onError} onOK={onOK} />
+          <AccessLists kind="whitelist" onError={onError} onOK={onOK} />
+        </>
+      )}
+      {tab === "bots" && <BotFilter onError={onError} onOK={onOK} />}
+
 
       {profile && (
         <Modal title={profile.id === 0 ? "New CRS profile" : `Edit ${profile.name}`} onClose={() => setProfile(null)}>

@@ -13,6 +13,34 @@ export function PageHead({ sub, actions }: { sub?: ReactNode; actions?: ReactNod
   );
 }
 
+// A page's tab row. Tabs switch views inside one page, so they share the same
+// permission check, breadcrumb and sidebar entry as that page.
+export function PageTabs({
+  tabs,
+  active,
+  onSelect,
+}: {
+  tabs: { id: string; label: string }[];
+  active: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="tabs" role="tablist">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          role="tab"
+          aria-selected={active === t.id}
+          className={`tab ${active === t.id ? "active" : ""}`}
+          onClick={() => onSelect(t.id)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Card({ title, actions, children, sub }: { title?: string; actions?: ReactNode; children: ReactNode; sub?: ReactNode }) {
   return (
     <section className="card">

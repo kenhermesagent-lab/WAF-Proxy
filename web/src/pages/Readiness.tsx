@@ -19,7 +19,15 @@ type Row = {
   optional?: boolean;
 };
 
-export default function Readiness({ me, onError }: { me: Me | null; onError: (m: string) => void }) {
+export default function Readiness({
+  me,
+  onError,
+  head = true,
+}: {
+  me: Me | null;
+  onError: (m: string) => void;
+  head?: boolean;
+}) {
   const [settings, setSettings] = useState<Record<string, string> | null>(null);
   const [certs, setCerts] = useState<Cert[] | null>(null);
   const [geo, setGeo] = useState<GeoIPStatus | null>(null);
@@ -77,7 +85,7 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
       detail: certs?.length ? `${certs.filter((c) => c.status === "issued").length} of ${certs.length} certificates issued.` : "No certificate is stored.",
       ready: has("certs") && certs ? certs.some((c) => c.status === "issued") : null,
       fix: "Open Certificates",
-      link: "certs",
+      link: "proxies/certs",
     },
     {
       id: "geoip",
@@ -142,7 +150,7 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
       detail: crowdsec?.configured ? `Connected, ${crowdsec.applied} decisions applied.` : "Not connected; the built-in WAF does not need it.",
       ready: has("crowdsec") && crowdsec ? crowdsec.configured : null,
       fix: "Open CrowdSec",
-      link: "crowdsec",
+      link: "intel/crowdsec",
       optional: true,
     },
   ];
@@ -156,9 +164,9 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <PageHead
-        sub="What a hardened install has that a working one may not. Every row links to the control that fixes it."
-      />
+      {head && (
+        <PageHead sub="What a hardened install has that a working one may not. Every row links to the control that fixes it." />
+      )}
 
       <Card>
         {loading ? (

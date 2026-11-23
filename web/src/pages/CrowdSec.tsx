@@ -35,7 +35,7 @@ function ConsoleConnection({ inst }: { inst: CrowdSecInstall }) {
   );
 }
 
-export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
+export default function CrowdSecPage({ onError, onOK, head = true }: { onError: (m: string) => void; onOK: (m: string) => void; head?: boolean }) {
   const [status, setStatus] = useState<CrowdSecStatus | null>(null);
   const [inst, setInst] = useState<CrowdSecInstall | null>(null);
   const [enabled, setEnabled] = useState(false);
@@ -171,7 +171,7 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <PageHead sub="The bouncer that applies community decisions to proxy and stream traffic." />
+      {head && <PageHead sub="The bouncer that applies community decisions to proxy and stream traffic." />}
       <Card
         title="Security engine and bouncer"
         actions={<button className="small" onClick={load}>Refresh</button>}

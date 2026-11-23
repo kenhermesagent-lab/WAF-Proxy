@@ -11,13 +11,14 @@ export default function TailscalePage({
   onOK: (m: string) => void;
 }) {
   const [ts, setTs] = useState<TailscaleStatus | null>(null);
+  const [saved, setSaved] = useState<TailscaleStatus | null>(null);
   const [saving, setSaving] = useState(false);
   const [restarting, setRestarting] = useState(false);
 
   const load = () =>
     api
       .get<TailscaleStatus>("/api/tailscale")
-      .then(setTs)
+      .then((next) => { setTs(next); setSaved(next); })
       .catch((e) => onError(errText(e)));
 
   useEffect(() => {
@@ -26,6 +27,11 @@ export default function TailscalePage({
 
   const change = (patch: Partial<TailscaleStatus>) =>
     setTs((prev) => (prev ? { ...prev, ...patch } : prev));
+
+  // Only the listener switches are editable, so only they count as a change.
+  const changes = ts && saved
+    ? (["admin_enabled", "proxy_enabled", "dns_enabled"] as const).filter((k) => ts[k] !== saved[k]).length
+    : 0;
 
   const save = async () => {
     if (!ts) return;
@@ -36,6 +42,7 @@ export default function TailscalePage({
         proxy_enabled: ts.proxy_enabled,
         dns_enabled: ts.dns_enabled,
       });
+      setSaved(ts);
       onOK("Tailscale settings saved; restart to apply the listeners");
       await load();
     } catch (e) {
@@ -191,12 +198,15 @@ export default function TailscalePage({
         </div>
       )}
 
-      <SaveBar
-        note="Listener changes take effect after saving; some need a restart."
-        saveLabel="Save Tailscale settings"
-        saving={saving}
-        onSave={save}
-      />
+      {(changes > 0 || saving) && (
+        <SaveBar
+          note={<><b>{changes} unsaved change{changes === 1 ? "" : "s"}</b> · listener changes apply after saving; some need a restart</>}
+          saveLabel="Save Tailscale settings"
+          saving={saving}
+          onDiscard={() => { if (saved) { setTs(saved); onOK("Unsaved changes discarded"); } }}
+          onSave={save}
+        />
+      )}
     </div>
   );
 }

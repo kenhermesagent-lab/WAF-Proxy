@@ -1,10 +1,24 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
-import { Badge, Card, ConfirmDialog, Empty, Field, Modal, PageHead, Switch, TableWrap, errText, fmtTime } from "../ui";
+import { Badge, Card, ConfirmDialog, Empty, Field, Modal, PageHead, PageTabs, Switch, TableWrap, errText, fmtTime } from "../ui";
 import { GateUser } from "../types";
+import type { NavTab } from "../nav";
+import AuthProviders from "../components/AuthProviders";
 
-export default function Access({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
+export default function Access({
+  onError,
+  onOK,
+  tab,
+  tabs,
+  onTab,
+}: {
+  onError: (m: string) => void;
+  onOK: (m: string) => void;
+  tab: string;
+  tabs: NavTab[];
+  onTab: (id: string) => void;
+}) {
   const [users, setUsers] = useState<GateUser[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ username: "", password: "", totp_enabled: true });
@@ -73,105 +87,113 @@ export default function Access({ onError, onOK }: { onError: (m: string) => void
   return (
     <div className="grid" style={{ gap: 14 }}>
       <PageHead
-        sub="Accounts served by the proxy login page, before any request reaches a backend."
-        actions={<button className="primary" onClick={() => setOpen(true)}><Icon name="plus" size={14} /> New account</button>}
+        sub="Accounts served by the proxy login page, and the identity providers they can use."
+        actions={tab === "accounts" ? <button className="primary" onClick={() => setOpen(true)}><Icon name="plus" size={14} /> New account</button> : undefined}
       />
-      <Card title="Gate accounts">
-        {users.length === 0 ? (
-          <Empty title="No gate accounts" icon="lock" action={<button className="primary" onClick={() => setOpen(true)}>Create an account</button>}>
-            Enable the gate on a proxy and either use a shared passphrase or create accounts here.
-          </Empty>
-        ) : (
-          <TableWrap><table>
-            <thead><tr><th>Username</th><th>TOTP</th><th>Created</th><th /></tr></thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td className="mono">{u.username}</td>
-                  <td>{u.totp_enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="warn">off</Badge>}</td>
-                  <td className="muted">{fmtTime(u.created_at)}</td>
-                  <td className="right" style={{ whiteSpace: "nowrap" }}>
-                    <button className="small" onClick={() => setEdit({ user: u, password: "", totp_enabled: u.totp_enabled })}>Edit</button>{" "}
-                    <button className="small danger" onClick={() => setRemoveTarget(u)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table></TableWrap>
-        )}
-      </Card>
+      <PageTabs tabs={tabs} active={tab} onSelect={onTab} />
 
-      <Card title="How the gate behaves">
-        <ul className="muted" style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-          <li>The login page is served by the proxy on the proxy's own hostname; nothing reaches the backend before sign-in.</li>
-          <li>Three failures from an IP in ten minutes creates a 15 minute ban. Ten in a day extends it to 24 hours. Failure on three separate days becomes permanent.</li>
-          <li>Accounts also lock out after five failures in fifteen minutes, which stops credential stuffing even when the attacker changes IP.</li>
-          <li>Every ban is visible under Policies, is liftable from this LAN-only GUI, and is logged with its reason.</li>
-        </ul>
-      </Card>
+      {tab === "providers" && <AuthProviders onError={onError} onOK={onOK} />}
 
-      {open && (
-        <Modal title="New gate account" onClose={() => setOpen(false)}>
-          <Field label="Username"><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></Field>
-          <Field label="Password (12+ characters)">
-            <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-          </Field>
-          <Switch label="Require TOTP" checked={form.totp_enabled} onChange={(v) => setForm({ ...form, totp_enabled: v })} />
-          <div className="row mt" style={{ justifyContent: "flex-end" }}>
-            <button onClick={() => setOpen(false)}>Cancel</button>
-            <button className="primary" onClick={create}>Create</button>
-          </div>
-        </Modal>
-      )}
+      {tab === "accounts" && (
+            <>
+          <Card title="Gate accounts">
+            {users.length === 0 ? (
+              <Empty title="No gate accounts" icon="lock" action={<button className="primary" onClick={() => setOpen(true)}>Create an account</button>}>
+                Enable the gate on a proxy and either use a shared passphrase or create accounts here.
+              </Empty>
+            ) : (
+              <TableWrap><table>
+                <thead><tr><th>Username</th><th>TOTP</th><th>Created</th><th /></tr></thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.id}>
+                      <td className="mono">{u.username}</td>
+                      <td>{u.totp_enabled ? <Badge tone="ok">enabled</Badge> : <Badge tone="warn">off</Badge>}</td>
+                      <td className="muted">{fmtTime(u.created_at)}</td>
+                      <td className="right" style={{ whiteSpace: "nowrap" }}>
+                        <button className="small" onClick={() => setEdit({ user: u, password: "", totp_enabled: u.totp_enabled })}>Edit</button>{" "}
+                        <button className="small danger" onClick={() => setRemoveTarget(u)}>Delete</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></TableWrap>
+            )}
+          </Card>
 
-      {edit && (
-        <Modal title={`Edit ${edit.user.username}`} onClose={() => setEdit(null)}>
-          <Field label="New password (leave blank to keep the current one)">
-            <input
-              type="password"
-              value={edit.password}
-              onChange={(e) => setEdit({ ...edit, password: e.target.value })}
-              placeholder="12+ characters"
-              autoComplete="new-password"
-            />
-          </Field>
-          <Switch label="Require TOTP" checked={edit.totp_enabled} onChange={(v) => setEdit({ ...edit, totp_enabled: v })} />
-          {edit.totp_enabled && !edit.user.totp_enabled && (
-            <p className="muted" style={{ fontSize: 12 }}>
-              Saving creates an authenticator secret for this account and shows it once. Changing the
-              password signs out the account's existing sessions.
-            </p>
+          <Card title="How the gate behaves">
+            <ul className="muted" style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+              <li>The login page is served by the proxy on the proxy's own hostname; nothing reaches the backend before sign-in.</li>
+              <li>Three failures from an IP in ten minutes creates a 15 minute ban. Ten in a day extends it to 24 hours. Failure on three separate days becomes permanent.</li>
+              <li>Accounts also lock out after five failures in fifteen minutes, which stops credential stuffing even when the attacker changes IP.</li>
+              <li>Every ban is visible under Policies, is liftable from this LAN-only GUI, and is logged with its reason.</li>
+            </ul>
+          </Card>
+
+          {open && (
+            <Modal title="New gate account" onClose={() => setOpen(false)}>
+              <Field label="Username"><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></Field>
+              <Field label="Password (12+ characters)">
+                <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+              </Field>
+              <Switch label="Require TOTP" checked={form.totp_enabled} onChange={(v) => setForm({ ...form, totp_enabled: v })} />
+              <div className="row mt" style={{ justifyContent: "flex-end" }}>
+                <button onClick={() => setOpen(false)}>Cancel</button>
+                <button className="primary" onClick={create}>Create</button>
+              </div>
+            </Modal>
           )}
-          <div className="row mt" style={{ justifyContent: "flex-end" }}>
-            <button onClick={() => setEdit(null)}>Cancel</button>
-            <button className="primary" onClick={saveEdit} disabled={editBusy}>
-              {editBusy ? "Saving…" : "Save account"}
-            </button>
-          </div>
-        </Modal>
-      )}
 
-      {removeTarget && (
-        <ConfirmDialog
-          title={`Delete ${removeTarget.username}?`}
-          confirmLabel="Delete account"
-          busy={removeBusy}
-          onConfirm={remove}
-          onClose={() => setRemoveTarget(null)}
-        >
-          The account is removed from the access gate and any active session for it is revoked. Bans are not affected.
-        </ConfirmDialog>
-      )}
+          {edit && (
+            <Modal title={`Edit ${edit.user.username}`} onClose={() => setEdit(null)}>
+              <Field label="New password (leave blank to keep the current one)">
+                <input
+                  type="password"
+                  value={edit.password}
+                  onChange={(e) => setEdit({ ...edit, password: e.target.value })}
+                  placeholder="12+ characters"
+                  autoComplete="new-password"
+                />
+              </Field>
+              <Switch label="Require TOTP" checked={edit.totp_enabled} onChange={(v) => setEdit({ ...edit, totp_enabled: v })} />
+              {edit.totp_enabled && !edit.user.totp_enabled && (
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Saving creates an authenticator secret for this account and shows it once. Changing the
+                  password signs out the account's existing sessions.
+                </p>
+              )}
+              <div className="row mt" style={{ justifyContent: "flex-end" }}>
+                <button onClick={() => setEdit(null)}>Cancel</button>
+                <button className="primary" onClick={saveEdit} disabled={editBusy}>
+                  {editBusy ? "Saving…" : "Save account"}
+                </button>
+              </div>
+            </Modal>
+          )}
 
-      {secret && (
-        <Modal title={`TOTP for ${secret.username}`} onClose={() => setSecret(null)}>
-          <p className="muted">Add this to an authenticator app now. It is shown once.</p>
-          <div className="secret-box">{secret.secret}</div>
-          <div className="secret-box" style={{ fontSize: 12 }}>{secret.url}</div>
-          <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="primary" onClick={() => setSecret(null)}>I saved it</button>
-          </div>
-        </Modal>
+          {removeTarget && (
+            <ConfirmDialog
+              title={`Delete ${removeTarget.username}?`}
+              confirmLabel="Delete account"
+              busy={removeBusy}
+              onConfirm={remove}
+              onClose={() => setRemoveTarget(null)}
+            >
+              The account is removed from the access gate and any active session for it is revoked. Bans are not affected.
+            </ConfirmDialog>
+          )}
+
+          {secret && (
+            <Modal title={`TOTP for ${secret.username}`} onClose={() => setSecret(null)}>
+              <p className="muted">Add this to an authenticator app now. It is shown once.</p>
+              <div className="secret-box">{secret.secret}</div>
+              <div className="secret-box" style={{ fontSize: 12 }}>{secret.url}</div>
+              <div className="row" style={{ justifyContent: "flex-end" }}>
+                <button className="primary" onClick={() => setSecret(null)}>I saved it</button>
+              </div>
+            </Modal>
+          )}
+        </>
       )}
     </div>
   );

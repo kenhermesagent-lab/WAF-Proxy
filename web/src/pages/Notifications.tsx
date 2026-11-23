@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Empty, Field, SaveBar, errText, fmtAgo, fmtTime, PageHead } from "../ui";
 
@@ -15,6 +15,7 @@ const FALLBACK_KINDS: EventKind[] = [
 
 export default function Notifications({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [settings, setSettings] = useState<Settings>({});
+  const [saved, setSaved] = useState<Settings>({});
   const [channels, setChannels] = useState<Record<string, boolean>>({});
   const [recent, setRecent] = useState<Alert[]>([]);
   const [kinds, setKinds] = useState<EventKind[]>(FALLBACK_KINDS);
@@ -25,6 +26,7 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
       .get<{ settings: Settings; channels: Record<string, boolean>; recent: Alert[]; event_kinds?: EventKind[] }>("/api/notifications")
       .then((r) => {
         setSettings(r.settings || {});
+        setSaved(r.settings || {});
         setChannels(r.channels || {});
         setRecent(r.recent || []);
         if (r.event_kinds?.length) setKinds(r.event_kinds);
@@ -36,6 +38,11 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
   }, []);
 
   const set = (k: string, v: string) => setSettings((s) => ({ ...s, [k]: v }));
+
+  const dirty = useMemo(() => {
+    const keys = new Set([...Object.keys(settings), ...Object.keys(saved)]);
+    return [...keys].filter((k) => (settings[k] ?? "") !== (saved[k] ?? "")).length;
+  }, [settings, saved]);
 
   const rawEvents = (settings.events ?? "").trim();
   const allEvents = rawEvents === "";
@@ -58,6 +65,7 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
     try {
       await api.put("/api/notifications", settings);
       onOK("Notification settings saved");
+      setSaved(settings);
       load();
     } catch (e) {
       onError(errText(e));
@@ -166,7 +174,14 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
         immediately. Muting a class also suppresses what is already queued for it.
       </p>
 
-      <SaveBar note="Saving applies to every channel and the routing grid." saving={saving} onSave={save} />
+      {(dirty > 0 || saving) && (
+        <SaveBar
+          note={<><b>{dirty} unsaved change{dirty === 1 ? "" : "s"}</b> · saving applies to every channel and the routing grid</>}
+          saving={saving}
+          onDiscard={() => { setSettings({ ...saved }); onOK("Unsaved changes discarded"); }}
+          onSave={save}
+        />
+      )}
 
       <Card title="Recent deliveries">
         {recent.length === 0 ? <Empty>No notifications sent yet.</Empty> : (

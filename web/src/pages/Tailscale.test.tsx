@@ -93,17 +93,31 @@ describe("Tailscale page", () => {
     expect(screen.getByRole("button", { name: "Restart service" })).toBeTruthy();
   });
 
+  it("shows the save bar only while a switch differs from what was loaded", async () => {
+    get.mockResolvedValue({ ...base, admin_enabled: true });
+    renderPage();
+
+    const proxy = await screen.findByRole("checkbox", { name: /Proxy app traffic over Tailscale/ });
+    expect(screen.queryByRole("button", { name: "Save Tailscale settings" })).toBeNull();
+
+    proxy.click();
+    expect(await screen.findByRole("button", { name: "Save Tailscale settings" })).toBeTruthy();
+    expect(screen.getByText(/1 unsaved change/)).toBeTruthy();
+  });
+
   it("saves all three switches together", async () => {
     get.mockResolvedValue({ ...base, admin_enabled: true });
     const put = vi.mocked(api.put).mockResolvedValue({ status: "ok", restart_required: true });
     renderPage();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save Tailscale settings" })).toBeTruthy());
-    screen.getByRole("button", { name: "Save Tailscale settings" }).click();
+    const proxy = await screen.findByRole("checkbox", { name: /Proxy app traffic over Tailscale/ });
+    proxy.click();
+    const save = await screen.findByRole("button", { name: "Save Tailscale settings" });
+    save.click();
     await waitFor(() =>
       expect(put).toHaveBeenCalledWith("/api/tailscale", {
         admin_enabled: true,
-        proxy_enabled: false,
+        proxy_enabled: true,
         dns_enabled: false,
       }),
     );

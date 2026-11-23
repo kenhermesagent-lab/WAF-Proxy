@@ -11,6 +11,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.49.0] — 2026-11-23
+
+### Changed
+
+- **Related pages now share one entry with tabs** instead of sitting apart in the sidebar. The
+  route is `#/<page>/<tab>`: bare `#/proxies` opens Sites, bare `#/settings` opens General, and an
+  unknown tab falls back to that page's default. Old page hashes are rewritten in place, so a
+  bookmark to `#/certs`, `#/sources`, `#/crowdsec`, `#/streaming`, `#/updates`, `#/readiness` or
+  `#/intel` still lands on the right view. The sidebar drops from 20 entries to 16, grouped as
+  Overview · Traffic · Threat · Access · System.
+- **Proxies** holds **Sites**, **Certificates** and **Streaming**; the restart card stays on the
+  Streaming tab for now.
+- **Policies** holds **Bans**, **Profiles** (global profile, WAF profiles, protection profiles),
+  **Access profiles**, **Lists** and **Bot filter**. Access profiles moved here from the access
+  gate because a profile is config for a proxy, not an account.
+- **Threat intel** holds **Feeds**, **Lookup**, **Sources**, **Bundles** and **CrowdSec**.
+- **Access gate** holds **Accounts** and **Identity providers**.
+- **Settings** holds **General**, **Updates** and **Readiness**; the two former sidebar pages are
+  now tabs of Settings and their old hashes redirect there.
+- The page header carries the description once, above the tab row; an absorbed page no longer
+  repeats its own header inside the tab.
+
+### Fixed
+
+- **Threat intel's "Set bundle mode" button** now opens **Policies → Profiles**; it previously
+  pointed at a Policies query parameter that no longer selected the tab.
+- **A long kernel status reason no longer widens Settings at phone width.** The runtime row uses
+  the same wrapping badge as Policies, so the page keeps its 390px width.
+
 ## [1.48.4] — 2026-11-23
 
 ### Changed

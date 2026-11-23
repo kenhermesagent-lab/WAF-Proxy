@@ -277,7 +277,7 @@ export default function Dashboard({
         tone: "bad",
         title: `${failedCerts.length} certificate renewal${failedCerts.length === 1 ? " has" : "s have"} failed`,
         detail: failedCerts.slice(0, 2).map((c) => `${c.domains}: ${c.last_error}`).join(" · "),
-        href: "#/certs",
+        href: "#/proxies/certs",
         action: "Open certificates",
       });
     }
@@ -291,7 +291,7 @@ export default function Dashboard({
         tone: "warn",
         title: `${expiring.length} certificate${expiring.length === 1 ? " expires" : "s expire"} within 21 days`,
         detail: expiring.slice(0, 3).map((c) => c.domains).join(", "),
-        href: "#/certs",
+        href: "#/proxies/certs",
         action: "Review renewals",
       });
     }
@@ -302,7 +302,7 @@ export default function Dashboard({
         tone: "warn",
         title: `${badFeeds.length} threat feed${badFeeds.length === 1 ? "" : "s"} need attention`,
         detail: badFeeds.slice(0, 3).map((f) => `${f.name} (${f.state})`).join(", "),
-        href: "#/intel",
+        href: "#/intel/feeds",
         action: "Open threat intel",
       });
     }
@@ -324,7 +324,7 @@ export default function Dashboard({
         tone: "warn",
         title: `${securityUpdates.length} security package update${securityUpdates.length === 1 ? "" : "s"} pending`,
         detail: securityUpdates.slice(0, 3).map((p) => p.name).join(", "),
-        href: "#/updates",
+        href: "#/settings/updates",
         action: "Open updates",
       });
     }
@@ -334,7 +334,7 @@ export default function Dashboard({
         tone: "warn",
         title: `Console update available${updates.app_remote_version ? `: v${updates.app_remote_version}` : ""}`,
         detail: "Apply it from Updates when the node has a quiet moment.",
-        href: "#/updates",
+        href: "#/settings/updates",
         action: "Open updates",
       });
     }
@@ -565,7 +565,7 @@ export default function Dashboard({
       </div>
 
       <div className="split">
-        <Card title="Proxy traffic" actions={<a className="xsmall" href="#/proxies" style={{ color: "var(--muted)", fontSize: 11.5 }}>Manage proxies</a>}>
+        <Card title="Proxy traffic" actions={<a className="xsmall" href="#/proxies/sites" style={{ color: "var(--muted)", fontSize: 11.5 }}>Manage proxies</a>}>
           {proxyRows.length === 0 ? (
             <Empty title="No requests since start" icon="server">Traffic appears as soon as a proxy accepts a request.</Empty>
           ) : (

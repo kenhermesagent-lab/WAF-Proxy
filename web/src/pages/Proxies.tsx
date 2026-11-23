@@ -3,7 +3,10 @@ import { api } from "../api";
 import Icon from "../components/Icon";
 import ProxyDetail from "../components/ProxyDetail";
 import { AccessProfile, AuthProvider, Cert, Preset, Profile, ProtectionProfile, Proxy, Route, Upstream } from "../types";
-import { Badge, ConfirmDialog, Drawer, Empty, Field, PageHead, Switch, TableWrap, errText } from "../ui";
+import { Badge, ConfirmDialog, Drawer, Empty, Field, PageHead, PageTabs, Switch, TableWrap, errText } from "../ui";
+import type { NavTab } from "../nav";
+import Certs from "./Certs";
+import Streaming from "./Streaming";
 
 type Draft = {
   id?: number;
@@ -61,7 +64,21 @@ function emptyDraft(): Draft {
 
 type Tab = "overview" | "routing" | "protection" | "access" | "routes";
 
-export default function Proxies({ onError, onOK, base }: { onError: (m: string) => void; onOK: (m: string) => void; base: string }) {
+export default function Proxies({
+  onError,
+  onOK,
+  base,
+  tab,
+  tabs,
+  onTab,
+}: {
+  onError: (m: string) => void;
+  onOK: (m: string) => void;
+  base: string;
+  tab: string;
+  tabs: NavTab[];
+  onTab: (id: string) => void;
+}) {
   const [list, setList] = useState<Proxy[]>([]);
   const [protections, setProtections] = useState<ProtectionProfile[]>([]);
   const [accessProfiles, setAccessProfiles] = useState<AccessProfile[]>([]);
@@ -70,7 +87,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
   const [presets, setPresets] = useState<Preset[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [drawerTab, setDrawerTab] = useState<Tab>("overview");
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
@@ -105,7 +122,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
   }, []);
 
   const openNew = () => {
-    setTab("overview");
+    setDrawerTab("overview");
     setDraft({
       ...emptyDraft(),
       hostname: `app.${base}`,
@@ -114,7 +131,7 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
   };
 
   const openEdit = (p: Proxy) => {
-    setTab("overview");
+    setDrawerTab("overview");
     setDraft({
       id: p.id,
       hostname: p.hostname,
@@ -210,323 +227,331 @@ export default function Proxies({ onError, onOK, base }: { onError: (m: string) 
   return (
     <div className="grid" style={{ gap: 14 }}>
       <PageHead
-        sub="Hostnames served by this node, their upstreams, protection profile and access gate."
-        actions={<button className="primary" onClick={openNew}><Icon name="plus" size={14} /> New proxy</button>}
+        sub="Hostnames served by this node, with their certificates and streaming forwards."
+        actions={tab === "sites" ? <button className="primary" onClick={openNew}><Icon name="plus" size={14} /> New proxy</button> : undefined}
       />
+      <PageTabs tabs={tabs} active={tab} onSelect={onTab} />
 
-      <div className="card">
-        <div className="table-toolbar">
-          <div className="search">
-            <Icon name="search" size={14} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by hostname or upstream" aria-label="Filter proxies" />
-          </div>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
-            <option value="all">All states</option>
-            <option value="enabled">Enabled</option>
-            <option value="disabled">Disabled</option>
-            <option value="maintenance">Maintenance</option>
-          </select>
-          <span className="table-count">{visible.length} of {list.length}</span>
-        </div>
+      {tab === "certs" && <Certs head={false} base={base} onError={onError} onOK={onOK} />}
+      {tab === "streaming" && <Streaming head={false} onError={onError} onOK={onOK} />}
 
-        {visible.length === 0 ? (
-          <Empty
-            title={list.length === 0 ? "No proxies yet" : "No proxies match"}
-            icon="server"
-            action={list.length === 0 ? <button className="primary" onClick={openNew}>Create the first proxy</button> : <button onClick={() => { setSearch(""); setStatus("all"); }}>Clear filters</button>}
-          >
-            {list.length === 0 ? "Add a hostname and point it at a backend on the LAN." : "Try a different hostname or state."}
-          </Empty>
-        ) : (
-          <TableWrap>
-            <table>
-              <thead>
-                <tr>
-                  <th className="sortable" onClick={() => sortBy("hostname")}>Hostname {arrow("hostname")}</th>
-                  <th>Upstreams</th>
-                  <th>Protection</th>
-                  <th>Gate</th>
-                  <th className="num sortable" onClick={() => sortBy("requests")}>Requests {arrow("requests")}</th>
-                  <th className="num sortable" onClick={() => sortBy("blocked")}>Blocked {arrow("blocked")}</th>
-                  <th>State</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((p) => (
-                  <tr key={p.id} className="clickable" onClick={() => openEdit(p)}>
-                    <td>
-                      <div className="row" style={{ gap: 8 }}>
-                        <span className={`env-dot ${p.enabled && !p.maintenance ? "" : "warn"}`} style={p.enabled && !p.maintenance ? undefined : { background: p.maintenance ? "var(--warn)" : "var(--faint)" }} />
-                        <span className="mono" style={{ color: "var(--text)", fontSize: 12 }}>{p.hostname}</span>
-                      </div>
-                      <div className="faint small-text">{p.upstreams.length} upstream{p.upstreams.length === 1 ? "" : "s"}{p.maintenance ? " · maintenance" : ""}</div>
-                    </td>
-                    <td className="muted mono" style={{ fontSize: 11.5 }}>
-                      {p.upstreams[0]?.url ?? "—"}
-                      {p.upstreams.length > 1 ? <div className="faint">+{p.upstreams.length - 1} more</div> : null}
-                    </td>
-                    <td>
-                      <div className="row" style={{ gap: 5 }}>
-                        <Badge tone={p.waf_mode === "off" ? "warn" : "info"}>{WAF_LABELS[p.waf_mode] ?? p.waf_mode}</Badge>
-                        <Badge>{BOT_LABELS[p.bot_level] ?? p.bot_level}</Badge>
-                      </div>
-                    </td>
-                    <td><Badge tone={p.gate_mode === "off" ? "" : "ok"}>{GATE_LABELS[p.gate_mode] ?? p.gate_mode}</Badge></td>
-                    <td className="num">{(p.requests ?? 0).toLocaleString()}</td>
-                    <td className="num">{(p.blocked ?? 0).toLocaleString()}</td>
-                    <td>
-                      <Badge tone={p.maintenance ? "warn" : p.enabled ? "ok" : ""}>
-                        {p.maintenance ? "Maintenance" : p.enabled ? "Enabled" : "Disabled"}
-                      </Badge>
-                    </td>
-                    <td className="right" onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
-                      <button className="xsmall" title="Configuration, traffic and upstream health" onClick={() => setInspect(p)}>360</button>{" "}
-                      <button className="xsmall" onClick={() => openEdit(p)}>Edit</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableWrap>
-        )}
-      </div>
-
-      {draft && (
-        <Drawer
-          wide
-          title={draft.id ? draft.hostname : "New proxy"}
-          sub={draft.id ? "Changes apply after saving." : "Create a hostname and its routing rules."}
-          onClose={() => setDraft(null)}
-          footer={
+      {tab === "sites" && (
             <>
-              {draft.id && (
-                <button className="danger" style={{ marginRight: "auto" }} onClick={() => setConfirm({ kind: "delete", proxy: { ...draft, id: draft.id } as unknown as Proxy })}>
-                  <Icon name="trash" size={13} /> Delete proxy
-                </button>
-              )}
-              <button onClick={() => setDraft(null)}>Cancel</button>
-              <button className="primary" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save proxy"}</button>
-            </>
-          }
-        >
-          <div className="tabs" role="tablist">
-            {([
-              ["overview", "Overview"],
-              ["routing", `Upstreams (${draft.upstreams.length})`],
-              ["protection", "Protection"],
-              ["access", "Access gate"],
-              ["routes", `Routes (${draft.routes.length})`],
-            ] as [Tab, string][]).map(([id, label]) => (
-              <button key={id} role="tab" aria-selected={tab === id} className={`tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {tab === "overview" && (
-            <>
-              {!draft.id && (
-                <Field label="Application preset" hint={chosenPreset ? `${chosenPreset.description} Creates an editable WAF profile.` : "A preset fills in the WAF profile for this site; it is not applied automatically."}>
-                  <select value={draft.preset} onChange={(e) => patch((d) => (d.preset = e.target.value))}>
-                    <option value="">No preset — default profile</option>
-                    {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                  {chosenPreset && chosenPreset.notes?.length > 0 && (
-                    <ul className="faint" style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 11 }}>
-                      {chosenPreset.notes.map((n) => <li key={n}>{n}</li>)}
-                    </ul>
-                  )}
-                </Field>
-              )}
-              <Field label="Hostname">
-                <input value={draft.hostname} onChange={(e) => patch((d) => (d.hostname = e.target.value))} placeholder={`app.${base}`} />
-              </Field>
-              <div className="field-grid">
-                <Field label="Access profile">
-                  <select
-                    value={draft.access_profile_id ?? ""}
-                    onChange={(e) =>
-                      patch((d) => {
-                        d.access_profile_id = e.target.value ? Number(e.target.value) : null;
-                        d.profile_id = null;
-                        d.protection_profile_id = null;
-                      })
-                    }
-                  >
-                    <option value="">Default settings</option>
-                    {accessProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </Field>
-                <Field label="WAF profile">
-                  <select value={draft.profile_id ?? ""} onChange={(e) => patch((d) => (d.profile_id = e.target.value ? Number(e.target.value) : null))}>
-                    <option value="">From the access profile</option>
-                    {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </Field>
-                <Field label="Certificate">
-                  <select value={draft.cert_id ?? ""} onChange={(e) => patch((d) => (d.cert_id = e.target.value ? Number(e.target.value) : null))}>
-                    <option value="">Auto / default</option>
-                    {certs.map((c) => <option key={c.id} value={c.id}>{c.domains}</option>)}
-                  </select>
-                </Field>
+          <div className="card">
+            <div className="table-toolbar">
+              <div className="search">
+                <Icon name="search" size={14} />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by hostname or upstream" aria-label="Filter proxies" />
               </div>
-              <div style={{ marginTop: 6 }}>
-                <Switch label="Proxy enabled" help="Disabled proxies stop accepting requests but keep their configuration." checked={draft.enabled} onChange={(v) => patch((d) => (d.enabled = v))} />
-                <Switch label="Maintenance mode" help="Serves a maintenance page while the upstream is being worked on." checked={draft.maintenance} onChange={(v) => patch((d) => (d.maintenance = v))} />
-              </div>
-            </>
-          )}
-
-          {tab === "routing" && (
-            <>
-              {draft.upstreams.map((u, i) => (
-                <div key={i} className="upstream-row" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 90px auto", gap: 8, alignItems: "start", marginBottom: 8 }}>
-                  <Field label={i === 0 ? "Upstream URL" : `Upstream ${i + 1}`}>
-                    <input value={u.url} placeholder="http://10.0.0.10:8080" onChange={(e) => patch((d) => { d.upstreams[i] = { ...d.upstreams[i], url: e.target.value }; })} />
-                  </Field>
-                  <Field label="Weight">
-                    <input type="number" min={1} value={u.weight} onChange={(e) => patch((d) => { d.upstreams[i] = { ...d.upstreams[i], weight: Number(e.target.value) }; })} />
-                  </Field>
-                  <button className="ghost" style={{ marginTop: 22 }} aria-label={`Remove upstream ${i + 1}`} onClick={() => patch((d) => { d.upstreams.splice(i, 1); })}>
-                    <Icon name="trash" size={14} />
-                  </button>
-                </div>
-              ))}
-              <button className="small" onClick={() => patch((d) => { d.upstreams.push({ url: "", weight: 1, enabled: true }); })}>
-                <Icon name="plus" size={13} /> Add upstream
-              </button>
-              <p className="faint small-text" style={{ marginTop: 10 }}>
-                Requests are balanced across enabled upstreams by weight. Health probes use HTTP HEAD every 30 seconds.
-              </p>
-            </>
-          )}
-
-          {tab === "protection" && (
-            <div className="field-grid">
-              <Field label="WAF mode">
-                <select value={draft.waf_mode} onChange={(e) => patch((d) => (d.waf_mode = e.target.value))}>
-                  <option value="inherit">Inherit profile</option>
-                  <option value="off">Off</option>
-                  <option value="detect">Detect only</option>
-                  <option value="block">Block</option>
-                </select>
-              </Field>
-              <Field label="Bot protection">
-                <select value={draft.bot_level} onChange={(e) => patch((d) => (d.bot_level = e.target.value))}>
-                  <option value="off">Off</option>
-                  <option value="light">Light</option>
-                  <option value="standard">Standard</option>
-                  <option value="aggressive">Aggressive</option>
-                </select>
-              </Field>
-              <Field label="Fingerprint mode">
-                <select value={draft.fingerprint} onChange={(e) => patch((d) => (d.fingerprint = e.target.value))}>
-                  <option value="strict">Strict</option>
-                  <option value="minimal">Minimal</option>
-                </select>
-              </Field>
+              <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
+                <option value="all">All states</option>
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+                <option value="maintenance">Maintenance</option>
+              </select>
+              <span className="table-count">{visible.length} of {list.length}</span>
             </div>
-          )}
 
-          {tab === "access" && (
-            <>
-              <Field label="Gate mode">
-                <select value={draft.gate_mode} onChange={(e) => patch((d) => (d.gate_mode = e.target.value))}>
-                  <option value="off">Off</option>
-                  <option value="passphrase">Shared passphrase</option>
-                  <option value="accounts">Accounts</option>
-                  <option value="accounts_totp">Accounts + TOTP</option>
-                  <option value="forward_auth">Identity provider (forward-auth)</option>
-                </select>
-              </Field>
-              {draft.gate_mode === "forward_auth" && (
-                <Field label="Provider">
-                  <select value={draft.auth_provider_id ?? ""} onChange={(e) => patch((d) => (d.auth_provider_id = e.target.value ? Number(e.target.value) : null))}>
-                    <option value="">Choose a provider…</option>
-                    {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </Field>
-              )}
-              {draft.gate_mode === "passphrase" && (
-                <Field label="Passphrase" hint="Leave blank to keep the current passphrase.">
-                  <input type="password" value={draft.gate_secret} onChange={(e) => patch((d) => (d.gate_secret = e.target.value))} />
-                </Field>
-              )}
-              {(draft.gate_mode === "accounts" || draft.gate_mode === "accounts_totp") && (
-                <Field label="Allowed accounts" hint="Comma separated usernames; empty allows every gate account.">
-                  <input value={draft.gate_users.join(",")} placeholder="alice,bob" onChange={(e) => patch((d) => (d.gate_users = e.target.value.split(",").map((x) => x.trim()).filter(Boolean)))} />
-                </Field>
-              )}
-              {draft.gate_mode !== "off" && draft.id && (
-                <div className="banner" style={{ marginTop: 6 }}>
-                  <Icon name="lock" size={15} />
-                  <span>Signed-in visitors keep their session until it expires.</span>
-                  <span className="banner-actions">
-                    <button className="xsmall" onClick={() => setConfirm({ kind: "revoke", proxy: { ...draft, id: draft.id } as unknown as Proxy })}>
-                      Sign out visitors
+            {visible.length === 0 ? (
+              <Empty
+                title={list.length === 0 ? "No proxies yet" : "No proxies match"}
+                icon="server"
+                action={list.length === 0 ? <button className="primary" onClick={openNew}>Create the first proxy</button> : <button onClick={() => { setSearch(""); setStatus("all"); }}>Clear filters</button>}
+              >
+                {list.length === 0 ? "Add a hostname and point it at a backend on the LAN." : "Try a different hostname or state."}
+              </Empty>
+            ) : (
+              <TableWrap>
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="sortable" onClick={() => sortBy("hostname")}>Hostname {arrow("hostname")}</th>
+                      <th>Upstreams</th>
+                      <th>Protection</th>
+                      <th>Gate</th>
+                      <th className="num sortable" onClick={() => sortBy("requests")}>Requests {arrow("requests")}</th>
+                      <th className="num sortable" onClick={() => sortBy("blocked")}>Blocked {arrow("blocked")}</th>
+                      <th>State</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.map((p) => (
+                      <tr key={p.id} className="clickable" onClick={() => openEdit(p)}>
+                        <td>
+                          <div className="row" style={{ gap: 8 }}>
+                            <span className={`env-dot ${p.enabled && !p.maintenance ? "" : "warn"}`} style={p.enabled && !p.maintenance ? undefined : { background: p.maintenance ? "var(--warn)" : "var(--faint)" }} />
+                            <span className="mono" style={{ color: "var(--text)", fontSize: 12 }}>{p.hostname}</span>
+                          </div>
+                          <div className="faint small-text">{p.upstreams.length} upstream{p.upstreams.length === 1 ? "" : "s"}{p.maintenance ? " · maintenance" : ""}</div>
+                        </td>
+                        <td className="muted mono" style={{ fontSize: 11.5 }}>
+                          {p.upstreams[0]?.url ?? "—"}
+                          {p.upstreams.length > 1 ? <div className="faint">+{p.upstreams.length - 1} more</div> : null}
+                        </td>
+                        <td>
+                          <div className="row" style={{ gap: 5 }}>
+                            <Badge tone={p.waf_mode === "off" ? "warn" : "info"}>{WAF_LABELS[p.waf_mode] ?? p.waf_mode}</Badge>
+                            <Badge>{BOT_LABELS[p.bot_level] ?? p.bot_level}</Badge>
+                          </div>
+                        </td>
+                        <td><Badge tone={p.gate_mode === "off" ? "" : "ok"}>{GATE_LABELS[p.gate_mode] ?? p.gate_mode}</Badge></td>
+                        <td className="num">{(p.requests ?? 0).toLocaleString()}</td>
+                        <td className="num">{(p.blocked ?? 0).toLocaleString()}</td>
+                        <td>
+                          <Badge tone={p.maintenance ? "warn" : p.enabled ? "ok" : ""}>
+                            {p.maintenance ? "Maintenance" : p.enabled ? "Enabled" : "Disabled"}
+                          </Badge>
+                        </td>
+                        <td className="right" onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
+                          <button className="xsmall" title="Configuration, traffic and upstream health" onClick={() => setInspect(p)}>360</button>{" "}
+                          <button className="xsmall" onClick={() => openEdit(p)}>Edit</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableWrap>
+            )}
+          </div>
+
+          {draft && (
+            <Drawer
+              wide
+              title={draft.id ? draft.hostname : "New proxy"}
+              sub={draft.id ? "Changes apply after saving." : "Create a hostname and its routing rules."}
+              onClose={() => setDraft(null)}
+              footer={
+                <>
+                  {draft.id && (
+                    <button className="danger" style={{ marginRight: "auto" }} onClick={() => setConfirm({ kind: "delete", proxy: { ...draft, id: draft.id } as unknown as Proxy })}>
+                      <Icon name="trash" size={13} /> Delete proxy
                     </button>
-                  </span>
-                </div>
-              )}
-            </>
-          )}
+                  )}
+                  <button onClick={() => setDraft(null)}>Cancel</button>
+                  <button className="primary" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save proxy"}</button>
+                </>
+              }
+            >
+              <div className="tabs" role="tablist">
+                {([
+                  ["overview", "Overview"],
+                  ["routing", `Upstreams (${draft.upstreams.length})`],
+                  ["protection", "Protection"],
+                  ["access", "Access gate"],
+                  ["routes", `Routes (${draft.routes.length})`],
+                ] as [Tab, string][]).map(([id, label]) => (
+                  <button key={id} role="tab" aria-selected={drawerTab === id} className={`tab ${drawerTab === id ? "active" : ""}`} onClick={() => setDrawerTab(id)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
 
-          {tab === "routes" && (
-            <>
-              {draft.routes.length === 0 && <p className="faint small-text">No redirects or aliases. Add one to send a path to another origin.</p>}
-              {draft.routes.map((rt, i) => (
-                <div key={i} style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr) minmax(0,1.3fr) auto", gap: 8, alignItems: "start", marginBottom: 8 }}>
-                  <Field label={i === 0 ? "Kind" : `Route ${i + 1}`}>
-                    <select value={rt.kind} onChange={(e) => patch((d) => { d.routes[i] = { ...d.routes[i], kind: e.target.value }; })}>
-                      <option value="redirect">redirect</option>
-                      <option value="alias">alias</option>
+              {drawerTab === "overview" && (
+                <>
+                  {!draft.id && (
+                    <Field label="Application preset" hint={chosenPreset ? `${chosenPreset.description} Creates an editable WAF profile.` : "A preset fills in the WAF profile for this site; it is not applied automatically."}>
+                      <select value={draft.preset} onChange={(e) => patch((d) => (d.preset = e.target.value))}>
+                        <option value="">No preset — default profile</option>
+                        {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                      {chosenPreset && chosenPreset.notes?.length > 0 && (
+                        <ul className="faint" style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 11 }}>
+                          {chosenPreset.notes.map((n) => <li key={n}>{n}</li>)}
+                        </ul>
+                      )}
+                    </Field>
+                  )}
+                  <Field label="Hostname">
+                    <input value={draft.hostname} onChange={(e) => patch((d) => (d.hostname = e.target.value))} placeholder={`app.${base}`} />
+                  </Field>
+                  <div className="field-grid">
+                    <Field label="Access profile">
+                      <select
+                        value={draft.access_profile_id ?? ""}
+                        onChange={(e) =>
+                          patch((d) => {
+                            d.access_profile_id = e.target.value ? Number(e.target.value) : null;
+                            d.profile_id = null;
+                            d.protection_profile_id = null;
+                          })
+                        }
+                      >
+                        <option value="">Default settings</option>
+                        {accessProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="WAF profile">
+                      <select value={draft.profile_id ?? ""} onChange={(e) => patch((d) => (d.profile_id = e.target.value ? Number(e.target.value) : null))}>
+                        <option value="">From the access profile</option>
+                        {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Certificate">
+                      <select value={draft.cert_id ?? ""} onChange={(e) => patch((d) => (d.cert_id = e.target.value ? Number(e.target.value) : null))}>
+                        <option value="">Auto / default</option>
+                        {certs.map((c) => <option key={c.id} value={c.id}>{c.domains}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                  <div style={{ marginTop: 6 }}>
+                    <Switch label="Proxy enabled" help="Disabled proxies stop accepting requests but keep their configuration." checked={draft.enabled} onChange={(v) => patch((d) => (d.enabled = v))} />
+                    <Switch label="Maintenance mode" help="Serves a maintenance page while the upstream is being worked on." checked={draft.maintenance} onChange={(v) => patch((d) => (d.maintenance = v))} />
+                  </div>
+                </>
+              )}
+
+              {drawerTab === "routing" && (
+                <>
+                  {draft.upstreams.map((u, i) => (
+                    <div key={i} className="upstream-row" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 90px auto", gap: 8, alignItems: "start", marginBottom: 8 }}>
+                      <Field label={i === 0 ? "Upstream URL" : `Upstream ${i + 1}`}>
+                        <input value={u.url} placeholder="http://10.0.0.10:8080" onChange={(e) => patch((d) => { d.upstreams[i] = { ...d.upstreams[i], url: e.target.value }; })} />
+                      </Field>
+                      <Field label="Weight">
+                        <input type="number" min={1} value={u.weight} onChange={(e) => patch((d) => { d.upstreams[i] = { ...d.upstreams[i], weight: Number(e.target.value) }; })} />
+                      </Field>
+                      <button className="ghost" style={{ marginTop: 22 }} aria-label={`Remove upstream ${i + 1}`} onClick={() => patch((d) => { d.upstreams.splice(i, 1); })}>
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <button className="small" onClick={() => patch((d) => { d.upstreams.push({ url: "", weight: 1, enabled: true }); })}>
+                    <Icon name="plus" size={13} /> Add upstream
+                  </button>
+                  <p className="faint small-text" style={{ marginTop: 10 }}>
+                    Requests are balanced across enabled upstreams by weight. Health probes use HTTP HEAD every 30 seconds.
+                  </p>
+                </>
+              )}
+
+              {drawerTab === "protection" && (
+                <div className="field-grid">
+                  <Field label="WAF mode">
+                    <select value={draft.waf_mode} onChange={(e) => patch((d) => (d.waf_mode = e.target.value))}>
+                      <option value="inherit">Inherit profile</option>
+                      <option value="off">Off</option>
+                      <option value="detect">Detect only</option>
+                      <option value="block">Block</option>
                     </select>
                   </Field>
-                  <Field label="Match">
-                    <input placeholder="/old" value={rt.match} onChange={(e) => patch((d) => { d.routes[i] = { ...d.routes[i], match: e.target.value }; })} />
+                  <Field label="Bot protection">
+                    <select value={draft.bot_level} onChange={(e) => patch((d) => (d.bot_level = e.target.value))}>
+                      <option value="off">Off</option>
+                      <option value="light">Light</option>
+                      <option value="standard">Standard</option>
+                      <option value="aggressive">Aggressive</option>
+                    </select>
                   </Field>
-                  <Field label="Target">
-                    <input placeholder="https://example.com/new" value={rt.target} onChange={(e) => patch((d) => { d.routes[i] = { ...d.routes[i], target: e.target.value }; })} />
+                  <Field label="Fingerprint mode">
+                    <select value={draft.fingerprint} onChange={(e) => patch((d) => (d.fingerprint = e.target.value))}>
+                      <option value="strict">Strict</option>
+                      <option value="minimal">Minimal</option>
+                    </select>
                   </Field>
-                  <button className="ghost" style={{ marginTop: 22 }} aria-label={`Remove route ${i + 1}`} onClick={() => patch((d) => { d.routes.splice(i, 1); })}>
-                    <Icon name="trash" size={14} />
-                  </button>
                 </div>
-              ))}
-              <button className="small" onClick={() => patch((d) => { d.routes.push({ kind: "redirect", match: "/", target: "", strip_prefix: false, priority: 0 }); })}>
-                <Icon name="plus" size={13} /> Add route
-              </button>
-            </>
+              )}
+
+              {drawerTab === "access" && (
+                <>
+                  <Field label="Gate mode">
+                    <select value={draft.gate_mode} onChange={(e) => patch((d) => (d.gate_mode = e.target.value))}>
+                      <option value="off">Off</option>
+                      <option value="passphrase">Shared passphrase</option>
+                      <option value="accounts">Accounts</option>
+                      <option value="accounts_totp">Accounts + TOTP</option>
+                      <option value="forward_auth">Identity provider (forward-auth)</option>
+                    </select>
+                  </Field>
+                  {draft.gate_mode === "forward_auth" && (
+                    <Field label="Provider">
+                      <select value={draft.auth_provider_id ?? ""} onChange={(e) => patch((d) => (d.auth_provider_id = e.target.value ? Number(e.target.value) : null))}>
+                        <option value="">Choose a provider…</option>
+                        {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </Field>
+                  )}
+                  {draft.gate_mode === "passphrase" && (
+                    <Field label="Passphrase" hint="Leave blank to keep the current passphrase.">
+                      <input type="password" value={draft.gate_secret} onChange={(e) => patch((d) => (d.gate_secret = e.target.value))} />
+                    </Field>
+                  )}
+                  {(draft.gate_mode === "accounts" || draft.gate_mode === "accounts_totp") && (
+                    <Field label="Allowed accounts" hint="Comma separated usernames; empty allows every gate account.">
+                      <input value={draft.gate_users.join(",")} placeholder="alice,bob" onChange={(e) => patch((d) => (d.gate_users = e.target.value.split(",").map((x) => x.trim()).filter(Boolean)))} />
+                    </Field>
+                  )}
+                  {draft.gate_mode !== "off" && draft.id && (
+                    <div className="banner" style={{ marginTop: 6 }}>
+                      <Icon name="lock" size={15} />
+                      <span>Signed-in visitors keep their session until it expires.</span>
+                      <span className="banner-actions">
+                        <button className="xsmall" onClick={() => setConfirm({ kind: "revoke", proxy: { ...draft, id: draft.id } as unknown as Proxy })}>
+                          Sign out visitors
+                        </button>
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {drawerTab === "routes" && (
+                <>
+                  {draft.routes.length === 0 && <p className="faint small-text">No redirects or aliases. Add one to send a path to another origin.</p>}
+                  {draft.routes.map((rt, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr) minmax(0,1.3fr) auto", gap: 8, alignItems: "start", marginBottom: 8 }}>
+                      <Field label={i === 0 ? "Kind" : `Route ${i + 1}`}>
+                        <select value={rt.kind} onChange={(e) => patch((d) => { d.routes[i] = { ...d.routes[i], kind: e.target.value }; })}>
+                          <option value="redirect">redirect</option>
+                          <option value="alias">alias</option>
+                        </select>
+                      </Field>
+                      <Field label="Match">
+                        <input placeholder="/old" value={rt.match} onChange={(e) => patch((d) => { d.routes[i] = { ...d.routes[i], match: e.target.value }; })} />
+                      </Field>
+                      <Field label="Target">
+                        <input placeholder="https://example.com/new" value={rt.target} onChange={(e) => patch((d) => { d.routes[i] = { ...d.routes[i], target: e.target.value }; })} />
+                      </Field>
+                      <button className="ghost" style={{ marginTop: 22 }} aria-label={`Remove route ${i + 1}`} onClick={() => patch((d) => { d.routes.splice(i, 1); })}>
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <button className="small" onClick={() => patch((d) => { d.routes.push({ kind: "redirect", match: "/", target: "", strip_prefix: false, priority: 0 }); })}>
+                    <Icon name="plus" size={13} /> Add route
+                  </button>
+                </>
+              )}
+            </Drawer>
           )}
-        </Drawer>
-      )}
 
-      {inspect && (
-        <ProxyDetail
-          proxy={inspect}
-          protection={protections.find((p) => p.id === inspect.protection_profile_id)}
-          cert={certs.find((c) => c.id === inspect.cert_id)}
-          onEdit={() => {
-            setInspect(null);
-            openEdit(inspect);
-          }}
-          onClose={() => setInspect(null)}
-        />
-      )}
+          {inspect && (
+            <ProxyDetail
+              proxy={inspect}
+              protection={protections.find((p) => p.id === inspect.protection_profile_id)}
+              cert={certs.find((c) => c.id === inspect.cert_id)}
+              onEdit={() => {
+                setInspect(null);
+                openEdit(inspect);
+              }}
+              onClose={() => setInspect(null)}
+            />
+          )}
 
-      {confirm && (
-        <ConfirmDialog
-          title={confirm.kind === "delete" ? `Delete ${confirm.proxy.hostname}?` : `Sign out visitors?`}
-          confirmLabel={confirm.kind === "delete" ? "Delete proxy" : "Sign out visitors"}
-          busy={confirmBusy}
-          onConfirm={runConfirm}
-          onClose={() => setConfirm(null)}
-        >
-          {confirm.kind === "delete"
-            ? "This removes the hostname, its routes, upstreams and gate bindings. Certificates and profiles are kept."
-            : `Every visitor currently signed in through ${confirm.proxy.hostname} will have to authenticate again.`}
-        </ConfirmDialog>
+          {confirm && (
+            <ConfirmDialog
+              title={confirm.kind === "delete" ? `Delete ${confirm.proxy.hostname}?` : `Sign out visitors?`}
+              confirmLabel={confirm.kind === "delete" ? "Delete proxy" : "Sign out visitors"}
+              busy={confirmBusy}
+              onConfirm={runConfirm}
+              onClose={() => setConfirm(null)}
+            >
+              {confirm.kind === "delete"
+                ? "This removes the hostname, its routes, upstreams and gate bindings. Certificates and profiles are kept."
+                : `Every visitor currently signed in through ${confirm.proxy.hostname} will have to authenticate again.`}
+            </ConfirmDialog>
+          )}
+        </>
       )}
     </div>
   );

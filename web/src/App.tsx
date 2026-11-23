@@ -10,26 +10,20 @@ import SourceDrawer from "./components/SourceDrawer";
 import AdminsOnline from "./components/AdminsOnline";
 import Icon from "./components/Icon";
 import { Me, SetupStatus, can } from "./types";
-import { NAV, NAV_GROUPS, NAV_UTILITY, pageFromHash, type NavItem } from "./nav";
+import { NAV, NAV_GROUPS, NAV_UTILITY, href, routeFromHash, type NavItem } from "./nav";
 import Dashboard from "./pages/Dashboard";
 import Statistics from "./pages/Statistics";
 import Proxies from "./pages/Proxies";
-import Streaming from "./pages/Streaming";
-import UpdatesPage from "./pages/Updates";
 import AgentPage from "./pages/Agent";
 import TailscalePage from "./pages/Tailscale";
 import Policies from "./pages/Policies";
-import Sources from "./pages/Sources";
 import Intel from "./pages/Intel";
 import Anomalies from "./pages/Anomalies";
 import Activity from "./pages/Activity";
-import Readiness from "./pages/Readiness";
-import Certs from "./pages/Certs";
 import Access from "./pages/Access";
 import Notifications from "./pages/Notifications";
 import Logs from "./pages/Logs";
 import SettingsPage from "./pages/Settings";
-import CrowdSecPage from "./pages/CrowdSec";
 import Account from "./pages/Account";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
@@ -41,7 +35,8 @@ type Toast = { id: number; tone: ToastTone; title: string; message: string };
 export default function App() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [me, setMe] = useState<Me | null>(null);
-  const [page, setPage] = useState(() => pageFromHash(window.location.hash));
+  const [route, setRoute] = useState(() => routeFromHash(window.location.hash));
+  const { page, tab } = route;
   const [pageQuery, setPageQuery] = useState(() => window.location.hash.split("?")[1] ?? "");
   // Bumped on every navigation: a page reached with the query it already has
   // gets no hashchange, so the page itself needs a reason to reapply it.
@@ -69,9 +64,10 @@ export default function App() {
   const onError = (message: string) => pushToast("error", message);
   const onOK = (message: string) => pushToast("ok", message);
 
-  const navigate = (id: string, query?: string) => {
-    const nextHash = `#/${id}${query ? `?${query}` : ""}`;
-    setPage(id);
+  const navigate = (id: string, query?: string, nextTab?: string) => {
+    const target = routeFromHash(href(id, nextTab));
+    const nextHash = `${href(target.page, target.tab)}${query ? `?${query}` : ""}`;
+    setRoute(target);
     setPageQuery(query ?? "");
     setNavSeq((n) => n + 1);
     // A drawer or a command belongs to the page that opened it, and its
@@ -104,15 +100,25 @@ export default function App() {
   }, [collapsed]);
 
   useEffect(() => {
-    const onHash = () => {
-      setPage(pageFromHash(window.location.hash));
-      setPageQuery(window.location.hash.split("?")[1] ?? "");
+    const applyHash = () => {
+      const hash = window.location.hash;
+      const next = routeFromHash(hash);
+      const query = hash.split("?")[1];
+      const canonical = `${href(next.page, next.tab)}${query ? `?${query}` : ""}`;
+      // A pre-restructure hash is redirected by rewriting the URL, so a stale
+      // bookmark lands on the new route without a detour in the history.
+      if (hash && hash !== canonical) {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${canonical}`);
+      }
+      setRoute(next);
+      setPageQuery(query ?? "");
       setNavSeq((n) => n + 1);
       setSourceIp(null);
       setCommand(null);
     };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
   }, []);
 
   useEffect(() => {
@@ -140,10 +146,17 @@ export default function App() {
     const item = NAV.find((n) => n.id === page);
     if (item?.permission && !can(me.permissions, item.permission)) {
       const first = NAV.find((n) => !n.permission || can(me.permissions, n.permission)) ?? NAV[0];
-      setPage(first.id);
-      window.location.hash = `#/${first.id}`;
+      setRoute(routeFromHash(href(first.id)));
+      window.location.hash = href(first.id);
+      return;
     }
-  }, [me, page]);
+    // A tab the role cannot read (or one that no longer exists) opens the
+    // first tab it can, so the URL never points at an invisible view.
+    const allowedTabs = (item?.tabs ?? []).filter((t) => !t.permission || can(me.permissions, t.permission));
+    if (allowedTabs.length > 0 && !allowedTabs.some((t) => t.id === tab)) {
+      window.location.hash = href(page, allowedTabs[0].id);
+    }
+  }, [me, page, tab]);
 
   useEffect(() => {
     (async () => {
@@ -227,6 +240,9 @@ export default function App() {
   const visibleNav = NAV.filter(allowed);
   const current = visibleNav.find((n) => n.id === page) ?? visibleNav[0] ?? NAV[0];
   const pageAllowed = allowed(NAV.find((n) => n.id === page) ?? current);
+  const tabsFor = (id: string) =>
+    (NAV.find((n) => n.id === id)?.tabs ?? []).filter((t) => !t.permission || can(me?.permissions, t.permission));
+  const tabProps = (id: string) => ({ tab, tabs: tabsFor(id), onTab: (next: string) => navigate(id, undefined, next) });
 
   const navButton = (n: NavItem) => (
     <button
@@ -355,20 +371,22 @@ export default function App() {
             <PageBoundary page={page}>
               {page === "dashboard" && <Dashboard onError={onError} home={home} onOpenSource={setSourceIp} />}
               {page === "statistics" && <Statistics onError={onError} />}
-              {page === "proxies" && <Proxies onError={onError} onOK={onOK} base={me?.base_domain ?? ""} />}
-              {page === "streaming" && <Streaming onError={onError} onOK={onOK} />}
-              {page === "updates" && <UpdatesPage onError={onError} onOK={onOK} />}
+              {page === "proxies" && <Proxies onError={onError} onOK={onOK} base={me?.base_domain ?? ""} {...tabProps("proxies")} />}
               {page === "agent" && <AgentPage onError={onError} onOK={onOK} />}
               {page === "tailscale" && <TailscalePage onError={onError} onOK={onOK} />}
-              {page === "policies" && <Policies onError={onError} onOK={onOK} />}
-              {page === "sources" && <Sources onError={onError} onOpenSource={setSourceIp} />}
-              {page === "intel" && <Intel onError={onError} onOK={onOK} />}
+              {page === "policies" && <Policies onError={onError} onOK={onOK} {...tabProps("policies")} />}
+              {page === "intel" && (
+                <Intel
+                  onError={onError}
+                  onOK={onOK}
+                  onOpenSource={setSourceIp}
+                  onOpenPolicies={() => navigate("policies", undefined, "profiles")}
+                  {...tabProps("intel")}
+                />
+              )}
               {page === "anomalies" && <Anomalies onError={onError} onOK={onOK} />}
               {page === "activity" && <Activity onError={onError} onOK={onOK} permissions={me?.permissions ?? []} />}
-              {page === "readiness" && <Readiness me={me} onError={onError} />}
-              {page === "crowdsec" && <CrowdSecPage onError={onError} onOK={onOK} />}
-              {page === "certs" && <Certs onError={onError} onOK={onOK} base={me?.base_domain ?? ""} />}
-              {page === "access" && <Access onError={onError} onOK={onOK} />}
+              {page === "access" && <Access onError={onError} onOK={onOK} {...tabProps("access")} />}
               {page === "notifications" && <Notifications onError={onError} onOK={onOK} />}
               {page === "logs" && (
                 <Logs
@@ -381,7 +399,7 @@ export default function App() {
                   canShareViews={can(me?.permissions, "traffic.write")}
                 />
               )}
-              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} />}
+              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} {...tabProps("settings")} />}
               {page === "account" && (
                 <Account
                   me={me}
