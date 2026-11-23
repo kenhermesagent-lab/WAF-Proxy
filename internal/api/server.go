@@ -89,6 +89,9 @@ type Server struct {
 	uptime     *uptime.Manager
 	restartFn  func()
 	tailscale  TailscaleState
+	// haStatus reports this node's effective role. Nil on a build or test
+	// without HA, where the node is always standalone and serving.
+	haStatus func() HAStatus
 
 	// CrowdSec one-click install progress, polled by the CrowdSec page.
 	csMu      sync.Mutex
@@ -563,6 +566,15 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusForbidden, "your role does not allow this action")
 			return
 		}
+		// A standby serves reads and nothing else. Checking here covers every
+		// route at once, including ones added later, instead of trusting each
+		// handler to remember.
+		if s.haStatus != nil {
+			if ha := s.haStatus(); ha.Enabled && !ha.Serving && !standbyAllows(r.Method, r.URL.Path) {
+				writeError(w, http.StatusConflict, "standby is read-only")
+				return
+			}
+		}
 		// Sliding idle timeout (12 h) bounded by an absolute 7 day lifetime. It
 		// only refreshes once less than half the window remains, so an active
 		// session costs at most one write per six hours.
@@ -624,13 +636,20 @@ func clientIP(r *http.Request) string {
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	ready := s.proxy == nil || s.proxy.Ready()
+	body := map[string]any{
+		"status": "ok", "version": version.Version, "uptime_s": int(time.Since(s.started).Seconds()),
+	}
+	if s.haStatus != nil {
+		ha := s.haStatus()
+		if ha.Enabled {
+			ready = ready && ha.Serving
+		}
+		body["ha"] = ha
+	}
+	body["ready"] = ready
 	status := http.StatusOK
 	if r.URL.Query().Get("ready") == "1" && !ready {
 		status = http.StatusServiceUnavailable
-	}
-	body := map[string]any{
-		"status": "ok", "version": version.Version, "uptime_s": int(time.Since(s.started).Seconds()),
-		"ready": ready,
 	}
 	if m := s.canaryFor(r); m != nil {
 		body["canary"] = m.Snapshot()
@@ -640,6 +659,36 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 
 // SetCanary attaches the scheduled probe whose last result health reports.
 func (s *Server) SetCanary(m *canary.Monitor) { s.canary = m }
+
+// HAStatus is the node's effective role, read fresh on each request so a
+// transition is visible without a restart. Enabled is the boot master switch
+// combined with the stored setting; Serving is false on a standby.
+type HAStatus struct {
+	Enabled bool   `json:"enabled"`
+	Role    string `json:"role"`
+	State   string `json:"state"`
+	Serving bool   `json:"serving"`
+	Epoch   int64  `json:"epoch"`
+	Peer    string `json:"peer,omitempty"`
+}
+
+// SetHAStatus installs the role source used by health and the standby guard.
+func (s *Server) SetHAStatus(fn func() HAStatus) { s.haStatus = fn }
+
+// standbyAllows reports whether a request may reach its handler on a standby.
+// Reads keep the console usable; the HA control routes and the login/account
+// paths must stay reachable or nobody could operate the node.
+func standbyAllows(method, path string) bool {
+	if method == http.MethodGet || method == http.MethodHead {
+		return true
+	}
+	for _, prefix := range []string{"/api/ha/", "/api/account/", "/api/login", "/api/logout", "/api/me"} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // purgeCache drops the response cache for one host, or all hosts when the body
 // names none. Operators reach for it after a backend redeploy.

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -440,6 +441,9 @@ func (s *Store) GetCert(id int64) (*model.Cert, error) {
 	if err != nil {
 		return nil, err
 	}
+	if c.KeyPEM, err = s.openSecret(c.KeyPEM); err != nil {
+		return nil, err
+	}
 	c.IssuedAt = parseStampPtr(issued)
 	c.ExpiresAt = parseStampPtr(expires)
 	c.Wildcard = i2b(wildcard)
@@ -449,14 +453,61 @@ func (s *Store) GetCert(id int64) (*model.Cert, error) {
 	return &c, nil
 }
 
+// SealStoredCertKeys encrypts certificate private keys left in plaintext by an
+// earlier release. It is idempotent and safe to run at every boot.
+func (s *Store) SealStoredCertKeys() (int, error) {
+	if s.box == nil {
+		return 0, errors.New("store: no master key for certificate sealing")
+	}
+	rows, err := s.db.Query(`SELECT id, key_pem FROM certificates WHERE length(key_pem) > 0`)
+	if err != nil {
+		return 0, err
+	}
+	type row struct {
+		id  int64
+		key []byte
+	}
+	var pending []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.key); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if !bytes.HasPrefix(r.key, []byte(sealedPrefix)) {
+			pending = append(pending, r)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range pending {
+		sealed, err := s.sealSecret(r.key)
+		if err != nil {
+			return n, err
+		}
+		if _, err := s.db.Exec(`UPDATE certificates SET key_pem = ? WHERE id = ?`, sealed, r.id); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 // SaveCert inserts or updates a certificate. A zero ID inserts.
 func (s *Store) SaveCert(c *model.Cert) (int64, error) {
+	key, err := s.sealSecret(c.KeyPEM)
+	if err != nil {
+		return 0, err
+	}
 	if c.ID == 0 {
 		res, err := s.db.Exec(`INSERT INTO certificates(domains, provider, status, issued_at, expires_at,
 			cert_pem, key_pem, is_wildcard, renew_mode, challenge, last_error, created_at, source, site_id)
 			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			c.Domains, c.Provider, c.Status, nullTime(c.IssuedAt), nullTime(c.ExpiresAt),
-			c.CertPEM, c.KeyPEM, b2i(c.Wildcard), defaultStr(c.RenewMode, model.CertRenewBeforeExpiry),
+			c.CertPEM, key, b2i(c.Wildcard), defaultStr(c.RenewMode, model.CertRenewBeforeExpiry),
 			defaultStr(c.Challenge, model.CertChallengeDNS), c.LastError, stamp(time.Now()),
 			defaultStr(c.Source, model.CertSourceACME), s.site)
 		if err != nil {
@@ -464,10 +515,10 @@ func (s *Store) SaveCert(c *model.Cert) (int64, error) {
 		}
 		return res.LastInsertId()
 	}
-	_, err := s.db.Exec(`UPDATE certificates SET domains = ?, provider = ?, status = ?, issued_at = ?,
+	_, err = s.db.Exec(`UPDATE certificates SET domains = ?, provider = ?, status = ?, issued_at = ?,
 		expires_at = ?, cert_pem = ?, key_pem = ?, is_wildcard = ?, renew_mode = ?, challenge = ?, last_error = ?, source = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
 		c.Domains, c.Provider, c.Status, nullTime(c.IssuedAt), nullTime(c.ExpiresAt),
-		c.CertPEM, c.KeyPEM, b2i(c.Wildcard), defaultStr(c.RenewMode, model.CertRenewBeforeExpiry),
+		c.CertPEM, key, b2i(c.Wildcard), defaultStr(c.RenewMode, model.CertRenewBeforeExpiry),
 		defaultStr(c.Challenge, model.CertChallengeDNS), c.LastError, defaultStr(c.Source, model.CertSourceACME), c.ID, s.site, s.site)
 	return c.ID, err
 }

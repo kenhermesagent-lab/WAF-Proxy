@@ -66,6 +66,13 @@ type Config struct {
 	// BundleIntervalSeconds is the manifest refresh period. The manager never
 	// checks more often than every five minutes.
 	BundleIntervalSeconds int
+	// HAEnabled is the boot-time master switch for high availability. When it
+	// is off, no HA route or loop exists and the node serves on its own.
+	HAEnabled bool
+	// HAMgmtListen is this node's own console address in HA mode. The service
+	// address belongs to whichever node is active, so the standby needs a
+	// management listener that never moves.
+	HAMgmtListen string
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -95,6 +102,11 @@ func Load() (*Config, error) {
 		BundleURL:             strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_URL")),
 		BundlePublicKey:       strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_PUBKEY")),
 		BundleIntervalSeconds: envInt("WAFPROXY_BUNDLE_INTERVAL", 3600),
+		HAEnabled:             envBoolOr("WAFPROXY_HA_ENABLE", false),
+		HAMgmtListen:          strings.TrimSpace(os.Getenv("WAFPROXY_HA_MGMT_LISTEN")),
+	}
+	if c.HAEnabled && c.HAMgmtListen == "" {
+		return nil, errors.New("WAFPROXY_HA_MGMT_LISTEN is required when WAFPROXY_HA_ENABLE=1")
 	}
 	if c.ListenGUITLS && c.GUIHost == "" {
 		return nil, errors.New("WAFPROXY_GUI_HOST is required when WAFPROXY_LISTEN_GUI_TLS is set")

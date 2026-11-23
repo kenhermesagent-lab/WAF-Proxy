@@ -2,6 +2,7 @@
 package store
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/rbac"
 	_ "modernc.org/sqlite"
@@ -33,6 +35,9 @@ type Store struct {
 	// sessionKey hides session cookies in the database, so a copy of the file
 	// does not hand out live admin sessions.
 	sessionKey []byte
+	// box seals secret columns at rest. A nil box reads plaintext rows only,
+	// which is what the CLI paths that never serve a request need.
+	box *wfcrypto.Box
 	// auditMu serialises audit appends so each row links to the one before it.
 	// A pointer, so a site-scoped copy shares the same lock.
 	auditMu *sync.Mutex
@@ -113,12 +118,53 @@ func (s *Store) Close() error { return s.db.Close() }
 // restarts or every session is invalidated.
 func (s *Store) SetSessionKey(key []byte) { s.sessionKey = key }
 
+// SetSecretBox installs the box that seals secret columns. It must be set
+// before certificates are read or written, and stay stable across restarts.
+func (s *Store) SetSecretBox(box *wfcrypto.Box) { s.box = box }
+
+// sealedPrefix marks a column this build encrypted. A value without it is a
+// plaintext row from an older release and is read as-is.
+const sealedPrefix = "enc:v1:"
+
+func (s *Store) sealSecret(v []byte) ([]byte, error) {
+	if len(v) == 0 || s.box == nil || bytes.HasPrefix(v, []byte(sealedPrefix)) {
+		return v, nil
+	}
+	out, err := s.box.Seal(string(v))
+	if err != nil {
+		return nil, err
+	}
+	return []byte(sealedPrefix + out), nil
+}
+
+func (s *Store) openSecret(v []byte) ([]byte, error) {
+	if len(v) == 0 || !bytes.HasPrefix(v, []byte(sealedPrefix)) {
+		return v, nil
+	}
+	if s.box == nil {
+		return nil, errors.New("store: secret is sealed but no master key is loaded")
+	}
+	out, err := s.box.Open(string(v[len(sealedPrefix):]))
+	if err != nil {
+		return nil, err
+	}
+	return []byte(out), nil
+}
+
 // sessionID is what the sessions table stores: a keyed digest of the cookie
 // value. The cookie itself is never written down, so reading the database file
 // is not enough to replay a session.
 func (s *Store) sessionID(token string) string {
-	mac := hmac.New(sha256.New, s.sessionKey)
-	mac.Write([]byte("wafproxy-session\x00"))
+	return keyedID(s.sessionKey, "wafproxy-session\x00", token)
+}
+
+// gateID is the same idea for visitor sessions, with its own separator so an
+// admin cookie and a gate cookie can never produce the same row key.
+func (s *Store) gateID(token string) string { return keyedID(s.sessionKey, "wafproxy-gate\x00", token) }
+
+func keyedID(key []byte, domain, token string) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(domain))
 	mac.Write([]byte(token))
 	return hex.EncodeToString(mac.Sum(nil))
 }
@@ -523,7 +569,7 @@ CREATE TABLE IF NOT EXISTS log_views (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "22"
+const schemaVersion = "24"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -677,7 +723,8 @@ func (s *Store) migrateAddColumns() error {
 // dropLegacySessions clears sessions written before schema 13, when the cookie
 // value was the primary key. Those rows cannot be turned into digests (the
 // token is not stored anywhere else), and keeping them would leave rows that
-// never match a cookie. Everyone signs in once after the upgrade.
+// never match a cookie. Everyone signs in once after the upgrade. Gate rows
+// are cleared once, at schema 24, when their id became a digest too.
 func (s *Store) dropLegacySessions() error {
 	var v string
 	err := s.db.QueryRow(`SELECT value FROM schema_meta WHERE key = 'version'`).Scan(&v)
@@ -687,8 +734,15 @@ func (s *Store) dropLegacySessions() error {
 	if err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	_, err = s.db.Exec(`DELETE FROM sessions`)
-	return err
+	if _, err := s.db.Exec(`DELETE FROM sessions`); err != nil {
+		return err
+	}
+	if before, err := strconv.Atoi(v); err == nil && before < 24 {
+		if _, err := s.db.Exec(`DELETE FROM gate_sessions`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) hasColumn(table, column string) (bool, error) {

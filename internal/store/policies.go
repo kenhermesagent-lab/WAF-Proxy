@@ -585,10 +585,11 @@ func (s *Store) GateACL(proxyID int64) ([]string, error) {
 	return out, rows.Err()
 }
 
-// CreateGateSession stores a visitor session.
+// CreateGateSession stores a visitor session. The cookie value is hashed, so a
+// copy of the database cannot be replayed as a live gate session.
 func (s *Store) CreateGateSession(id string, proxyID int64, username, ip, ua string, expires time.Time) error {
 	_, err := s.db.Exec(`INSERT INTO gate_sessions(id, proxy_id, username, ip, ua, created_at, expires_at, site_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, id, proxyID, username, ip, ua, stamp(time.Now()), stamp(expires), s.site)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, s.gateID(id), proxyID, username, ip, ua, stamp(time.Now()), stamp(expires), s.site)
 	return err
 }
 
@@ -603,7 +604,7 @@ func (s *Store) LookupGateSession(id string, proxyID int64) (string, bool) {
 		AND NOT EXISTS (SELECT 1 FROM username_bans ub
 			WHERE ub.username = gs.username AND (ub.expires_at IS NULL OR ub.expires_at > ?)
 			AND (? = 0 OR ub.site_id = ?))`,
-		id, proxyID, now, s.site, s.site, now, s.site, s.site).Scan(&username)
+		s.gateID(id), proxyID, now, s.site, s.site, now, s.site, s.site).Scan(&username)
 	if err != nil {
 		return "", false
 	}
@@ -612,7 +613,7 @@ func (s *Store) LookupGateSession(id string, proxyID int64) (string, bool) {
 
 // DeleteGateSession removes a visitor session.
 func (s *Store) DeleteGateSession(id string) error {
-	_, err := s.db.Exec(`DELETE FROM gate_sessions WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
+	_, err := s.db.Exec(`DELETE FROM gate_sessions WHERE id = ? AND (? = 0 OR site_id = ?)`, s.gateID(id), s.site, s.site)
 	return err
 }
 

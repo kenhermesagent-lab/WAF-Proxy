@@ -34,6 +34,7 @@ import (
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/gate"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ha"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	mcpgw "github.com/kenhermesagent-lab/waf-proxy-docker/internal/mcp"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
@@ -67,12 +68,14 @@ func main() {
 			err = backupCLI(os.Args[2:])
 		case "sites":
 			err = sitesCLI(os.Args[2:])
+		case "ha":
+			err = haCLI(os.Args[2:])
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, os.Args[1]+":", err)
 			os.Exit(1)
 		}
-		if os.Args[1] == "unban" || os.Args[1] == "setup" || os.Args[1] == "recover" || os.Args[1] == "backup" || os.Args[1] == "sites" {
+		if os.Args[1] == "unban" || os.Args[1] == "setup" || os.Args[1] == "recover" || os.Args[1] == "backup" || os.Args[1] == "sites" || os.Args[1] == "ha" {
 			return
 		}
 	}
@@ -380,6 +383,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The role file decides which background work this node may do. A missing
+	// or damaged file loads as standby, so the safe answer is the default. With
+	// HA off the node is standalone and runs everything, as it always has.
+	node, roleErr := ha.Load(cfg.DataDir)
+	if roleErr != nil {
+		log.Error("reading the node role; refusing to run active-only work", "err", roleErr)
+	}
+	roleGate := ha.NewGate(!cfg.HAEnabled || node.Active())
+	if cfg.HAEnabled {
+		log.Info("high availability enabled", "role", node.Role, "active_work", roleGate.Active())
+	}
 	trusted, err := clientip.New(cfg.TrustedProxies)
 	if err != nil {
 		return err
@@ -405,6 +419,14 @@ func run() error {
 	box, err := wfcrypto.New(cfg.MasterKey)
 	if err != nil {
 		return err
+	}
+	// Certificate private keys are sealed at rest. The pass re-seals rows an
+	// older release wrote in plaintext and is a no-op afterwards.
+	st.SetSecretBox(box)
+	if n, err := st.Unscoped().SealStoredCertKeys(); err != nil {
+		return fmt.Errorf("seal certificate keys: %w", err)
+	} else if n > 0 {
+		log.Info("sealed certificate private keys", "count", n)
 	}
 
 	kv, err := st.Settings()
@@ -760,12 +782,20 @@ func run() error {
 	api.SetTrustedProxies(trusted)
 	apiServer := api.New(st, box, cfg, px, res.Default().Policy, bans, feeds, certs, cs, met, notifier, geo, res, log)
 	apiServer.SetBundles(bundles)
+	apiServer.SetHAStatus(func() api.HAStatus {
+		n, _ := ha.Load(cfg.DataDir)
+		state := stateForRole(n.Role)
+		return api.HAStatus{
+			Enabled: cfg.HAEnabled, Role: string(n.Role), State: string(state),
+			Serving: !cfg.HAEnabled || ha.Serving(state), Epoch: n.Epoch, Peer: n.Peer,
+		}
+	})
 	apiServer.StartBackup(ctx)
 	apiServer.StartAutoUpdate(ctx)
 	agentLinks := agentlink.New(st, box, log)
 	agentLinks.SetRouting(notifier.EventEnabled)
 	apiServer.SetAgentLinks(agentLinks)
-	go agentLinks.Start(ctx)
+	roleGate.Go(func() { agentLinks.Start(ctx) })
 	res.Each(func(b *siteres.Bundle) { b.Anomaly.SetSink(agentLinks.Publish) })
 	apiServer.SetStreaming(streams)
 	apiServer.SetUpdates(updateManager)
@@ -833,6 +863,14 @@ func run() error {
 		log.Error("admin listener failed", "addr", cfg.ListenGUI, "err", msg)
 		cancel()
 	}
+	// In HA mode the service address moves between nodes, so each node also
+	// answers its console on a fixed management address of its own.
+	if cfg.HAEnabled && cfg.HAMgmtListen != cfg.ListenGUI {
+		if msg := listenGUI(cfg.HAMgmtListen, lanHandler, true); msg != "" {
+			log.Error("management listener failed", "addr", cfg.HAMgmtListen, "err", msg)
+			cancel()
+		}
+	}
 	tailAdminUp := false
 	if tailAdminAddr != "" {
 		if msg := listenGUI(tailAdminAddr, api.TailscaleOnly(gui), false); msg != "" {
@@ -853,19 +891,22 @@ func run() error {
 	met.Start(ctx)
 	mcpGateway.Start(ctx)
 	go apiServer.Start(ctx)
-	go gateEngine.Start(ctx)
-	go bots.Start(ctx)
-	go feeds.Start(ctx)
-	go bundles.Start(ctx)
-	go res.Start(ctx)
-	go bans.Start(ctx)
+	// A standby must not renew certificates, fetch feeds or reconcile the
+	// kernel: the active does that, and two copies of an ACME order or a ban
+	// reconcile is how a pair fights itself.
+	roleGate.Go(func() { gateEngine.Start(ctx) })
+	roleGate.Go(func() { bots.Start(ctx) })
+	roleGate.Go(func() { feeds.Start(ctx) })
+	roleGate.Go(func() { bundles.Start(ctx) })
+	roleGate.Go(func() { res.Start(ctx) })
+	roleGate.Go(func() { bans.Start(ctx) })
 
-	go geoAutoUpdate(ctx, st, geo, log)
+	roleGate.Go(func() { geoAutoUpdate(ctx, st, geo, log) })
 
 	uptimeMon.Start(ctx)
-	cs.Start(ctx)
-	go retentionLoop(ctx, st, log)
-	go certWatch(ctx, res, log)
+	roleGate.Do(func() { cs.Start(ctx) })
+	roleGate.Go(func() { retentionLoop(ctx, st, log) })
+	roleGate.Go(func() { certWatch(ctx, res, log) })
 
 	for _, gl := range guiListeners {
 		go func(gl guiListener) {
