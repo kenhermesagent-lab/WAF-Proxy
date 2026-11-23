@@ -81,8 +81,12 @@ type udpSession struct {
 	key      sessionKey
 	addr     netip.Addr // key.addr without the IPv4-mapped form, as the caps count it
 	upstream *net.UDPConn
+	started  time.Time
 	lastSeen atomic.Int64 // unix nanos
 	once     sync.Once
+
+	bytesIn, bytesOut atomic.Uint64
+	pktsIn, pktsOut   atomic.Uint64
 }
 
 // bindUDP creates one socket per port in the configured range and resolves the
@@ -198,6 +202,8 @@ func (u *udpRuntime) handle(l *udpListener, from netip.AddrPort, payload []byte)
 		u.drop(s)
 		return
 	}
+	s.pktsIn.Add(1)
+	s.bytesIn.Add(uint64(n))
 	u.pktsIn.Add(1)
 	u.bytesIn.Add(uint64(n))
 }
@@ -248,7 +254,7 @@ func (u *udpRuntime) open(l *udpListener, from netip.AddrPort, addr netip.Addr) 
 		u.m.log.Warn("streaming udp upstream dial failed", "service", u.def.ID, "upstream", u.cfg.Upstream, "err", err)
 		return nil, false
 	}
-	s := &udpSession{key: key, addr: addr, upstream: up}
+	s := &udpSession{key: key, addr: addr, upstream: up, started: time.Now()}
 	s.lastSeen.Store(time.Now().UnixNano())
 	u.sess[key] = s
 	u.perSource[addr]++
@@ -284,6 +290,8 @@ func (u *udpRuntime) replies(l *udpListener, s *udpSession) {
 		if err != nil {
 			return
 		}
+		s.pktsOut.Add(1)
+		s.bytesOut.Add(uint64(written))
 		u.pktsOut.Add(1)
 		u.bytesOut.Add(uint64(written))
 	}
@@ -383,9 +391,20 @@ func (u *udpRuntime) listenAddr() string {
 	if len(u.listeners) == 0 {
 		return ""
 	}
-	first := u.listeners[0]
-	if len(u.listeners) == 1 {
-		return first.pc.LocalAddr().String()
+	return describeRange(u.listeners[0].pc.LocalAddr().String(), u.cfg.Port, u.cfg.PortCount)
+}
+
+// sessions snapshots the live sessions for the status page.
+func (u *udpRuntime) sessions() []Session {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	out := make([]Session, 0, len(u.sess))
+	for _, s := range u.sess {
+		out = append(out, Session{
+			Addr: s.addr.String(), Port: s.key.port, Protocol: "UDP",
+			BytesIn: s.bytesIn.Load(), BytesOut: s.bytesOut.Load(),
+			PacketsIn: s.pktsIn.Load(), PacketsOut: s.pktsOut.Load(), Started: s.started,
+		})
 	}
-	return fmt.Sprintf("%s-%d", first.pc.LocalAddr().String(), u.listeners[len(u.listeners)-1].port)
+	return out
 }

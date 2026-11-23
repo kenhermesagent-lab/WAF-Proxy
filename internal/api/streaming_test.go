@@ -1,6 +1,7 @@
 package api
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -71,5 +72,57 @@ func TestStreamingPortConflict(t *testing.T) {
 	cfg = streaming.Config{Port: 32400, ListenIP: "192.168.191.2", Upstream: "10.0.0.10:32400"}
 	if msg := srv.streamingPortConflict(plex, cfg, kv); msg != "" {
 		t.Fatalf("unexpected conflict: %s", msg)
+	}
+}
+
+// TCP and UDP are separate sockets, so a game that needs both may share a
+// number with another service, but not the same protocol.
+func TestStreamingPortConflictProtocols(t *testing.T) {
+	srv := &Server{}
+	plex, _ := streaming.Lookup("plex")
+	kv := map[string]string{
+		"wan_ip": "192.168.191.2", "wan_port": "443",
+		"lan_ip": "10.0.0.2", "gui_port": "8443",
+		"stream_custom_enabled": "1", "stream_custom_port": "30120",
+		"stream_custom_protocol": "tcp", "stream_custom_listen_ip": "192.168.191.2",
+	}
+
+	cfg := streaming.Config{Port: 30120, PortCount: 1, Protocol: "udp", ListenIP: "192.168.191.2"}
+	if msg := srv.streamingPortConflict(plex, cfg, kv); msg != "" {
+		t.Fatalf("udp beside a tcp service conflicted: %s", msg)
+	}
+	cfg.Protocol = "tcp"
+	if msg := srv.streamingPortConflict(plex, cfg, kv); !strings.Contains(msg, "Custom") {
+		t.Fatalf("conflict = %q, want it to name the Custom service", msg)
+	}
+
+	// A range overlaps when any port in it is taken.
+	cfg = streaming.Config{Port: 30119, PortCount: 2, Protocol: "tcp", ListenIP: "192.168.191.2"}
+	if msg := srv.streamingPortConflict(plex, cfg, kv); msg == "" {
+		t.Fatal("a range covering a taken port was allowed")
+	}
+
+	// The WAN listener is TCP, so a UDP service may reuse 443.
+	cfg = streaming.Config{Port: 443, PortCount: 1, Protocol: "udp", ListenIP: "192.168.191.2"}
+	if msg := srv.streamingPortConflict(plex, cfg, kv); msg != "" {
+		t.Fatalf("udp on the WAN port conflicted: %s", msg)
+	}
+	cfg.Protocol = "both"
+	if msg := srv.streamingPortConflict(plex, cfg, kv); !strings.Contains(msg, "WAN") {
+		t.Fatalf("conflict = %q, want the WAN listener", msg)
+	}
+}
+
+// Every key a save writes must load back into the configuration it came from.
+func TestStreamingSettingsRoundTrip(t *testing.T) {
+	def, _ := streaming.Lookup("custom")
+	want := streaming.Config{
+		Enabled: true, ListenIP: "192.168.191.2", Protocol: "both", Port: 26900, PortCount: 4,
+		Upstream: "10.0.0.10:26900", UpstreamPort: 26900, Allow: []string{"10.0.0.0/8"},
+		MaxConns: 64, MaxPerSource: 4, IdleSeconds: 90, MaxDatagram: 1200, ListIDs: []int64{3, 7},
+	}
+	got := streaming.ConfigFromSettings(def, streamingSettings(def, want))
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("round trip = %+v, want %+v", got, want)
 	}
 }

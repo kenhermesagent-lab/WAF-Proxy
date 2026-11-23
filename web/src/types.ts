@@ -770,24 +770,50 @@ export interface IPDetail {
   total: number;
 }
 
+export interface StreamingSession {
+  addr: string;
+  port: number;
+  protocol: string;
+  bytes_in: number;
+  bytes_out: number;
+  packets_in: number;
+  packets_out: number;
+  started: string;
+}
+
 export interface StreamingService {
   id: string;
   label: string;
   default_port: number;
   enabled: boolean;
   listen_ip: string;
+  protocol: string;
   port: number;
+  port_count: number;
   upstream: string;
+  upstream_port: number;
   allow: string[];
   max_conns: number;
+  max_per_source: number;
+  idle_seconds: number;
+  max_datagram: number;
   list_ids?: number[];
   bound: boolean;
   listen_addr: string;
+  upstream_base: string;
   active: number;
+  active_sessions: number;
   total: number;
   blocked: number;
   banned: number;
   dropped: number;
+  oversize: number;
+  bytes_in: number;
+  bytes_out: number;
+  packets_in: number;
+  packets_out: number;
+  refused: number;
+  sessions: StreamingSession[];
   last_error: string;
   default: { listen_ip: string; port: number; upstream: string; max_conns: number };
 }

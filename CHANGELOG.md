@@ -29,6 +29,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   logged once per throttle window instead of once per packet.
 - Relay events now carry the protocol and the exact listen port that was hit, so a UDP range names
   the port a refusal came from in Logs as well as in the counters.
+- **TCP+UDP pairing.** `protocol=both` binds a TCP listener and a UDP socket on the same number,
+  which is what FiveM and Factorio need, and reports one status: bound only when both sockets are,
+  with the failing protocol named otherwise. TCP services gained port ranges too, so a game that
+  opens several TCP ports is one card.
+- **The relay reports what it moves.** Each service now returns bytes and packets in both
+  directions, refusals, oversize drops, live sessions per protocol and the fifty busiest sessions.
+
+### Changed
+
+- **Streaming settings are stored per key and stay backward compatible.** `protocol`, `port_count`,
+  `upstream_port`, `max_per_source`, `idle_seconds` and `max_datagram` join the existing keys, and a
+  configuration saved by 1.60 loads unchanged as one TCP port. Port-conflict checks now compare the
+  protocol as well: a TCP and a UDP listener may share a number, two on the same protocol may not.
 
 ### Security
 

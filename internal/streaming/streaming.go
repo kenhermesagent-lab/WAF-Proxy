@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +36,8 @@ const (
 	// refusalWindow is how often one banned source can produce an event per
 	// service; repeat attempts inside the window are counted, not logged.
 	refusalWindow = time.Minute
+	// maxPortCount bounds one service's listen range.
+	maxPortCount = 16
 )
 
 // Service is one supported media server.
@@ -115,20 +118,44 @@ type Event struct {
 	Detail string
 }
 
-// Status is the configuration plus live state for one service.
+// Session is one live TCP stream or UDP session as the status page lists it. A
+// TCP stream's packets are the read and write chunks it moved.
+type Session struct {
+	Addr       string    `json:"addr"`
+	Port       int       `json:"port"`
+	Protocol   string    `json:"protocol"`
+	BytesIn    uint64    `json:"bytes_in"`
+	BytesOut   uint64    `json:"bytes_out"`
+	PacketsIn  uint64    `json:"packets_in"`
+	PacketsOut uint64    `json:"packets_out"`
+	Started    time.Time `json:"started"`
+}
+
+// Status is the configuration plus live state for one service. Active counts
+// TCP connections and ActiveSessions counts UDP sessions, because the two have
+// different lifetimes and the page shows both.
 type Status struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
 	DefaultPort int    `json:"default_port"`
 	Config
-	Bound      bool   `json:"bound"`
-	ListenAddr string `json:"listen_addr"`
-	Active     int64  `json:"active"`
-	Total      uint64 `json:"total"`
-	Blocked    uint64 `json:"blocked"`
-	Banned     uint64 `json:"banned"`
-	Dropped    uint64 `json:"dropped"`
-	LastError  string `json:"last_error"`
+	Bound          bool      `json:"bound"`
+	ListenAddr     string    `json:"listen_addr"`
+	UpstreamBase   string    `json:"upstream_base"`
+	Active         int64     `json:"active"`
+	ActiveSessions int64     `json:"active_sessions"`
+	Total          uint64    `json:"total"`
+	Blocked        uint64    `json:"blocked"`
+	Banned         uint64    `json:"banned"`
+	Dropped        uint64    `json:"dropped"`
+	Oversize       uint64    `json:"oversize"`
+	BytesIn        uint64    `json:"bytes_in"`
+	BytesOut       uint64    `json:"bytes_out"`
+	PacketsIn      uint64    `json:"packets_in"`
+	PacketsOut     uint64    `json:"packets_out"`
+	Refused        uint64    `json:"refused"`
+	Sessions       []Session `json:"sessions"`
+	LastError      string    `json:"last_error"`
 }
 
 // ConfigFromSettings rebuilds a saved configuration. Values live under
@@ -144,13 +171,13 @@ func ConfigFromSettings(def Service, kv map[string]string) Config {
 		}
 		return ""
 	}
-	port := def.DefaultPort
-	if v, err := strconv.Atoi(get("port")); err == nil && v > 0 {
-		port = v
-	}
-	maxConns := DefaultMaxConns
-	if v, err := strconv.Atoi(get("max_conns")); err == nil && v > 0 {
-		maxConns = v
+	// positive reads a numeric setting, falling back to def when the key is
+	// missing or unusable; a saved zero is not something the form can produce.
+	positive := func(field string, def int) int {
+		if v, err := strconv.Atoi(get(field)); err == nil && v > 0 {
+			return v
+		}
+		return def
 	}
 	allow := []string{}
 	for _, part := range strings.Split(get("allow"), ",") {
@@ -164,14 +191,27 @@ func ConfigFromSettings(def Service, kv map[string]string) Config {
 			lists = append(lists, id)
 		}
 	}
+	protocol := strings.ToLower(strings.TrimSpace(get("protocol")))
+	if protocol == "" {
+		// 1.60 wrote no protocol and could only forward TCP.
+		protocol = "tcp"
+	}
 	return Config{
-		Enabled:  get("enabled") == "1",
-		ListenIP: get("listen_ip"),
-		Port:     port,
-		Upstream: get("upstream"),
-		Allow:    allow,
-		MaxConns: maxConns,
-		ListIDs:  lists,
+		Enabled:   get("enabled") == "1",
+		ListenIP:  get("listen_ip"),
+		Port:      positive("port", def.DefaultPort),
+		Upstream:  get("upstream"),
+		Allow:     allow,
+		MaxConns:  positive("max_conns", DefaultMaxConns),
+		Protocol:  protocol,
+		PortCount: positive("port_count", 1),
+		// Absent means the upstream string carries the port, which is how 1.60
+		// saved it; Normalize derives the base from there.
+		UpstreamPort: positive("upstream_port", 0),
+		MaxPerSource: positive("max_per_source", DefaultMaxPerSource),
+		IdleSeconds:  positive("idle_seconds", DefaultUDPIdleSeconds),
+		MaxDatagram:  positive("max_datagram", DefaultMaxDatagram),
+		ListIDs:      lists,
 	}
 }
 
@@ -197,18 +237,15 @@ func (c Config) Normalize(def Service) (Config, error) {
 	switch c.Protocol = strings.ToLower(strings.TrimSpace(c.Protocol)); c.Protocol {
 	case "":
 		c.Protocol = "tcp"
-	case "tcp", "udp":
+	case "tcp", "udp", "both":
 	default:
-		return c, errors.New("protocol must be tcp or udp")
+		return c, errors.New("protocol must be tcp, udp or both")
 	}
 	if c.PortCount == 0 {
 		c.PortCount = 1
 	}
-	if c.PortCount < 1 || c.PortCount > 16 {
-		return c, errors.New("port_count must be between 1 and 16")
-	}
-	if c.PortCount > 1 && c.Protocol != "udp" {
-		return c, errors.New("port ranges need the udp protocol")
+	if c.PortCount < 1 || c.PortCount > maxPortCount {
+		return c, fmt.Errorf("port_count must be between 1 and %d", maxPortCount)
 	}
 	if c.Port+c.PortCount-1 > 65535 {
 		return c, fmt.Errorf("port range %d-%d runs past 65535", c.Port, c.Port+c.PortCount-1)
@@ -471,16 +508,17 @@ type Manager struct {
 	now      func() time.Time
 }
 
-// runtime is the live state of one listener.
+// runtime is the live state of one service: the TCP listeners of its range, its
+// UDP sockets, and the counters both report through.
 type runtime struct {
 	def Service
 	cfg Config
 	// src is swapped when a list is edited, so accept() reads it without a lock
 	// and an edit never races a connection.
-	src  atomic.Pointer[sourcePolicy]
-	ln   net.Listener
-	done chan struct{}
-	wg   sync.WaitGroup
+	src       atomic.Pointer[sourcePolicy]
+	listeners []*tcpListener
+	done      chan struct{}
+	wg        sync.WaitGroup
 
 	connMu sync.Mutex
 	conns  map[*relay]struct{}
@@ -495,12 +533,25 @@ type runtime struct {
 	lastErr atomic.Value // string
 }
 
+// tcpListener is one bound TCP port. A range listens on N ports and forwards
+// each to its own upstream port.
+type tcpListener struct {
+	ln       net.Listener
+	port     int
+	upstream string
+}
+
 // relay is one accepted pair of sockets, kept so a ban can cut a stream that is
 // already running instead of only refusing new ones.
 type relay struct {
 	client   net.Conn
 	upstream net.Conn
 	addr     netip.Addr
+	port     int
+	started  time.Time
+
+	bytesIn, bytesOut     atomic.Uint64
+	packetsIn, packetsOut atomic.Uint64
 }
 
 // New creates a manager with no listeners.
@@ -626,39 +677,70 @@ func (m *Manager) Apply(id string, cfg Config) error {
 		}
 		rt.cfg = norm
 		rt.setSource(compileSources(norm, m.configuredLists(norm.ListIDs)))
-		if norm.Protocol == "udp" {
+		// "both" needs two sockets on the same number; a failure on one leaves
+		// the other serving, and the error names the protocol that failed.
+		var failed []string
+		if norm.Protocol != "udp" {
+			if err := m.bindTCP(rt); err != nil {
+				failed = append(failed, err.Error())
+			}
+		}
+		if norm.Protocol != "tcp" {
 			u, err := m.bindUDP(rt)
 			if err != nil {
-				rt.lastErr.Store(err.Error())
-				listenErr = err
+				failed = append(failed, err.Error())
 			} else {
 				rt.udp = u
 				m.log.Info("streaming udp forwarder listening", "service", id, "addr", u.listenAddr(), "upstream", norm.Upstream,
 					"sessions", norm.MaxConns, "max_per_source", norm.MaxPerSource, "allow_list_entries", len(norm.Allow), "named_lists", len(norm.ListIDs))
 			}
-		} else {
-			addr := net.JoinHostPort(norm.ListenIP, strconv.Itoa(norm.Port))
-			ln, err := net.Listen("tcp", addr)
-			if err != nil {
-				rt.lastErr.Store(err.Error())
-				listenErr = fmt.Errorf("listen on %s: %w", addr, err)
-			} else {
-				rt.ln, rt.done = ln, make(chan struct{})
-				m.log.Info("streaming forwarder listening", "service", id, "addr", ln.Addr().String(), "upstream", norm.Upstream,
-					"allow_list_entries", len(norm.Allow), "named_lists", len(norm.ListIDs))
-			}
+		}
+		if len(failed) > 0 {
+			listenErr = errors.New(strings.Join(failed, "; "))
+			rt.lastErr.Store(listenErr.Error())
 		}
 	}
 	m.mu.Unlock()
 
-	if rt.ln != nil {
+	for _, l := range rt.listeners {
 		rt.wg.Add(1)
-		go m.accept(rt)
+		go m.accept(rt, l)
 	}
 	if rt.udp != nil {
 		rt.udp.start()
 	}
 	return listenErr
+}
+
+// bindTCP binds one port per entry in the range. A range is one logical
+// service, so a failure on any port releases the ones already bound.
+func (m *Manager) bindTCP(rt *runtime) error {
+	cfg := rt.cfg
+	host, _, err := net.SplitHostPort(cfg.Upstream)
+	if err != nil {
+		return fmt.Errorf("upstream %q: %w", cfg.Upstream, err)
+	}
+	for i := 0; i < cfg.PortCount; i++ {
+		addr := net.JoinHostPort(cfg.ListenIP, strconv.Itoa(cfg.Port+i))
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			for _, l := range rt.listeners {
+				_ = l.ln.Close()
+			}
+			rt.listeners = nil
+			return fmt.Errorf("listen on %s/tcp: %w", addr, err)
+		}
+		rt.listeners = append(rt.listeners, &tcpListener{
+			ln:       ln,
+			port:     cfg.Port + i,
+			upstream: net.JoinHostPort(host, strconv.Itoa(cfg.UpstreamPort+i)),
+		})
+	}
+	rt.done = make(chan struct{})
+	m.log.Info("streaming forwarder listening", "service", rt.def.ID, "protocol", cfg.Protocol,
+		"addr", describeRange(rt.listeners[0].ln.Addr().String(), cfg.Port, cfg.PortCount),
+		"upstream", cfg.Upstream, "allow_list_entries", len(cfg.Allow), "named_lists", len(cfg.ListIDs))
+	return nil
 }
 
 // Close stops every listener.
@@ -683,8 +765,8 @@ func (m *Manager) stopLocked(id string) {
 	if rt.udp != nil {
 		rt.udp.close()
 	}
-	if rt.ln != nil {
-		_ = rt.ln.Close()
+	for _, l := range rt.listeners {
+		_ = l.ln.Close()
 	}
 	rt.connMu.Lock()
 	for r := range rt.conns {
@@ -705,10 +787,12 @@ func (m *Manager) Statuses() []Status {
 		st := Status{ID: def.ID, Label: def.Label, DefaultPort: def.DefaultPort}
 		rt, ok := m.services[def.ID]
 		if !ok {
+			st.Sessions = []Session{}
 			out = append(out, st)
 			continue
 		}
 		st.Config = rt.cfg
+		st.UpstreamBase = rt.cfg.Upstream
 		st.Active = rt.active.Load()
 		st.Total = rt.total.Load()
 		st.Blocked = rt.blocked.Load()
@@ -717,22 +801,76 @@ func (m *Manager) Statuses() []Status {
 		if v, ok := rt.lastErr.Load().(string); ok {
 			st.LastError = v
 		}
-		if rt.ln != nil {
-			st.Bound = true
-			st.ListenAddr = rt.ln.Addr().String()
+
+		sessions := make([]Session, 0, len(rt.conns))
+		rt.connMu.Lock()
+		for r := range rt.conns {
+			in, out := r.bytesIn.Load(), r.bytesOut.Load()
+			pktsIn, pktsOut := r.packetsIn.Load(), r.packetsOut.Load()
+			st.BytesIn += in
+			st.BytesOut += out
+			st.PacketsIn += pktsIn
+			st.PacketsOut += pktsOut
+			sessions = append(sessions, Session{
+				Addr: r.addr.String(), Port: r.port, Protocol: "TCP",
+				BytesIn: in, BytesOut: out, PacketsIn: pktsIn, PacketsOut: pktsOut,
+				Started: r.started,
+			})
 		}
+		rt.connMu.Unlock()
+
+		tcpBound, udpBound := len(rt.listeners) > 0, rt.udp != nil
+		switch rt.cfg.Protocol {
+		case "udp":
+			st.Bound = udpBound
+		case "both":
+			// Both sockets were asked for, so one alone is a partial start.
+			st.Bound = tcpBound && udpBound
+		default:
+			st.Bound = tcpBound
+		}
+		switch {
+		case tcpBound && udpBound:
+			st.ListenAddr = describeRange(rt.listeners[0].ln.Addr().String(), rt.cfg.Port, rt.cfg.PortCount) + " tcp+udp"
+		case tcpBound:
+			st.ListenAddr = describeRange(rt.listeners[0].ln.Addr().String(), rt.cfg.Port, rt.cfg.PortCount)
+		case udpBound:
+			st.ListenAddr = rt.udp.listenAddr()
+		}
+
 		if u := rt.udp; u != nil {
-			st.Bound = true
-			st.ListenAddr = u.listenAddr()
-			st.Active = u.active.Load()
-			st.Total = u.total.Load()
-			st.Blocked = u.blocked.Load()
-			st.Banned = u.banned.Load()
-			st.Dropped = u.dropped.Load()
+			st.ActiveSessions = u.active.Load()
+			st.Total += u.total.Load()
+			st.Blocked += u.blocked.Load()
+			st.Banned += u.banned.Load()
+			st.Dropped += u.dropped.Load()
+			st.Oversize = u.oversize.Load()
+			st.BytesIn += u.bytesIn.Load()
+			st.BytesOut += u.bytesOut.Load()
+			st.PacketsIn += u.pktsIn.Load()
+			st.PacketsOut += u.pktsOut.Load()
+			sessions = append(sessions, u.sessions()...)
 		}
+		st.Refused = st.Blocked + st.Banned
+		st.Sessions = topSessions(sessions)
 		out = append(out, st)
 	}
 	return out
+}
+
+// maxStatusSessions caps the live session list the page renders.
+const maxStatusSessions = 50
+
+// topSessions keeps the busiest sessions, so the page can show top talkers
+// without a second call.
+func topSessions(all []Session) []Session {
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].BytesIn+all[i].BytesOut > all[j].BytesIn+all[j].BytesOut
+	})
+	if len(all) > maxStatusSessions {
+		all = all[:maxStatusSessions]
+	}
+	return all
 }
 
 // DropBanned closes every open stream whose source matches, which is how a ban
@@ -777,15 +915,15 @@ func (m *Manager) DropBanned(match func(netip.Addr) bool, detail string) int {
 		_ = v.r.client.Close()
 		_ = v.r.upstream.Close()
 		v.rt.dropped.Add(1)
-		m.emit(Event{Service: v.rt.def.ID, Label: v.rt.def.Label, Method: "TCP", Port: v.rt.cfg.Port, Addr: v.r.addr, Kind: "stream-ban", Detail: detail})
+		m.emit(Event{Service: v.rt.def.ID, Label: v.rt.def.Label, Method: "TCP", Port: v.r.port, Addr: v.r.addr, Kind: "stream-ban", Detail: detail})
 	}
 	return len(doomed)
 }
 
-func (m *Manager) accept(rt *runtime) {
+func (m *Manager) accept(rt *runtime, l *tcpListener) {
 	defer rt.wg.Done()
 	for {
-		conn, err := rt.ln.Accept()
+		conn, err := l.ln.Accept()
 		if err != nil {
 			select {
 			case <-rt.done:
@@ -820,14 +958,14 @@ func (m *Manager) accept(rt *runtime) {
 		if kind, list, detail := src.verdict(addr, m.countryOf(addr)); kind != "" {
 			rt.blocked.Add(1)
 			_ = conn.Close()
-			m.refuse(rt, addr, kind, detail, list)
+			m.refuseAt(rt, l.port, "TCP", addr, kind, detail, list)
 			continue
 		}
 		if m.isBanned(addr) {
 			_ = conn.Close()
 			// Emit before counting so the status counter never runs ahead of
 			// the event that describes the refusal.
-			m.refuse(rt, addr, "stream-ban", fmt.Sprintf("banned source refused on the %s port", rt.def.Label), "")
+			m.refuseAt(rt, l.port, "TCP", addr, "stream-ban", fmt.Sprintf("banned source refused on the %s port", rt.def.Label), "")
 			rt.banned.Add(1)
 			continue
 		}
@@ -837,19 +975,12 @@ func (m *Manager) accept(rt *runtime) {
 		go func(client net.Conn) {
 			defer rt.wg.Done()
 			defer rt.active.Add(-1)
-			m.handle(rt, client, addr)
+			m.handle(rt, l, client, addr)
 		}(conn)
 	}
 }
 
-// refuse reports a refused attempt at most once per window per source, so a
-// retry loop cannot fill the event log. list is the named list that decided the
-// refusal, if any, and is kept on the event for the log row.
-func (m *Manager) refuse(rt *runtime, addr netip.Addr, kind, detail, list string) {
-	m.refuseAt(rt, rt.cfg.Port, "TCP", addr, kind, detail, list)
-}
-
-// refuseAt reports a refusal on one protocol and listen port: a UDP range has a
+// refuseAt reports a refusal on one protocol and listen port: a range has a
 // socket per port, so the event names the port that was actually hit.
 func (m *Manager) refuseAt(rt *runtime, port int, method string, addr netip.Addr, kind, detail, list string) {
 	emit, suppressed := m.refusals.allow(rt.def.ID, addr, m.now())
@@ -865,13 +996,13 @@ func (m *Manager) refuseAt(rt *runtime, port int, method string, addr netip.Addr
 	m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Method: method, Port: port, Addr: addr, Kind: kind, Detail: detail})
 }
 
-func (m *Manager) handle(rt *runtime, client net.Conn, addr netip.Addr) {
+func (m *Manager) handle(rt *runtime, l *tcpListener, client net.Conn, addr netip.Addr) {
 	defer client.Close()
 
-	upstream, err := net.DialTimeout("tcp", rt.cfg.Upstream, dialTimeout)
+	upstream, err := net.DialTimeout("tcp", l.upstream, dialTimeout)
 	if err != nil {
 		rt.lastErr.Store(err.Error())
-		m.log.Warn("streaming upstream dial failed", "service", rt.def.ID, "upstream", rt.cfg.Upstream, "err", err)
+		m.log.Warn("streaming upstream dial failed", "service", rt.def.ID, "upstream", l.upstream, "err", err)
 		return
 	}
 	defer upstream.Close()
@@ -879,13 +1010,13 @@ func (m *Manager) handle(rt *runtime, client net.Conn, addr netip.Addr) {
 	// Track before checking the ban: a ban that lands from here on finds the
 	// relay in conns and cuts it, and one that landed during the dial is
 	// caught by the check itself.
-	r := &relay{client: client, upstream: upstream, addr: addr}
+	r := &relay{client: client, upstream: upstream, addr: addr, port: l.port, started: time.Now()}
 	rt.track(r)
 	defer rt.untrack(r)
 
 	if m.isBanned(addr) {
 		rt.dropped.Add(1)
-		m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Method: "TCP", Port: rt.cfg.Port, Addr: addr, Kind: "stream-ban",
+		m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Method: "TCP", Port: l.port, Addr: addr, Kind: "stream-ban",
 			Detail: fmt.Sprintf("stream closed by active ban on the %s port", rt.def.Label)})
 		return
 	}
@@ -894,7 +1025,7 @@ func (m *Manager) handle(rt *runtime, client net.Conn, addr netip.Addr) {
 		_ = tcp.SetKeepAlive(true)
 		_ = tcp.SetKeepAlivePeriod(30 * time.Second)
 	}
-	relayCopy(idleConn{Conn: client}, idleConn{Conn: upstream})
+	relayCopy(r)
 }
 
 func (rt *runtime) setSource(p sourcePolicy) { rt.src.Store(&p) }
@@ -919,8 +1050,11 @@ func (rt *runtime) untrack(r *relay) {
 }
 
 // relayCopy copies both directions and tears the pair down when either side
-// finishes, which is what closes a stream promptly.
-func relayCopy(client, upstream net.Conn) {
+// finishes, which is what closes a stream promptly. Reads are counted on the
+// socket they drain, so bytes in are client-to-server and bytes out the reverse.
+func relayCopy(r *relay) {
+	client := idleConn{Conn: r.client, bytes: &r.bytesIn, packets: &r.packetsIn}
+	upstream := idleConn{Conn: r.upstream, bytes: &r.bytesOut, packets: &r.packetsOut}
 	done := make(chan struct{}, 2)
 	go func() {
 		_, _ = io.Copy(upstream, client)
@@ -937,19 +1071,36 @@ func relayCopy(client, upstream net.Conn) {
 }
 
 // idleConn refreshes the deadline on every operation so an idle connection is
-// eventually reclaimed while a long stream is never cut in the middle.
+// eventually reclaimed while a long stream is never cut in the middle. It also
+// counts what it drains, which is what the status page reports.
 type idleConn struct {
 	net.Conn
+	bytes   *atomic.Uint64
+	packets *atomic.Uint64
 }
 
 func (c idleConn) Read(b []byte) (int, error) {
 	_ = c.Conn.SetReadDeadline(time.Now().Add(idleTimeout))
-	return c.Conn.Read(b)
+	n, err := c.Conn.Read(b)
+	if n > 0 {
+		c.bytes.Add(uint64(n))
+		c.packets.Add(1)
+	}
+	return n, err
 }
 
 func (c idleConn) Write(b []byte) (int, error) {
 	_ = c.Conn.SetWriteDeadline(time.Now().Add(idleTimeout))
 	return c.Conn.Write(b)
+}
+
+// describeRange names what the operator can reach: one address for a single
+// port, a base-to-last range otherwise.
+func describeRange(first string, base, count int) string {
+	if count <= 1 {
+		return first
+	}
+	return fmt.Sprintf("%s-%d", first, base+count-1)
 }
 
 func remoteAddr(remote net.Addr) (netip.Addr, bool) {

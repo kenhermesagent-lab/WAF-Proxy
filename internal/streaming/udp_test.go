@@ -164,8 +164,8 @@ func TestUDPEchoRelaysAndCounts(t *testing.T) {
 	if !st.Bound || st.ListenAddr == "" {
 		t.Fatalf("status = %+v, want a bound UDP listener", st)
 	}
-	if st.Active != 1 || st.Total != 1 {
-		t.Fatalf("status = %+v, want one active session out of one", st)
+	if st.ActiveSessions != 1 || st.Active != 0 || st.Total != 1 {
+		t.Fatalf("status = %+v, want one active session and no TCP connections", st)
 	}
 }
 
@@ -489,7 +489,6 @@ func TestUDPConfigNormalize(t *testing.T) {
 		in   Config
 	}{
 		{name: "unknown protocol", in: Config{Upstream: "h:2456", Protocol: "sctp"}},
-		{name: "range on tcp", in: Config{Upstream: "h:2456", Port: 2456, PortCount: 3}},
 		{name: "count too large", in: Config{Upstream: "h:2456", Port: 2456, PortCount: 17, Protocol: "udp"}},
 		{name: "listen range past 65535", in: Config{Upstream: "h:2456", Port: 65534, PortCount: 3, Protocol: "udp"}},
 		{name: "upstream range past 65535", in: Config{Upstream: "h:65534", Port: 2456, PortCount: 3, Protocol: "udp"}},

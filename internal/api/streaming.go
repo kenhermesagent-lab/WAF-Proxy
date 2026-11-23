@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -17,13 +18,19 @@ import (
 // streamingPayload is the wire format of one service section. The allow list is
 // a comma separated string because that is what the form shows.
 type streamingPayload struct {
-	Enabled  bool    `json:"enabled"`
-	ListenIP string  `json:"listen_ip"`
-	Port     int     `json:"port"`
-	Upstream string  `json:"upstream"`
-	Allow    string  `json:"allow"`
-	MaxConns int     `json:"max_conns"`
-	ListIDs  []int64 `json:"list_ids"`
+	Enabled      bool    `json:"enabled"`
+	ListenIP     string  `json:"listen_ip"`
+	Protocol     string  `json:"protocol"`
+	Port         int     `json:"port"`
+	PortCount    int     `json:"port_count"`
+	Upstream     string  `json:"upstream"`
+	UpstreamPort int     `json:"upstream_port"`
+	Allow        string  `json:"allow"`
+	MaxConns     int     `json:"max_conns"`
+	MaxPerSource int     `json:"max_per_source"`
+	IdleSeconds  int     `json:"idle_seconds"`
+	MaxDatagram  int     `json:"max_datagram"`
+	ListIDs      []int64 `json:"list_ids"`
 }
 
 // streamingView is a status plus the defaults used to prefill an unsaved form.
@@ -81,8 +88,10 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := streaming.Config{
-		Enabled: in.Enabled, ListenIP: in.ListenIP, Port: in.Port,
-		Upstream: in.Upstream, MaxConns: in.MaxConns, ListIDs: in.ListIDs,
+		Enabled: in.Enabled, ListenIP: in.ListenIP, Protocol: in.Protocol, Port: in.Port,
+		PortCount: in.PortCount, Upstream: in.Upstream, UpstreamPort: in.UpstreamPort,
+		MaxConns: in.MaxConns, MaxPerSource: in.MaxPerSource,
+		IdleSeconds: in.IdleSeconds, MaxDatagram: in.MaxDatagram, ListIDs: in.ListIDs,
 	}
 	if strings.TrimSpace(in.Allow) != "" {
 		cfg.Allow = strings.Split(in.Allow, ",")
@@ -121,16 +130,7 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	next := map[string]string{
-		"stream_" + def.ID + "_enabled":   boolSetting(normalized.Enabled),
-		"stream_" + def.ID + "_listen_ip": normalized.ListenIP,
-		"stream_" + def.ID + "_port":      strconv.Itoa(normalized.Port),
-		"stream_" + def.ID + "_upstream":  normalized.Upstream,
-		"stream_" + def.ID + "_allow":     strings.Join(normalized.Allow, ","),
-		"stream_" + def.ID + "_max_conns": strconv.Itoa(normalized.MaxConns),
-		"stream_" + def.ID + "_lists":     joinIDs(normalized.ListIDs),
-	}
-	if err := s.db(r).SetSettings(next); err != nil {
+	if err := s.db(r).SetSettings(streamingSettings(def, normalized)); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
 		return
 	}
@@ -146,7 +146,8 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "streaming.update",
-		def.ID+" enabled="+boolSetting(normalized.Enabled)+" port="+strconv.Itoa(normalized.Port)+" upstream="+normalized.Upstream,
+		def.ID+" enabled="+boolSetting(normalized.Enabled)+" protocol="+normalized.Protocol+
+			" ports="+portSpec(normalized)+" upstream="+normalized.Upstream,
 		clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
@@ -229,34 +230,97 @@ func joinIDs(ids []int64) string {
 	return strings.Join(parts, ",")
 }
 
-// streamingPortConflict refuses a port already used by the admin GUI, the HTTP
-// proxy listener or another streaming service on an overlapping address, which
-// would otherwise fail at bind time with a bare error.
+// streamingSettings is the map a saved configuration writes. It sits beside
+// ConfigFromSettings so the two cannot drift.
+func streamingSettings(def streaming.Service, cfg streaming.Config) map[string]string {
+	prefix := "stream_" + def.ID + "_"
+	return map[string]string{
+		prefix + "enabled":        boolSetting(cfg.Enabled),
+		prefix + "listen_ip":      cfg.ListenIP,
+		prefix + "protocol":       cfg.Protocol,
+		prefix + "port":           strconv.Itoa(cfg.Port),
+		prefix + "port_count":     strconv.Itoa(cfg.PortCount),
+		prefix + "upstream":       cfg.Upstream,
+		prefix + "upstream_port":  strconv.Itoa(cfg.UpstreamPort),
+		prefix + "allow":          strings.Join(cfg.Allow, ","),
+		prefix + "max_conns":      strconv.Itoa(cfg.MaxConns),
+		prefix + "max_per_source": strconv.Itoa(cfg.MaxPerSource),
+		prefix + "idle_seconds":   strconv.Itoa(cfg.IdleSeconds),
+		prefix + "max_datagram":   strconv.Itoa(cfg.MaxDatagram),
+		prefix + "lists":          joinIDs(cfg.ListIDs),
+	}
+}
+
+// portSpec names a listen range in one token, e.g. 2456-2458.
+func portSpec(cfg streaming.Config) string {
+	if cfg.PortCount <= 1 {
+		return strconv.Itoa(cfg.Port)
+	}
+	return fmt.Sprintf("%d-%d", cfg.Port, cfg.Port+cfg.PortCount-1)
+}
+
+// streamingPortConflict refuses a listen range already used by the admin GUI,
+// the HTTP proxy listener or another forwarder on an overlapping address. TCP
+// and UDP on the same number are different sockets, so a game that needs both
+// does not collide with a web port.
 func (s *Server) streamingPortConflict(def streaming.Service, cfg streaming.Config, kv map[string]string) string {
-	port := strconv.Itoa(cfg.Port)
+	// An unset count means one port, the same default Normalize applies.
+	count := cfg.PortCount
+	if count < 1 {
+		count = 1
+	}
 	overlaps := func(bound string) bool {
 		// "0.0.0.0" on either side means the whole host is taken.
 		return bound == "" || bound == "0.0.0.0" || cfg.ListenIP == "0.0.0.0" || bound == cfg.ListenIP
 	}
-	if kv["wan_port"] == port && overlaps(strings.TrimSpace(kv["wan_ip"])) {
-		return "port " + port + " is already used by the WAN proxy listener"
-	}
-	if kv["gui_port"] == port && overlaps(strings.TrimSpace(kv["lan_ip"])) {
-		return "port " + port + " is already used by the admin GUI"
+	// The WAN listener and the admin GUI are TCP only.
+	if protocolHasTCP(cfg.Protocol) {
+		for _, reserved := range []struct{ port, addr, name string }{
+			{kv["wan_port"], strings.TrimSpace(kv["wan_ip"]), "the WAN proxy listener"},
+			{kv["gui_port"], strings.TrimSpace(kv["lan_ip"]), "the admin GUI"},
+		} {
+			port, err := strconv.Atoi(reserved.port)
+			if err != nil || !overlaps(reserved.addr) || !rangesOverlap(cfg.Port, count, port, 1) {
+				continue
+			}
+			return "port " + strconv.Itoa(port) + " is already used by " + reserved.name
+		}
 	}
 	for _, other := range streaming.Catalog {
 		if other.ID == def.ID {
 			continue
 		}
 		oc := streaming.ConfigFromSettings(other, kv)
-		if !oc.Enabled || oc.Port != cfg.Port {
+		if !oc.Enabled || !overlaps(strings.TrimSpace(oc.ListenIP)) {
 			continue
 		}
-		if overlaps(strings.TrimSpace(oc.ListenIP)) {
-			return "port " + port + " is already used by " + other.Label
+		if !protocolsOverlap(cfg.Protocol, oc.Protocol) || !rangesOverlap(cfg.Port, count, oc.Port, oc.PortCount) {
+			continue
 		}
+		return "port " + portSpec(cfg) + " overlaps " + other.Label + " on " + portSpec(oc)
 	}
 	return ""
+}
+
+// protocolHasTCP reports whether a configuration binds a TCP socket. An empty
+// protocol means tcp, which is what 1.60 saved.
+func protocolHasTCP(protocol string) bool { return protocol != "udp" }
+
+// protocolsOverlap reports whether two services contend for a socket. An empty
+// protocol means tcp, and "both" binds both, so it collides with either.
+func protocolsOverlap(a, b string) bool {
+	if a == "" {
+		a = "tcp"
+	}
+	if b == "" {
+		b = "tcp"
+	}
+	return a == b || a == "both" || b == "both"
+}
+
+// rangesOverlap reports whether two port ranges share a port.
+func rangesOverlap(a, aCount, b, bCount int) bool {
+	return a <= b+bCount-1 && b <= a+aCount-1
 }
 
 // streamingEnvFile mirrors the forwarder settings into the compose env file when

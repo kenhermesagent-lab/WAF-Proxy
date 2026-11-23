@@ -28,9 +28,16 @@ func freePort(t *testing.T) int {
 
 func echoServer(t *testing.T) net.Listener {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	return echoServerAt(t, 0)
+}
+
+// echoServerAt binds an echo server on one port, so a test can build a
+// consecutive upstream range.
+func echoServerAt(t *testing.T, port int) net.Listener {
+	t.Helper()
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("echo server on port %d: %v", port, err)
 	}
 	go func() {
 		for {
@@ -45,6 +52,49 @@ func echoServer(t *testing.T) net.Listener {
 		}
 	}()
 	return ln
+}
+
+// freePortRange finds n consecutive free TCP ports and releases them.
+func freePortRange(t *testing.T, n int) int {
+	t.Helper()
+	for attempt := 0; attempt < 200; attempt++ {
+		base := freePort(t)
+		if base+n-1 > 65535 {
+			continue
+		}
+		lns := make([]net.Listener, 0, n)
+		for i := 0; i < n; i++ {
+			ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", base+i))
+			if err != nil {
+				break
+			}
+			lns = append(lns, ln)
+		}
+		for _, ln := range lns {
+			_ = ln.Close()
+		}
+		if len(lns) == n {
+			return base
+		}
+	}
+	t.Fatalf("no run of %d free TCP ports", n)
+	return 0
+}
+
+// freePortBoth finds a number a TCP listener and a UDP socket can both bind.
+func freePortBoth(t *testing.T) int {
+	t.Helper()
+	for attempt := 0; attempt < 200; attempt++ {
+		port := freePort(t)
+		pc, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+		if err != nil {
+			continue
+		}
+		_ = pc.Close()
+		return port
+	}
+	t.Fatalf("no free TCP+UDP port")
+	return 0
 }
 
 // eventLog is a thread-safe sink for assertions.
@@ -375,5 +425,216 @@ func TestNormalize(t *testing.T) {
 		if len(c.want.Allow) > 0 && fmt.Sprint(got.Allow) != fmt.Sprint(c.want.Allow) {
 			t.Errorf("%s: allow = %v, want %v", c.name, got.Allow, c.want.Allow)
 		}
+	}
+}
+
+// 1.60 saved only port, upstream and the caps. Those settings must still load
+// as one TCP port, exactly as they behaved then.
+func TestConfigFromSettingsLegacyKeys(t *testing.T) {
+	plex, _ := Lookup("plex")
+	got := ConfigFromSettings(plex, map[string]string{
+		"plex_enabled": "1", "plex_listen_ip": "192.168.1.2", "plex_port": "32402",
+		"plex_upstream": "10.0.0.10:32400", "plex_allow": "10.0.0.0/8", "plex_max_conns": "64",
+	})
+	if got.Protocol != "tcp" || got.PortCount != 1 || got.Port != 32402 || got.MaxConns != 64 {
+		t.Fatalf("legacy config = %+v, want one tcp port with the saved caps", got)
+	}
+	if got.UpstreamPort != 0 || got.MaxPerSource != DefaultMaxPerSource ||
+		got.IdleSeconds != DefaultUDPIdleSeconds || got.MaxDatagram != DefaultMaxDatagram {
+		t.Fatalf("legacy defaults = %+v", got)
+	}
+	norm, err := got.Normalize(plex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if norm.Upstream != "10.0.0.10:32400" || norm.UpstreamPort != 32400 || norm.Protocol != "tcp" {
+		t.Fatalf("normalized = %+v, want the saved upstream kept", norm)
+	}
+}
+
+// A 1.63 key wins over the bare plex_* fallback it replaced.
+func TestConfigFromSettingsNewKeysWin(t *testing.T) {
+	plex, _ := Lookup("plex")
+	got := ConfigFromSettings(plex, map[string]string{
+		"plex_port": "32400", "plex_upstream": "10.0.0.10:32400",
+		"stream_plex_port": "2456", "stream_plex_protocol": "UDP", "stream_plex_port_count": "3",
+		"stream_plex_upstream": "10.0.0.20:2456", "stream_plex_upstream_port": "2457",
+		"stream_plex_max_per_source": "4", "stream_plex_idle_seconds": "90",
+		"stream_plex_max_datagram": "1200",
+	})
+	if got.Protocol != "udp" || got.Port != 2456 || got.PortCount != 3 || got.UpstreamPort != 2457 {
+		t.Fatalf("config = %+v, want the 1.63 keys", got)
+	}
+	if got.MaxPerSource != 4 || got.IdleSeconds != 90 || got.MaxDatagram != 1200 {
+		t.Fatalf("udp limits = %+v", got)
+	}
+}
+
+func TestNormalizePortRanges(t *testing.T) {
+	custom, _ := Lookup("custom")
+	valid := []Config{
+		{Upstream: "10.0.0.5:2456", Port: 2456, PortCount: 3, Protocol: "udp"},
+		{Upstream: "10.0.0.5:25565", Port: 25565, PortCount: 2, Protocol: "tcp"},
+		{Upstream: "10.0.0.5:30120", Port: 30120, Protocol: "both"},
+		{Upstream: "10.0.0.5:26900", Port: 26900, PortCount: 4, Protocol: "both"},
+	}
+	for _, in := range valid {
+		if _, err := in.Normalize(custom); err != nil {
+			t.Errorf("%+v: %v", in, err)
+		}
+	}
+
+	bad := []struct {
+		name string
+		in   Config
+	}{
+		{name: "unknown protocol", in: Config{Upstream: "h:2456", Protocol: "sctp"}},
+		{name: "count 17", in: Config{Upstream: "h:2456", PortCount: 17}},
+		{name: "port 70000", in: Config{Upstream: "h:2456", Port: 70000}},
+		{name: "listen range crossing 65535", in: Config{Upstream: "h:2456", Port: 65535, PortCount: 2}},
+		{name: "upstream range crossing 65535", in: Config{Upstream: "h:65535", Port: 2456, PortCount: 2}},
+		{name: "upstream port 0", in: Config{Upstream: "h:0", Port: 2456}},
+	}
+	for _, c := range bad {
+		if _, err := c.in.Normalize(custom); err == nil {
+			t.Errorf("%s: expected an error", c.name)
+		}
+	}
+
+	// A zero count means one port, not an error.
+	got, err := Config{Upstream: "h:2456", Port: 2456, Protocol: "both"}.Normalize(custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PortCount != 1 || got.UpstreamPort != 2456 {
+		t.Fatalf("normalized = %+v, want one port mapped to 2456", got)
+	}
+}
+
+// A TCP range listens on N ports and forwards each to its own upstream port,
+// so a game that opens several TCP ports is one card.
+func TestTCPPortRangeMapsOneToOne(t *testing.T) {
+	const n = 3
+	upBase := freePortRange(t, n)
+	for i := 0; i < n; i++ {
+		up := echoServerAt(t, upBase+i)
+		defer up.Close()
+	}
+	listenBase := freePortRange(t, n)
+
+	m := New(discardLogger())
+	defer m.Close()
+	if err := m.Apply("custom", Config{Enabled: true, Protocol: "tcp", ListenIP: "127.0.0.1",
+		Port: listenBase, PortCount: n, Upstream: fmt.Sprintf("127.0.0.1:%d", upBase)}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	st := m.Statuses()[2]
+	want := fmt.Sprintf("127.0.0.1:%d-%d", listenBase, listenBase+n-1)
+	if !st.Bound || st.PortCount != n || st.ListenAddr != want {
+		t.Fatalf("status = %+v, want a bound range %s", st, want)
+	}
+	if st.UpstreamBase != fmt.Sprintf("127.0.0.1:%d", upBase) {
+		t.Fatalf("upstream_base = %q", st.UpstreamBase)
+	}
+
+	for i := 0; i < n; i++ {
+		conn := dialRelay(t, listenBase+i)
+		payload := fmt.Sprintf("port-%d", listenBase+i)
+		if _, err := conn.Write([]byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+		buf := make([]byte, len(payload))
+		if _, err := io.ReadFull(conn, buf); err != nil {
+			t.Fatalf("read on port %d: %v", listenBase+i, err)
+		}
+		if string(buf) != payload {
+			t.Fatalf("echo = %q, want %q", buf, payload)
+		}
+		conn.Close()
+	}
+	waitFor(t, "three accepted streams", func() bool { return m.Statuses()[2].Total == 3 })
+}
+
+// "both" binds a TCP listener and a UDP socket on one number and reports a
+// single status; traffic flows on either protocol.
+func TestBothProtocolBindsTwoSockets(t *testing.T) {
+	tcpUp := echoServer(t)
+	defer tcpUp.Close()
+	upPort := tcpUp.Addr().(*net.TCPAddr).Port
+	// The UDP upstream shares the number: the two protocols do not collide.
+	newUDPEcho(t, upPort, "")
+
+	listen := freePortBoth(t)
+	m := New(discardLogger())
+	defer m.Close()
+	if err := m.Apply("custom", Config{Enabled: true, Protocol: "both", ListenIP: "127.0.0.1",
+		Port: listen, Upstream: fmt.Sprintf("127.0.0.1:%d", upPort)}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	rt := m.services["custom"]
+	if rt == nil || len(rt.listeners) != 1 || rt.udp == nil {
+		t.Fatalf("runtime = %+v, want one TCP listener and one UDP socket", rt)
+	}
+	st := m.Statuses()[2]
+	if !st.Bound || st.Protocol != "both" || !strings.Contains(st.ListenAddr, "tcp+udp") {
+		t.Fatalf("status = %+v, want both protocols bound on one status", st)
+	}
+
+	conn := dialRelay(t, listen)
+	defer conn.Close()
+	if _, err := conn.Write([]byte("tcp")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(conn, make([]byte, 3)); err != nil {
+		t.Fatalf("tcp half: %v", err)
+	}
+
+	client := udpClient(t, listen)
+	sendUDP(t, client, "udp")
+	expectReply(t, client, "udp")
+
+	waitFor(t, "both protocols counted", func() bool {
+		s := m.Statuses()[2]
+		return s.Active == 1 && s.ActiveSessions == 1 && s.Total == 2 && s.BytesIn > 0
+	})
+	waitFor(t, "both sessions listed", func() bool { return len(m.Statuses()[2].Sessions) == 2 })
+}
+
+// A "both" service whose UDP port is taken still serves TCP, but is not
+// reported as bound and names the protocol that failed.
+func TestBothPartialFailureNamesTheProtocol(t *testing.T) {
+	up := echoServer(t)
+	defer up.Close()
+	port := freePort(t)
+	taken, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+
+	m := New(discardLogger())
+	defer m.Close()
+	err = m.Apply("custom", Config{Enabled: true, Protocol: "both", ListenIP: "127.0.0.1",
+		Port: port, Upstream: up.Addr().String()})
+	if err == nil {
+		t.Fatal("expected the udp bind error")
+	}
+	if !strings.Contains(err.Error(), "/udp") {
+		t.Fatalf("error = %v, want it to name udp", err)
+	}
+	st := m.Statuses()[2]
+	if st.Bound || !strings.Contains(st.LastError, "/udp") {
+		t.Fatalf("status = %+v, want unbound with the udp error", st)
+	}
+
+	conn := dialRelay(t, port)
+	defer conn.Close()
+	if _, err := conn.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(conn, make([]byte, 1)); err != nil {
+		t.Fatalf("the tcp half did not relay: %v", err)
 	}
 }
