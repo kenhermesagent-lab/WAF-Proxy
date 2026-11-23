@@ -49,7 +49,10 @@ const sessionCookie = "__wfp_sid"
 
 type ctxKey int
 
-const sessionKey ctxKey = 1
+const (
+	sessionKey ctxKey = 1
+	siteKey    ctxKey = 2
+)
 
 // Server is the admin API.
 type Server struct {
@@ -118,7 +121,8 @@ func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Serve
 		limiter: auth.NewLimiter(), mux: http.NewServeMux(), started: time.Now(),
 		totpPending: map[string]pendingTOTP{},
 	}
-	s.backup = backup.New(st, box, log, s.backupDocument)
+	// A backup covers the whole install, not just the default site.
+	s.backup = backup.New(st.Unscoped(), box, log, s.backupDocument)
 	if err := s.loadAdminAllowlist(); err != nil {
 		log.Warn("admin allowlist not loaded", "err", err)
 	}
@@ -345,9 +349,33 @@ func (s *Server) Start(ctx context.Context) {
 	}()
 }
 
-// Handler wraps the mux with security headers.
+// Handler wraps the mux with security headers and the site its Host names.
 func (s *Server) Handler() http.Handler {
-	return SecurityHeaders(s.mux)
+	return SecurityHeaders(s.withSite(s.mux))
+}
+
+// withSite binds the request to the site its Host belongs to. A host nobody
+// claims, and every host on a single-site install, lands on the default site,
+// so a console reached the way it always was behaves the same way.
+func (s *Server) withSite(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := s.st.SiteForHost(r.Host)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), siteKey, id)))
+	})
+}
+
+// db is the only store a handler may touch: it is bound to the site of the
+// host the request arrived on. Outside the site middleware (background jobs,
+// tests, the host-wide allowlist) it is the default site's handle.
+func (s *Server) db(r *http.Request) *store.Store {
+	if r == nil {
+		return s.st
+	}
+	id, _ := r.Context().Value(siteKey).(int64)
+	if id == 0 || id == s.st.SiteID() {
+		return s.st
+	}
+	return s.st.InSite(id)
 }
 
 // SecurityHeaders applies the admin UI hardening headers. It is exported so the
@@ -376,7 +404,7 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusForbidden, "this address is not allowed to use the admin console")
 			return
 		}
-		sess, err := s.st.LookupSession(c.Value)
+		sess, err := s.db(r).LookupSession(c.Value)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "session expired")
 			return
@@ -395,7 +423,7 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 				next = abs
 			}
 			if next.After(sess.ExpiresAt) {
-				if err := s.st.TouchSession(sess.ID, next); err == nil {
+				if err := s.db(r).TouchSession(sess.ID, next); err == nil {
 					sess.ExpiresAt = next
 				}
 			}
@@ -471,7 +499,7 @@ func (s *Server) purgeCache(w http.ResponseWriter, r *http.Request) {
 		removed = s.proxy.PurgeCache(in.Host)
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "cache.purge", in.Host, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "cache.purge", in.Host, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
 }
 
@@ -482,7 +510,7 @@ func (s *Server) versionInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
-	n, err := s.st.CountUsers()
+	n, err := s.db(r).CountUsers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -549,7 +577,7 @@ type setupRequest struct {
 }
 
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
-	n, err := s.st.CountUsers()
+	n, err := s.db(r).CountUsers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -619,7 +647,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "encryption error")
 		return
 	}
-	if _, err := s.st.CreateFirstUser(req.Username, hash, sealedSecret, sealedCodes, true); err != nil {
+	if _, err := s.db(r).CreateFirstUser(req.Username, hash, sealedSecret, sealedCodes, true); err != nil {
 		if errors.Is(err, store.ErrAlreadySetup) {
 			writeError(w, http.StatusConflict, "setup already completed")
 			return
@@ -658,7 +686,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.LANIface != "" {
 		settings["lan_iface"] = s.cfg.LANIface
 	}
-	if err := s.st.SetSettings(settings); err != nil {
+	if err := s.db(r).SetSettings(settings); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
 		return
 	}
@@ -666,11 +694,11 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		creds, _ := json.Marshal(map[string]string{"token": req.DuckDNSToken})
 		enc, err := s.box.Seal(string(creds))
 		if err == nil {
-			_ = s.st.UpsertDNSCredential("duckdns", "DuckDNS", enc)
+			_ = s.db(r).UpsertDNSCredential("duckdns", "DuckDNS", enc)
 		}
 	}
 	_ = s.policy.Reload()
-	s.st.AddAudit(req.Username, "setup", "initial administrator created", clientIP(r))
+	s.db(r).AddAudit(req.Username, "setup", "initial administrator created", clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"username":       req.Username,
 		"otpauth_url":    auth.OTPAuthURL("WAF-Proxy", req.Username, secret),
@@ -706,7 +734,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "account temporarily locked")
 		return
 	}
-	user, err := s.st.UserByUsername(req.Username)
+	user, err := s.db(r).UserByUsername(req.Username)
 	if err != nil || user == nil {
 		// Spend the same argon2 work as a real account so response timing does
 		// not reveal whether a username exists.
@@ -725,12 +753,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			if step, valid := auth.ValidateTOTPStep(secret, req.TOTP, time.Now()); valid {
 				// Spend the step: a code observed on the wire, or replayed from
 				// a previous login, is rejected once it has been used.
-				claimed, cerr := s.st.ClaimTOTPStep(user.ID, step)
+				claimed, cerr := s.db(r).ClaimTOTPStep(user.ID, step)
 				ok = cerr == nil && claimed
 			}
 		}
 		if !ok && req.Recovery != "" {
-			ok = s.consumeRecoveryCode(user, req.Recovery)
+			ok = s.consumeRecoveryCode(r, user, req.Recovery)
 		}
 		if !ok {
 			writeError(w, http.StatusUnauthorized, "invalid credentials")
@@ -748,7 +776,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expires := time.Now().Add(12 * time.Hour)
-	if err := s.st.CreateSession(token, user.ID, csrf, ip, r.UserAgent(), expires); err != nil {
+	if err := s.db(r).CreateSession(token, user.ID, csrf, ip, r.UserAgent(), expires); err != nil {
 		writeError(w, http.StatusInternalServerError, "session error")
 		return
 	}
@@ -757,7 +785,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true,
 		Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode, Expires: expires,
 	})
-	s.st.AddAudit(user.Username, "login", "", ip)
+	s.db(r).AddAudit(user.Username, "login", "", ip)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"username": user.Username, "csrf": csrf, "expires_at": expires.Format(time.RFC3339),
 	})
@@ -767,8 +795,8 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	if sess != nil {
 		s.clearPendingTOTP(sess.ID)
-		_ = s.st.DeleteSession(sess.ID)
-		s.st.AddAudit(sess.Username, "logout", "", clientIP(r))
+		_ = s.db(r).DeleteSession(sess.ID)
+		s.db(r).AddAudit(sess.Username, "logout", "", clientIP(r))
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode})
@@ -777,8 +805,8 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
-	kv, _ := s.st.Settings()
-	user, _ := s.st.UserByID(sess.UserID)
+	kv, _ := s.db(r).Settings()
+	user, _ := s.db(r).UserByID(sess.UserID)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"username": sess.Username, "csrf": sess.CSRF, "version": version.Version,
 		"base_domain": kv["base_domain"], "expires_at": sess.ExpiresAt,
@@ -799,7 +827,7 @@ var publicSettingKeys = []string{
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
-	kv, err := s.st.Settings()
+	kv, err := s.db(r).Settings()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -864,7 +892,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case "decoy_hosts":
-			clean, msg := s.cleanDecoyHosts(v)
+			clean, msg := s.cleanDecoyHosts(r, v)
 			if msg != "" {
 				writeError(w, http.StatusBadRequest, msg)
 				return
@@ -923,7 +951,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		next[k] = v
 	}
-	if err := s.st.SetSettings(next); err != nil {
+	if err := s.db(r).SetSettings(next); err != nil {
+		if errors.Is(err, store.ErrHostWideSetting) {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
 		return
 	}
@@ -932,25 +964,29 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("reload admin allowlist", "err", err)
 		}
 	}
-	_ = s.policy.Reload()
-	cur := s.policy.CurrentSettings()
-	s.proxy.SetBodyLimit(cur.MaxBody)
-	s.bans.SetStealth(cur.StealthPing, cur.WANIface)
-	s.metrics.SetInterfaces(cur.WANIface, cur.LANIface)
-	if err := s.proxy.Reload(r.Context()); err != nil {
-		s.log.Error("reload after settings", "err", err)
+	if s.policy != nil {
+		_ = s.policy.Reload()
+		cur := s.policy.CurrentSettings()
+		s.proxy.SetBodyLimit(cur.MaxBody)
+		s.bans.SetStealth(cur.StealthPing, cur.WANIface)
+		s.metrics.SetInterfaces(cur.WANIface, cur.LANIface)
+	}
+	if s.proxy != nil {
+		if err := s.proxy.Reload(r.Context()); err != nil {
+			s.log.Error("reload after settings", "err", err)
+		}
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "settings.update", strings.Join(keys(next), ","), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "settings.update", strings.Join(keys(next), ","), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // cleanDecoyHosts normalizes a comma list and refuses entries that collide with
 // a real proxy hostname, so saving the setting can never ban legitimate traffic.
-func (s *Server) cleanDecoyHosts(raw string) (string, string) {
+func (s *Server) cleanDecoyHosts(r *http.Request, raw string) (string, string) {
 	hosts := []string{}
 	seen := map[string]bool{}
-	proxies, _ := s.st.ListProxies()
+	proxies, _ := s.db(r).ListProxies()
 	real := map[string]bool{}
 	for _, p := range proxies {
 		real[p.Hostname] = true

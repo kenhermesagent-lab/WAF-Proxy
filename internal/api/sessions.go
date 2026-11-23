@@ -11,7 +11,7 @@ func (s *Server) activeSessions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	list, err := s.st.ActiveAdminSessions(c.Value)
+	list, err := s.db(r).ActiveAdminSessions(c.Value)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return

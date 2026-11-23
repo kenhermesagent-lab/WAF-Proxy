@@ -12,7 +12,7 @@ import (
 
 // getMCP reports gateway availability without ever returning a credential.
 func (s *Server) getMCP(w http.ResponseWriter, r *http.Request) {
-	tokens, err := s.st.ListMCPTokens()
+	tokens, err := s.db(r).ListMCPTokens()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -78,12 +78,12 @@ func (s *Server) createMCPToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	id, err := s.st.CreateMCPToken(in.Name, mcp.HashToken(token), mcp.Prefix(token), sess.Username, scopes)
+	id, err := s.db(r).CreateMCPToken(in.Name, mcp.HashToken(token), mcp.Prefix(token), sess.Username, scopes)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot store token")
 		return
 	}
-	s.st.AddAudit(sess.Username, "mcp.token_create", in.Name+" "+strings.Join(scopes, ","), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "mcp.token_create", in.Name+" "+strings.Join(scopes, ","), clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": id, "name": in.Name, "prefix": mcp.Prefix(token),
 		"token": token, "endpoint": mcp.Endpoint, "scopes": scopes,
@@ -96,7 +96,7 @@ func (s *Server) revokeMCPToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	revoked, err := s.st.RevokeMCPToken(id)
+	revoked, err := s.db(r).RevokeMCPToken(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot revoke token")
 		return
@@ -106,6 +106,6 @@ func (s *Server) revokeMCPToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "mcp.token_revoke", strconv.FormatInt(id, 10), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "mcp.token_revoke", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }

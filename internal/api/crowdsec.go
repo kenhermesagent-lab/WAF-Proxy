@@ -99,7 +99,7 @@ func (s *Server) putCrowdSec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "crowdsec.configure", lapi, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "crowdsec.configure", lapi, clientIP(r))
 	s.getCrowdSec(w, r)
 }
 

@@ -8,7 +8,8 @@ import (
 
 // ListLogViews returns every saved log view, newest edit first among names.
 func (s *Store) ListLogViews() ([]model.LogView, error) {
-	rows, err := s.db.Query(`SELECT name, query, updated_by, updated_at FROM log_views ORDER BY name`)
+	rows, err := s.db.Query(`SELECT name, query, updated_by, updated_at FROM log_views
+		WHERE (? = 0 OR site_id = ?) ORDER BY name`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -29,15 +30,15 @@ func (s *Store) ListLogViews() ([]model.LogView, error) {
 // SaveLogView stores a view under its name. Saving an existing name replaces
 // its filters, so two operators refining the same view do not create duplicates.
 func (s *Store) SaveLogView(name, query, by string) error {
-	_, err := s.db.Exec(`INSERT INTO log_views(name, query, updated_by, updated_at) VALUES(?, ?, ?, ?)
-		ON CONFLICT(name) DO UPDATE SET query = excluded.query, updated_by = excluded.updated_by,
-			updated_at = excluded.updated_at`, name, query, by, stamp(time.Now()))
+	_, err := s.db.Exec(`INSERT INTO log_views(name, query, updated_by, updated_at, site_id) VALUES(?, ?, ?, ?, ?)
+		ON CONFLICT(site_id, name) DO UPDATE SET query = excluded.query, updated_by = excluded.updated_by,
+			updated_at = excluded.updated_at`, name, query, by, stamp(time.Now()), s.site)
 	return err
 }
 
 // DeleteLogView removes a view, reporting a name that does not exist.
 func (s *Store) DeleteLogView(name string) error {
-	res, err := s.db.Exec(`DELETE FROM log_views WHERE name = ?`, name)
+	res, err := s.db.Exec(`DELETE FROM log_views WHERE name = ? AND (? = 0 OR site_id = ?)`, name, s.site, s.site)
 	if err != nil {
 		return err
 	}

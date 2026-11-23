@@ -50,7 +50,7 @@ func (s *Server) putBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "backup.configure", in.Transport, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "backup.configure", in.Transport, clientIP(r))
 	cfg, _ := s.backup.Config()
 	cfg.Password = ""
 	cfg.Passphrase = ""
@@ -68,6 +68,6 @@ func (s *Server) runBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	status := s.backup.Status()
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "backup.run", status.LastFile, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "backup.run", status.LastFile, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"status": status})
 }

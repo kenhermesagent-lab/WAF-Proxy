@@ -41,16 +41,16 @@ func (s *Server) putAutoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the run time must be HH:MM")
 		return
 	}
-	if err := s.st.SetSetting("auto_update_enabled", map[bool]string{true: "1", false: "0"}[in.Enabled]); err != nil {
+	if err := s.db(r).SetSetting("auto_update_enabled", map[bool]string{true: "1", false: "0"}[in.Enabled]); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save")
 		return
 	}
-	if err := s.st.SetSetting("auto_update_time", in.Time); err != nil {
+	if err := s.db(r).SetSetting("auto_update_time", in.Time); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save")
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "updates.auto_configure", in.Time, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "updates.auto_configure", in.Time, clientIP(r))
 	writeJSON(w, http.StatusOK, in)
 }
 

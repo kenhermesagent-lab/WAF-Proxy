@@ -15,7 +15,7 @@ func (s *Server) getAnomaly(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "the anomaly detector is not configured")
 		return
 	}
-	events, err := s.st.ListAnomalyEvents(200)
+	events, err := s.db(r).ListAnomalyEvents(200)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -43,7 +43,7 @@ func (s *Server) putAnomalySettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "anomaly.configure", strconv.FormatBool(in.Enabled), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "anomaly.configure", strconv.FormatBool(in.Enabled), clientIP(r))
 	cfg, _ := s.anomaly.Config()
 	writeJSON(w, http.StatusOK, cfg)
 }
@@ -58,7 +58,7 @@ func (s *Server) acknowledgeAnomaly(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.st.AcknowledgeAnomalyEvent(id, sessionFrom(r).Username); err != nil {
+	if err := s.db(r).AcknowledgeAnomalyEvent(id, sessionFrom(r).Username); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot acknowledge")
 		return
 	}

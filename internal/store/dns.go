@@ -18,19 +18,20 @@ type DNSCredential struct {
 // UpsertDNSCredential stores credentials for a provider, replacing the previous
 // set for that provider.
 func (s *Store) UpsertDNSCredential(provider, label, enc string) error {
-	_, err := s.db.Exec(`DELETE FROM dns_credentials WHERE provider = ?`, provider)
+	_, err := s.db.Exec(`DELETE FROM dns_credentials WHERE provider = ? AND site_id = ?`, provider, s.site)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO dns_credentials(provider, label, creds_enc, created_at)
-		VALUES(?, ?, ?, ?)`, provider, label, enc, stamp(time.Now()))
+	_, err = s.db.Exec(`INSERT INTO dns_credentials(provider, label, creds_enc, created_at, site_id)
+		VALUES(?, ?, ?, ?, ?)`, provider, label, enc, stamp(time.Now()), s.site)
 	return err
 }
 
 // DNSCredentialFor returns the encrypted credentials for a provider.
 func (s *Store) DNSCredentialFor(provider string) (string, error) {
 	var enc string
-	err := s.db.QueryRow(`SELECT creds_enc FROM dns_credentials WHERE provider = ? ORDER BY id DESC LIMIT 1`, provider).Scan(&enc)
+	err := s.db.QueryRow(`SELECT creds_enc FROM dns_credentials WHERE provider = ? AND site_id = ?
+		ORDER BY id DESC LIMIT 1`, provider, s.site).Scan(&enc)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -39,7 +40,8 @@ func (s *Store) DNSCredentialFor(provider string) (string, error) {
 
 // ListDNSCredentials returns credential metadata without secrets.
 func (s *Store) ListDNSCredentials() ([]DNSCredential, error) {
-	rows, err := s.db.Query(`SELECT id, provider, label, created_at FROM dns_credentials ORDER BY provider`)
+	rows, err := s.db.Query(`SELECT id, provider, label, created_at FROM dns_credentials
+		WHERE site_id = ? ORDER BY provider`, s.site)
 	if err != nil {
 		return nil, err
 	}

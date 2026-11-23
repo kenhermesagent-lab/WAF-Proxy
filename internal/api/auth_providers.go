@@ -58,7 +58,7 @@ func (in authProviderBody) apply(p *model.AuthProvider) {
 }
 
 func (s *Server) listAuthProviders(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListAuthProviders()
+	list, err := s.db(r).ListAuthProviders()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -86,7 +86,7 @@ func (s *Server) createAuthProvider(w http.ResponseWriter, r *http.Request) {
 		}
 		p.Secret = sealed
 	}
-	id, err := s.st.CreateAuthProvider(&p)
+	id, err := s.db(r).CreateAuthProvider(&p)
 	if err != nil {
 		writeError(w, http.StatusConflict, "a provider with that name already exists")
 		return
@@ -95,7 +95,7 @@ func (s *Server) createAuthProvider(w http.ResponseWriter, r *http.Request) {
 	p.HasSecret = p.Secret != ""
 	p.Secret = ""
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "auth-provider.create", p.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "auth-provider.create", p.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -105,7 +105,7 @@ func (s *Server) updateAuthProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	current, err := s.st.GetAuthProvider(id)
+	current, err := s.db(r).GetAuthProvider(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -128,14 +128,14 @@ func (s *Server) updateAuthProvider(w http.ResponseWriter, r *http.Request) {
 		}
 		current.Secret = sealed
 	}
-	if err := s.st.UpdateAuthProvider(current); err != nil {
+	if err := s.db(r).UpdateAuthProvider(current); err != nil {
 		writeError(w, http.StatusConflict, "a provider with that name already exists")
 		return
 	}
 	current.HasSecret = current.Secret != ""
 	current.Secret = ""
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "auth-provider.update", current.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "auth-provider.update", current.Name, clientIP(r))
 	writeJSON(w, http.StatusOK, current)
 }
 
@@ -145,12 +145,12 @@ func (s *Server) deleteAuthProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	current, err := s.st.GetAuthProvider(id)
+	current, err := s.db(r).GetAuthProvider(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	used, err := s.st.DeleteAuthProvider(id)
+	used, err := s.db(r).DeleteAuthProvider(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
@@ -160,6 +160,6 @@ func (s *Server) deleteAuthProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "auth-provider.delete", current.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "auth-provider.delete", current.Name, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

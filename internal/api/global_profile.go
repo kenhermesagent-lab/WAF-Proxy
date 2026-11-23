@@ -43,8 +43,8 @@ func joinSettingIDs(ids []int64) string {
 
 // globalListAttached reports whether a list is applied under Global Profile.
 // Deleting it from its own tab would otherwise stop enforcing it silently.
-func (s *Server) globalListAttached(id int64) (bool, error) {
-	kv, err := s.st.Settings()
+func (s *Server) globalListAttached(r *http.Request, id int64) (bool, error) {
+	kv, err := s.db(r).Settings()
 	if err != nil {
 		return false, err
 	}
@@ -59,12 +59,12 @@ func (s *Server) globalListAttached(id int64) (bool, error) {
 }
 
 func (s *Server) getGlobalLists(w http.ResponseWriter, r *http.Request) {
-	kv, err := s.st.Settings()
+	kv, err := s.db(r).Settings()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	lists, err := s.st.ListAccessLists()
+	lists, err := s.db(r).ListAccessLists()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -82,7 +82,7 @@ func (s *Server) putGlobalLists(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	lists, err := s.st.ListAccessLists()
+	lists, err := s.db(r).ListAccessLists()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -111,7 +111,7 @@ func (s *Server) putGlobalLists(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if err := s.st.SetSettings(map[string]string{
+	if err := s.db(r).SetSettings(map[string]string{
 		"global_whitelist_ids": joinSettingIDs(in.WhitelistIDs),
 		"global_blocklist_ids": joinSettingIDs(in.BlocklistIDs),
 	}); err != nil {
@@ -120,7 +120,7 @@ func (s *Server) putGlobalLists(w http.ResponseWriter, r *http.Request) {
 	}
 	s.reload(r.Context())
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "global_lists.update",
+	s.db(r).AddAudit(sess.Username, "global_lists.update",
 		"whitelists "+joinSettingIDs(in.WhitelistIDs)+" blocklists "+joinSettingIDs(in.BlocklistIDs), clientIP(r))
 	wl, bl := joinSettingIDs(in.WhitelistIDs), joinSettingIDs(in.BlocklistIDs)
 	writeJSON(w, http.StatusOK, map[string]any{

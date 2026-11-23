@@ -312,7 +312,12 @@ secrets are not part of the document.
   limited per tool and can be revoked from **Agent access**.
 - **Sites.** Every configurable row belongs to a site. An upgrade adopts the existing install as
   `default`, with its current `base_domain` as the console host, and `wafproxy sites` manages the
-  rest; per-site console routing is the next step.
+  rest. Each site has its own console host: a request arriving on that hostname is served from that
+  site's rows only, signs in only that site's administrators, and shows that site's proxies, bans,
+  events, audit trail and settings. One process serves every console, each with the certificate
+  issued for its own hostname. Process-wide settings (WAN/LAN addressing, the admin source
+  allowlist, CrowdSec, auto-update) stay host-wide: any site reads them, only `default` sets them,
+  and the others are refused.
 
 ## Development
 

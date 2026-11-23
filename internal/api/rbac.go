@@ -156,12 +156,12 @@ func validateAdminAllowlist(raw, callerIP string) (string, string) {
 // ---------- users and roles ----------
 
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := s.st.ListUsers()
+	users, err := s.db(r).ListUsers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	roles, err := s.st.ListRoles()
+	roles, err := s.db(r).ListRoles()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -188,7 +188,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "a username of 1–64 characters is required")
 		return
 	}
-	if _, err := s.st.RoleByID(in.RoleID); err != nil {
+	if _, err := s.db(r).RoleByID(in.RoleID); err != nil {
 		writeError(w, http.StatusBadRequest, "choose a valid role")
 		return
 	}
@@ -217,13 +217,13 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "encryption error")
 		return
 	}
-	id, err := s.st.CreateUserWithRole(in.Username, hash, sealedSecret, sealedCodes, true, in.RoleID)
+	id, err := s.db(r).CreateUserWithRole(in.Username, hash, sealedSecret, sealedCodes, true, in.RoleID)
 	if err != nil {
 		writeError(w, http.StatusConflict, "username already exists")
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "user.create", in.Username, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "user.create", in.Username, clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": id, "username": in.Username, "totp_secret": secret,
 		"otpauth_url":    auth.OTPAuthURL("WAF-Proxy", in.Username, secret),
@@ -246,22 +246,22 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	target, err := s.st.UserByID(id)
+	target, err := s.db(r).UserByID(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	sess := sessionFrom(r)
 	if in.RoleID != nil {
-		role, err := s.st.RoleByID(*in.RoleID)
+		role, err := s.db(r).RoleByID(*in.RoleID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "choose a valid role")
 			return
 		}
 		// Demoting the last administrator would leave nobody able to manage
 		// accounts and system settings.
-		if role.Name != rbac.Administrator && target.RoleID == s.st.AdminRoleID() {
-			admins, err := s.st.AdministratorCount()
+		if role.Name != rbac.Administrator && target.RoleID == s.db(r).AdminRoleID() {
+			admins, err := s.db(r).AdministratorCount()
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "database error")
 				return
@@ -275,7 +275,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "you cannot remove your own administrator role")
 			return
 		}
-		if err := s.st.UpdateUserRole(id, role.ID); err != nil {
+		if err := s.db(r).UpdateUserRole(id, role.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, "cannot update role")
 			return
 		}
@@ -286,13 +286,13 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if err := s.st.UpdateUserPassword(id, hash); err != nil {
+		if err := s.db(r).UpdateUserPassword(id, hash); err != nil {
 			writeError(w, http.StatusInternalServerError, "cannot update password")
 			return
 		}
-		_ = s.st.DeleteUserSessions(id)
+		_ = s.db(r).DeleteUserSessions(id)
 	}
-	s.st.AddAudit(sess.Username, "user.update", target.Username, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "user.update", target.Username, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -301,7 +301,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	target, err := s.st.UserByID(id)
+	target, err := s.db(r).UserByID(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -311,8 +311,8 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "you cannot delete the account you are signed in with")
 		return
 	}
-	if target.RoleID == s.st.AdminRoleID() {
-		admins, err := s.st.AdministratorCount()
+	if target.RoleID == s.db(r).AdminRoleID() {
+		admins, err := s.db(r).AdministratorCount()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "database error")
 			return
@@ -322,16 +322,16 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.st.DeleteUser(id); err != nil {
+	if err := s.db(r).DeleteUser(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete account")
 		return
 	}
-	s.st.AddAudit(sess.Username, "user.delete", target.Username, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "user.delete", target.Username, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) listRoles(w http.ResponseWriter, r *http.Request) {
-	roles, err := s.st.ListRoles()
+	roles, err := s.db(r).ListRoles()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -356,7 +356,7 @@ func (s *Server) createRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if err := s.st.CreateRole(role); err != nil {
+	if err := s.db(r).CreateRole(role); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			writeError(w, http.StatusConflict, "a role with that name already exists")
 			return
@@ -365,7 +365,7 @@ func (s *Server) createRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "role.create", role.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "role.create", role.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, role)
 }
 
@@ -374,7 +374,7 @@ func (s *Server) updateRole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	current, err := s.st.RoleByID(id)
+	current, err := s.db(r).RoleByID(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -394,7 +394,7 @@ func (s *Server) updateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role.ID = id
-	if err := s.st.UpdateRole(role); err != nil {
+	if err := s.db(r).UpdateRole(role); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			writeError(w, http.StatusConflict, "a role with that name already exists")
 			return
@@ -403,7 +403,7 @@ func (s *Server) updateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "role.update", role.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "role.update", role.Name, clientIP(r))
 	writeJSON(w, http.StatusOK, role)
 }
 
@@ -412,7 +412,7 @@ func (s *Server) deleteRole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	role, err := s.st.RoleByID(id)
+	role, err := s.db(r).RoleByID(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -421,7 +421,7 @@ func (s *Server) deleteRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "built-in roles cannot be deleted")
 		return
 	}
-	if err := s.st.DeleteRole(id); err != nil {
+	if err := s.db(r).DeleteRole(id); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			writeError(w, http.StatusConflict, "this role is assigned to an account; move the account first")
 			return
@@ -430,7 +430,7 @@ func (s *Server) deleteRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "role.delete", role.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "role.delete", role.Name, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

@@ -41,14 +41,16 @@ const MaxPendingPerLink = 1000
 func (s *Store) EnqueueDelivery(linkID, eventID int64, kind, body string) (int64, int, error) {
 	now := stamp(time.Now())
 	res, err := s.db.Exec(`INSERT INTO agent_deliveries(link_id, event_id, kind, body, state,
-		attempts, next_attempt_at, created_at) VALUES(?, ?, ?, ?, 'pending', 0, ?, ?)`,
-		linkID, eventID, kind, body, now, now)
+		attempts, next_attempt_at, created_at, site_id)
+		VALUES(?, ?, ?, ?, 'pending', 0, ?, ?, COALESCE((SELECT site_id FROM agent_links WHERE id = ?), ?))`,
+		linkID, eventID, kind, body, now, now, linkID, s.site)
 	if err != nil {
 		return 0, 0, err
 	}
-	trim, err := s.db.Exec(`DELETE FROM agent_deliveries WHERE state = 'pending' AND link_id = ? AND id NOT IN
+	trim, err := s.db.Exec(`DELETE FROM agent_deliveries WHERE state = 'pending' AND link_id = ?
+		AND (? = 0 OR site_id = ?) AND id NOT IN
 		(SELECT id FROM agent_deliveries WHERE state = 'pending' AND link_id = ? ORDER BY id DESC LIMIT ?)`,
-		linkID, linkID, MaxPendingPerLink)
+		linkID, s.site, s.site, linkID, MaxPendingPerLink)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -63,7 +65,8 @@ func (s *Store) DueDeliveries(limit int) ([]model.Delivery, error) {
 		limit = 20
 	}
 	rows, err := s.db.Query(`SELECT `+deliveryColumns+` FROM agent_deliveries
-		WHERE state = 'pending' AND next_attempt_at <= ? ORDER BY id LIMIT ?`, stamp(time.Now()), limit)
+		WHERE state = 'pending' AND next_attempt_at <= ? AND (? = 0 OR site_id = ?)
+		ORDER BY id LIMIT ?`, stamp(time.Now()), s.site, s.site, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +86,8 @@ func (s *Store) DueDeliveries(limit int) ([]model.Delivery, error) {
 func (s *Store) MarkDelivered(id int64, status int) error {
 	now := stamp(time.Now())
 	_, err := s.db.Exec(`UPDATE agent_deliveries SET state = 'delivered', attempts = attempts + 1,
-		last_status = ?, last_error = '', delivered_at = ? WHERE id = ?`, status, now, id)
+		last_status = ?, last_error = '', delivered_at = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
+		status, now, id, s.site, s.site)
 	return err
 }
 
@@ -91,7 +95,7 @@ func (s *Store) MarkDelivered(id int64, status int) error {
 // is not retried while the mute stands, but the row stays for inspection.
 func (s *Store) MarkDeliverySuppressed(id int64, reason string) error {
 	_, err := s.db.Exec(`UPDATE agent_deliveries SET state = 'suppressed', last_error = ?
-		WHERE id = ?`, reason, id)
+		WHERE id = ? AND (? = 0 OR site_id = ?)`, reason, id, s.site, s.site)
 	return err
 }
 
@@ -100,18 +104,20 @@ func (s *Store) MarkDeliverySuppressed(id int64, reason string) error {
 func (s *Store) MarkDeliveryAttempt(id int64, status int, errText string, next *time.Time) error {
 	if next == nil {
 		_, err := s.db.Exec(`UPDATE agent_deliveries SET state = 'failed', attempts = attempts + 1,
-			last_status = ?, last_error = ? WHERE id = ?`, status, errText, id)
+			last_status = ?, last_error = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
+			status, errText, id, s.site, s.site)
 		return err
 	}
 	_, err := s.db.Exec(`UPDATE agent_deliveries SET attempts = attempts + 1, last_status = ?,
-		last_error = ?, next_attempt_at = ? WHERE id = ?`, status, errText, stamp(*next), id)
+		last_error = ?, next_attempt_at = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
+		status, errText, stamp(*next), id, s.site, s.site)
 	return err
 }
 
 // RetryDelivery puts a finished delivery back in the queue immediately.
 func (s *Store) RetryDelivery(id int64) (bool, error) {
 	res, err := s.db.Exec(`UPDATE agent_deliveries SET state = 'pending', attempts = 0,
-		next_attempt_at = ? WHERE id = ?`, stamp(time.Now()), id)
+		next_attempt_at = ? WHERE id = ? AND (? = 0 OR site_id = ?)`, stamp(time.Now()), id, s.site, s.site)
 	if err != nil {
 		return false, err
 	}
@@ -121,8 +127,9 @@ func (s *Store) RetryDelivery(id int64) (bool, error) {
 
 // LastDeliveries returns the newest delivery per enabled link, keyed by link.
 func (s *Store) LastDeliveries() (map[int64]model.Delivery, error) {
-	rows, err := s.db.Query(`SELECT ` + deliveryColumns + ` FROM agent_deliveries d
-		WHERE d.id = (SELECT MAX(id) FROM agent_deliveries WHERE link_id = d.link_id)`)
+	rows, err := s.db.Query(`SELECT `+deliveryColumns+` FROM agent_deliveries d
+		WHERE d.id = (SELECT MAX(id) FROM agent_deliveries WHERE link_id = d.link_id)
+		AND (? = 0 OR d.site_id = ?)`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +151,8 @@ func (s *Store) DeliveriesForLink(linkID int64, limit int) ([]model.Delivery, er
 		limit = 20
 	}
 	rows, err := s.db.Query(`SELECT `+deliveryColumns+` FROM agent_deliveries
-		WHERE link_id = ? ORDER BY id DESC LIMIT ?`, linkID, limit)
+		WHERE link_id = ? AND (? = 0 OR site_id = ?) ORDER BY id DESC LIMIT ?`,
+		linkID, s.site, s.site, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -180,5 +188,6 @@ func (s *Store) PruneDeliveries() error {
 
 // DeliveryByID loads one queued payload.
 func (s *Store) DeliveryByID(id int64) (*model.Delivery, error) {
-	return scanDelivery(s.db.QueryRow(`SELECT `+deliveryColumns+` FROM agent_deliveries WHERE id = ?`, id))
+	return scanDelivery(s.db.QueryRow(`SELECT `+deliveryColumns+` FROM agent_deliveries
+		WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
 }

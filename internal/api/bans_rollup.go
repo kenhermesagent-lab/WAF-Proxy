@@ -19,7 +19,7 @@ const permanentFeedName = "Permanent bans (rolled up)"
 // removes the ban rows, so the permanent list does not grow without end. The
 // file is loaded as a local feed, which keeps the addresses blocked.
 func (s *Server) rollupBans(w http.ResponseWriter, r *http.Request) {
-	bans, err := s.st.ListBans(false)
+	bans, err := s.db(r).ListBans(false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -77,20 +77,20 @@ func (s *Server) rollupBans(w http.ResponseWriter, r *http.Request) {
 
 	// Replace the previous rolled-up feed so its local path and entry count
 	// always describe the file that was just written.
-	feeds, err := s.st.ListFeeds()
+	feeds, err := s.db(r).ListFeeds()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
 	for _, f := range feeds {
 		if f.Name == permanentFeedName {
-			if _, err := s.st.DeleteFeed(f.ID); err != nil {
+			if _, err := s.db(r).DeleteFeed(f.ID); err != nil {
 				writeError(w, http.StatusInternalServerError, "cannot replace the rolled-up feed")
 				return
 			}
 		}
 	}
-	feedID, err := s.st.CreateFeed(&model.Feed{
+	feedID, err := s.db(r).CreateFeed(&model.Feed{
 		Name: permanentFeedName, Action: "block", IntervalS: 3600, Enabled: true,
 		Local: true, AlwaysBlock: true, Filename: "permanent-bans.txt", LocalPath: path,
 	})
@@ -105,9 +105,9 @@ func (s *Server) rollupBans(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	s.feeds.Refresh(ctx, feedID)
-	loaded, loadErr := s.st.FeedByID(feedID)
+	loaded, loadErr := s.db(r).FeedByID(feedID)
 	if loadErr != nil || loaded.State != "ok" || loaded.LastCount != len(permanent) {
-		_, _ = s.st.DeleteFeed(feedID)
+		_, _ = s.db(r).DeleteFeed(feedID)
 		reason := "the new threat list did not load, so the bans were kept"
 		if loaded != nil && loaded.LastError != "" {
 			reason = "the new threat list did not load (" + loaded.LastError + "), so the bans were kept"
@@ -125,7 +125,7 @@ func (s *Server) rollupBans(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "ban.rollup", "permanent bans → "+path, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "ban.rollup", "permanent bans → "+path, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"rolled_up": removed, "feed_id": feedID, "path": path,
 	})

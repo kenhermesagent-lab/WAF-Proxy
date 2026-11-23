@@ -17,7 +17,7 @@ func (s *Store) ListProxies() ([]model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version FROM proxies ORDER BY hostname`)
+		request_headers, response_headers, tls_min_version FROM proxies WHERE (? = 0 OR site_id = ?) ORDER BY hostname`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func (s *Store) GetProxy(id int64) (*model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version FROM proxies WHERE id = ?`, id))
+		request_headers, response_headers, tls_min_version FROM proxies WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
 }
 
 // ProxyByHost loads a proxy by hostname.
@@ -106,7 +106,7 @@ func (s *Store) ProxyByHost(host string) (*model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version FROM proxies WHERE hostname = ?`, host))
+		request_headers, response_headers, tls_min_version FROM proxies WHERE hostname = ? AND (? = 0 OR site_id = ?)`, host, s.site, s.site))
 }
 
 // CreateProxy inserts a proxy and returns its ID.
@@ -116,15 +116,15 @@ func (s *Store) CreateProxy(p *model.Proxy) (int64, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		request_headers, response_headers, tls_min_version, site_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Hostname, b2i(p.Enabled), p.CertID, p.ProfileID, p.GateMode, p.GateSecret,
 		p.GateTOTPHint, p.Fingerprint, defaultStr(p.BotLevel, "light"), b2i(p.Maintenance), p.WAFMode,
 		stamp(time.Now()), p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID,
 		defaultStr(p.LBPolicy, "weighted_rr"), defaultStr(p.HealthPath, "/"), defaultStr(p.HealthExpect, "200-399"),
 		p.HealthInterval, p.HealthFailAfter, p.MaxInflight, p.MaxInflightPerClient,
 		p.UpstreamTimeout, p.Retries, headerOpsJSON(p.RequestHeaders), headerOpsJSON(p.ResponseHeaders),
-		p.TLSMinVersion)
+		p.TLSMinVersion, s.site)
 	if err != nil {
 		return 0, err
 	}
@@ -139,25 +139,38 @@ func (s *Store) UpdateProxy(p *model.Proxy) error {
 		lb_policy = ?, health_path = ?, health_expect = ?, health_interval = ?, health_fail_after = ?,
 		max_inflight = ?, max_inflight_per_client = ?, upstream_timeout = ?, retries = ?,
 		request_headers = ?, response_headers = ?, tls_min_version = ?
-		WHERE id = ?`,
+		WHERE id = ? AND (? = 0 OR site_id = ?)`,
 		p.Hostname, b2i(p.Enabled), p.CertID, p.ProfileID, p.GateMode, p.GateSecret,
 		p.GateTOTPHint, p.Fingerprint, defaultStr(p.BotLevel, "light"), b2i(p.Maintenance), p.WAFMode,
 		p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID,
 		defaultStr(p.LBPolicy, "weighted_rr"), defaultStr(p.HealthPath, "/"), defaultStr(p.HealthExpect, "200-399"),
 		p.HealthInterval, p.HealthFailAfter, p.MaxInflight, p.MaxInflightPerClient,
 		p.UpstreamTimeout, p.Retries, headerOpsJSON(p.RequestHeaders), headerOpsJSON(p.ResponseHeaders),
-		p.TLSMinVersion, p.ID)
+		p.TLSMinVersion, p.ID, s.site, s.site)
 	return err
 }
 
 // DeleteProxy removes a proxy and its children.
 func (s *Store) DeleteProxy(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM proxies WHERE id = ?`, id)
-	return err
+	res, err := s.db.Exec(`DELETE FROM proxies WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ListUpstreams returns the upstream pool of a proxy.
 func (s *Store) ListUpstreams(proxyID int64) ([]model.Upstream, error) {
+	if ok, err := s.ownsProxy(proxyID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrNotFound
+	}
 	rows, err := s.db.Query(`SELECT id, proxy_id, url, weight, enabled, max_conns FROM upstreams WHERE proxy_id = ? ORDER BY id`, proxyID)
 	if err != nil {
 		return nil, err
@@ -178,6 +191,11 @@ func (s *Store) ListUpstreams(proxyID int64) ([]model.Upstream, error) {
 
 // ReplaceUpstreams replaces the whole upstream pool for a proxy.
 func (s *Store) ReplaceUpstreams(proxyID int64, ups []model.Upstream) error {
+	if ok, err := s.ownsProxy(proxyID); err != nil {
+		return err
+	} else if !ok {
+		return ErrNotFound
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -201,6 +219,11 @@ func (s *Store) ReplaceUpstreams(proxyID int64, ups []model.Upstream) error {
 
 // ListRoutes returns the redirect/alias routes of a proxy.
 func (s *Store) ListRoutes(proxyID int64) ([]model.Route, error) {
+	if ok, err := s.ownsProxy(proxyID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrNotFound
+	}
 	rows, err := s.db.Query(`SELECT id, proxy_id, kind, match, target, strip_prefix, priority,
 		method, header, query, regex, upstream, timeout, status
 		FROM routes WHERE proxy_id = ? ORDER BY priority DESC, id`, proxyID)
@@ -225,6 +248,11 @@ func (s *Store) ListRoutes(proxyID int64) ([]model.Route, error) {
 
 // ReplaceRoutes replaces all routes of a proxy.
 func (s *Store) ReplaceRoutes(proxyID int64, routes []model.Route) error {
+	if ok, err := s.ownsProxy(proxyID); err != nil {
+		return err
+	} else if !ok {
+		return ErrNotFound
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -249,7 +277,7 @@ func (s *Store) ReplaceRoutes(proxyID int64, routes []model.Route) error {
 func (s *Store) ListProfiles() ([]model.Profile, error) {
 	rows, err := s.db.Query(`SELECT id, name, builtin, mode, paranoia, anomaly, allowed_methods, max_body, exceptions,
 		responses, max_response, login_paths, login_rps, login_burst, admin_paths, admin_ips, bundle_modes
-		FROM profiles ORDER BY id`)
+		FROM profiles WHERE (site_id = 0 OR site_id = ?) ORDER BY id`, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +306,7 @@ func (s *Store) GetProfile(id int64) (*model.Profile, error) {
 	var bundleModes string
 	err := s.db.QueryRow(`SELECT id, name, builtin, mode, paranoia, anomaly, allowed_methods, max_body, exceptions,
 		responses, max_response, login_paths, login_rps, login_burst, admin_paths, admin_ips, bundle_modes
-		FROM profiles WHERE id = ?`, id).
+		FROM profiles WHERE id = ? AND (site_id = 0 OR site_id = ?)`, id, s.site).
 		Scan(&p.ID, &p.Name, &builtin, &p.Mode, &p.Paranoia, &p.Anomaly, &p.AllowedMethods, &p.MaxBody, &p.Exceptions,
 			&p.Responses, &p.MaxResponse, &p.LoginPaths, &p.LoginRPS, &p.LoginBurst, &p.AdminPaths, &p.AdminIPs, &bundleModes)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -296,16 +324,17 @@ func (s *Store) GetProfile(id int64) (*model.Profile, error) {
 func (s *Store) UpdateProfile(p *model.Profile) error {
 	_, err := s.db.Exec(`UPDATE profiles SET mode = ?, paranoia = ?, anomaly = ?, allowed_methods = ?,
 		max_body = ?, exceptions = ?, responses = ?, max_response = ?, login_paths = ?, login_rps = ?, login_burst = ?,
-		admin_paths = ?, admin_ips = ?, bundle_modes = ? WHERE id = ?`,
+		admin_paths = ?, admin_ips = ?, bundle_modes = ? WHERE id = ? AND site_id = ?`,
 		p.Mode, p.Paranoia, p.Anomaly, p.AllowedMethods, p.MaxBody, p.Exceptions, p.Responses, p.MaxResponse,
-		p.LoginPaths, p.LoginRPS, p.LoginBurst, p.AdminPaths, p.AdminIPs, encodeBundleModes(p.BundleModes), p.ID)
+		p.LoginPaths, p.LoginRPS, p.LoginBurst, p.AdminPaths, p.AdminIPs, encodeBundleModes(p.BundleModes), p.ID, s.site)
 	return err
 }
 
 // CreateProfile inserts an operator-defined CRS profile.
 func (s *Store) CreateProfile(p *model.Profile) error {
 	var exists int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM profiles WHERE name = ?`, p.Name).Scan(&exists); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM profiles WHERE name = ? AND (site_id = 0 OR site_id = ?)`,
+		p.Name, s.site).Scan(&exists); err != nil {
 		return err
 	}
 	if exists > 0 {
@@ -315,10 +344,10 @@ func (s *Store) CreateProfile(p *model.Profile) error {
 		p.Responses = "off"
 	}
 	res, err := s.db.Exec(`INSERT INTO profiles(name, builtin, mode, paranoia, anomaly, allowed_methods, max_body,
-		exceptions, responses, max_response, login_paths, login_rps, login_burst, admin_paths, admin_ips, bundle_modes)
-		VALUES(?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		exceptions, responses, max_response, login_paths, login_rps, login_burst, admin_paths, admin_ips, bundle_modes, site_id)
+		VALUES(?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Mode, p.Paranoia, p.Anomaly, p.AllowedMethods, p.MaxBody, p.Exceptions, p.Responses, p.MaxResponse,
-		p.LoginPaths, p.LoginRPS, p.LoginBurst, p.AdminPaths, p.AdminIPs, encodeBundleModes(p.BundleModes))
+		p.LoginPaths, p.LoginRPS, p.LoginBurst, p.AdminPaths, p.AdminIPs, encodeBundleModes(p.BundleModes), s.site)
 	if err != nil {
 		return err
 	}
@@ -331,13 +360,13 @@ func (s *Store) CreateProfile(p *model.Profile) error {
 // move those sites to the default profile.
 func (s *Store) ProfileInUse(id int64) (int, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM proxies WHERE profile_id = ?`, id).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM proxies WHERE profile_id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site).Scan(&n)
 	return n, err
 }
 
 // DeleteProfile removes an operator-defined profile.
 func (s *Store) DeleteProfile(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM profiles WHERE id = ? AND builtin = 0`, id)
+	_, err := s.db.Exec(`DELETE FROM profiles WHERE id = ? AND builtin = 0 AND site_id = ?`, id, s.site)
 	return err
 }
 
@@ -370,7 +399,7 @@ func (s *Store) seedProfiles() error {
 // ListCerts returns all certificates.
 func (s *Store) ListCerts() ([]model.Cert, error) {
 	rows, err := s.db.Query(`SELECT id, domains, provider, status, issued_at, expires_at, is_wildcard, renew_mode, challenge, last_error, created_at, source
-		FROM certificates ORDER BY id`)
+		FROM certificates WHERE (? = 0 OR site_id = ?) ORDER BY id`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +431,7 @@ func (s *Store) GetCert(id int64) (*model.Cert, error) {
 	var wildcard int
 	var created string
 	err := s.db.QueryRow(`SELECT id, domains, provider, status, issued_at, expires_at, cert_pem, key_pem,
-		is_wildcard, renew_mode, challenge, last_error, created_at, source FROM certificates WHERE id = ?`, id).
+		is_wildcard, renew_mode, challenge, last_error, created_at, source FROM certificates WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site).
 		Scan(&c.ID, &c.Domains, &c.Provider, &c.Status, &issued, &expires, &c.CertPEM, &c.KeyPEM,
 			&wildcard, &c.RenewMode, &c.Challenge, &c.LastError, &created, &c.Source)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -424,29 +453,29 @@ func (s *Store) GetCert(id int64) (*model.Cert, error) {
 func (s *Store) SaveCert(c *model.Cert) (int64, error) {
 	if c.ID == 0 {
 		res, err := s.db.Exec(`INSERT INTO certificates(domains, provider, status, issued_at, expires_at,
-			cert_pem, key_pem, is_wildcard, renew_mode, challenge, last_error, created_at, source)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cert_pem, key_pem, is_wildcard, renew_mode, challenge, last_error, created_at, source, site_id)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			c.Domains, c.Provider, c.Status, nullTime(c.IssuedAt), nullTime(c.ExpiresAt),
 			c.CertPEM, c.KeyPEM, b2i(c.Wildcard), defaultStr(c.RenewMode, model.CertRenewBeforeExpiry),
 			defaultStr(c.Challenge, model.CertChallengeDNS), c.LastError, stamp(time.Now()),
-			defaultStr(c.Source, model.CertSourceACME))
+			defaultStr(c.Source, model.CertSourceACME), s.site)
 		if err != nil {
 			return 0, err
 		}
 		return res.LastInsertId()
 	}
 	_, err := s.db.Exec(`UPDATE certificates SET domains = ?, provider = ?, status = ?, issued_at = ?,
-		expires_at = ?, cert_pem = ?, key_pem = ?, is_wildcard = ?, renew_mode = ?, challenge = ?, last_error = ?, source = ? WHERE id = ?`,
+		expires_at = ?, cert_pem = ?, key_pem = ?, is_wildcard = ?, renew_mode = ?, challenge = ?, last_error = ?, source = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
 		c.Domains, c.Provider, c.Status, nullTime(c.IssuedAt), nullTime(c.ExpiresAt),
 		c.CertPEM, c.KeyPEM, b2i(c.Wildcard), defaultStr(c.RenewMode, model.CertRenewBeforeExpiry),
-		defaultStr(c.Challenge, model.CertChallengeDNS), c.LastError, defaultStr(c.Source, model.CertSourceACME), c.ID)
+		defaultStr(c.Challenge, model.CertChallengeDNS), c.LastError, defaultStr(c.Source, model.CertSourceACME), c.ID, s.site, s.site)
 	return c.ID, err
 }
 
 // SetCertRenewMode updates one certificate's renewal policy without touching
 // its key material.
 func (s *Store) SetCertRenewMode(id int64, mode string) error {
-	res, err := s.db.Exec(`UPDATE certificates SET renew_mode = ? WHERE id = ?`, mode, id)
+	res, err := s.db.Exec(`UPDATE certificates SET renew_mode = ? WHERE id = ? AND (? = 0 OR site_id = ?)`, mode, id, s.site, s.site)
 	if err != nil {
 		return err
 	}
@@ -462,7 +491,7 @@ func (s *Store) SetCertRenewMode(id int64, mode string) error {
 
 // DeleteCert removes a certificate.
 func (s *Store) DeleteCert(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM certificates WHERE id = ?`, id)
+	_, err := s.db.Exec(`DELETE FROM certificates WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
 	return err
 }
 
@@ -486,4 +515,13 @@ func (s *Store) CertsForSNI(host string) ([]model.Cert, error) {
 		}
 	}
 	return out, nil
+}
+
+// ownsProxy reports whether a proxy belongs to this store's site, so a scoped
+// handle cannot read or replace another site's upstreams and routes.
+func (s *Store) ownsProxy(id int64) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM proxies WHERE id = ? AND (? = 0 OR site_id = ?)`,
+		id, s.site, s.site).Scan(&n)
+	return n > 0, err
 }

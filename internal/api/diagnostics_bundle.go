@@ -80,12 +80,12 @@ type bundleFile struct {
 // redacted settings, recent errors, listeners, certificate status and the tail
 // of the access log with credentials and query strings removed.
 func (s *Server) diagnosticsBundle(w http.ResponseWriter, r *http.Request) {
-	settings, _ := s.st.Settings()
-	proxies, _ := s.st.ListProxies()
-	certs, _ := s.st.ListCerts()
-	alerts, _ := s.st.RecentAlerts(50)
-	anomalies, _ := s.st.ListAnomalyEvents(50)
-	recent, _, _ := s.st.QueryEvents(store.EventFilter{Limit: 200})
+	settings, _ := s.db(r).Settings()
+	proxies, _ := s.db(r).ListProxies()
+	certs, _ := s.db(r).ListCerts()
+	alerts, _ := s.db(r).RecentAlerts(50)
+	anomalies, _ := s.db(r).ListAnomalyEvents(50)
+	recent, _, _ := s.db(r).QueryEvents(store.EventFilter{Limit: 200})
 
 	certRows := make([]map[string]any, 0, len(certs))
 	certErrors := make([]map[string]any, 0)

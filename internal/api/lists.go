@@ -92,7 +92,7 @@ func normalizeAccessList(in *model.AccessList) string {
 }
 
 func (s *Server) listAccessLists(w http.ResponseWriter, r *http.Request) {
-	lists, err := s.st.ListAccessLists()
+	lists, err := s.db(r).ListAccessLists()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -110,7 +110,7 @@ func (s *Server) createAccessList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if err := s.st.CreateAccessList(&in); err != nil {
+	if err := s.db(r).CreateAccessList(&in); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			writeError(w, http.StatusConflict, "a list with that name already exists")
 			return
@@ -121,7 +121,7 @@ func (s *Server) createAccessList(w http.ResponseWriter, r *http.Request) {
 	s.reload(r.Context())
 	s.refreshStreamLists()
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "access_list.create", in.Name, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "access_list.create", in.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, in)
 }
 
@@ -131,7 +131,7 @@ func (s *Server) updateAccessList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	current, err := s.st.GetAccessList(id)
+	current, err := s.db(r).GetAccessList(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -153,15 +153,15 @@ func (s *Server) updateAccessList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current.IPs, current.Countries = in.IPs, in.Countries
-	before := s.snapshotAccessList(current.ID)
-	if err := s.st.UpdateAccessList(current); err != nil {
+	before := s.snapshotAccessList(r, current.ID)
+	if err := s.db(r).UpdateAccessList(current); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update list")
 		return
 	}
 	s.reload(r.Context())
 	s.refreshStreamLists()
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "access_list.update", current.Name, clientIP(r), "access_list", current.ID, before, s.snapshotAccessList(current.ID))
+	s.auditChange(r, sess.Username, "access_list.update", current.Name, clientIP(r), "access_list", current.ID, before, s.snapshotAccessList(r, current.ID))
 	writeJSON(w, http.StatusOK, current)
 }
 
@@ -171,7 +171,7 @@ func (s *Server) deleteAccessList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	current, err := s.st.GetAccessList(id)
+	current, err := s.db(r).GetAccessList(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -180,13 +180,13 @@ func (s *Server) deleteAccessList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	inUse, err := s.st.AccessListInUse(id)
+	inUse, err := s.db(r).AccessListInUse(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	forwarders := s.streamListUsers(id)
-	global, err := s.globalListAttached(id)
+	forwarders := s.streamListUsers(r, id)
+	global, err := s.globalListAttached(r, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -206,14 +206,14 @@ func (s *Server) deleteAccessList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, current.Name+" is attached to "+strings.Join(parts, " and ")+"; detach it first")
 		return
 	}
-	before := s.snapshotAccessList(id)
-	if err := s.st.DeleteAccessList(id); err != nil {
+	before := s.snapshotAccessList(r, id)
+	if err := s.db(r).DeleteAccessList(id); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot delete list")
 		return
 	}
 	s.reload(r.Context())
 	s.refreshStreamLists()
 	sess := sessionFrom(r)
-	s.auditChange(sess.Username, "access_list.delete", current.Name, clientIP(r), "access_list", id, before, nil)
+	s.auditChange(r, sess.Username, "access_list.delete", current.Name, clientIP(r), "access_list", id, before, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

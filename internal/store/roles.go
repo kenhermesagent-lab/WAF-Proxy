@@ -146,7 +146,7 @@ func (s *Store) DeleteRole(id int64) error {
 func (s *Store) AdministratorCount() (int, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM users u JOIN roles r ON r.id = u.role_id
-		WHERE r.name = ?`, rbac.Administrator).Scan(&n)
+		WHERE r.name = ? AND (? = 0 OR u.site_id = ?)`, rbac.Administrator, s.site, s.site).Scan(&n)
 	return n, err
 }
 
@@ -164,7 +164,8 @@ type UserSummary struct {
 func (s *Store) ListUsers() ([]UserSummary, error) {
 	rows, err := s.db.Query(`SELECT u.id, u.username, u.role_id, COALESCE(r.name, ''),
 		u.totp_enabled, u.created_at
-		FROM users u LEFT JOIN roles r ON r.id = u.role_id ORDER BY u.id`)
+		FROM users u LEFT JOIN roles r ON r.id = u.role_id
+		WHERE (? = 0 OR u.site_id = ?) ORDER BY u.id`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +203,7 @@ func (s *Store) UpdateUserRole(id, roleID int64) error {
 
 // DeleteUser removes an administrator and their sessions.
 func (s *Store) DeleteUser(id int64) error {
-	if _, err := s.db.Exec(`DELETE FROM users WHERE id = ?`, id); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM users WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site); err != nil {
 		return err
 	}
 	return nil

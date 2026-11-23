@@ -56,12 +56,12 @@ func redactSettings(in map[string]string) map[string]string {
 // versions, listener addresses, redacted settings, configuration counts and
 // certificate metadata. No secrets, keys or administrator hashes are included.
 func (s *Server) diagnostics(w http.ResponseWriter, r *http.Request) {
-	settings, _ := s.st.Settings()
-	proxies, _ := s.st.ListProxies()
-	bans, _ := s.st.ListBans(true)
-	policies, _ := s.st.ListPolicies()
-	certs, _ := s.st.ListCerts()
-	feeds, _ := s.st.ListFeeds()
+	settings, _ := s.db(r).Settings()
+	proxies, _ := s.db(r).ListProxies()
+	bans, _ := s.db(r).ListBans(true)
+	policies, _ := s.db(r).ListPolicies()
+	certs, _ := s.db(r).ListCerts()
+	feeds, _ := s.db(r).ListFeeds()
 
 	certRows := make([]map[string]any, 0, len(certs))
 	for _, c := range certs {
@@ -107,7 +107,7 @@ func (s *Server) runCanary(w http.ResponseWriter, r *http.Request) {
 	}
 	host := strings.TrimSpace(in.Host)
 	if host == "" && in.ProxyID != 0 {
-		p, err := s.st.GetProxy(in.ProxyID)
+		p, err := s.db(r).GetProxy(in.ProxyID)
 		if err != nil || p == nil {
 			writeError(w, http.StatusNotFound, "site not found")
 			return
@@ -115,7 +115,7 @@ func (s *Server) runCanary(w http.ResponseWriter, r *http.Request) {
 		host = p.Hostname
 	}
 	if host == "" {
-		if list, _ := s.st.ListProxies(); len(list) > 0 {
+		if list, _ := s.db(r).ListProxies(); len(list) > 0 {
 			host = list[0].Hostname
 		}
 	}

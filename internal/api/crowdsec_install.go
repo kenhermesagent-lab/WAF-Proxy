@@ -321,7 +321,7 @@ func (s *Server) startCrowdSecInstall(w http.ResponseWriter, r *http.Request) {
 	if in.ConsoleKey != "" {
 		action += " and link it to the CrowdSec console"
 	}
-	s.st.AddAudit(sess.Username, "crowdsec.install", action, clientIP(r))
+	s.db(r).AddAudit(sess.Username, "crowdsec.install", action, clientIP(r))
 	go s.runCrowdSecInstall()
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "installing"})
 }
@@ -397,7 +397,7 @@ func (s *Server) restartCrowdSec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "crowdsec.restart", "restart the Security Engine", clientIP(r))
+	s.db(r).AddAudit(sess.Username, "crowdsec.restart", "restart the Security Engine", clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "restarted"})
 }
 
@@ -484,6 +484,6 @@ func (s *Server) enrollCrowdSecConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "crowdsec.enroll_console", "engine enrolled in the CrowdSec console", clientIP(r))
+	s.db(r).AddAudit(sess.Username, "crowdsec.enroll_console", "engine enrolled in the CrowdSec console", clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "enrolled"})
 }

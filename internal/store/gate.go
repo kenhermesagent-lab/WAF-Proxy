@@ -16,8 +16,9 @@ func truncate(s string, n int) string {
 // as submitted, including unknown accounts: an operator reviewing the page
 // needs to see which accounts are being tried.
 func (s *Store) RecordGateFailure(ip string, proxyID int64, username, reason string) error {
-	_, err := s.db.Exec(`INSERT INTO gate_failures(ip, proxy_id, username, reason, ts) VALUES(?, ?, ?, ?, ?)`,
-		ip, proxyID, truncate(username, 190), truncate(reason, 40), stamp(time.Now()))
+	_, err := s.db.Exec(`INSERT INTO gate_failures(ip, proxy_id, username, reason, ts, site_id)
+		VALUES(?, ?, ?, ?, ?, COALESCE((SELECT site_id FROM proxies WHERE id = ?), ?))`,
+		ip, proxyID, truncate(username, 190), truncate(reason, 40), stamp(time.Now()), proxyID, s.site)
 	return err
 }
 
@@ -38,9 +39,9 @@ func (s *Store) GateFailureReport(from, to time.Time, limit int) ([]GateFailureR
 		limit = 200
 	}
 	rows, err := s.db.Query(`SELECT ip, username, proxy_id, COUNT(*), MIN(ts), MAX(ts)
-		FROM gate_failures WHERE ts >= ? AND ts <= ?
+		FROM gate_failures WHERE ts >= ? AND ts <= ? AND (? = 0 OR site_id = ?)
 		GROUP BY ip, username, proxy_id
-		ORDER BY MAX(ts) DESC LIMIT ?`, stamp(from), stamp(to), limit)
+		ORDER BY MAX(ts) DESC LIMIT ?`, stamp(from), stamp(to), s.site, s.site, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -63,30 +64,32 @@ func (s *Store) GateFailureReport(from, to time.Time, limit int) ([]GateFailureR
 // distinct days with failures in the last 7 days.
 func (s *Store) GateFailureStats(ip string) (last10m, last24h, distinctDays int, err error) {
 	now := time.Now()
-	err = s.db.QueryRow(`SELECT COUNT(*) FROM gate_failures WHERE ip = ? AND ts > ?`,
-		ip, stamp(now.Add(-10*time.Minute))).Scan(&last10m)
+	err = s.db.QueryRow(`SELECT COUNT(*) FROM gate_failures WHERE ip = ? AND ts > ? AND (? = 0 OR site_id = ?)`,
+		ip, stamp(now.Add(-10*time.Minute)), s.site, s.site).Scan(&last10m)
 	if err != nil {
 		return
 	}
-	err = s.db.QueryRow(`SELECT COUNT(*) FROM gate_failures WHERE ip = ? AND ts > ?`,
-		ip, stamp(now.Add(-24*time.Hour))).Scan(&last24h)
+	err = s.db.QueryRow(`SELECT COUNT(*) FROM gate_failures WHERE ip = ? AND ts > ? AND (? = 0 OR site_id = ?)`,
+		ip, stamp(now.Add(-24*time.Hour)), s.site, s.site).Scan(&last24h)
 	if err != nil {
 		return
 	}
-	err = s.db.QueryRow(`SELECT COUNT(DISTINCT date(ts)) FROM gate_failures WHERE ip = ? AND ts > ?`,
-		ip, stamp(now.Add(-7*24*time.Hour))).Scan(&distinctDays)
+	err = s.db.QueryRow(`SELECT COUNT(DISTINCT date(ts)) FROM gate_failures
+		WHERE ip = ? AND ts > ? AND (? = 0 OR site_id = ?)`,
+		ip, stamp(now.Add(-7*24*time.Hour)), s.site, s.site).Scan(&distinctDays)
 	return
 }
 
 // ClearGateFailures removes failure history for an IP, used after a successful
 // login or a manual unban.
 func (s *Store) ClearGateFailures(ip string) error {
-	_, err := s.db.Exec(`DELETE FROM gate_failures WHERE ip = ?`, ip)
+	_, err := s.db.Exec(`DELETE FROM gate_failures WHERE ip = ? AND (? = 0 OR site_id = ?)`, ip, s.site, s.site)
 	return err
 }
 
 // PurgeGateFailures drops failure rows older than the retention window.
 func (s *Store) PurgeGateFailures(before time.Time) error {
-	_, err := s.db.Exec(`DELETE FROM gate_failures WHERE ts < ?`, stamp(before))
+	_, err := s.db.Exec(`DELETE FROM gate_failures WHERE ts < ? AND (? = 0 OR site_id = ?)`,
+		stamp(before), s.site, s.site)
 	return err
 }

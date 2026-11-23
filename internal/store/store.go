@@ -21,18 +21,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Store wraps the SQLite database.
+// Store wraps the SQLite database. A store opened by Open is scoped to the
+// default site; InSite returns a copy scoped to another site, and Unscoped
+// returns one that reads every site for migrations and the process engines.
 type Store struct {
 	db *sql.DB
+	// site owns the rows this handle reads and writes. 0 means every site.
+	site int64
+	// defaultSite owns the rows that name no site of their own.
+	defaultSite int64
 	// sessionKey hides session cookies in the database, so a copy of the file
 	// does not hand out live admin sessions.
 	sessionKey []byte
 	// auditMu serialises audit appends so each row links to the one before it.
-	auditMu sync.Mutex
+	// A pointer, so a site-scoped copy shares the same lock.
+	auditMu *sync.Mutex
 }
 
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
+
+// ErrHostWideSetting refuses to move a process-wide key into one site.
+var ErrHostWideSetting = errors.New("host-wide setting cannot be set per site")
 
 // ErrDuplicate is returned when a unique name is already taken.
 var ErrDuplicate = errors.New("duplicate")
@@ -70,12 +80,30 @@ func Open(dir string) (*Store, error) {
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, auditMu: &sync.Mutex{}}
 	if err := s.migrate(); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
+
+// InSite returns a handle that reads and writes only the given site's rows.
+func (s *Store) InSite(id int64) *Store {
+	copy := *s
+	copy.site = id
+	return &copy
+}
+
+// Unscoped returns a handle that reads every site. Engines that serve all
+// hostnames (TLS selection, the proxy, the ban kernel) need one.
+func (s *Store) Unscoped() *Store {
+	copy := *s
+	copy.site = 0
+	return &copy
+}
+
+// SiteID reports which site this handle is scoped to; 0 means every site.
+func (s *Store) SiteID() int64 { return s.site }
 
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
@@ -688,8 +716,12 @@ func nullTime(t *time.Time) any {
 
 // ---------- settings ----------
 
-// Settings returns all settings.
+// Settings returns all settings a site sees: the host table with the site's
+// overrides on top.
 func (s *Store) Settings() (map[string]string, error) {
+	if s.site != 0 {
+		return s.SettingsFor(s.site)
+	}
 	rows, err := s.db.Query(`SELECT key, value FROM settings`)
 	if err != nil {
 		return nil, err
@@ -708,6 +740,10 @@ func (s *Store) Settings() (map[string]string, error) {
 
 // GetSetting returns one setting or an empty string.
 func (s *Store) GetSetting(key string) (string, error) {
+	if s.site != 0 {
+		kv, err := s.SettingsFor(s.site)
+		return kv[key], err
+	}
 	var v string
 	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -718,13 +754,24 @@ func (s *Store) GetSetting(key string) (string, error) {
 
 // SetSetting writes one setting.
 func (s *Store) SetSetting(key, value string) error {
-	_, err := s.db.Exec(`INSERT INTO settings(key, value) VALUES(?, ?)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
-	return err
+	if hostSettingKeys[key] {
+		if s.site != 0 && s.site != s.defaultSite {
+			return ErrHostWideSetting
+		}
+		return s.setHostSettings(map[string]string{key: value})
+	}
+	if s.site != 0 {
+		return s.SetSettingsFor(s.site, map[string]string{key: value})
+	}
+	return s.setHostSettings(map[string]string{key: value})
 }
 
-// SetSettings writes several settings atomically.
-func (s *Store) SetSettings(kv map[string]string) error {
+// setHostSettings writes process-wide keys. They live in the host table, so a
+// site reads them and never changes them.
+func (s *Store) setHostSettings(kv map[string]string) error {
+	if len(kv) == 0 {
+		return nil
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -737,6 +784,27 @@ func (s *Store) SetSettings(kv map[string]string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// SetSettings writes several settings atomically. A site may set its own
+// keys only; host-wide keys in the same map go to the host table as before.
+func (s *Store) SetSettings(kv map[string]string) error {
+	if s.site == 0 {
+		return s.setHostSettings(kv)
+	}
+	host := map[string]string{}
+	for k, v := range kv {
+		if hostSettingKeys[k] {
+			if s.site != s.defaultSite {
+				return ErrHostWideSetting
+			}
+			host[k] = v
+		}
+	}
+	if err := s.setHostSettings(host); err != nil {
+		return err
+	}
+	return s.SetSettingsFor(s.site, kv)
 }
 
 // ---------- users and sessions ----------
@@ -756,7 +824,7 @@ type User struct {
 // CountUsers returns the number of administrator accounts.
 func (s *Store) CountUsers() (int, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE (? = 0 OR site_id = ?)`, s.site, s.site).Scan(&n)
 	return n, err
 }
 
@@ -767,8 +835,8 @@ func (s *Store) CreateUser(username, hash, totpSecret, recovery string, totpEnab
 
 // CreateUserWithRole inserts an administrator with an explicit role.
 func (s *Store) CreateUserWithRole(username, hash, totpSecret, recovery string, totpEnabled bool, roleID int64) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?)`, username, hash, totpSecret, b2i(totpEnabled), recovery, roleID, stamp(time.Now()))
+	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at, site_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, username, hash, totpSecret, b2i(totpEnabled), recovery, roleID, stamp(time.Now()), s.site)
 	if err != nil {
 		return 0, err
 	}
@@ -780,9 +848,9 @@ func (s *Store) CreateUserWithRole(username, hash, totpSecret, recovery string, 
 // it. The insert is a single statement, so the check and the write cannot be
 // separated by a concurrent request.
 func (s *Store) CreateFirstUser(username, hash, totpSecret, recovery string, totpEnabled bool) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at)
-		SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)`,
-		username, hash, totpSecret, b2i(totpEnabled), recovery, s.AdminRoleID(), stamp(time.Now()))
+	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at, site_id)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users WHERE (? = 0 OR site_id = ?))`,
+		username, hash, totpSecret, b2i(totpEnabled), recovery, s.AdminRoleID(), stamp(time.Now()), s.site, s.site, s.site)
 	if err != nil {
 		return 0, err
 	}
@@ -817,25 +885,25 @@ func scanUser(row interface {
 // UserByUsername loads an administrator by name.
 func (s *Store) UserByUsername(username string) (*User, error) {
 	return scanUser(s.db.QueryRow(`SELECT id, username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at
-		FROM users WHERE username = ?`, username))
+		FROM users WHERE username = ? AND (? = 0 OR site_id = ?)`, username, s.site, s.site))
 }
 
 // UserByID loads an administrator by ID.
 func (s *Store) UserByID(id int64) (*User, error) {
 	return scanUser(s.db.QueryRow(`SELECT id, username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at
-		FROM users WHERE id = ?`, id))
+		FROM users WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
 }
 
 // UpdateUserTOTP replaces the TOTP secret and recovery codes.
 func (s *Store) UpdateUserTOTP(id int64, secret, recovery string, enabled bool) error {
-	_, err := s.db.Exec(`UPDATE users SET totp_secret = ?, recovery_codes = ?, totp_enabled = ? WHERE id = ?`,
-		secret, recovery, b2i(enabled), id)
+	_, err := s.db.Exec(`UPDATE users SET totp_secret = ?, recovery_codes = ?, totp_enabled = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
+		secret, recovery, b2i(enabled), id, s.site, s.site)
 	return err
 }
 
 // UpdateUserPassword replaces the password hash.
 func (s *Store) UpdateUserPassword(id int64, hash string) error {
-	_, err := s.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, hash, id)
+	_, err := s.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ? AND (? = 0 OR site_id = ?)`, hash, id, s.site, s.site)
 	return err
 }
 
@@ -857,8 +925,8 @@ func (s *Session) Can(permission string) bool { return rbac.Allows(s.Permissions
 // CreateSession stores a new session. The cookie value is hashed on the way in;
 // only the caller ever holds the token itself.
 func (s *Store) CreateSession(id string, userID int64, csrf, ip, ua string, expires time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO sessions(id, user_id, csrf, ip, ua, created_at, expires_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?)`, s.sessionID(id), userID, csrf, ip, ua, stamp(time.Now()), stamp(expires))
+	_, err := s.db.Exec(`INSERT INTO sessions(id, user_id, csrf, ip, ua, created_at, expires_at, site_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, s.sessionID(id), userID, csrf, ip, ua, stamp(time.Now()), stamp(expires), s.site)
 	return err
 }
 
@@ -871,7 +939,7 @@ func (s *Store) LookupSession(id string) (*Session, error) {
 		COALESCE(r.name, ''), COALESCE(r.permissions, '')
 		FROM sessions s JOIN users u ON u.id = s.user_id
 		LEFT JOIN roles r ON r.id = u.role_id
-		WHERE s.id = ? AND s.expires_at > ?`, s.sessionID(id), stamp(time.Now())).
+		WHERE s.id = ? AND s.expires_at > ? AND (? = 0 OR s.site_id = ?)`, s.sessionID(id), stamp(time.Now()), s.site, s.site).
 		Scan(&out.UserID, &out.Username, &out.CSRF, &created, &exp, &out.Role, &perms)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -889,13 +957,13 @@ func (s *Store) LookupSession(id string) (*Session, error) {
 
 // TouchSession extends a session's idle expiry.
 func (s *Store) TouchSession(id string, expires time.Time) error {
-	_, err := s.db.Exec(`UPDATE sessions SET expires_at = ? WHERE id = ?`, stamp(expires), s.sessionID(id))
+	_, err := s.db.Exec(`UPDATE sessions SET expires_at = ? WHERE id = ? AND (? = 0 OR site_id = ?)`, stamp(expires), s.sessionID(id), s.site, s.site)
 	return err
 }
 
 // UpdateUserRecovery replaces the stored recovery-code hashes.
 func (s *Store) UpdateUserRecovery(id int64, recovery string) error {
-	_, err := s.db.Exec(`UPDATE users SET recovery_codes = ? WHERE id = ?`, recovery, id)
+	_, err := s.db.Exec(`UPDATE users SET recovery_codes = ? WHERE id = ? AND (? = 0 OR site_id = ?)`, recovery, id, s.site, s.site)
 	return err
 }
 
@@ -904,8 +972,8 @@ func (s *Store) UpdateUserRecovery(id int64, recovery string) error {
 // concurrent logins cannot spend the same code, and a code captured from the
 // wire is useless after the legitimate login has used it.
 func (s *Store) ClaimTOTPStep(userID, step int64) (bool, error) {
-	res, err := s.db.Exec(`UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ?`,
-		step, userID, step)
+	res, err := s.db.Exec(`UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ? AND (? = 0 OR site_id = ?)`,
+		step, userID, step, s.site, s.site)
 	if err != nil {
 		return false, err
 	}
@@ -918,7 +986,7 @@ func (s *Store) ClaimTOTPStep(userID, step int64) (bool, error) {
 
 // DeleteSession removes one session.
 func (s *Store) DeleteSession(id string) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE id = ?`, s.sessionID(id))
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE id = ? AND (? = 0 OR site_id = ?)`, s.sessionID(id), s.site, s.site)
 	return err
 }
 
@@ -952,8 +1020,8 @@ func (s *Store) addAuditLocked(user, action, detail, ip string) int64 {
 	_ = s.db.QueryRow(`SELECT hash FROM audit ORDER BY id DESC LIMIT 1`).Scan(&prev)
 	ts := stamp(time.Now())
 	hash := auditHash(prev, ts, user, action, detail, ip)
-	res, err := s.db.Exec(`INSERT INTO audit(ts, user, action, detail, ip, hash) VALUES(?, ?, ?, ?, ?, ?)`,
-		ts, user, action, detail, ip, hash)
+	res, err := s.db.Exec(`INSERT INTO audit(ts, user, action, detail, ip, hash, site_id) VALUES(?, ?, ?, ?, ?, ?, ?)`,
+		ts, user, action, detail, ip, hash, s.site)
 	if err != nil {
 		return 0
 	}
@@ -980,7 +1048,9 @@ func (s *Store) AddAuditSnapshot(user, action, detail, ip string, snap model.Aud
 // GetAuditSnapshot returns the stored state for one audit entry.
 func (s *Store) GetAuditSnapshot(auditID int64) (*model.AuditSnapshot, error) {
 	var snap model.AuditSnapshot
-	err := s.db.QueryRow(`SELECT audit_id, entity, entity_id, before, after FROM audit_snapshots WHERE audit_id = ?`, auditID).
+	err := s.db.QueryRow(`SELECT s.audit_id, s.entity, s.entity_id, s.before, s.after
+		FROM audit_snapshots s JOIN audit a ON a.id = s.audit_id
+		WHERE s.audit_id = ? AND (? = 0 OR a.site_id = ?)`, auditID, s.site, s.site).
 		Scan(&snap.AuditID, &snap.Entity, &snap.EntityID, &snap.Before, &snap.After)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -995,7 +1065,8 @@ func (s *Store) GetAuditSnapshot(auditID int64) (*model.AuditSnapshot, error) {
 func (s *Store) GetAuditEntry(id int64) (*model.AuditEntry, error) {
 	var e model.AuditEntry
 	var ts string
-	err := s.db.QueryRow(`SELECT id, ts, user, action, detail, ip FROM audit WHERE id = ?`, id).
+	err := s.db.QueryRow(`SELECT id, ts, user, action, detail, ip FROM audit
+		WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site).
 		Scan(&e.ID, &ts, &e.User, &e.Action, &e.Detail, &e.IP)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -1068,7 +1139,8 @@ func (s *Store) ListAudit(limit int) ([]model.AuditEntry, error) {
 	}
 	rows, err := s.db.Query(`SELECT a.id, a.ts, a.user, a.action, a.detail, a.ip, COALESCE(s.entity, '')
 		FROM audit a LEFT JOIN audit_snapshots s ON s.audit_id = a.id
-		ORDER BY a.id DESC LIMIT ?`, limit)
+		WHERE (? = 0 OR a.site_id = ?)
+		ORDER BY a.id DESC LIMIT ?`, s.site, s.site, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1091,7 +1163,7 @@ func (s *Store) ListAudit(limit int) ([]model.AuditEntry, error) {
 // shortcut: the whole table is loaded at once; stream it if an install ever
 // grows past a few hundred thousand entries.
 func (s *Store) ListAuditAll() ([]model.AuditEntry, error) {
-	rows, err := s.db.Query(`SELECT id, ts, user, action, detail, ip FROM audit ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, ts, user, action, detail, ip FROM audit WHERE (? = 0 OR site_id = ?) ORDER BY id`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}

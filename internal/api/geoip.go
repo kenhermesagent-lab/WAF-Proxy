@@ -17,6 +17,6 @@ func (s *Server) installGeoIP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	s.st.AddAudit(sess.Username, "geoip.install", "DB-IP Lite city and ASN", clientIP(r))
+	s.db(r).AddAudit(sess.Username, "geoip.install", "DB-IP Lite city and ASN", clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "installing"})
 }
