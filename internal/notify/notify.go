@@ -403,7 +403,10 @@ func (m *Manager) sendEmailMessage(kv map[string]string, subject, text string) e
 	if host == "" || from == "" {
 		return fmt.Errorf("email is not configured")
 	}
-	auth := smtp.PlainAuth("", user, pass, host)
+	var auth smtp.Auth
+	if user != "" || pass != "" {
+		auth = smtp.PlainAuth("", user, pass, host)
+	}
 	msg := strings.Join([]string{
 		"From: " + from,
 		"To: " + to,

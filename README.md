@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.52.0.
+systemd service. Version 1.54.0.
 
 ## Contents
 
@@ -73,9 +73,10 @@ systemd service. Version 1.52.0.
 
 **Console**
 
-- Password + TOTP sign-in with single-use recovery codes, CSRF tokens, strict CSP, secrets sealed
-  at rest, an optional admin source allowlist, and RBAC with Administrator, Operator, Read-only
-  and Viewer roles plus custom roles.
+- Password + TOTP sign-in with single-use recovery codes, a "remember this device" cookie that
+  skips the code for 30 days, and an emailed password-reset link when notifications are configured.
+  CSRF tokens, strict CSP, secrets sealed at rest, an optional admin source allowlist, and RBAC
+  with Administrator, Operator, Read-only and Viewer roles plus custom roles.
 
 ## Headless commands
 
@@ -241,7 +242,7 @@ page.*
 | Page | What it covers |
 |---|---|
 | Dashboard | Needs-attention queue, live requests and byte rates, attack globe with country drill-down, top sources, upstream health |
-| Statistics | Request/block totals, per-site series, countries, stages, uptime |
+| Statistics | **Overview** (totals, trend, stages), **Traffic** (per-site requests, countries), **Uptime** (live probes) and **Access gate logins** (failed sign-ins with a block action); the date range and trend stay above the tabs |
 | Proxies | **Hostnames** (upstreams, routes, health checks, maintenance, presets, per-hostname **360** view), **Certificates** (issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01) and **Streaming** (byte-relay forwarders for Plex, Jellyfin and similar) |
 | Policies | **Bans**, **Profiles** (global profile with policy **Preflight**, WAF and protection profiles), **Access profiles**, **Lists** (blocklists/whitelists) and **Bot filter** |
 | Logs | Event search, filters, saved views, live tail, bulk source actions, incident report, the **Why?** request simulator |

@@ -12,6 +12,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.54.0] — 2026-11-23
+
+### Added
+
+- **Statistics is four tabs.** **Overview** holds the request totals and the outcome stages;
+  **Traffic** holds per-site requests and visitors by country; **Uptime** is the live probe view;
+  **Access gate logins** is the failed-sign-in table with its **Block** action. The date range and
+  the trend chart sit above the tabs so switching views keeps the same period, and the range strip
+  is hidden on Uptime, which ignores it.
+- **Remember this device.** A checkbox on the login form trusts that browser for 30 days, so the
+  authenticator code is skipped there. Only a hash of the cookie is stored, and changing the
+  password, rotating the authenticator or resetting the password from an email link forgets every
+  trusted browser.
+- **Recovery codes moved behind an explicit link.** The login form no longer shows a recovery field;
+  **Don't have your authenticator code?** reveals it, and a sign-in that spends one offers a
+  replacement authenticator and fresh recovery codes before the console opens.
+- **Forgot password by email.** When the email channel is configured, the login form offers a
+  single-use 30-minute reset link to the alert mailbox; it is hidden otherwise. The link works once,
+  sets a password of 12+ characters, and signs out every session and remembered device.
+
+### Fixed
+
+- **An SMTP relay that needs no authentication now receives mail.** The notifier always offered
+  credentials, so a relay that does not advertise `AUTH` rejected every message. Credentials are
+  only offered when a username or password is configured.
+
 ## [1.53.0] — 2026-11-23
 
 ### Added

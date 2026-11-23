@@ -807,9 +807,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recoveryUsed := false
+	trusted := false
 	if user.TOTPEnabled {
 		// A remembered browser stands in for the code until its cookie expires.
-		ok := s.trustedDeviceUser(r, user.ID)
+		trusted = s.trustedDeviceUser(r, user.ID)
+		ok := trusted
 		if !ok {
 			secret, derr := s.box.Open(user.TOTPSecret)
 			if derr == nil {
@@ -850,8 +852,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true,
 		Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode, Expires: expires,
 	})
-	s.db(r).AddAudit(user.Username, "login", "", ip)
-	if req.Remember && user.TOTPEnabled {
+	detail := ""
+	if recoveryUsed {
+		detail = "recovery code"
+	}
+	s.db(r).AddAudit(user.Username, "login", detail, ip)
+	if req.Remember && user.TOTPEnabled && !trusted {
 		s.rememberDevice(w, r, user.ID)
 	}
 	out := map[string]any{

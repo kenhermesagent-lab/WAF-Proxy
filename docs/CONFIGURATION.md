@@ -850,8 +850,13 @@ counted as met.
 | Authenticator | Rotates the TOTP secret; shows the new secret and `otpauth://` URL once. The current password or a recovery code is required. |
 | Recovery codes | Ten single-use codes issued at setup or rotation; each works once. |
 | Sessions | Lists signed-in administrators; **sign out everywhere** ends all sessions for this account. |
+| Remembered devices | **Remember this device** on the login form skips the authenticator in that browser for 30 days. Changing the password or rotating the authenticator forgets every device. |
 
-Sign-in is password + TOTP (or a recovery code), rate limited per address and per account.
+Sign-in is password + TOTP, rate limited per address and per account. A recovery code is requested
+only after **Don't have your authenticator code?** is opened; a successful recovery login offers a
+replacement authenticator and new recovery codes before the console opens. **Forgot password?**
+emails a single-use link (30 minutes) to the configured SMTP recipient (`smtp_to`, falling back to
+`smtp_from`) and is only shown when the email channel is enabled and has a host and sender.
 Sessions have a 12-hour sliding idle timeout with an absolute 7-day lifetime, carry a CSRF token,
 and the cookie is `HttpOnly` and `SameSite=Lax`.
 

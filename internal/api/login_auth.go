@@ -62,6 +62,10 @@ func requestOrigin(r *http.Request) string {
 	if r.TLS == nil {
 		scheme = "http"
 	}
+	// The panel proxy terminates TLS before forwarding to the console.
+	if p := r.Header.Get("X-Forwarded-Proto"); p == "http" || p == "https" {
+		scheme = p
+	}
 	return scheme + "://" + r.Host
 }
 

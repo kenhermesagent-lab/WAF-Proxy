@@ -2,7 +2,7 @@
 openapi: 3.0.3
 info:
   title: WAF-Proxy admin API
-  version: "1.53.0"
+  version: "1.54.0"
   description: |
     Routes registered by the admin console. Every `/api` route except setup,
     login, health and version requires the session cookie and, for mutations,
@@ -1984,6 +1984,38 @@ paths:
               schema: {$ref: '#/components/schemas/Status'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/password/forgot:
+    get:
+      operationId: getApiPasswordForgot
+      tags: [password]
+      summary: Forgot Available
+      security: []
+      responses:
+        "200":
+          description: Success
+        "400":
+          description: Invalid request
+    post:
+      operationId: postApiPasswordForgot
+      tags: [password]
+      summary: Forgot Password
+      security: []
+      responses:
+        "200":
+          description: Success
+        "400":
+          description: Invalid request
+  /api/password/reset:
+    post:
+      operationId: postApiPasswordReset
+      tags: [password]
+      summary: Reset Password
+      security: []
+      responses:
+        "200":
+          description: Success
         "400":
           description: Invalid request
   /api/policies:

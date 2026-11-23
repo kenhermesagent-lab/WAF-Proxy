@@ -675,7 +675,13 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
     setNotice(message);
   };
 
-  const enter = async () => onDone(await api.get<Me>("/api/me"));
+  const enter = async () => {
+    try {
+      onDone(await api.get<Me>("/api/me"));
+    } catch (ex) {
+      setErr(errText(ex));
+    }
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
