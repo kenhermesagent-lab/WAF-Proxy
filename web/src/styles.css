@@ -416,6 +416,7 @@ button.primary:disabled:hover { background: var(--accent); }
 }
 .link-cell:hover { background: transparent; border-color: transparent; color: var(--accent); text-decoration: underline; }
 .link-cell.mono { font-family: var(--font-mono); }
+.phone-only { display: none; }
 .log-time { white-space: nowrap; }
 .log-time-clock { display: none; }
 .ban-move-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -955,6 +956,15 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   .table-wrap::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 99px; }
 }
 
+/* Between 761 and 900px the sidebar still takes 232px, so a table is often
+   narrower here than on a phone. Phones drop one more column tier and move the
+   value that must not disappear into the cell that stays. */
+@media (max-width: 900px) { .hide-compact { display: none !important; } }
+@media (max-width: 480px) {
+  .hide-narrow { display: none !important; }
+  .phone-only { display: block; }
+}
+
 @media (max-width: 760px) {
   .ban-move-grid { grid-template-columns: 1fr; }
   .log-request { max-width: 80px; }
@@ -1026,13 +1036,13 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 }
 .link-button:hover { background: #1b222c; border-color: var(--border-strong); color: var(--text); }
 
-/* ---------- signature bundles ----------
-   A bundle name and a rule ID are identifiers, so they stay on one line at
-   every width. In the hit table the outcome is the last column and the one
+/* ---------- signature bundles ---------
+   A bundle name is an identifier, so it stays on one line at every width. In
+   the hit table the outcome is the last column and the one
    that must remain visible: counts and timestamps drop out before it can be
    pushed off the card. */
 .hit-message { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hit-bundle, .bundle-name, .bundle-version, .hit-rule { white-space: nowrap; overflow-wrap: normal; }
+.hit-bundle, .bundle-name { white-space: nowrap; overflow-wrap: normal; }
 .bundle-mode-select { width: 132px; flex: none; }
 .provider-row {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
@@ -1040,31 +1050,17 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 }
 .provider-row .facts > span { min-width: 0; overflow-wrap: anywhere; }
 
-.phone-only { display: none; }
-
 @media (max-width: 1100px) { .hit-message { max-width: 220px; } }
-/* Between 760 and 900 the sidebar still takes 232px, so the card is narrower
-   than a phone's full-width one and needs the tighter cut. */
-@media (max-width: 900px) {
-  .hit-message { max-width: 140px; }
-  /* The sidebar still takes 232px here; the provider line makes the bundle
-     cell wider, so the timestamp is the next column to go. */
-  .hide-compact { display: none !important; }
-}
-@media (max-width: 760px) { .hit-message { max-width: 140px; } }
+/* The message gets the tighter cut before the outcome can be pushed off the
+   card, and the timestamp drops with it. */
+@media (max-width: 900px) { .hit-message { max-width: 140px; } }
 
 @media (max-width: 480px) {
-  .hide-narrow { display: none !important; }
-  .phone-only { display: block; }
   .hits-table { table-layout: fixed; }
-  .hits-table .hit-bundle { width: 38%; }
-  .hits-table .hit-message {
-    max-width: none; white-space: normal; overflow: visible;
-    text-overflow: clip; overflow-wrap: anywhere;
-  }
+  .hits-table .hit-bundle { width: 38%; white-space: normal; overflow-wrap: anywhere; }
+  .hits-table .hit-message { max-width: none; white-space: normal; overflow-wrap: anywhere; }
   .hits-table th, .hits-table td { padding: 7px 4px; }
   .bundle-table .bundle-name { max-width: 132px; overflow: hidden; text-overflow: ellipsis; }
-  .bundle-mode { gap: 6px; }
   .bundle-mode-select { width: 100%; }
   .provider-row { flex-wrap: wrap; }
   .provider-row button { width: 100%; }
@@ -1090,8 +1086,66 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   .feeds-table th:nth-child(1) { width: 33%; }
   .feeds-table th:nth-child(2) { width: 39%; }
   .feeds-table th:nth-child(6) { width: 28%; }
-  .feeds-table .feed-name, .feeds-table .feed-source { max-width: 96px; }
+  .feeds-table .feed-name, .feeds-table .feed-source { max-width: 100%; }
   .feed-action { width: 100%; }
   .feed-actions { display: flex; flex-direction: column; align-items: stretch; gap: 4px; white-space: normal; }
   .feed-actions button { width: 100%; }
+}
+
+/* ---------- profiles, events, recent blocks, sources ---------- */
+.profile-title, .methods-cell, .recent-request, .recent-rule {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.profile-title { max-width: 220px; }
+.methods-cell { font-size: 12px; max-width: 220px; }
+.recent-request { max-width: 260px; }
+.recent-rule { max-width: 200px; }
+
+@media (max-width: 1100px) {
+  .profile-title { max-width: 160px; }
+  .methods-cell { max-width: 130px; }
+  .recent-request { max-width: 180px; }
+}
+@media (max-width: 900px) {
+  .profile-title { max-width: 130px; }
+  .recent-request { max-width: 150px; }
+}
+@media (max-width: 480px) {
+  .profiles-table { table-layout: fixed; }
+  .profiles-table th, .profiles-table td { padding: 7px 4px; white-space: normal; }
+  .profiles-table th:nth-child(1) { width: 50%; }
+  .profiles-table th:nth-child(2) { width: 22%; }
+  .profiles-table th:nth-child(8) { width: 28%; }
+  .profile-title { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .profile-actions, .profile-actions button { width: 100%; }
+  .profile-actions { display: flex; flex-direction: column; gap: 4px; }
+  .log-table .log-request { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .log-table .link-cell { white-space: nowrap; }
+}
+
+/* The protection profile summary and the ASN list are comma-separated prose,
+   not identifiers: they wrap instead of widening the card. */
+.summary-cell, .asn-cell { white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
+.summary-cell { max-width: 320px; }
+.asn-cell { max-width: 380px; }
+.asn-table td:first-child { white-space: normal; overflow-wrap: anywhere; }
+
+@media (max-width: 1100px) {
+  .summary-cell { max-width: 200px; }
+  .asn-cell { max-width: 220px; }
+  .asn-table td:first-child { max-width: 200px; }
+  .protection-actions { display: flex; flex-direction: column; gap: 4px; }
+  .protection-actions button { width: 100%; }
+}
+@media (max-width: 480px) {
+  .protection-table, .asn-table { table-layout: fixed; }
+  .protection-table th, .protection-table td,
+  .asn-table th, .asn-table td { padding: 7px 4px; white-space: normal; }
+  .protection-table th:nth-child(1) { width: 38%; }
+  .protection-table th:nth-child(2) { width: 34%; }
+  .protection-table th:nth-child(3) { width: 28%; }
+  .protection-table .summary-cell, .asn-cell { max-width: 100%; }
+  .asn-table th:nth-child(1) { width: 40%; }
+  .asn-table th:nth-child(2) { width: 38%; }
+  .asn-table th:nth-child(3) { width: 22%; }
 }

@@ -405,7 +405,7 @@ export default function Logs({
           </div>
         )}
         {events.length === 0 ? <Empty>No events match these filters.</Empty> : (
-          <div className="table-wrap"><table>
+          <div className="table-wrap"><table className="log-table">
               <thead>
                 <tr>
                   <th style={{ width: 28 }}>
@@ -417,7 +417,7 @@ export default function Logs({
                       onChange={() => setSelected(allSelected ? [] : pageIps)}
                     />
                   </th>
-                  <th>Time</th><th>Source</th><th className="hide-tablet">Host</th><th>Request</th><th className="hide-tablet">Stage</th><th className="hide-tablet">Rule</th><th className="num">Status</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">Out</th><th /></tr>
+                  <th className="hide-narrow">Time</th><th>Source</th><th className="hide-tablet">Host</th><th>Request</th><th className="hide-tablet">Stage</th><th className="hide-tablet">Rule</th><th className="num hide-narrow">Status</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">Out</th><th /></tr>
               </thead>
               <tbody>
                 {events.map((e) => (
@@ -431,7 +431,7 @@ export default function Logs({
                         onChange={() => toggleSelected(e.src_ip)}
                       />
                     </td>
-                    <td className="muted log-time" title={fmtTime(e.ts)}>
+                    <td className="muted log-time hide-narrow" title={fmtTime(e.ts)}>
                       <span className="log-time-full">{fmtTime(e.ts)}</span>
                       <span className="log-time-clock">{clockTime(e.ts)}</span>
                     </td>
@@ -440,12 +440,16 @@ export default function Logs({
                         {e.src_ip}
                       </button>
                       <div className="faint log-source-meta" style={{ fontSize: 11 }}>{e.country || "—"} · AS{e.asn || "?"}</div>
+                      <div className="faint phone-only" style={{ fontSize: 11 }}>{clockTime(e.ts)}</div>
                     </td>
                     <td className="muted hide-tablet">{e.host}</td>
-                    <td className="mono"><span className="log-request">{e.method} {e.path}</span></td>
+                    <td className="mono">
+                      <span className="log-request">{e.method} {e.path}</span>
+                      <div className="phone-only"><Badge tone={e.status >= 400 ? "bad" : ""}>{e.status}</Badge></div>
+                    </td>
                     <td className="hide-tablet"><Badge tone={e.action === "allow" ? "" : e.action === "log" ? "info" : "bad"}>{e.stage || "—"}</Badge></td>
                     <td className="muted hide-tablet" title={e.rule_msg || e.rule_id} style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.rule_msg || e.rule_id || "—"}</td>
-                    <td className="num">{e.status}</td>
+                    <td className="num hide-narrow">{e.status}</td>
                     <td className="num hide-tablet">{e.latency_ms} ms</td>
                     <td className="num hide-tablet">{e.bytes_out}</td>
                     <td><button className="small" onClick={() => setPicked(e)}>Why?</button></td>

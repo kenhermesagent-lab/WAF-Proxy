@@ -247,7 +247,7 @@ export default function Intel({
                     <div style={{ overflowX: "auto" }} className="mt">
                       <div className="table-wrap"><table className="bundle-table">
                         <thead>
-                          <tr><th>Bundle</th><th>Version</th><th className="num hide-phone">Rules</th><th className="hide-phone">Installed</th><th>Profile modes</th></tr>
+                          <tr><th>Bundle</th><th className="hide-narrow">Version</th><th className="num hide-phone">Rules</th><th className="hide-phone">Installed</th><th>Profile modes</th></tr>
                         </thead>
                         <tbody>
                           {bundles.bundles.map((b) => (
@@ -311,7 +311,8 @@ export default function Intel({
                             <div>{h.bundle || <span className="faint">removed</span>}</div>
                             {h.version || h.provider ? (
                               <div className="faint mono" style={{ fontSize: 10.5 }}>
-                                {h.provider ? `${h.provider} · ` : ""}{h.version}
+                                {h.provider || ""}
+                                {h.version ? <span className="hide-narrow">{h.provider ? " · " : ""}{h.version}</span> : null}
                               </div>
                             ) : null}
                           </td>
