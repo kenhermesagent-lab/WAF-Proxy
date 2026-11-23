@@ -51,6 +51,10 @@ type Config struct {
 	// MetricsToken is the bearer token a Prometheus scraper sends to
 	// /metrics. Empty leaves the endpoint closed.
 	MetricsToken string
+	// ACMEDirectory overrides the Let's Encrypt directory, for a private ACME
+	// server (step-ca, Pebble). ACMECAFile is the PEM bundle to trust for it.
+	ACMEDirectory string
+	ACMECAFile    string
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -73,6 +77,8 @@ func Load() (*Config, error) {
 		MCPToken:       strings.TrimSpace(os.Getenv("WAFPROXY_MCP_TOKEN")),
 		MCPActor:       envOr("WAFPROXY_MCP_ACTOR", "hermes-agent"),
 		MetricsToken:   strings.TrimSpace(os.Getenv("WAFPROXY_METRICS_TOKEN")),
+		ACMEDirectory:  strings.TrimSpace(os.Getenv("WAFPROXY_ACME_DIRECTORY")),
+		ACMECAFile:     strings.TrimSpace(os.Getenv("WAFPROXY_ACME_CA_FILE")),
 	}
 	if c.ListenGUITLS && c.GUIHost == "" {
 		return nil, errors.New("WAFPROXY_GUI_HOST is required when WAFPROXY_LISTEN_GUI_TLS is set")

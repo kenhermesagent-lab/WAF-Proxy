@@ -281,6 +281,26 @@ func recoverCLI(args []string) error {
 	return nil
 }
 
+// consoleTLSConfig serves the certificate configured for the console host. The
+// callback resolves through the certificate manager on each handshake rather
+// than capturing the certificate at startup, so a renewal or replacement is
+// picked up without restarting the listener.
+func consoleTLSConfig(certs *acme.Manager, host string) (*tls.Config, error) {
+	if _, err := certs.CertificateForHost(host); err != nil {
+		return nil, err
+	}
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			name := strings.TrimSpace(hello.ServerName)
+			if name == "" || strings.EqualFold(name, host) {
+				name = host
+			}
+			return certs.CertificateForHost(name)
+		},
+	}, nil
+}
+
 func run() error {
 	log := newLogger()
 	log.Info("starting", "version", version.Version, "commit", version.Commit)
@@ -420,6 +440,7 @@ func run() error {
 	}
 	wafs := waf.NewSet(profiles, log)
 	certs := acme.New(st, box, log)
+	certs.SetDirectory(cfg.ACMEDirectory, cfg.ACMECAFile)
 	notifier := notify.New(st, box, log)
 	uptimeMon := uptime.New(st, notifier, log)
 
@@ -663,20 +684,14 @@ func run() error {
 			return err.Error()
 		}
 		if cfg.ListenGUITLS {
-			cert, err := certs.CertificateForHost(cfg.GUIHost)
+			// Resolve once here so a missing certificate fails the listener at
+			// boot, then again on every handshake so renewals reach the console.
+			tlsCfg, err := consoleTLSConfig(certs, cfg.GUIHost)
 			if err != nil {
 				ln.Close()
 				return "console TLS: " + err.Error()
 			}
-			ln = tls.NewListener(ln, &tls.Config{
-				MinVersion: tls.VersionTLS12,
-				GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-					if name := strings.TrimSpace(hello.ServerName); name != "" && !strings.EqualFold(name, cfg.GUIHost) {
-						return certs.CertificateForHost(name)
-					}
-					return cert, nil
-				},
-			})
+			ln = tls.NewListener(ln, tlsCfg)
 		}
 		srv := &http.Server{
 			Handler:           handler,

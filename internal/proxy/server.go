@@ -190,12 +190,21 @@ func (s *Server) RunHTTP(ctx context.Context, addr string) error {
 }
 
 func (s *Server) servePlainHTTP(w http.ResponseWriter, r *http.Request) {
-	if s.httpChallenge != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
-		s.httpChallenge.ServeHTTP(w, r)
-		return
-	}
-	host := normalizeHost(r.Host)
-	http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusMovedPermanently)
+	PlainHTTPHandler(s.httpChallenge).ServeHTTP(w, r)
+}
+
+// PlainHTTPHandler answers ACME HTTP-01 challenges and redirects every other
+// request to HTTPS. It is exported so the canary and integration tests exercise
+// the same handler the listener serves.
+func PlainHTTPHandler(challenge http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if challenge != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
+			challenge.ServeHTTP(w, r)
+			return
+		}
+		host := normalizeHost(r.Host)
+		http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusMovedPermanently)
+	})
 }
 
 // SetBodyLimit overrides the maximum buffered request body.

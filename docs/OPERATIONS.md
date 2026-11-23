@@ -190,7 +190,10 @@ WAFPROXY_GUI_HOST=console.home.arpa
 ```
 
 The listener refuses to start when no valid certificate matches the host, so a typo
-cannot silently leave the console on plain HTTP. Browsers need the internal root
+cannot silently leave the console on plain HTTP. The certificate is resolved on every
+handshake, not captured at boot: a renewal or a replacement upload reaches the console
+without restarting the process. The boot check still runs once so a missing
+certificate fails early. Browsers need the internal root
 (`GET /api/certs/internal/root`) or a public CA for that name.
 
 ## Revoking a certificate
@@ -265,3 +268,32 @@ the first configured site is used. The probe resolves the name, connects, reques
 The probe runs from the gateway itself, so the site must answer on its public hostname
 from that host (split-horizon DNS, hairpin NAT or an internal name may be needed). It
 checks the externally reachable path, not a specific WAF rule.
+
+
+## Private ACME directory
+
+To issue from a private ACME server (step-ca, Pebble, an internal CA) instead of Let's
+Encrypt, point the client at its directory and give it the PEM trust root:
+
+```
+WAFPROXY_ACME_DIRECTORY=https://acme.internal:14000/dir
+WAFPROXY_ACME_CA_FILE=/etc/wafproxy/acme-ca.pem
+```
+
+`WAFPROXY_ACME_DIRECTORY` takes precedence over the staging toggle. The CA file is
+only used for the ACME API connection; issued certificates still chain to whatever
+that CA signs. The account key and registration are stored once and reused for both
+issuance and revocation.
+
+Pebble end-to-end check (opt-in, needs `pebble` with `httpPort` 5002 and this test's
+listener on the same port):
+
+```
+PEBBLE_DIRECTORY=https://localhost:14000/dir \
+PEBBLE_CA=$(go env GOMODCACHE)/github.com/letsencrypt/pebble/v2@*/test/certs/pebble.minica.pem \
+go test ./internal/acme -run Pebble -v
+```
+
+The test issues a real certificate through the exported `proxy.PlainHTTPHandler`, then
+asserts a second, unresolvable name fails and is stored as `error`, and that ordinary
+traffic on the listener redirects to HTTPS.

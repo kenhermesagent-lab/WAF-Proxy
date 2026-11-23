@@ -11,7 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
-## [1.42.1] — 2026-11-23
+## [1.43.2] — 2026-11-23
 
 ### Fixed
 
@@ -22,6 +22,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   a real change still shows.
 - **A long kernel-status badge no longer widens the Policies page on a phone.** The badge wraps
   instead, and the tab strip wraps with it.
+
+## [1.43.1] — 2026-11-23
+
+### Fixed
+
+- **The console kept serving the certificate it saw at startup.** The TLS listener
+  captured one certificate and returned it for the console host forever, so a renewal
+  or a replacement upload needed a restart. The handshake callback now resolves through
+  the certificate manager every time; the fail-fast check at boot remains.
+
+## [1.43.0] — 2026-11-23
+
+### Added
+
+- **Private ACME directory.** `WAFPROXY_ACME_DIRECTORY` and `WAFPROXY_ACME_CA_FILE`
+  point issuance and revocation at an on-prem ACME server, and the plain-HTTP
+  challenge/redirect handler is exported so integration tests exercise the listener
+  itself.
+- **Pebble end-to-end test.** `TestPebbleHTTP01` issues a real certificate through the
+  listener against Pebble, checks that an unresolvable name fails and is stored as an
+  error, and verifies the HTTPS redirect.
 
 ## [1.42.0] — 2026-11-23
 

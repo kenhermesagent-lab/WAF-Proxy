@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"log/slog"
 	mrand "math/rand"
+	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +43,11 @@ type Manager struct {
 	alpn   *ALPNChallenge
 	http01 *HTTP01Challenge
 	now    func() time.Time
+
+	// directory overrides the public Let's Encrypt directory (private ACME
+	// server for tests or an on-prem CA); caFile is its PEM trust root.
+	directory string
+	caFile    string
 
 	// Failed renewals back off instead of hammering the CA every cycle.
 	retryMu sync.Mutex
@@ -167,11 +174,9 @@ func (m *Manager) Revoke(id int64) error {
 	if err != nil {
 		return err
 	}
-	cfg := lego.NewConfig(acct)
-	if staging, _ := m.st.GetSetting("acme_staging"); staging == "1" {
-		cfg.CADirURL = lego.LEDirectoryStaging
-	} else {
-		cfg.CADirURL = lego.LEDirectoryProduction
+	cfg, err := m.legoConfig(acct)
+	if err != nil {
+		return err
 	}
 	client, err := lego.NewClient(cfg)
 	if err != nil {
@@ -185,6 +190,53 @@ func (m *Manager) Revoke(id int64) error {
 		acct.reg = reg
 	}
 	return client.Certificate.Revoke(row.CertPEM)
+}
+
+// SetDirectory points issuance and revocation at a private ACME server.
+func (m *Manager) SetDirectory(directory, caFile string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.directory, m.caFile = strings.TrimSpace(directory), strings.TrimSpace(caFile)
+}
+
+// legoConfig builds the client configuration, preferring a configured private
+// directory over the staging toggle and the public production endpoint.
+func (m *Manager) legoConfig(acct *account) (*lego.Config, error) {
+	m.mu.RLock()
+	directory, caFile := m.directory, m.caFile
+	m.mu.RUnlock()
+	cfg := lego.NewConfig(acct)
+	switch {
+	case directory != "":
+		cfg.CADirURL = directory
+	case stagingSetting(m.st):
+		cfg.CADirURL = lego.LEDirectoryStaging
+	default:
+		cfg.CADirURL = lego.LEDirectoryProduction
+	}
+	if caFile == "" {
+		return cfg, nil
+	}
+	raw, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("read ACME CA file: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(raw) {
+		return nil, fmt.Errorf("ACME CA file %s holds no certificates", caFile)
+	}
+	cfg.HTTPClient = &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12, RootCAs: pool,
+		}},
+	}
+	return cfg, nil
+}
+
+func stagingSetting(st *store.Store) bool {
+	v, _ := st.GetSetting("acme_staging")
+	return v == "1"
 }
 
 // CertificateByID returns the certificate a site named explicitly.
@@ -268,11 +320,9 @@ func (m *Manager) Issue(id int64) error {
 		return err
 	}
 
-	cfg := lego.NewConfig(acct)
-	if staging, _ := m.st.GetSetting("acme_staging"); staging == "1" {
-		cfg.CADirURL = lego.LEDirectoryStaging
-	} else {
-		cfg.CADirURL = lego.LEDirectoryProduction
+	cfg, err := m.legoConfig(acct)
+	if err != nil {
+		return err
 	}
 	client, err := lego.NewClient(cfg)
 	if err != nil {
