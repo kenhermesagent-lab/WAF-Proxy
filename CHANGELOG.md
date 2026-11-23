@@ -11,7 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
-## [1.48.2] — 2026-11-23
+## [1.48.4] — 2026-11-23
 
 ### Changed
 
@@ -31,6 +31,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **Every page has a description.** Logs, Sources, Threat intel, CrowdSec, Certificates,
   Notifications, Updates, Tailscale, Agent access, Account, Anomalies and Streaming gained the same
   one-line page header subtitle the rest of the console already had.
+
+## [1.48.3] — 2026-11-23
+
+### Fixed
+
+- **The fallback WAF engine is read under the set lock.** `For` returned `s.fallback` directly for a
+  site without a profile, while `SetBundles` replaces that engine on every install, so a request
+  could read it while the refresh path wrote it. `SetBundles` also compiled the fallback inside the
+  write lock, stalling every request for the length of a CRS compile; it now compiles first and
+  swaps under the lock.
+- Added race tests for the three concurrent paths: a pack install against live inspection, the
+  manager's refresh loop against console reads (including a cancelled `Start`), and a WAF reload
+  against per-profile bundle-mode lookups. `go test -race ./...` is clean.
+
+## [1.48.2] — 2026-11-23
+
+### Added
+
+- **An admin configuration reference**, `docs/CONFIGURATION.md`. It documents every console page,
+  tab, field, option and default, the settings that exist only in the API or YAML, the signature
+  bundle channel, every environment variable, the data directory and the headless commands, and
+  it is linked from the README and the documentation index.
+
+### Fixed
+
+- **The published version now matches `VERSION`.** The README introduction said 1.28.0 and the
+  supported-versions table in `SECURITY.md` listed 1.28.x, so both now read 1.48.x.
 
 ## [1.48.1] — 2026-11-23
 
