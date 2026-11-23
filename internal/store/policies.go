@@ -152,57 +152,68 @@ func scanBan(row rowScanner) (*model.Ban, error) {
 }
 
 // AddBan inserts a ban, or refreshes the reason and expiry of an existing CIDR.
+// The row and its replica entry commit together, so a ban issued just before a
+// failover is already on the standby.
 func (s *Store) AddBan(b *model.Ban) (int64, error) {
 	if b.CreatedAt.IsZero() {
 		b.CreatedAt = time.Now()
 	}
-	res, err := s.db.Exec(`INSERT INTO bans(cidr, reason, source, permanent, hits, created_by, created_at, expires_at, site_id)
-		VALUES(?, ?, ?, ?, 0, ?, ?, ?, ?)
-		ON CONFLICT(site_id, cidr) DO UPDATE SET
-			reason = excluded.reason,
-			source = excluded.source,
-			permanent = MAX(bans.permanent, excluded.permanent),
-			expires_at = CASE
-				WHEN excluded.permanent = 1 OR bans.permanent = 1 THEN NULL
-				ELSE excluded.expires_at END`,
-		b.CIDR, b.Reason, b.Source, b2i(b.Permanent), b.CreatedBy, stamp(b.CreatedAt), nullTime(b.ExpiresAt), s.site)
+	var id int64
+	err := s.upsertChanged("bans", []string{"id"}, func(db execer) ([]any, error) {
+		res, err := db.Exec(`INSERT INTO bans(cidr, reason, source, permanent, hits, created_by, created_at, expires_at, site_id)
+			VALUES(?, ?, ?, ?, 0, ?, ?, ?, ?)
+			ON CONFLICT(site_id, cidr) DO UPDATE SET
+				reason = excluded.reason,
+				source = excluded.source,
+				permanent = MAX(bans.permanent, excluded.permanent),
+				expires_at = CASE
+					WHEN excluded.permanent = 1 OR bans.permanent = 1 THEN NULL
+					ELSE excluded.expires_at END`,
+			b.CIDR, b.Reason, b.Source, b2i(b.Permanent), b.CreatedBy, stamp(b.CreatedAt), nullTime(b.ExpiresAt), s.site)
+		if err != nil {
+			return nil, err
+		}
+		id, _ = res.LastInsertId()
+		if id == 0 {
+			if err := db.QueryRow(`SELECT id FROM bans WHERE cidr = ? AND site_id = ?`, b.CIDR, s.site).Scan(&id); err != nil {
+				return nil, err
+			}
+		}
+		return []any{id}, nil
+	})
 	if err != nil {
 		return 0, err
-	}
-	id, _ := res.LastInsertId()
-	if id == 0 {
-		_ = s.db.QueryRow(`SELECT id FROM bans WHERE cidr = ? AND site_id = ?`, b.CIDR, s.site).Scan(&id)
 	}
 	return id, nil
 }
 
 // DeleteBan removes a ban by ID.
 func (s *Store) DeleteBan(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM bans WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
+	_, err := s.deleteCaptured("bans", []string{"id"}, `id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
 	return err
 }
 
 // DeleteBanByCIDR removes a ban by CIDR and reports whether a row was deleted.
 func (s *Store) DeleteBanByCIDR(cidr string) (bool, error) {
-	res, err := s.db.Exec(`DELETE FROM bans WHERE cidr = ? AND (? = 0 OR site_id = ?)`, cidr, s.site, s.site)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	n, err := s.deleteCaptured("bans", []string{"id"}, `cidr = ? AND (? = 0 OR site_id = ?)`, cidr, s.site, s.site)
+	return n > 0, err
 }
 
 // PromoteBan makes a ban permanent.
 func (s *Store) PromoteBan(id int64) error {
-	_, err := s.db.Exec(`UPDATE bans SET permanent = 1, expires_at = NULL WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
-	return err
+	return s.upsertChanged("bans", []string{"id"}, func(db execer) ([]any, error) {
+		_, err := db.Exec(`UPDATE bans SET permanent = 1, expires_at = NULL WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
+		return []any{id}, err
+	})
 }
 
 // DemoteBan turns a permanent ban back into a temporary one that expires at the
 // given time.
 func (s *Store) DemoteBan(id int64, expires time.Time) error {
-	_, err := s.db.Exec(`UPDATE bans SET permanent = 0, expires_at = ? WHERE id = ? AND (? = 0 OR site_id = ?)`, stamp(expires), id, s.site, s.site)
-	return err
+	return s.upsertChanged("bans", []string{"id"}, func(db execer) ([]any, error) {
+		_, err := db.Exec(`UPDATE bans SET permanent = 0, expires_at = ? WHERE id = ? AND (? = 0 OR site_id = ?)`, stamp(expires), id, s.site, s.site)
+		return []any{id}, err
+	})
 }
 
 // AddBanHits adds n to the hit counter of a CIDR.
@@ -361,11 +372,19 @@ func (s *Store) EnqueueAlert(channel, kind, dedupe, payload string) error {
 	return s.EnqueueAlertState(channel, kind, dedupe, payload, "pending")
 }
 
-// EnqueueAlertState stores a notification with an explicit state.
+// EnqueueAlertState stores a notification with an explicit state. It is
+// replicated so a pending alert still goes out after a failover.
 func (s *Store) EnqueueAlertState(channel, kind, dedupe, payload, state string) error {
-	_, err := s.db.Exec(`INSERT INTO alerts(channel, kind, dedupe, payload, state, created_at, site_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?)`, channel, kind, dedupe, payload, state, stamp(time.Now()), s.site)
-	return err
+	var id int64
+	return s.upsertChanged("alerts", []string{"id"}, func(db execer) ([]any, error) {
+		res, err := db.Exec(`INSERT INTO alerts(channel, kind, dedupe, payload, state, created_at, site_id)
+			VALUES(?, ?, ?, ?, ?, ?, ?)`, channel, kind, dedupe, payload, state, stamp(time.Now()), s.site)
+		if err != nil {
+			return nil, err
+		}
+		id, _ = res.LastInsertId()
+		return []any{id}, nil
+	})
 }
 
 // AlertRecentlySent reports whether a dedupe key was delivered since a time.
@@ -402,11 +421,14 @@ func (s *Store) PendingAlerts(limit int) ([]model.Alert, error) {
 	return out, rows.Err()
 }
 
-// MarkAlert records delivery success or failure.
+// MarkAlert records delivery success or failure. Replicating the state keeps a
+// delivered alert from being sent a second time by the new active.
 func (s *Store) MarkAlert(id int64, state string, attempts int) error {
-	_, err := s.db.Exec(`UPDATE alerts SET state = ?, attempts = ?, sent_at = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
-		state, attempts, stamp(time.Now()), id, s.site, s.site)
-	return err
+	return s.upsertChanged("alerts", []string{"id"}, func(db execer) ([]any, error) {
+		_, err := db.Exec(`UPDATE alerts SET state = ?, attempts = ?, sent_at = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
+			state, attempts, stamp(time.Now()), id, s.site, s.site)
+		return []any{id}, err
+	})
 }
 
 // RecentAlerts returns the most recent notification attempts.
@@ -509,8 +531,8 @@ func (s *Store) DeleteGateUser(id int64) error {
 		}
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM gate_sessions WHERE username = ? AND (? = 0 OR site_id = ?)`,
-		username, s.site, s.site); err != nil {
+	if _, err := s.deleteCapturedTx(tx, "gate_sessions", []string{"id"},
+		`username = ? AND (? = 0 OR site_id = ?)`, username, s.site, s.site); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM gate_acl WHERE username = ?`, username); err != nil {
@@ -531,12 +553,9 @@ func (s *Store) DeleteGateSessionsFor(username string) error {
 
 // RevokeGateSessionsFor ends every visitor session of one gate account and
 // reports how many were removed, so an agent can show the effect of a block.
+// The removals are replicated, so a block holds after a failover.
 func (s *Store) RevokeGateSessionsFor(username string) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM gate_sessions WHERE username = ? AND (? = 0 OR site_id = ?)`, username, s.site, s.site)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+	return s.deleteCaptured("gate_sessions", []string{"id"}, `username = ? AND (? = 0 OR site_id = ?)`, username, s.site, s.site)
 }
 
 // SetGateACL replaces the accounts allowed through one proxy.
@@ -585,11 +604,16 @@ func (s *Store) GateACL(proxyID int64) ([]string, error) {
 	return out, rows.Err()
 }
 
-// CreateGateSession stores a visitor session.
+// CreateGateSession stores a visitor session. The cookie value is hashed, so a
+// copy of the database cannot be replayed as a live gate session. The row is
+// replicated, so a visitor stays signed in across a failover.
 func (s *Store) CreateGateSession(id string, proxyID int64, username, ip, ua string, expires time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO gate_sessions(id, proxy_id, username, ip, ua, created_at, expires_at, site_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, id, proxyID, username, ip, ua, stamp(time.Now()), stamp(expires), s.site)
-	return err
+	key := s.gateID(id)
+	return s.upsertChanged("gate_sessions", []string{"id"}, func(db execer) ([]any, error) {
+		_, err := db.Exec(`INSERT INTO gate_sessions(id, proxy_id, username, ip, ua, created_at, expires_at, site_id)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, key, proxyID, username, ip, ua, stamp(time.Now()), stamp(expires), s.site)
+		return []any{key}, err
+	})
 }
 
 // LookupGateSession returns a live visitor session. A username blocked after
@@ -603,7 +627,7 @@ func (s *Store) LookupGateSession(id string, proxyID int64) (string, bool) {
 		AND NOT EXISTS (SELECT 1 FROM username_bans ub
 			WHERE ub.username = gs.username AND (ub.expires_at IS NULL OR ub.expires_at > ?)
 			AND (? = 0 OR ub.site_id = ?))`,
-		id, proxyID, now, s.site, s.site, now, s.site, s.site).Scan(&username)
+		s.gateID(id), proxyID, now, s.site, s.site, now, s.site, s.site).Scan(&username)
 	if err != nil {
 		return "", false
 	}
@@ -612,13 +636,13 @@ func (s *Store) LookupGateSession(id string, proxyID int64) (string, bool) {
 
 // DeleteGateSession removes a visitor session.
 func (s *Store) DeleteGateSession(id string) error {
-	_, err := s.db.Exec(`DELETE FROM gate_sessions WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
+	_, err := s.deleteCaptured("gate_sessions", []string{"id"}, `id = ? AND (? = 0 OR site_id = ?)`, s.gateID(id), s.site, s.site)
 	return err
 }
 
 // DeleteProxyGateSessions revokes every session for a proxy.
 func (s *Store) DeleteProxyGateSessions(proxyID int64) error {
-	_, err := s.db.Exec(`DELETE FROM gate_sessions WHERE proxy_id = ? AND (? = 0 OR site_id = ?)`, proxyID, s.site, s.site)
+	_, err := s.deleteCaptured("gate_sessions", []string{"id"}, `proxy_id = ? AND (? = 0 OR site_id = ?)`, proxyID, s.site, s.site)
 	return err
 }
 

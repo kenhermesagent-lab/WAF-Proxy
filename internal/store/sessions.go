@@ -5,7 +5,7 @@ import "time"
 // DeleteUserSessions removes every administrator session for a user, including
 // the caller's session when it belongs to that user.
 func (s *Store) DeleteUserSessions(userID int64) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE user_id = ? AND (? = 0 OR site_id = ?)`, userID, s.site, s.site)
+	_, err := s.deleteCaptured("sessions", []string{"id"}, `user_id = ? AND (? = 0 OR site_id = ?)`, userID, s.site, s.site)
 	return err
 }
 
@@ -13,7 +13,8 @@ func (s *Store) DeleteUserSessions(userID int64) error {
 // after a credential rotation so other browsers must sign in again while the
 // current tab stays usable.
 func (s *Store) DeleteOtherSessions(userID int64, keepID string) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE user_id = ? AND id <> ? AND (? = 0 OR site_id = ?)`, userID, s.sessionID(keepID), s.site, s.site)
+	_, err := s.deleteCaptured("sessions", []string{"id"}, `user_id = ? AND id <> ? AND (? = 0 OR site_id = ?)`,
+		userID, s.sessionID(keepID), s.site, s.site)
 	return err
 }
 

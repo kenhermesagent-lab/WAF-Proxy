@@ -35,6 +35,7 @@ import (
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/gate"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ha"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	mcpgw "github.com/kenhermesagent-lab/waf-proxy-docker/internal/mcp"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
@@ -68,12 +69,14 @@ func main() {
 			err = backupCLI(os.Args[2:])
 		case "sites":
 			err = sitesCLI(os.Args[2:])
+		case "ha":
+			err = haCLI(os.Args[2:])
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, os.Args[1]+":", err)
 			os.Exit(1)
 		}
-		if os.Args[1] == "unban" || os.Args[1] == "setup" || os.Args[1] == "recover" || os.Args[1] == "backup" || os.Args[1] == "sites" {
+		if os.Args[1] == "unban" || os.Args[1] == "setup" || os.Args[1] == "recover" || os.Args[1] == "backup" || os.Args[1] == "sites" || os.Args[1] == "ha" {
 			return
 		}
 	}
@@ -381,6 +384,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The role file decides which background work this node may do. A missing
+	// or damaged file loads as standby, so the safe answer is the default. With
+	// HA off the node is standalone and runs everything, as it always has.
+	node, roleErr := ha.Load(cfg.DataDir)
+	if roleErr != nil {
+		log.Error("reading the node role; refusing to run active-only work", "err", roleErr)
+	}
 	trusted, err := clientip.New(cfg.TrustedProxies)
 	if err != nil {
 		return err
@@ -406,6 +416,70 @@ func run() error {
 	box, err := wfcrypto.New(cfg.MasterKey)
 	if err != nil {
 		return err
+	}
+	// Certificate private keys are sealed at rest. The pass re-seals rows an
+	// older release wrote in plaintext and is a no-op afterwards.
+	st.SetSecretBox(box)
+	if n, err := st.Unscoped().SealStoredCertKeys(); err != nil {
+		return fmt.Errorf("seal certificate keys: %w", err)
+	} else if n > 0 {
+		log.Info("sealed certificate private keys", "count", n)
+	}
+	// The stored host-wide switch decides whether this boot runs HA. Missing
+	// means off, and a leftover standby without a pair must serve as a single
+	// node rather than answer traffic with none of the active loops running. A
+	// paired standby is different: it is the backup, so it stays a standby and
+	// stays out of service, or the pair would have two writers.
+	haOn := haBootOn(cfg, st)
+	pair, pairErr := ha.LoadPair(cfg.DataDir)
+	paired := pair != nil
+	if pairErr != nil {
+		// An unreadable record is not proof of a single node: while HA is on,
+		// count it as paired so a standby cannot start serving alone.
+		log.Error("could not read the HA pair", "err", pairErr)
+		paired = cfg.HAEnabled
+	}
+	if n, err := haBootRole(cfg.DataDir, node, paired, haOn); err != nil {
+		log.Warn("could not normalise the role while HA is off", "err", err)
+	} else {
+		node = n
+	}
+	startActive := node.Active()
+	if cfg.HAEnabled {
+		log.Info("high availability", "boot_switch", cfg.HAEnabled, "enabled", haOn,
+			"paired", paired, "role", node.Role, "active_work", startActive)
+	}
+	// The pairing identity exists as soon as HA is enabled. An active node
+	// captures every streamed change into the outbox; a standby writes none and
+	// pays nothing for the machinery.
+	var haIdent *ha.Identity
+	// haQuiesce pauses configuration writes while a planned move drains this
+	// node. It is in memory: a crash releases it.
+	haQuiesce := ha.NewQuiesce()
+	if cfg.HAEnabled {
+		haIdent, err = ha.LoadOrCreateIdentity(cfg.DataDir)
+		if err != nil {
+			return fmt.Errorf("ha identity: %w", err)
+		}
+		if haOn && node.Active() {
+			st.SetNodeID(haIdent.Node)
+		}
+		// The standby's audit chain arrives from the active; a local row would
+		// break it. The console is read-only there, so nothing of value is lost.
+		st.SetAuditEnabled(node.Active())
+	}
+	// The witness is optional: with one, an active that cannot renew its lease
+	// stops serving; without one, moves stay manual.
+	var witness *ha.WitnessClient
+	if haOn && cfg.HAWitness != "" {
+		if pair != nil {
+			witness = &ha.WitnessClient{
+				URL: cfg.HAWitness, Token: cfg.HAWitnessToken,
+				ClusterID: pair.ClusterID, Holder: haIdent.Node,
+			}
+		} else {
+			log.Warn("ha witness configured but this node is not paired; no lease is renewed")
+		}
 	}
 
 	kv, err := st.Settings()
@@ -442,9 +516,17 @@ func run() error {
 	// the first-boot address and log why. A single-NIC host stores the same
 	// address for both, which is valid here.
 	if !config.IsLocalAddress(cfg.ListenWAN) {
-		log.Error("stored WAN address is not configured on this host; using the first-boot address",
-			"configured", cfg.ListenWAN, "fallback", fallbackWAN)
-		cfg.ListenWAN = fallbackWAN
+		if cfg.HAEnabled {
+			// In HA mode the WAN address is the floating service address. It
+			// belongs to the other node until a move, so it must not be replaced
+			// by a boot fallback: the standby holds it with IP_FREEBIND.
+			log.Info("ha: keeping the floating service address, which this node does not own yet",
+				"configured", cfg.ListenWAN)
+		} else {
+			log.Error("stored WAN address is not configured on this host; using the first-boot address",
+				"configured", cfg.ListenWAN, "fallback", fallbackWAN)
+			cfg.ListenWAN = fallbackWAN
+		}
 	}
 	if !config.IsLocalAddress(cfg.ListenGUI) {
 		log.Error("stored GUI address is not configured on this host; using the first-boot address",
@@ -657,6 +739,9 @@ func run() error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// Loops that only an active node may run. A standby starts none of them;
+	// a promotion starts them, and a demotion stops them.
+	active := newActiveSupervisor(ctx)
 
 	if err := px.Reload(ctx); err != nil {
 		return err
@@ -706,9 +791,8 @@ func run() error {
 	for _, def := range streaming.Catalog {
 		cfgs[def.ID] = streaming.ConfigFromSettings(def, kv)
 	}
-	if err := streams.ApplyAll(cfgs); err != nil {
-		log.Warn("streaming forwarder not started", "err", err)
-	}
+	// Forwarders start with the data plane, not at boot: a standby must not
+	// hold a media port, and a promoted node rebinds them.
 	defer streams.Close()
 
 	var dnsSrv *tailnet.DNS
@@ -776,12 +860,33 @@ func run() error {
 		}
 	}
 	apiServer.SetBundles(bundles)
-	apiServer.StartBackup(ctx)
-	apiServer.StartAutoUpdate(ctx)
+	apiServer.SetHAStatus(func() api.HAStatus {
+		n, _ := ha.Load(cfg.DataDir)
+		state := n.EffectiveState()
+		pair, _ := ha.LoadPair(cfg.DataDir)
+		// The effective switch is read on every request, so turning HA off in
+		// Settings takes effect without a restart. Missing means off.
+		enabled := cfg.HAEnabled && haSettingOn(st)
+		status := api.HAStatus{
+			Enabled: enabled, Role: string(n.Role), State: string(state),
+			Serving: ha.Serving(state), Epoch: n.Epoch, Peer: n.Peer,
+			Reason: n.Reason, UpdatedAt: n.UpdatedAt,
+		}
+		if pair != nil {
+			status.Paired = true
+			status.ClusterID = pair.ClusterID
+			status.PeerFingerprint = pair.PeerFingerprint
+		}
+		return status
+	})
+	// A standby must not run backups or apply updates: those belong to the
+	// active, and they start again after a promotion.
+	active.Add(func(ctx context.Context) { apiServer.StartBackup(ctx) })
+	active.Add(func(ctx context.Context) { apiServer.StartAutoUpdate(ctx) })
 	agentLinks := agentlink.New(st, box, log)
 	agentLinks.SetRouting(notifier.EventEnabled)
 	apiServer.SetAgentLinks(agentLinks)
-	go agentLinks.Start(ctx)
+	active.Add(func(ctx context.Context) { agentLinks.Start(ctx) })
 	res.Each(func(b *siteres.Bundle) { b.Anomaly.SetSink(agentLinks.Publish) })
 	apiServer.SetStreaming(streams)
 	apiServer.SetUpdates(updateManager)
@@ -849,6 +954,36 @@ func run() error {
 		log.Error("admin listener failed", "addr", cfg.ListenGUI, "err", msg)
 		cancel()
 	}
+	// In HA mode the service address moves between nodes, so each node also
+	// answers its console on a fixed management address of its own.
+	if haOn && cfg.HAMgmtListen != cfg.ListenGUI {
+		if msg := listenGUI(cfg.HAMgmtListen, lanHandler, true); msg != "" {
+			log.Error("management listener failed", "addr", cfg.HAMgmtListen, "err", msg)
+			cancel()
+		}
+	}
+	if haOn {
+		ident := haIdent
+		log.Info("ha identity ready", "node", ident.Node, "fingerprint", ha.Fingerprint(ident.Leaf), "capturing", st.Capturing())
+		if cfg.HALinkListen != "" {
+			join := ha.NewJoinServer(ident, cfg.DataDir, cfg.MasterKey, st, log)
+			join.SetQuiesce(haQuiesce)
+			ln, err := tls.Listen("tcp", cfg.HALinkListen, join.TLSConfig())
+			if err != nil {
+				log.Error("ha link listener failed", "addr", cfg.HALinkListen, "err", err)
+				cancel()
+			} else {
+				srv := &http.Server{Handler: join.Handler(), ReadHeaderTimeout: 10 * time.Second}
+				log.Info("ha link listening", "addr", cfg.HALinkListen)
+				go func() {
+					if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+						log.Error("ha link stopped", "err", err)
+						cancel()
+					}
+				}()
+			}
+		}
+	}
 	tailAdminUp := false
 	if tailAdminAddr != "" {
 		if msg := listenGUI(tailAdminAddr, api.TailscaleOnly(gui), false); msg != "" {
@@ -869,19 +1004,29 @@ func run() error {
 	met.Start(ctx)
 	mcpGateway.Start(ctx)
 	go apiServer.Start(ctx)
-	go gateEngine.Start(ctx)
-	go bots.Start(ctx)
-	go feeds.Start(ctx)
-	go bundles.Start(ctx)
-	go res.Start(ctx)
-	go bans.Start(ctx)
-
-	go geoAutoUpdate(ctx, st, geo, log)
+	// A standby must not renew certificates, fetch feeds or reconcile the
+	// kernel: the active does that, and two copies of an ACME order or a ban
+	// reconcile is how a pair fights itself.
+	active.Add(func(ctx context.Context) { gateEngine.Start(ctx) })
+	active.Add(func(ctx context.Context) { bots.Start(ctx) })
+	active.Add(func(ctx context.Context) { feeds.Start(ctx) })
+	active.Add(func(ctx context.Context) { bundles.Start(ctx) })
+	active.Add(func(ctx context.Context) {
+		// A second promotion must relaunch the per-site loops, so clear the
+		// started flags the first one set.
+		res.Reset()
+		res.Start(ctx)
+	})
+	active.Add(func(ctx context.Context) { bans.Start(ctx) })
+	active.Add(func(ctx context.Context) { geoAutoUpdate(ctx, st, geo, log) })
 
 	uptimeMon.Start(ctx)
-	cs.Start(ctx)
-	go retentionLoop(ctx, st, log)
-	go certWatch(ctx, res, log)
+	active.Add(func(ctx context.Context) { cs.Start(ctx) })
+	active.Add(func(ctx context.Context) { retentionLoop(ctx, st, log) })
+	active.Add(func(ctx context.Context) { certWatch(ctx, res, log) })
+	if startActive {
+		active.Start()
+	}
 
 	for _, gl := range guiListeners {
 		go func(gl guiListener) {
@@ -895,13 +1040,46 @@ func run() error {
 		}(gl)
 	}
 
-	proxyErr := make(chan error, 1)
-	go func() { proxyErr <- px.Run(ctx, cfg.ListenWAN, tailProxyAddr) }()
-	go func() {
-		if err := px.RunHTTP(ctx, cfg.ListenHTTP); err != nil {
-			log.Warn("http listener failed", "addr", cfg.ListenHTTP, "err", err)
+	plane := newDataPlane(ctx, px, streams, cfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
+	defer plane.Close()
+	if !node.Active() {
+		// Hold the service address without accepting. A paired standby stays
+		// here even when HA is off, so turning it off cannot put two nodes on
+		// the address. IP_FREEBIND lets this
+		// succeed before the address has moved to this node, so a promotion
+		// does not wait for a bind.
+		if err := plane.Prebind(ctx); err != nil {
+			log.Warn("standby could not pre-bind the service address; promotion will bind instead", "err", err)
+		} else {
+			log.Info("standby holds the service address without serving", "addrs", plane.Addrs())
 		}
-	}()
+	} else if err := plane.Serve(ctx); err != nil {
+		return fmt.Errorf("proxy listener: %w", err)
+	}
+	if cfg.HAEnabled {
+		rt := &haRuntime{
+			root: ctx, dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
+			plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
+			ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand,
+			witnessURL: cfg.HAWitness, witnessToken: cfg.HAWitnessToken,
+			flap:         ha.NewFlapGuard(flapBudget(st, cfg.HAMaxFailovers)),
+			autoFailover: cfg.HAAutoFailover, log: log,
+		}
+		if haOn {
+			if err := rt.Start(); err != nil {
+				log.Error("high availability did not start", "err", err)
+			}
+		}
+		// The write gate stays installed: quiesce is only set during a move.
+		apiServer.SetWriteGate(haQuiesce.Active)
+		apiServer.SetHAOps(haControl{dir: cfg.DataDir, st: st, fallback: cfg.HAMaxFailovers, rt: rt})
+		// The settings route flips the loops live; the data plane is untouched.
+		// Turning HA off on a paired standby is refused: it is out of service by
+		// design, and starting it here would give the pair two writers.
+		apiServer.SetHAChange(func(on bool, confirm string) error {
+			return haApplyChange(rt, cfg.DataDir, on, confirm)
+		})
+	}
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -912,10 +1090,6 @@ func run() error {
 		// The service supervisor (Docker's restart policy or systemd Restart=)
 		// starts the process again with the listeners rebuilt.
 		log.Info("restart requested; exiting for the service supervisor")
-	case err := <-proxyErr:
-		if err != nil {
-			log.Error("proxy listener failed", "err", err)
-		}
 	}
 	cancel()
 	shutdownCtx, done := context.WithTimeout(context.Background(), 8*time.Second)

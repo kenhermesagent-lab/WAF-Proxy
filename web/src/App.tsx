@@ -10,7 +10,7 @@ import SourceDrawer from "./components/SourceDrawer";
 import AdminsOnline from "./components/AdminsOnline";
 import Icon from "./components/Icon";
 import { Me, SetupStatus, can } from "./types";
-import { NAV, NAV_GROUPS, NAV_UTILITY, href, routeFromHash, type NavItem } from "./nav";
+import { NAV, NAV_GROUPS, NAV_UTILITY, href, navAllowed, routeFromHash, type NavItem } from "./nav";
 import Dashboard from "./pages/Dashboard";
 import Statistics from "./pages/Statistics";
 import Proxies from "./pages/Proxies";
@@ -29,13 +29,13 @@ import Account from "./pages/Account";
 import SitesPage from "./pages/Sites";
 import HelpPage from "./help/HelpPage";
 import { helpPageFromHash } from "./help";
+import HAPage from "./pages/HA";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 
 type Enrolment = { username: string; secret: string; url: string; codes: string[] };
 type ToastTone = "ok" | "error" | "info" | "warn";
 type Toast = { id: number; tone: ToastTone; title: string; message: string };
-
 export default function App() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [me, setMe] = useState<Me | null>(null);
@@ -260,8 +260,14 @@ export default function App() {
     );
   }
 
-  const allowed = (n: NavItem) =>
-    (!n.permission || can(me?.permissions, n.permission)) && !(n.hideFor ?? []).includes(me?.role ?? "");
+  // /api/me is the source of the nav, so a saved HA switch has to refresh it
+  // for the item to appear without a reload.
+  const reloadMe = () =>
+    api.get<Me>("/api/me").then((m) => {
+      setCSRF(m.csrf);
+      setMe(m);
+    }).catch(() => undefined);
+  const allowed = (n: NavItem) => navAllowed(n, me);
   const visibleNav = NAV.filter(allowed);
   // The crumb names the page the URL asked for, even when the role cannot read
   // it; the card offers the first page the role can open instead.
@@ -301,7 +307,7 @@ export default function App() {
           <span className="brand-name">WAF-Proxy</span>
         </div>
         {NAV_GROUPS.map((g) => {
-          const items = g.items.filter(allowed);
+          const items = g.items.filter((n) => navAllowed(n, me));
           if (items.length === 0) return null;
           return (
             <div className="nav-group" key={g.title}>
@@ -311,7 +317,7 @@ export default function App() {
           );
         })}
         <div className="nav-spacer" />
-        {NAV_UTILITY.filter(allowed).map(navButton)}
+        {NAV_UTILITY.filter((n) => navAllowed(n, me)).map(navButton)}
         <div className="nav-foot">
           <span className="nav-foot-who">{me?.username} · v{me?.version}</span>
           <a className="nav-coffee" href={COFFEE_URL} target="_blank" rel="noreferrer" title="Buy me a coffee" aria-label="Buy me a coffee">
@@ -433,7 +439,9 @@ export default function App() {
         </header>
 
         <div className="content">
-          {!pageAllowed ? (
+          {!pageAllowed && page === "ha" && can(me?.permissions, "ha.read") ? (
+            <HAPage me={me} version={me?.version ?? ""} onError={onError} onOK={onOK} />
+          ) : !pageAllowed ? (
             <div className="card">
               <p style={{ marginTop: 0 }}>Your role does not include this page.</p>
               <button className="primary" onClick={() => navigate(fallback.id)}>Open {fallback.label}</button>
@@ -473,7 +481,8 @@ export default function App() {
                   canShareViews={can(me?.permissions, "traffic.write")}
                 />
               )}
-              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} />}
+              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} onMeChanged={reloadMe} />}
+              {page === "ha" && <HAPage me={me} version={me?.version ?? ""} onError={onError} onOK={onOK} />}
               {page === "sites" && <SitesPage onError={onError} onOK={onOK} me={me} />}
               {page === "account" && (
                 <Account

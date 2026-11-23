@@ -415,41 +415,83 @@ func (s *Server) allowedHost(host string) bool {
 // one is recorded for the Tailscale page but must not take the WAN listener
 // down.
 func (s *Server) Run(ctx context.Context, addrs ...string) error {
+	lns, err := s.Listen(ctx, addrs...)
+	if err != nil {
+		return err
+	}
+	stopped := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-stopped:
+		}
+		lns.DrainTimeout(10 * time.Second)
+	}()
+	err = lns.Serve()
+	close(stopped)
+	lns.DrainTimeout(10 * time.Second)
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
+}
+
+// Listeners is a bound set of proxy listeners. Bind and serve are separate so
+// a node taking over the service address can hold the port before it is allowed
+// to answer, and release it without exiting the process.
+type Listeners struct {
+	s       *Server
+	ctx     context.Context
+	lns     []net.Listener
+	servers []*http.Server
+	bound   []string
+	events  sync.Once
+}
+
+// Listen binds the addresses but serves nothing yet. The first address is
+// required; extra addresses are optional and a failure to bind one is recorded
+// for the Tailscale page instead of taking the primary listener down.
+func (s *Server) Listen(ctx context.Context, addrs ...string) (*Listeners, error) {
+	return s.ListenWith(ctx, func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }, addrs...)
+}
+
+// ListenWith is Listen with a caller-chosen binder. A standby uses it with
+// netbind.Listen to hold the service address with IP_FREEBIND before the
+// address is moved to it, so a promotion serves without waiting for a bind.
+func (s *Server) ListenWith(ctx context.Context, bind func(addr string) (net.Listener, error), addrs ...string) (*Listeners, error) {
 	if len(addrs) == 0 {
-		return fmt.Errorf("no proxy listen address")
+		return nil, fmt.Errorf("no proxy listen address")
+	}
+	if bind == nil {
+		bind = func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }
 	}
 	seen := map[string]bool{}
-	var lns []net.Listener
-	var bound []string
+	out := &Listeners{s: s, ctx: ctx}
 	for i, addr := range addrs {
 		addr = strings.TrimSpace(addr)
 		if addr == "" || seen[addr] {
 			continue
 		}
-		ln, err := net.Listen("tcp", addr)
+		ln, err := bind(addr)
 		if err != nil {
 			if i == 0 {
-				for _, l := range lns {
-					_ = l.Close()
-				}
-				return fmt.Errorf("listen %s: %w", addr, err)
+				out.Close()
+				return nil, fmt.Errorf("listen %s: %w", addr, err)
 			}
 			s.setListenError(addr, err)
 			s.d.Log.Error("extra proxy listener failed", "addr", addr, "err", err)
 			continue
 		}
 		seen[addr] = true
-		lns = append(lns, ln)
-		bound = append(bound, addr)
+		out.lns = append(out.lns, ln)
+		out.bound = append(out.bound, addr)
 		s.clearListenError(addr)
 	}
-	if len(lns) == 0 {
-		return fmt.Errorf("no proxy listeners bound")
+	if len(out.lns) == 0 {
+		return nil, fmt.Errorf("no proxy listeners bound")
 	}
-
-	servers := make([]*http.Server, 0, len(lns))
-	for range lns {
-		servers = append(servers, &http.Server{
+	for range out.lns {
+		out.servers = append(out.servers, &http.Server{
 			Handler:           s,
 			ReadHeaderTimeout: 10 * time.Second,
 			// Bound slow request bodies (slowloris) while leaving writes unbounded
@@ -460,40 +502,65 @@ func (s *Server) Run(ctx context.Context, addrs ...string) error {
 			ErrorLog:       nil,
 		})
 	}
-	go s.eventWriter(ctx)
-	errCh := make(chan error, len(servers))
-	for i, srv := range servers {
-		tlsLn := tls.NewListener(s.d.Metrics.CountingListener(lns[i]), s.tlsConfig())
-		addr := bound[i]
+	return out, nil
+}
+
+// Addrs reports the addresses that were bound.
+func (l *Listeners) Addrs() []string { return append([]string(nil), l.bound...) }
+
+// Serve starts the bound listeners and blocks until the first one stops or
+// fails. It does not own the shutdown decision; Drain and Close do.
+func (l *Listeners) Serve() error {
+	if len(l.lns) == 0 {
+		return fmt.Errorf("no proxy listeners bound")
+	}
+	l.events.Do(func() { go l.s.eventWriter(l.ctx) })
+	errCh := make(chan error, len(l.servers))
+	for i, srv := range l.servers {
+		tlsLn := tls.NewListener(l.s.d.Metrics.CountingListener(l.lns[i]), l.s.tlsConfig())
+		addr := l.bound[i]
 		go func() {
-			s.d.Log.Info("proxy listening", "addr", addr)
+			l.s.d.Log.Info("proxy listening", "addr", addr)
 			errCh <- srv.Serve(tlsLn)
 		}()
 	}
-
-	shutdown := func() {
-		s.draining.Store(true)
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		for _, srv := range servers {
-			_ = srv.Shutdown(shutdownCtx)
-		}
-		for _, ln := range lns {
-			_ = ln.Close()
-		}
-	}
-	go func() {
-		<-ctx.Done()
-		shutdown()
-	}()
-
-	err := <-errCh
-	shutdown()
-	if err == http.ErrServerClosed {
-		return nil
-	}
-	return err
+	return <-errCh
 }
+
+// Drain stops accepting, lets in-flight requests finish within ctx and closes
+// the sockets. A node that is standing down calls this before it gives up the
+// service address.
+func (l *Listeners) Drain(ctx context.Context) {
+	l.s.draining.Store(true)
+	for _, srv := range l.servers {
+		_ = srv.Shutdown(ctx)
+	}
+	for _, ln := range l.lns {
+		_ = ln.Close()
+	}
+}
+
+// DrainTimeout is Drain with a bounded budget.
+func (l *Listeners) DrainTimeout(d time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	l.Drain(ctx)
+}
+
+// Close releases the sockets immediately. It is safe on a partially bound set
+// and on a listener that never served.
+func (l *Listeners) Close() {
+	for _, srv := range l.servers {
+		_ = srv.Close()
+	}
+	for _, ln := range l.lns {
+		_ = ln.Close()
+	}
+}
+
+// SetDraining marks the server ready or draining. Promotion clears a previous
+// drain so the new active reports ready without a restart.
+func (s *Server) SetDraining(v bool) { s.draining.Store(v) }
 
 func (s *Server) tlsConfig() *tls.Config {
 	return &tls.Config{

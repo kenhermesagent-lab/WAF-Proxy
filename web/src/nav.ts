@@ -1,4 +1,5 @@
 import type { IconName } from "./components/Icon";
+import { can, type Me } from "./types";
 
 export type NavTab = { id: string; label: string; permission?: string };
 export type NavItem = {
@@ -9,6 +10,9 @@ export type NavItem = {
   // Roles that must not see the item even when it holds the permission,
   // because the page would act on the host rather than on its own site.
   hideFor?: string[];
+  // A switch this item depends on. The item is absent until /api/me reports it,
+  // so a deep link is the only way to reach the page while it is off.
+  requires?: "ha_enabled";
   hint?: string;
   tabs?: NavTab[];
   defaultTab?: string;
@@ -119,6 +123,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { id: "notifications", label: "Notifications", icon: "mail", permission: "settings.read", hint: "Alert channels" },
       { id: "tailscale", label: "Tailscale", icon: "network", permission: "settings.read", hideFor: ["host_admin"], hint: "Private network access" },
       { id: "cloudflare", label: "Cloudflare", icon: "cloud", permission: "settings.read", hideFor: ["host_admin"], hint: "Public tunnel and Access" },
+      { id: "ha", label: "High availability", icon: "server", permission: "ha.read", requires: "ha_enabled", hideFor: ["host_admin"], hint: "Pairing, moves and witness state" },
       { id: "sites", label: "Sites", icon: "shield", permission: "sites.read", hint: "Tenants, console hosts and their hostnames" },
     ],
   },
@@ -169,6 +174,15 @@ export function routeFromHash(hash: string): Route {
       ? legacy.tab
       : item.defaultTab ?? tabs[0].id;
   return { page: item.id, tab };
+}
+
+// navAllowed is the one visibility rule for the sidebar and for a page reached
+// by hash, so a hidden item and a refused deep link agree.
+export function navAllowed(item: NavItem, me: Me | null): boolean {
+  if (item.permission && !can(me?.permissions, item.permission)) return false;
+  if ((item.hideFor ?? []).includes(me?.role ?? "")) return false;
+  if (item.requires === "ha_enabled" && me?.ha_enabled !== true) return false;
+  return true;
 }
 
 // href builds the canonical hash for a page and tab, so redirects and in-app

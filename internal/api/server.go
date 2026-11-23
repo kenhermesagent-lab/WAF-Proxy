@@ -103,6 +103,24 @@ type Server struct {
 	cfChecked string
 	cfNonce   atomic.Value
 
+	// haStatus reports this node's effective role. Nil on a build or test
+	// without HA, where the node is always standalone and serving.
+	haStatus func() HAStatus
+	// haWriteGate pauses configuration writes while a planned move quiesces
+	// this node. Reads stay open. Nil means writes are never paused.
+	haWriteGate func() bool
+	// writes counts mutating console requests in flight, so a promotion
+	// preflight can refuse to start while an edit is still landing.
+	writes atomic.Int64
+	// haOps runs the HA mutations; nil means the routes answer 409. haMu and
+	// haLog keep the process-local action history the page shows.
+	haOps HAOps
+	// haChange starts or stops the HA loops after the switch is saved. It can
+	// refuse, and the save is then rolled back.
+	haChange func(bool, string) error
+	haMu     sync.Mutex
+	haLog    []HAEvent
+
 	// CrowdSec one-click install progress, polled by the CrowdSec page.
 	csMu      sync.Mutex
 	csRunning bool
@@ -213,6 +231,11 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/diagnostics/bundle", s.authed(s.diagnosticsBundle))
 	m.HandleFunc("POST /api/canary", s.authed(s.runCanary))
 	m.HandleFunc("GET /api/health", s.health)
+	m.HandleFunc("GET /api/ha/diagnostics", s.authed(s.haDiagnostics))
+	m.HandleFunc("GET /api/ha", s.authed(s.haRoute))
+	m.HandleFunc("GET /api/ha/events", s.authed(s.haEventsRoute))
+	m.HandleFunc("PUT /api/ha/config", s.authed(s.haConfigRoute))
+	m.HandleFunc("POST /api/ha/{action}", s.authed(s.haAction))
 	m.HandleFunc("GET /api/version", s.versionInfo)
 	m.HandleFunc("GET /api/setup/status", s.setupStatus)
 	m.HandleFunc("POST /api/setup", s.setup)
@@ -588,6 +611,23 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusForbidden, "your role does not allow this action")
 			return
 		}
+		// A standby serves reads and nothing else. Checking here covers every
+		// route at once, including ones added later, instead of trusting each
+		// handler to remember.
+		if s.haStatus != nil {
+			if ha := s.haStatusOf(); ha.Enabled && !ha.Serving && !standbyAllows(r.Method, r.URL.Path) {
+				writeError(w, http.StatusConflict, "standby is read-only")
+				return
+			}
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if s.haWriteGate != nil && s.haWriteGate() {
+				writeError(w, http.StatusConflict, "configuration writes are paused for a failover")
+				return
+			}
+			s.writes.Add(1)
+			defer s.writes.Add(-1)
+		}
 		// Sliding idle timeout (12 h) bounded by an absolute 7 day lifetime. It
 		// only refreshes once less than half the window remains, so an active
 		// session costs at most one write per six hours.
@@ -655,13 +695,20 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-WAF-Origin", nonce)
 	}
 	ready := s.proxy == nil || s.proxy.Ready()
+	body := map[string]any{
+		"status": "ok", "version": version.Version, "uptime_s": int(time.Since(s.started).Seconds()),
+	}
+	if s.haStatus != nil {
+		ha := s.haStatusOf()
+		if ha.Enabled {
+			ready = ready && ha.Serving
+		}
+		body["ha"] = ha
+	}
+	body["ready"] = ready
 	status := http.StatusOK
 	if r.URL.Query().Get("ready") == "1" && !ready {
 		status = http.StatusServiceUnavailable
-	}
-	body := map[string]any{
-		"status": "ok", "version": version.Version, "uptime_s": int(time.Since(s.started).Seconds()),
-		"ready": ready,
 	}
 	if m := s.canaryFor(r); m != nil {
 		body["canary"] = m.Snapshot()
@@ -682,6 +729,66 @@ func loopbackPeer(r *http.Request) bool {
 
 // SetCanary attaches the scheduled probe whose last result health reports.
 func (s *Server) SetCanary(m *canary.Monitor) { s.canary = m }
+
+// HAStatus is the node's effective role, read fresh on each request so a
+// transition is visible without a restart. Enabled is the boot master switch
+// combined with the stored setting; Serving is false on a standby.
+type HAStatus struct {
+	Enabled   bool   `json:"enabled"`
+	Paired    bool   `json:"paired"`
+	Role      string `json:"role"`
+	State     string `json:"state"`
+	Serving   bool   `json:"serving"`
+	Epoch     int64  `json:"epoch"`
+	Peer      string `json:"peer,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	ClusterID string `json:"cluster_id,omitempty"`
+	// PeerFingerprint keys the acknowledgement the peer sent for this node's
+	// stream.
+	PeerFingerprint string `json:"peer_fingerprint,omitempty"`
+	// UpdatedAt is when the role file last changed, so the page can show how
+	// long this node has been in its current role.
+	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+// SetHAStatus installs the role source used by health and the standby guard.
+func (s *Server) SetHAStatus(fn func() HAStatus) { s.haStatus = fn }
+
+// SetWriteGate installs the pause that stops new configuration writes while a
+// move drains this node. Reads and the HA routes stay open.
+func (s *Server) SetWriteGate(fn func() bool) { s.haWriteGate = fn }
+
+// ConfigWritesInFlight reports mutating console requests still running. A
+// promotion preflight uses it so a move does not start on top of an edit.
+func (s *Server) ConfigWritesInFlight() int { return int(s.writes.Load()) }
+
+// ReloadAll recompiles every site's policy and the proxy routing table from the
+// database. A promotion calls it after draining replication, when this node's
+// copy is at the peer's head.
+func (s *Server) ReloadAll(ctx context.Context) error {
+	s.reloadPolicies()
+	if s.proxy != nil {
+		if err := s.proxy.Reload(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// standbyAllows reports whether a request may reach its handler on a standby.
+// Reads keep the console usable; the HA control routes and the login/account
+// paths must stay reachable or nobody could operate the node.
+func standbyAllows(method, path string) bool {
+	if method == http.MethodGet || method == http.MethodHead {
+		return true
+	}
+	for _, prefix := range []string{"/api/ha/", "/api/account/", "/api/login", "/api/logout", "/api/me"} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // purgeCache drops the response cache for one host, or all hosts when the body
 // names none. Operators reach for it after a backend redeploy.
@@ -1047,13 +1154,18 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		email = user.Email
 	}
 	site, _ := s.st.SiteByID(s.consoleSite(r))
+	haOn := s.haStatusOf().Enabled
 	body := map[string]any{
 		"username": sess.Username, "csrf": sess.CSRF, "version": version.Version,
+		"ha_enabled":  haOn,
 		"base_domain": kv["base_domain"], "expires_at": sess.ExpiresAt,
 		"totp_enabled": user != nil && user.TOTPEnabled,
 		"email":        email,
 		"role":         sess.Role, "permissions": sess.Permissions,
 		"can_switch": sess.Can(rbac.Permission("sites", "read")),
+	}
+	if haOn {
+		body["ha_role"] = s.haStatusOf().Role
 	}
 	if site != nil {
 		body["site"] = site.Slug
@@ -1073,7 +1185,7 @@ var publicSettingKeys = []string{
 	"sample_above_rps", "max_body", "protection_enabled", "acme_staging", "acme_email",
 	"gate_ttl_hours", "home_lat", "home_lon", "decoy_hosts",
 	"admin_allow_cidrs", "bot_filter", "bot_filter_allow", "geoip_auto_update",
-	"normalization_mode",
+	"normalization_mode", "ha_enabled",
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -1181,6 +1293,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "normalization_mode must be off, flag or block")
 				return
 			}
+		case "ha_enabled":
+			if v != "0" && v != "1" {
+				writeError(w, http.StatusBadRequest, "ha_enabled must be 0 or 1")
+				return
+			}
 		}
 		switch k {
 		case "dos_rps", "dos_burst", "retention_days", "sample_above_rps", "max_body", "gate_ttl_hours":
@@ -1217,7 +1334,29 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		next[k] = v
 	}
+	previousHA, _ := s.st.GetSetting("ha_enabled")
+	changedHA, haOn := false, false
+	if v, ok := next["ha_enabled"]; ok && v != previousHA {
+		changedHA, haOn = true, v == "1"
+	}
+	// The HA guard runs before any row is written, so a refused switch leaves
+	// the whole save untouched: no other key and no audit row changes. A tenant
+	// console is not the host's decider, so it skips the guard and is refused
+	// by SetSettings below.
+	hostSave := s.db(r).SiteID() == s.st.SiteID()
+	if changedHA && hostSave && s.haChange != nil {
+		if err := s.haChange(haOn, strings.TrimSpace(r.Header.Get("X-HA-Cluster-ID"))); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
 	if err := s.db(r).SetSettings(next); err != nil {
+		if changedHA && hostSave && s.haChange != nil {
+			// The write failed after the loops moved, so put them back.
+			if rerr := s.haChange(!haOn, ""); rerr != nil {
+				s.log.Error("cannot undo the HA switch after a failed save", "err", rerr)
+			}
+		}
 		if errors.Is(err, store.ErrHostWideSetting) {
 			writeError(w, http.StatusForbidden, err.Error())
 			return
@@ -1251,6 +1390,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "settings.update", strings.Join(keys(next), ","), clientIP(r))
+	if changedHA {
+		// This switch changes who can move the service address, so it gets its
+		// own audit row rather than a phrase inside settings.update.
+		action := "ha.enable"
+		if !haOn {
+			action = "ha.disable"
+		}
+		s.db(r).AddAudit(sess.Username, action, "", clientIP(r))
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

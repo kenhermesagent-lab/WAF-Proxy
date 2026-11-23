@@ -19,6 +19,7 @@ function siteHeader(headers: Record<string, string>): Record<string, string> {
 type Options = {
   method?: string;
   body?: unknown;
+  headers?: Record<string, string>;
 };
 
 // read parses a response, keeping an HTML error page from masking the HTTP status.
@@ -39,7 +40,7 @@ async function read<T>(res: Response): Promise<T> {
 }
 
 async function request<T>(path: string, opts: Options = {}): Promise<T> {
-  const headers = siteHeader({});
+  const headers = siteHeader({ ...(opts.headers ?? {}) });
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   if (csrf) headers["X-CSRF-Token"] = csrf;
   const res = await fetch(path, {
@@ -86,7 +87,7 @@ export const api = {
   text,
   post: <T>(p: string, body?: unknown) => request<T>(p, { method: "POST", body }),
   postRaw: <T>(p: string, body: BodyInit, headers: Record<string, string>) => postRaw<T>(p, body, headers),
-  put: <T>(p: string, body?: unknown) => request<T>(p, { method: "PUT", body }),
+  put: <T>(p: string, body?: unknown, headers?: Record<string, string>) => request<T>(p, { method: "PUT", body, headers }),
   del: <T>(p: string) => request<T>(p, { method: "DELETE" }),
   upload,
   download,

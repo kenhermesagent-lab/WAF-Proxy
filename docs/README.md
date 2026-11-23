@@ -20,6 +20,11 @@
 
 **Operate**
 - [Operations runbook](OPERATIONS.md) — health, logs, backup, alerting, diagnostics, canary
+- [High availability](HA.md) — active/standby pair, pairing, moves, witness and fencing, the console page and the lab checklist (off by default)
+  runbooks, failover and failback procedures, security prerequisites, a Settings toggle and a
+  System page behind it, and a phased build plan with per-phase gates and a debugging playbook
+- [HA build execution plan](HA-BUILD.md) — the same phases cut into ordered, PR-sized tasks
+  with files, verification commands, per-task done criteria and the first five pull requests
 - [API reference](openapi.yaml) — generated from the routes the console serves, with
   request and response schemas for sites, bans, certificates, notifications and anomaly
 - [MCP gateway](MCP.md)

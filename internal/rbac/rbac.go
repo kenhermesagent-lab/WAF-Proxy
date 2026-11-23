@@ -32,6 +32,7 @@ var Areas = []Area{
 	{"accounts", "Administrator accounts and roles"},
 	{"sites", "Sites: create, edit and remove tenants"},
 	{"system", "Updates and system restart"},
+	{"ha", "High availability: status, pairing and moves"},
 }
 
 // Permission returns the "area.action" token for an area.

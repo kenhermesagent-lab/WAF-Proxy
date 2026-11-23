@@ -150,6 +150,93 @@ describe("Settings configuration transport", () => {
     expect(body.site_name).toBeUndefined();
   });
 
+  const mockHA = (status: Record<string, unknown>) => {
+    const base = get.getMockImplementation();
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/ha") return status;
+      return base ? base(path) : {};
+    });
+  };
+
+  it("puts the HA switch directly above Backup and saves it with the page", async () => {
+    renderPage();
+    const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(document.getElementById("ha")?.nextElementSibling?.id).toBe("backup");
+
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByText("Save settings"));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect((put.mock.calls[0][1] as Record<string, string>).ha_enabled).toBe("1");
+  });
+
+  it("refreshes the HA help and the nav after saving", async () => {
+    let haCalls = 0;
+    const base = get.getMockImplementation();
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/ha") {
+        haCalls++;
+        return haCalls === 1
+          ? { enabled: false, boot_enabled: true }
+          : { enabled: true, boot_enabled: true, paired: false };
+      }
+      return base ? base(path) : {};
+    });
+    const onMeChanged = vi.fn();
+    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} onMeChanged={onMeChanged} />);
+    const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByText("Save settings"));
+    await screen.findByText(/not paired yet/);
+    expect(onMeChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for the cluster id and sends it only with the save that turns HA off", async () => {
+    mockHA({ enabled: true, boot_enabled: true, paired: true, cluster_id: "cluster-abc" });
+    let storedHA = "1";
+    const beforeSettings = get.getMockImplementation();
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/settings") return { ha_enabled: storedHA };
+      return beforeSettings ? beforeSettings(path) : {};
+    });
+    put.mockImplementation(async () => {
+      storedHA = "0";
+      return undefined;
+    });
+    renderPage();
+    const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(toggle);
+
+    const field = await screen.findByPlaceholderText("cluster-abc");
+    fireEvent.change(field, { target: { value: "cluster-abc" } });
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect((put.mock.calls[0][1] as Record<string, string>).ha_enabled).toBe("0");
+    expect(put.mock.calls[0][2]).toEqual({ "X-HA-Cluster-ID": "cluster-abc" });
+    await waitFor(() => expect((screen.getByPlaceholderText("cluster-abc") as HTMLInputElement).value).toBe(""));
+  });
+
+  it("says the boot switch is in the way and disables the toggle", async () => {
+    mockHA({ enabled: false, boot_enabled: false, paired: false, reason: "this host booted with WAFPROXY_HA_ENABLE=0" });
+    renderPage();
+    const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
+    await screen.findByText(/WAFPROXY_HA_ENABLE=0/);
+    expect((toggle as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("distinguishes a paired node from one that still needs pairing", async () => {
+    mockHA({ enabled: true, boot_enabled: true, paired: true });
+    renderPage();
+    await screen.findByText(/This node is paired/);
+    cleanup();
+
+    mockHA({ enabled: true, boot_enabled: true, paired: false });
+    renderPage();
+    await screen.findByText(/not paired yet/);
+  });
+
   it("downloads both formats, encrypting them when a passphrase is set", async () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     URL.createObjectURL = vi.fn(() => "blob:file");

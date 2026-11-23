@@ -116,6 +116,18 @@ func (e *Engine) Start(ctx context.Context) {
 	}
 }
 
+// Reconcile reloads the in-memory table from SQLite and rewrites the kernel
+// set. A promotion calls it, so a ban added while this node was a standby is
+// enforced before the first request reaches the new active.
+func (e *Engine) Reconcile() {
+	e.reconcile()
+	if e.kernel != nil {
+		if err := e.kernel.Sync(e.snapshot()); err != nil {
+			e.log.Warn("kernel ban sync unavailable; using proxy-level enforcement", "err", err)
+		}
+	}
+}
+
 // reconcile reloads the in-memory table from SQLite so a ban removed by the
 // one-shot `wafproxy unban` CLI takes effect without restarting the process.
 func (e *Engine) reconcile() {

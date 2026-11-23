@@ -223,6 +223,17 @@ func (s *Set) startAll(ctx context.Context) {
 	}
 }
 
+// Reset clears the started flags so a node that was demoted and promoted again
+// relaunches every site's loops. Start only launches loops for a bundle it has
+// not started yet, so without this a second promotion would run no renewals.
+func (s *Set) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, b := range s.sites {
+		b.started = false
+	}
+}
+
 // Drop forgets a site's instances. Their loops stop with the process's context
 // when the site's rows are gone; nothing here holds a handle to deleted data.
 func (s *Set) Drop(siteID int64) {

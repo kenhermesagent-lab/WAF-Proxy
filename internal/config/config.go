@@ -66,6 +66,30 @@ type Config struct {
 	// BundleIntervalSeconds is the manifest refresh period. The manager never
 	// checks more often than every five minutes.
 	BundleIntervalSeconds int
+	// HAEnabled is the boot-time master switch for high availability. When it
+	// is off, no HA route or loop exists and the node serves on its own.
+	HAEnabled bool
+	// HAMgmtListen is this node's own console address in HA mode. The service
+	// address belongs to whichever node is active, so the standby needs a
+	// management listener that never moves.
+	HAMgmtListen string
+	// HALinkListen serves pairing and, later, replication on the private link
+	// between the pair. Empty leaves the node able to run but not to pair.
+	HALinkListen string
+	// HAWitness is the witness base URL the active renews its lease with. With
+	// no witness the pair keeps the manual failover of P5.
+	HAWitness string
+	// HAWitnessToken authenticates the active to the witness. It is required
+	// with HAWitness: an open witness grants two actives.
+	HAWitnessToken string
+	// HAAutoFailover lets a standby promote itself when the heartbeat, the
+	// witness lease and the fence command all agree. Off by default.
+	HAAutoFailover bool
+	// HAFenceCommand runs on the local node before an automatic promotion, with
+	// {peer} substituted. Exit 0 means the peer is down.
+	HAFenceCommand string
+	// HAMaxFailovers is where automatic moves park the pair for an operator.
+	HAMaxFailovers int
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -95,6 +119,37 @@ func Load() (*Config, error) {
 		BundleURL:             strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_URL")),
 		BundlePublicKey:       strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_PUBKEY")),
 		BundleIntervalSeconds: envInt("WAFPROXY_BUNDLE_INTERVAL", 3600),
+		HAEnabled:             envBoolOr("WAFPROXY_HA_ENABLE", false),
+		HAMgmtListen:          strings.TrimSpace(os.Getenv("WAFPROXY_HA_MGMT_LISTEN")),
+		HALinkListen:          strings.TrimSpace(os.Getenv("WAFPROXY_HA_LINK_LISTEN")),
+		HAWitness:             strings.TrimSpace(os.Getenv("WAFPROXY_HA_WITNESS")),
+		HAWitnessToken:        strings.TrimSpace(os.Getenv("WAFPROXY_HA_WITNESS_TOKEN")),
+		HAAutoFailover:        envBoolOr("WAFPROXY_HA_AUTO_FAILOVER", false),
+		HAFenceCommand:        strings.TrimSpace(os.Getenv("WAFPROXY_HA_FENCE_COMMAND")),
+		HAMaxFailovers:        envInt("WAFPROXY_HA_MAX_FAILOVERS_PER_HOUR", 3),
+	}
+	if c.HAEnabled && c.HAMgmtListen == "" {
+		return nil, errors.New("WAFPROXY_HA_MGMT_LISTEN is required when WAFPROXY_HA_ENABLE=1")
+	}
+	if (c.HAWitness == "") != (c.HAWitnessToken == "") {
+		return nil, errors.New("WAFPROXY_HA_WITNESS and WAFPROXY_HA_WITNESS_TOKEN must be set together")
+	}
+	if c.HAWitnessToken != "" && len(c.HAWitnessToken) < 32 {
+		return nil, errors.New("WAFPROXY_HA_WITNESS_TOKEN must be at least 32 characters")
+	}
+	if c.HAAutoFailover {
+		if !c.HAEnabled {
+			return nil, errors.New("WAFPROXY_HA_AUTO_FAILOVER needs WAFPROXY_HA_ENABLE=1")
+		}
+		if c.HAWitness == "" {
+			return nil, errors.New("WAFPROXY_HA_AUTO_FAILOVER needs WAFPROXY_HA_WITNESS: a promotion without a lease is unsafe")
+		}
+		if c.HAFenceCommand == "" {
+			return nil, errors.New("WAFPROXY_HA_AUTO_FAILOVER needs WAFPROXY_HA_FENCE_COMMAND: a promotion without a fence is unsafe")
+		}
+		if c.HAMaxFailovers < 1 {
+			return nil, errors.New("WAFPROXY_HA_MAX_FAILOVERS_PER_HOUR must be at least 1")
+		}
 	}
 	if c.ListenGUITLS && c.GUIHost == "" {
 		return nil, errors.New("WAFPROXY_GUI_HOST is required when WAFPROXY_LISTEN_GUI_TLS is set")
@@ -185,7 +240,18 @@ func loadMasterKey(dir string) ([]byte, error) {
 		return key, nil
 	}
 
+	// A paired node stores the cluster key under ha/. It takes precedence over
+	// the locally generated key, so a standby decrypts the same secrets as the
+	// active. Refusing a mismatch happens at pairing time, not here.
+	haPath := filepath.Join(dir, "ha", "master.key")
 	path := filepath.Join(dir, "master.key")
+	if b, err := os.ReadFile(haPath); err == nil {
+		key, decErr := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
+		if decErr != nil || len(key) != 32 {
+			return nil, fmt.Errorf("ha/master.key at %s is corrupt", haPath)
+		}
+		return key, nil
+	}
 	if b, err := os.ReadFile(path); err == nil {
 		key, decErr := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
 		if decErr != nil || len(key) != 32 {

@@ -20,19 +20,22 @@ func GateSessionRef(id string) string {
 }
 
 // AddUsernameBan blocks a gate username. A permanent row wins over a temporary
-// one, matching the IP ban behaviour.
+// one, matching the IP ban behaviour. The block is replicated, so a username
+// banned just before a failover stays banned.
 func (s *Store) AddUsernameBan(username, reason, createdBy string, expires *time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO username_bans(username, reason, created_by, created_at, expires_at, site_id)
-		VALUES(?, ?, ?, ?, ?, ?)
-		ON CONFLICT(username) DO UPDATE SET
-			reason = excluded.reason,
-			created_by = excluded.created_by,
-			created_at = excluded.created_at,
-			expires_at = CASE
-				WHEN excluded.expires_at IS NULL OR username_bans.expires_at IS NULL THEN NULL
-				ELSE excluded.expires_at END`,
-		username, reason, createdBy, stamp(time.Now()), nullTime(expires), s.site)
-	return err
+	return s.upsertChanged("username_bans", []string{"username"}, func(db execer) ([]any, error) {
+		_, err := db.Exec(`INSERT INTO username_bans(username, reason, created_by, created_at, expires_at, site_id)
+			VALUES(?, ?, ?, ?, ?, ?)
+			ON CONFLICT(username) DO UPDATE SET
+				reason = excluded.reason,
+				created_by = excluded.created_by,
+				created_at = excluded.created_at,
+				expires_at = CASE
+					WHEN excluded.expires_at IS NULL OR username_bans.expires_at IS NULL THEN NULL
+					ELSE excluded.expires_at END`,
+			username, reason, createdBy, stamp(time.Now()), nullTime(expires), s.site)
+		return []any{username}, err
+	})
 }
 
 // UsernameBanned reports whether a username is currently blocked.
@@ -76,11 +79,7 @@ func (s *Store) ListUsernameBans(includeExpired bool) ([]model.UsernameBan, erro
 
 // RemoveUsernameBan lifts a username block and reports whether one existed.
 func (s *Store) RemoveUsernameBan(username string) (bool, error) {
-	res, err := s.db.Exec(`DELETE FROM username_bans WHERE username = ? AND (? = 0 OR site_id = ?)`, username, s.site, s.site)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
+	n, err := s.deleteCaptured("username_bans", []string{"username"}, `username = ? AND (? = 0 OR site_id = ?)`, username, s.site, s.site)
 	return n > 0, err
 }
 
@@ -124,7 +123,7 @@ func (s *Store) DeleteGateSessionByRef(ref string) (*model.GateSession, error) {
 		if sessions[i].Ref != ref {
 			continue
 		}
-		if _, err := s.db.Exec(`DELETE FROM gate_sessions WHERE id = ? AND (? = 0 OR site_id = ?)`, sessions[i].ID, s.site, s.site); err != nil {
+		if _, err := s.deleteCaptured("gate_sessions", []string{"id"}, `id = ? AND (? = 0 OR site_id = ?)`, sessions[i].ID, s.site, s.site); err != nil {
 			return nil, err
 		}
 		return &sessions[i], nil
@@ -134,11 +133,7 @@ func (s *Store) DeleteGateSessionByRef(ref string) (*model.GateSession, error) {
 
 // DeleteGateSessionsForIP revokes every live session opened from an address.
 func (s *Store) DeleteGateSessionsForIP(ip string) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM gate_sessions WHERE ip = ? AND (? = 0 OR site_id = ?)`, ip, s.site, s.site)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+	return s.deleteCaptured("gate_sessions", []string{"id"}, `ip = ? AND (? = 0 OR site_id = ?)`, ip, s.site, s.site)
 }
 
 // CountGateSessions reports how many live visitor sessions exist.
