@@ -19,7 +19,7 @@
 
 **Operate**
 - [Operations runbook](OPERATIONS.md) — health, logs, backup, alerting, diagnostics, canary
-- [High availability plan](HA.md) — proposed active/standby pair: pairing and keepalived
+- [High availability](HA.md) — active/standby pair, pairing, moves, witness and fencing, the console page and the lab checklist (off by default)
   runbooks, failover and failback procedures, security prerequisites, a Settings toggle and a
   System page behind it, and a phased build plan with per-phase gates and a debugging playbook
 - [HA build execution plan](HA-BUILD.md) — the same phases cut into ordered, PR-sized tasks

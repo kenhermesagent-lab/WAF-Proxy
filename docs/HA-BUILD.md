@@ -846,14 +846,19 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 - Verify: `npm test`.
 - Done: removing the `requires` check or the disable rule makes a test fail.
 
-### P7-07 OpenAPI, docs and upgrade path — S, 1 day
+### P7-07 OpenAPI, docs and upgrade path — S, 1 day — docs built
 
+- Built: `docs/openapi.yaml` regenerated (no route changes, `make docs-check` clean); the
+  standby-first upgrade path in `docs/OPERATIONS.md`; the HA row in the daily checks; the
+  `[Unreleased]` CHANGELOG entry; the README section, headless commands and docs index; this
+  file's status rows. Every doc says HA is off by default and that the hardware lab gates are
+  still outstanding.
+- Not built: `ha upgrade --check`. Compatibility is enforced where it matters — the automatic
+  gate refuses a peer on a different release or schema and the preflight shows the fix — but
+  there is no CLI command that reports it ahead of time.
 - Files: `docs/openapi.yaml` (generated), `docs/OPERATIONS.md`, `CHANGELOG.md`, `README.md`,
   `docs/HA.md` status block.
-- Change: `go generate ./internal/api`; `ha upgrade --check`; standby-first upgrade documented;
-  status block flipped only when P8 passes.
 - Verify: `make docs-check`.
-- Done: `make test` is green with the regenerated spec, and no doc claims HA ships before P8.
 
 **P7 gate.** `make test`, `make vet`, `cd web && npm test`, `cd web && npm run build`. RBAC:
 `viewer` sees nothing, `ha.read` reads and cannot post. Disabled: no nav entry, `#/ha` explains

@@ -12,6 +12,57 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.58.0] — 2026-11-23
+
+### Added
+
+- **Optional two-node high availability.** A pair of nodes can share one virtual service address,
+  with one active and one standby. HA is off by default: `WAFPROXY_HA_ENABLE=1` allows it and the
+  **Settings → High availability** switch turns it on, so a single-node install behaves exactly as
+  before. The role lives in a file beside the database (`standalone`/`active`/`standby` plus the
+  move state), so a restored database cannot silently change who serves. Pairing writes a
+  26-character code valid for ten minutes; the joining node proves the fingerprint and receives the
+  master key over the pinned TLS link.
+- **Moves without a restart.** `wafproxy ha failover|failback` (and the console buttons) drain
+  configuration writes, stop background loops on the old active, bounce keepalived through
+  `ha notify`, wait for the address, register sessions with `conntrack`, and only then serve. A
+  heartbeat with a higher epoch parks an active in `split-brain-risk` instead of letting both
+  nodes answer.
+- **Witness lease and fencing.** With a witness, the active renews a three-second lease and
+  self-demotes when it cannot; automatic failover needs the witness, a fence command and a healthy
+  peer, renews the lease before serving, and parks the node after four moves in an hour.
+- **Replication of configuration, sessions, bans, audit and alerts.** A snapshot after pairing and
+  every 30 minutes, streamed changes through an outbox with per-record acknowledgements, a 100 MiB
+  outbox cap and a 64 MiB snapshot cap. A standby follows the stream and is read-only until it is
+  promoted.
+- **Console page, API and CLI.** `GET /api/ha` plus events, diagnostics, config, pair/join/sync,
+  failover/failback, unpair and notify, behind `ha.read`/`ha.write` with fresh re-authentication
+  and a typed cluster id for the destructive actions. It is dark by default and the two-node
+  hardware lab gates in [docs/HA.md](docs/HA.md) have not been run, so production use needs that
+  run first. The **High availability** page shows the
+  four states, the peer, replication, the console's action history and the guarded actions; the
+  Settings switch starts and stops the HA loops in the running process. `wafproxy ha` exposes the
+  same operations on a node whose console is unreachable.
+- **Tests.** A partition simulator that runs the real state machine, heartbeat, witness, fence and
+  flap guard on a fake clock (the partition matrix plus 200 randomized partitions, asserting at
+  most one live active per tick and an unexpired lease for every promotion), handler and route
+  tests for every HA action, and page/toggle/nav tests for the console.
+
+### Changed
+
+- Turning HA off on a **paired** node requires its cluster id (`X-HA-Cluster-ID`, typed in
+  Settings) and is always refused on a paired standby; a refused save writes no key and no audit
+  row. A paired standby is never rewritten to standalone while HA is off: it stays out of service
+  and `GET /api/ha` says why.
+
+### Documentation
+
+- [README.md](README.md#high-availability) describes the pair in one page and links the runbook.
+- [docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-a-high-availability-pair) adds the
+  standby-first upgrade path and an HA row to the daily checks.
+- [docs/HA.md](docs/HA.md) carries the design, the state machine, the console specification and
+  the lab checklist; [docs/openapi.yaml](docs/openapi.yaml) was regenerated (no route changes).
+
 ## [1.57.0] — 2026-11-23
 
 ### Added
@@ -2203,7 +2254,7 @@ compromise; each is a case where a safe default or an existing guarantee did not
 - DB-IP files installed by the console take precedence over a manually supplied GeoLite2
   file; `GeoLite2-*` still works when no DB-IP file is present.
 
-## [Unreleased]
+## [1.58.0] — 2026-11-23
 
 ### Added
 

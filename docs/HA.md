@@ -19,9 +19,10 @@
 > built, the `ha_enabled` host-wide switch starts and stops the HA loops live and
 > appears in Settings (P7-02, P7-03), the nav item is gated on it (P7-04), and the
 > HA page renders its four states (P7-05) with a partial card set, covered by page
-> and toggle tests (P7-06). The two-VM lab gates and the release paperwork (P7-07)
-> are not, so sections that describe them state the intended end state.
-> `docs/HA-BUILD.md`
+> and toggle tests (P7-06), and the docs, CHANGELOG and README entry are written
+> (P7-07). The two-VM hardware lab gates and the P8 chaos/soak gate have not been
+> run, and the page still lacks the VIP, sessions, bans and witness cards, so
+> those parts remain the intended end state. `docs/HA-BUILD.md`
 > carries the per-task status and the known gaps.
 >
 > The document is written so an operator can read the runbooks as the intended

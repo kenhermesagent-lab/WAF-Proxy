@@ -20,6 +20,7 @@ systemd service. Version 1.57.0.
 - [The console](#the-console)
 - [Configuration and transport](#configuration-and-transport)
 - [Security model and limitations](#security-model-and-limitations)
+- [High availability](#high-availability)
 - [Operations](#operations)
 - [Development](#development)
 - [Documentation](#documentation)
@@ -70,6 +71,11 @@ systemd service. Version 1.57.0.
   through webhooks.
 - MCP gateway for AI agents with per-tool token scopes; a metrics endpoint guarded by a bearer
   token; Tailscale-aware listeners; one-click self-update with rollback.
+- **Optional two-node high availability.** A role machine on disk, a keepalived virtual address, a
+  witness lease and a fencing hook move the service between an active and a standby without
+  restarting the process, while configuration, sessions, bans, audit and alerts replicate over an
+  authenticated TLS link. Off by default: it needs `WAFPROXY_HA_ENABLE=1` and the switch in
+  Settings, and the two nodes need a lab run with the planned virtual address before production.
 
 **Console**
 
@@ -85,6 +91,8 @@ systemd service. Version 1.57.0.
 - `wafproxy backup --keep 7` writes an encrypted backup and prunes older ones.
 - `wafproxy unban <ip|cidr>` removes a ban while the console is unreachable.
 - `wafproxy sites list|add|rename|remove` manages the sites one process serves.
+- `wafproxy ha status|pair|join|sync|failover|failback|unpair|notify` runs the same pair and move
+  sequence as the console and API, for a node whose console is unreachable.
 - `bundletool keygen|sign` publishes a signed signature-bundle channel.
 
 ## How a request is handled
@@ -309,7 +317,30 @@ secrets are not part of the document.
 - **Subdomains are not a secrecy boundary.** Certificates are published to Certificate
   Transparency logs, so a wildcard's names are discoverable.
 - **Not included:** AbuseIPDB enrichment, tarpit, per-site HTTP basic auth/mTLS, brotli, per-site
-  bandwidth history, HTTP/3, HA and multi-user roles beyond the built-in RBAC.
+  bandwidth history, HTTP/3, and multi-user roles beyond the built-in RBAC.
+
+## High availability
+
+Two nodes can share one virtual service address, with one active and one standby. HA is **off by
+default** and changes nothing about a single-node install until an operator turns it on:
+
+1. Give both nodes a private HA link address (`WAFPROXY_HA_LINK_LISTEN`, port 9443) and a fixed
+   management console address (`WAFPROXY_HA_MGMT_LISTEN`), start both with
+   `WAFPROXY_HA_ENABLE=1`, then enable **Settings → High availability** on each.
+2. **Create a pair** on one node (a 26-character code, valid for 10 minutes) and **join** it from
+   the other with that code and the first node's address and fingerprint. Both nodes must share
+   the master key; certificates may differ because the link pins fingerprints rather than names.
+3. Put keepalived in front: `wafproxy ha notify MASTER|BACKUP|FAULT` records the address owner,
+   and a move makes the node that is serving the address the active one.
+4. A witness (optional) renews a lease every three seconds; an active that cannot renew stops
+   serving rather than risk two actives, and a fence command can power off the peer before a
+   promotion. Without a witness, moves stay manual.
+
+The console page shows the role, peer, replication lag and the actions; `wafproxy ha status
+--watch` shows the same from a terminal. A standby is read-only: configuration writes are refused
+while it follows the active. Upgrading a pair has its own order (standby first); see
+[docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-a-high-availability-pair). The design, the
+state machine and the lab checklist are in [docs/HA.md](docs/HA.md).
 
 ## Operations
 
@@ -400,6 +431,7 @@ re-records the performance baseline after a deliberate change.
 - [docs/INSTALL.md](docs/INSTALL.md) — installation hub: Docker, DNS/TLS, first site, bare metal, Tailscale
 - [docs/openapi.yaml](docs/openapi.yaml) — generated reference for every admin API route
 - [docs/MCP.md](docs/MCP.md) — agent gateway, tool reference, containment playbook
+- [docs/HA.md](docs/HA.md) — high availability: role machine, pairing, moves, the lab checklist
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — runbook, troubleshooting, capacity
 - [docs/screenshots/](docs/screenshots/README.md) — screenshots of every console page, with sample data
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured numbers and methodology
