@@ -284,6 +284,21 @@ func (s *Store) migrateSites() error {
 		return fmt.Errorf("read default site: %w", err)
 	}
 	for _, table := range scopedTables {
+		// A binary rolled back to before sites keeps syncing bans that name no
+		// site, and one of them can repeat an address the default site already
+		// bans. The (site_id, cidr) key refuses the adoption, so keep the
+		// stronger row of each pair and drop the rest before moving them.
+		if table == "bans" {
+			if _, err := s.db.Exec(`DELETE FROM bans WHERE site_id IN (0, ?) AND id NOT IN (
+				SELECT id FROM (
+					SELECT id, ROW_NUMBER() OVER (
+						PARTITION BY cidr
+						ORDER BY permanent DESC, COALESCE(expires_at, '9999') DESC, created_at DESC, id DESC
+					) AS rn FROM bans WHERE site_id IN (0, ?)
+				) WHERE rn = 1)`, id, id); err != nil {
+				return fmt.Errorf("merge bans rows: %w", err)
+			}
+		}
 		if _, err := s.db.Exec(`UPDATE `+table+` SET site_id = ? WHERE site_id = 0`, id); err != nil {
 			return fmt.Errorf("adopt %s rows: %w", table, err)
 		}

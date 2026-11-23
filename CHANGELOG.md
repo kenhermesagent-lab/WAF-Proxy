@@ -12,6 +12,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.55.2] — 2026-11-23
+
+### Fixed
+
+- **A rolled-back install kept failing to start with `adopt bans rows`.** After an update to 1.55.1
+  was rolled back, CrowdSec and feed syncs in the older binary wrote bans that name no site. When
+  one repeated an address the default site already bans, the next start stopped at
+  `adopt bans rows: constraint failed: UNIQUE constraint failed: bans.site_id, bans.cidr`, the
+  updater rolled back again, and every restart left more unowned rows. The per-site migration now
+  keeps the stronger of the two bans (permanent first, then the later expiry), adopts it and drops
+  the duplicate, so the install boots again without a manual cleanup.
+
 ## [1.55.1] — 2026-11-23
 
 ### Fixed
