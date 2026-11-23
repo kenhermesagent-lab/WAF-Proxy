@@ -11,6 +11,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.10] — 2026-11-23
+
+### Added
+
+- A regression test drives a canary outage and recovery through the real
+  `notify.Manager` queue and a webhook, proving the recovery is delivered even though
+  the outage is still inside the 24 hour dedupe window.
+
+## [1.47.9] — 2026-11-23
+
+### Added
+
+- `internal/openapi` now validates the committed document with kin-openapi: YAML structure,
+  schema references and duplicate operations fail `go test ./...`, not just the
+  byte-for-byte regeneration check.
+
+### Fixed
+
+- Generated operation IDs were the handler name, so every guarded route was `authed`; they
+  are now derived from method and path (`getApiProxies`, `deleteApiProxiesId`).
+
+## [1.47.8] — 2026-11-23
+
+### Fixed
+
+- The API reference now matches the two routes it got wrong: the internal CA root is
+  documented as an `application/x-pem-file` download, and `GET /api/notifications`
+  describes its real `settings` / `channels` / `recent` / `event_kinds` wrapper with
+  `Alert` rows, instead of loose objects and a typed settings object.
+
 ## [1.47.7] — 2026-11-23
 
 ### Fixed
