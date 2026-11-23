@@ -103,6 +103,45 @@ describe("Settings configuration transport", () => {
     expect(body.host_wide_keys).toBeUndefined();
   });
 
+  const mockHA = (status: Record<string, unknown>) => {
+    const base = get.getMockImplementation();
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/ha") return status;
+      return base ? base(path) : {};
+    });
+  };
+
+  it("puts the HA switch directly above Backup and saves it with the page", async () => {
+    renderPage();
+    const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(document.getElementById("ha")?.nextElementSibling?.id).toBe("backup");
+
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByText("Save settings"));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect((put.mock.calls[0][1] as Record<string, string>).ha_enabled).toBe("1");
+  });
+
+  it("says the boot switch is in the way and disables the toggle", async () => {
+    mockHA({ enabled: false, boot_enabled: false, paired: false, reason: "this host booted with WAFPROXY_HA_ENABLE=0" });
+    renderPage();
+    const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
+    await screen.findByText(/WAFPROXY_HA_ENABLE=0/);
+    expect((toggle as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("distinguishes a paired node from one that still needs pairing", async () => {
+    mockHA({ enabled: true, boot_enabled: true, paired: true });
+    renderPage();
+    await screen.findByText(/This node is paired/);
+    cleanup();
+
+    mockHA({ enabled: true, boot_enabled: true, paired: false });
+    renderPage();
+    await screen.findByText(/not paired yet/);
+  });
+
   it("downloads both formats, encrypting them when a passphrase is set", async () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     URL.createObjectURL = vi.fn(() => "blob:file");

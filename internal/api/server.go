@@ -101,8 +101,10 @@ type Server struct {
 	// haOps runs the HA mutations; nil means the routes answer 409. haMu and
 	// haLog keep the process-local action history the page shows.
 	haOps HAOps
-	haMu  sync.Mutex
-	haLog []HAEvent
+	// haChange starts or stops the HA loops after the switch is saved.
+	haChange func(bool)
+	haMu     sync.Mutex
+	haLog    []HAEvent
 
 	// CrowdSec one-click install progress, polled by the CrowdSec page.
 	csMu      sync.Mutex
@@ -1315,6 +1317,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			action = "ha.disable"
 		}
 		s.db(r).AddAudit(sess.Username, action, "", clientIP(r))
+		if s.haChange != nil {
+			s.haChange(v == "1")
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

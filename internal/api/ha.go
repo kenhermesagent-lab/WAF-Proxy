@@ -43,6 +43,10 @@ type HAEvent struct {
 // SetHAOps installs the process side; without it the mutating routes answer 409.
 func (s *Server) SetHAOps(o HAOps) { s.haOps = o }
 
+// SetHAChange installs the live switch the settings route calls after saving
+// ha_enabled, so turning HA off stops its loops instead of only hiding it.
+func (s *Server) SetHAChange(fn func(bool)) { s.haChange = fn }
+
 // haStatusOf reads the live role, falling back to standalone when HA is off.
 func (s *Server) haStatusOf() HAStatus {
 	st := HAStatus{Role: "standalone", State: "standalone", Serving: true}

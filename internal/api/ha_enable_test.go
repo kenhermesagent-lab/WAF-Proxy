@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
@@ -94,6 +95,28 @@ func TestHAEnabledSettingDrivesTheEffectiveValue(t *testing.T) {
 	}
 }
 
+func TestHAChangeFiresOnlyWhenTheSwitchMoves(t *testing.T) {
+	srv, _, token, csrf := newObservabilityServer(t)
+	srv.cfg.HAEnabled = true
+	var calls []bool
+	srv.SetHAChange(func(on bool) { calls = append(calls, on) })
+	put := func(body string) {
+		t.Helper()
+		if rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", body); rec.Code != http.StatusOK {
+			t.Fatalf("PUT %s = %d: %s", body, rec.Code, rec.Body.String())
+		}
+	}
+
+	put(`{"ha_enabled":"1"}`)
+	put(`{"ha_enabled":"1"}`) // an unchanged switch must not restart the loops
+	put(`{"retention_days":"30"}`)
+	put(`{"ha_enabled":"0"}`)
+
+	if len(calls) != 2 || !calls[0] || calls[1] {
+		t.Fatalf("switch calls = %v, want [true false]", calls)
+	}
+}
+
 func TestHAEnabledIsHostWide(t *testing.T) {
 	_, st, _, _ := newObservabilityServer(t)
 	site, err := st.CreateSite("bravo", "Bravo", "console.bravo.test")
@@ -104,13 +127,7 @@ func TestHAEnabledIsHostWide(t *testing.T) {
 	if !errors.Is(err, store.ErrHostWideSetting) {
 		t.Fatalf("tenant save = %v, want ErrHostWideSetting", err)
 	}
-	found := false
-	for _, key := range store.HostSettingKeys() {
-		if key == "ha_enabled" {
-			found = true
-		}
-	}
-	if !found {
+	if !slices.Contains(store.HostSettingKeys(), "ha_enabled") {
 		t.Fatal("ha_enabled is missing from HostSettingKeys")
 	}
 }

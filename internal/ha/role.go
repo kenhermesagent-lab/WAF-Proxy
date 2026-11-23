@@ -202,6 +202,22 @@ func ReturnToStandby(dataDir string, n *Node) (*Node, error) {
 	return EnterState(dataDir, n, StateStandby)
 }
 
+// MakeStandalone turns a leftover HA standby into a single node when HA is off.
+// The epoch is kept, so a later promotion still starts above it.
+func MakeStandalone(dataDir string, n *Node) (*Node, error) {
+	if n.Active() {
+		return n, nil
+	}
+	out := *n
+	out.Role = RoleStandalone
+	out.State = StateStandalone
+	out.Reason = ""
+	if err := Save(dataDir, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // EnterState records that a standby is in a named state, keeping its epoch. It
 // is how split-brain-risk and parked survive a restart.
 func EnterState(dataDir string, n *Node, state State) (*Node, error) {

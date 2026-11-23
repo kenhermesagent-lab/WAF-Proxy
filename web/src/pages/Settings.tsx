@@ -10,6 +10,9 @@ import Readiness from "./Readiness";
 
 type Settings = Record<string, string>;
 
+// The parts of /api/ha the Settings switch needs for its help text.
+type HAInfo = { enabled?: boolean; boot_enabled?: boolean; paired?: boolean; reason?: string };
+
 const RUNTIME_KEYS = new Set(["kernel", "geoip", "iface_available", "host_wide_keys"]);
 function editable(s: Settings): Settings {
   const out: Settings = {};
@@ -25,6 +28,7 @@ const SECTIONS = [
   { id: "updates", label: "Updates" },
   { id: "protection", label: "Protection" },
   { id: "retention", label: "Retention & ACME" },
+  { id: "ha", label: "High availability" },
   { id: "backup", label: "Backup" },
   { id: "runtime", label: "Runtime status" },
   { id: "geoip", label: "GeoIP database" },
@@ -48,6 +52,7 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [chain, setChain] = useState("");
   const [backupPass, setBackupPass] = useState("");
+  const [haInfo, setHaInfo] = useState<HAInfo | null>(null);
   const [activeSection, setActiveSection] = useState("network");
   const [iface, setIface] = useState<{ wan: string; lan: string; wanAuto: boolean; lanAuto: boolean; available: string[] }>({
     wan: "", lan: "", wanAuto: false, lanAuto: false, available: [],
@@ -85,6 +90,7 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
 
   useEffect(() => {
     load();
+    api.get<HAInfo>("/api/ha").then(setHaInfo).catch(() => setHaInfo(null));
     api.get<CrowdSecStatus>("/api/crowdsec/status").then(setCs).catch(() => undefined);
     loadGeo();
     loadAudit();
@@ -230,6 +236,18 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
   );
   const ifaceHint = (name: string, auto: boolean) =>
     name ? `${name} (${auto ? "auto-detected" : "configured"})` : "— (none detected)";
+  // The boot switch and the site console both own this decision, so the switch
+  // explains which one is in the way instead of failing on save.
+  const mayToggleHA = !hostWide && me?.role !== "host_admin";
+  const haHelp = !mayToggleHA
+    ? "Only an administrator on the default site can change this."
+    : haInfo && haInfo.boot_enabled === false
+      ? "Locked off: this host booted with WAFPROXY_HA_ENABLE=0. Set it to 1, restart, then use this switch."
+      : haInfo?.enabled && haInfo.paired
+        ? "This node is paired. Turning it off stops replication and the HA API on this node; the pair stays configured for when you turn it back on."
+        : haInfo?.enabled
+          ? "High availability is on but this node is not paired yet. Pair it from the High availability page to finish setup."
+          : "Starts the HA role machine, replication and the management API on this node. Traffic does not move until you pair and run a move.";
 
   return (
     <>
@@ -350,6 +368,24 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
             <Field label="ACME account email"><input value={s.acme_email ?? ""} onChange={(e) => set("acme_email", e.target.value)} placeholder="admin@your-domain.tld" /></Field>
           </div>
           <Switch label="Use the Let's Encrypt staging directory" help="Issues untrusted certificates for testing; switch off before going live." checked={s.acme_staging === "1"} onChange={(v) => set("acme_staging", v ? "1" : "0")} />
+        </section>
+
+        <section id="ha" className="settings-section card">
+          <div className="section-head">
+            <h2>High availability</h2>
+            <p>Two nodes, one service address. Off by default, and the data plane does not change until a move.</p>
+          </div>
+          <Switch
+            label="Enable high availability"
+            help={haHelp}
+            checked={s.ha_enabled === "1"}
+            onChange={(v) => set("ha_enabled", v ? "1" : "0")}
+            disabled={!mayToggleHA || haInfo?.boot_enabled === false}
+          />
+          {hostWide && hostWideNote}
+          <p className="faint small-text">
+            Status, pairing and moves live on the <a href="#/ha">High availability page</a>.
+          </p>
         </section>
 
         <section id="backup" className="settings-section">

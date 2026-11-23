@@ -42,12 +42,112 @@ type haRuntime struct {
 	// auto is nil unless unattended promotion is enabled. The watcher runs on
 	// both roles: an active node uses it for the epoch conflict check, a
 	// standby for the promotion gate.
-	auto    *ha.AutoPromoter
-	monitor *ha.Monitor
-	peer    *peerWatch
-	flap    *ha.FlapGuard
-	fence   string
-	log     *slog.Logger
+	auto         *ha.AutoPromoter
+	autoFailover bool
+	monitor      *ha.Monitor
+	peer         *peerWatch
+	flap         *ha.FlapGuard
+	fence        string
+	witnessURL   string
+	witnessToken string
+	log          *slog.Logger
+
+	// The HA loops start and stop with the stored switch, so a running node
+	// can be turned off and on without a restart. stopLife owns the control
+	// socket and the watcher; the lease and replication have their own stops.
+	mu       sync.Mutex
+	stopLife context.CancelFunc
+	started  bool
+}
+
+// usable reports whether the loops are up, so a move is refused instead of
+// starting the runtime halfway through.
+func (h *haRuntime) usable() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.started && h.mgr != nil
+}
+
+func (h *haRuntime) manager() *ha.Manager {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.mgr
+}
+
+// Start brings up the HA loops this role needs. It is idempotent, and it does
+// not touch the data plane: turning HA on does not start or stop traffic.
+func (h *haRuntime) Start() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.started {
+		return
+	}
+	if h.ident == nil {
+		ident, err := ha.LoadOrCreateIdentity(h.dir)
+		if err != nil {
+			h.log.Error("ha identity", "err", err)
+			return
+		}
+		h.ident = ident
+	}
+	node, err := ha.Load(h.dir)
+	if err != nil {
+		h.log.Error("ha role", "err", err)
+		return
+	}
+	life, stop := context.WithCancel(h.root)
+	h.stopLife, h.started = stop, true
+	if h.mgr == nil {
+		h.mgr = ha.NewManager(h.dir, h.hooks())
+	}
+	if h.witness == nil && h.witnessURL != "" {
+		if pair, err := ha.LoadPair(h.dir); err == nil && pair != nil {
+			h.witness = &ha.WitnessClient{URL: h.witnessURL, Token: h.witnessToken,
+				ClusterID: pair.ClusterID, Holder: h.ident.Node}
+		}
+	}
+	// Capture is what feeds the outbox; a standby must not write to it.
+	h.st.SetAuditEnabled(node.Active())
+	if node.Active() {
+		h.st.SetNodeID(h.ident.Node)
+	} else {
+		h.repl.Start()
+	}
+	if err := h.serveControl(life); err != nil {
+		h.log.Error("ha control socket failed", "err", err)
+	}
+	if node.Active() {
+		h.startLease(life, node.Epoch)
+	}
+	if h.autoFailover {
+		h.startAuto(life)
+	}
+	h.log.Info("high availability started", "role", node.Role)
+}
+
+// Stop takes the HA loops down and leaves the node serving on its own. A
+// standby that is stopped this way is still not serving; a restart is what
+// returns it to a single node.
+func (h *haRuntime) Stop() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.started {
+		return
+	}
+	h.started = false
+	h.stopLease()
+	if h.stopLife != nil {
+		h.stopLife()
+		h.stopLife = nil
+	}
+	h.repl.Stop()
+	h.st.SetNodeID("")
+	// A stopped standby keeps its audit chain untouched for the next active.
+	if node, err := ha.Load(h.dir); err != nil || node.Active() {
+		h.st.SetAuditEnabled(true)
+	}
+	h.quiesce.Set(false)
+	h.log.Info("high availability stopped; serving as a single node")
 }
 
 // peerWatch is the last heartbeat, shared by the probe and the watcher.

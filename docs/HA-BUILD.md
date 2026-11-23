@@ -53,7 +53,8 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P6-05 higher-epoch demotion | landed, lab pending | a heartbeat with a higher epoch makes the active stop serving into `split-brain-risk`; it follows the peer again only after `Reconcile` adopts the peer's epoch |
 | P6-06 guards and flap control | landed | `internal/ha/flap.go`; the fourth automatic move in an hour parks the node with a reason `ha status` shows, and only a manual move clears it |
 | P6-07 partition simulator | landed | `internal/ha/sim_test.go`: the partition matrix plus 200 randomized partitions on a fake clock; every tick asserts at most one live active and every promotion carried an unexpired lease for its own epoch |
-| P7-02 `ha_enabled` backend | landed, loops boot-time | `ha_enabled` is host-wide (`publicSettingKeys`, `hostSettingKeys`), accepts only `0`/`1`, is audited as `ha.enable`/`ha.disable`, and the effective value is read per request for `/api/me` and `/api/ha`; the runtime still starts at boot, so turning HA on starts its loops at the next restart |
+| P7-02 `ha_enabled` backend | landed | `ha_enabled` is host-wide (`publicSettingKeys`, `hostSettingKeys`), accepts only `0`/`1`, is audited as `ha.enable`/`ha.disable`, and the effective value is read per request for `/api/me` and `/api/ha`; saving it starts or stops the HA loops live, and a boot with it off serves as a single node |
+| P7-03 Settings toggle | landed | `web/src/pages/Settings.tsx`: a High availability section between Retention and Backup, one switch saved by the page's SaveBar, help text that distinguishes env-locked, unpaired and paired, read-only for site consoles and `host_admin` |
 | P7-01 HA API | landed | `internal/api/ha.go`: `GET /api/ha`, `GET /api/ha/events`, `GET /api/ha/diagnostics`, `PUT /api/ha/config`, `POST /api/ha/{pair,join,sync,failover,failback,unpair,notify}`; `ha.read`/`ha.write`, fresh re-authentication, cluster id on failover and unpair, 409 while disabled; the events list is process-local |
 
 **Replication boundary.** Configuration still travels as a whole snapshot, once
@@ -754,11 +755,14 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 
 - Built: missing `ha_enabled` means off; `0`/`1` only; host-wide for tenants and audited
   separately. `Enabled` is the boot master switch AND the stored setting, computed from the
-  live setting on every `/api/me`, `/api/ha` and health call, so the console flips without a
-  restart. The runtime itself boots only when both are on, because the HA listener, replay and
-  watcher are started in `run()`; starting them from `reloadEngines` is not wired yet, so an
-  operator who turns HA on starts it with the next restart, as Appendix B.3 describes.
-- Not built: the Settings switch (P7-03) and the nav rule (P7-04).
+  live setting on every `/api/me`, `/api/ha` and health call. Saving the setting starts or
+  stops the HA loops in the same process (`haRuntime.Start`/`Stop`: control socket,
+  replication, lease, failover watcher and outbox capture), while the data plane keeps
+  whatever it was doing, so turning HA on or off never moves traffic or drops a listener.
+  A boot with the setting off behaves as a true single node: `/api/ha` reports why, no HA
+  listener, identity capture, witness or control socket exists, and a leftover standby role
+  is rewritten to standalone so the active loops run.
+- Not built: nothing in this task; the nav rule is P7-04.
 
 - Files: `internal/api/server.go` (`publicSettingKeys`, `putSettings`, `/api/me`),
   `internal/store/sites.go` (`hostSettingKeys`), `internal/ha/manager.go`.
@@ -768,7 +772,11 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 - Verify: save as default site, save as tenant (403), `/api/me` before and after.
 - Done: toggling changes the effective value without a restart, and a tenant cannot set it.
 
-### P7-03 Settings toggle UI — S, 1 day
+### P7-03 Settings toggle UI — S, 1 day — built
+
+- Built: as specified below, with the help text read from `GET /api/ha` (`boot_enabled`,
+  `paired`, `enabled`) so it matches what the backend actually does. The switch is also
+  disabled while the boot switch is off, rather than letting a save imply it took effect.
 
 - Files: `web/src/pages/Settings.tsx`, `web/src/pages/Settings.test.tsx`.
 - Change: section `ha` between `retention` and `backup`, one `Switch` bound to

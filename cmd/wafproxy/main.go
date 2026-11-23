@@ -390,10 +390,6 @@ func run() error {
 	if roleErr != nil {
 		log.Error("reading the node role; refusing to run active-only work", "err", roleErr)
 	}
-	startActive := !cfg.HAEnabled || node.Active()
-	if cfg.HAEnabled {
-		log.Info("high availability enabled", "role", node.Role, "active_work", startActive)
-	}
 	trusted, err := clientip.New(cfg.TrustedProxies)
 	if err != nil {
 		return err
@@ -428,6 +424,22 @@ func run() error {
 	} else if n > 0 {
 		log.Info("sealed certificate private keys", "count", n)
 	}
+	// The stored host-wide switch decides whether this boot runs HA. Missing
+	// means off, and a leftover standby must serve as a single node rather than
+	// answer traffic with none of the active loops running.
+	haOn := haBootOn(cfg, st)
+	if !haOn {
+		if n, err := ha.MakeStandalone(cfg.DataDir, node); err != nil {
+			log.Warn("could not normalise the role while HA is off", "err", err)
+		} else {
+			node = n
+		}
+	}
+	startActive := !haOn || node.Active()
+	if cfg.HAEnabled {
+		log.Info("high availability", "boot_switch", cfg.HAEnabled, "enabled", haOn,
+			"role", node.Role, "active_work", startActive)
+	}
 	// The pairing identity exists as soon as HA is enabled. An active node
 	// captures every streamed change into the outbox; a standby writes none and
 	// pays nothing for the machinery.
@@ -440,7 +452,7 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("ha identity: %w", err)
 		}
-		if node.Active() {
+		if haOn && node.Active() {
 			st.SetNodeID(haIdent.Node)
 		}
 		// The standby's audit chain arrives from the active; a local row would
@@ -450,7 +462,7 @@ func run() error {
 	// The witness is optional: with one, an active that cannot renew its lease
 	// stops serving; without one, moves stay manual.
 	var witness *ha.WitnessClient
-	if cfg.HAEnabled && cfg.HAWitness != "" {
+	if haOn && cfg.HAWitness != "" {
 		if pair, err := ha.LoadPair(cfg.DataDir); err == nil && pair != nil {
 			witness = &ha.WitnessClient{
 				URL: cfg.HAWitness, Token: cfg.HAWitnessToken,
@@ -920,13 +932,13 @@ func run() error {
 	}
 	// In HA mode the service address moves between nodes, so each node also
 	// answers its console on a fixed management address of its own.
-	if cfg.HAEnabled && cfg.HAMgmtListen != cfg.ListenGUI {
+	if haOn && cfg.HAMgmtListen != cfg.ListenGUI {
 		if msg := listenGUI(cfg.HAMgmtListen, lanHandler, true); msg != "" {
 			log.Error("management listener failed", "addr", cfg.HAMgmtListen, "err", msg)
 			cancel()
 		}
 	}
-	if cfg.HAEnabled {
+	if haOn {
 		ident := haIdent
 		log.Info("ha identity ready", "node", ident.Node, "fingerprint", ha.Fingerprint(ident.Leaf), "capturing", st.Capturing())
 		if cfg.HALinkListen != "" {
@@ -1006,7 +1018,6 @@ func run() error {
 
 	plane := newDataPlane(ctx, px, streams, cfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
 	defer plane.Close()
-	haOn := cfg.HAEnabled && haSettingOn(st)
 	if haOn && !node.Active() {
 		// Hold the service address without accepting. IP_FREEBIND lets this
 		// succeed before the address has moved to this node, so a promotion
@@ -1020,38 +1031,28 @@ func run() error {
 		return fmt.Errorf("proxy listener: %w", err)
 	}
 	if cfg.HAEnabled {
-		// The console can pair and sync once the operator turns HA on, even
-		// before the runtime's next boot; a move still needs the runtime.
-		ops := haControl{dir: cfg.DataDir, st: st, fallback: cfg.HAMaxFailovers}
-		if haOn {
-			rt := &haRuntime{
-				root: ctx, dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
-				plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
-				ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand,
-				flap: ha.NewFlapGuard(flapBudget(st, cfg.HAMaxFailovers)), log: log,
-			}
-			// The manager exists before the control socket so the console routes
-			// can run a move too. serveControl reuses it.
-			rt.mgr = ha.NewManager(cfg.DataDir, rt.hooks())
-			apiServer.SetWriteGate(haQuiesce.Active)
-			if !node.Active() {
-				// Follow the active's stream until a move makes this node the active.
-				rt.repl.Start()
-			}
-			if err := rt.serveControl(ctx); err != nil {
-				log.Error("ha control socket failed", "err", err)
-			}
-			if node.Active() {
-				rt.startLease(ctx, node.Epoch)
-			}
-			if cfg.HAAutoFailover {
-				// Both roles: the watcher is idle while active but keeps the
-				// heartbeat and epoch check, so a failback leaves it in place.
-				rt.startAuto(ctx)
-			}
-			ops.rt = rt
+		rt := &haRuntime{
+			root: ctx, dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
+			plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
+			ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand,
+			witnessURL: cfg.HAWitness, witnessToken: cfg.HAWitnessToken,
+			flap:         ha.NewFlapGuard(flapBudget(st, cfg.HAMaxFailovers)),
+			autoFailover: cfg.HAAutoFailover, log: log,
 		}
-		apiServer.SetHAOps(ops)
+		if haOn {
+			rt.Start()
+		}
+		// The write gate stays installed: quiesce is only set during a move.
+		apiServer.SetWriteGate(haQuiesce.Active)
+		apiServer.SetHAOps(haControl{dir: cfg.DataDir, st: st, fallback: cfg.HAMaxFailovers, rt: rt})
+		// The settings route flips the loops live; the data plane is untouched.
+		apiServer.SetHAChange(func(on bool) {
+			if on {
+				rt.Start()
+			} else {
+				rt.Stop()
+			}
+		})
 	}
 
 	sig := make(chan os.Signal, 1)

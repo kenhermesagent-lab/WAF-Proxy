@@ -7,9 +7,16 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ha"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
+
+// haBootOn reports whether this boot runs HA: the environment switch allows it
+// and the stored host-wide setting has it on.
+func haBootOn(cfg *config.Config, st *store.Store) bool {
+	return cfg.HAEnabled && haSettingOn(st)
+}
 
 // flapBudget is the console-set budget when there is one, else the environment
 // default. The setting is host-wide; a per-site copy is ignored.
@@ -44,10 +51,10 @@ type haControl struct {
 }
 
 func (c haControl) manager() (*ha.Manager, error) {
-	if c.rt == nil || c.rt.mgr == nil {
-		return nil, errors.New("high availability is not running on this node yet; turn it on and restart")
+	if c.rt == nil || !c.rt.usable() {
+		return nil, errors.New("high availability is not running on this node")
 	}
-	return c.rt.mgr, nil
+	return c.rt.manager(), nil
 }
 
 func (c haControl) Pair(context.Context) (string, error) {
@@ -68,7 +75,7 @@ func (c haControl) Join(ctx context.Context, addr, fingerprint, code string) err
 	if _, err := ha.Join(ctx, c.dir, addr, fingerprint, code); err != nil {
 		return err
 	}
-	if c.rt != nil {
+	if c.rt != nil && c.rt.usable() {
 		c.rt.repl.Start()
 	}
 	return nil
