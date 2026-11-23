@@ -72,6 +72,17 @@ type Config struct {
 	Upstream string   `json:"upstream"`
 	Allow    []string `json:"allow"`
 	MaxConns int      `json:"max_conns"`
+	// Protocol is tcp (the default) or udp.
+	Protocol string `json:"protocol"`
+	// PortCount maps a listen range 1:1 onto the upstream: Port+i forwards to
+	// UpstreamPort+i, so Valheim's 2456-2458 needs one card, not three.
+	PortCount    int `json:"port_count"`
+	UpstreamPort int `json:"upstream_port"`
+	// UDP-only limits: sessions per source address, the idle window that
+	// reclaims a session, and the largest datagram forwarded.
+	MaxPerSource int `json:"max_per_source"`
+	IdleSeconds  int `json:"idle_seconds"`
+	MaxDatagram  int `json:"max_datagram"`
 	// ListIDs are the named block/allow lists this port enforces. They are
 	// resolved to their entries at apply time, so editing a list here and on
 	// the Policies page is the same edit.
@@ -94,9 +105,13 @@ type Event struct {
 	Port    int
 	Addr    netip.Addr
 	// Kind is the rule the refusal is filed under: stream-ban for the ban
-	// engine, stream-list when a named block/whitelist refused the source, and
-	// stream-allow for the port's own allow list.
-	Kind   string
+	// engine, stream-list when a named block/whitelist refused the source,
+	// stream-allow for the port's own allow list, and stream-cap for a session
+	// or source cap.
+	Kind string
+	// Method is the protocol that carried the refusal, TCP or UDP. Events are
+	// written into the same column as an HTTP method, so logs read alike.
+	Method string
 	Detail string
 }
 
@@ -179,11 +194,59 @@ func (c Config) Normalize(def Service) (Config, error) {
 		return c, errors.New("max_conns must be between 1 and 4096")
 	}
 
+	switch c.Protocol = strings.ToLower(strings.TrimSpace(c.Protocol)); c.Protocol {
+	case "":
+		c.Protocol = "tcp"
+	case "tcp", "udp":
+	default:
+		return c, errors.New("protocol must be tcp or udp")
+	}
+	if c.PortCount == 0 {
+		c.PortCount = 1
+	}
+	if c.PortCount < 1 || c.PortCount > 16 {
+		return c, errors.New("port_count must be between 1 and 16")
+	}
+	if c.PortCount > 1 && c.Protocol != "udp" {
+		return c, errors.New("port ranges need the udp protocol")
+	}
+	if c.Port+c.PortCount-1 > 65535 {
+		return c, fmt.Errorf("port range %d-%d runs past 65535", c.Port, c.Port+c.PortCount-1)
+	}
+
 	host, port, err := splitHostPort(c.Upstream, def.DefaultPort)
 	if err != nil {
 		return c, err
 	}
-	c.Upstream = net.JoinHostPort(host, port)
+	if c.UpstreamPort == 0 {
+		c.UpstreamPort, _ = strconv.Atoi(port)
+	}
+	if c.UpstreamPort < 1 || c.UpstreamPort > 65535 {
+		return c, errors.New("the upstream port is not valid")
+	}
+	if c.UpstreamPort+c.PortCount-1 > 65535 {
+		return c, fmt.Errorf("upstream port range %d-%d runs past 65535", c.UpstreamPort, c.UpstreamPort+c.PortCount-1)
+	}
+	c.Upstream = net.JoinHostPort(host, strconv.Itoa(c.UpstreamPort))
+
+	if c.MaxPerSource == 0 {
+		c.MaxPerSource = DefaultMaxPerSource
+	}
+	if c.MaxPerSource < 1 || c.MaxPerSource > 4096 {
+		return c, errors.New("max_per_source must be between 1 and 4096")
+	}
+	if c.IdleSeconds == 0 {
+		c.IdleSeconds = DefaultUDPIdleSeconds
+	}
+	if c.IdleSeconds < 10 || c.IdleSeconds > 3600 {
+		return c, errors.New("idle_seconds must be between 10 and 3600")
+	}
+	if c.MaxDatagram == 0 {
+		c.MaxDatagram = DefaultMaxDatagram
+	}
+	if c.MaxDatagram < 576 || c.MaxDatagram > maxDatagramCeiling {
+		return c, fmt.Errorf("max_datagram must be between 576 and %d", maxDatagramCeiling)
+	}
 
 	allow := make([]string, 0, len(c.Allow))
 	for _, raw := range c.Allow {
@@ -422,6 +485,8 @@ type runtime struct {
 	connMu sync.Mutex
 	conns  map[*relay]struct{}
 
+	udp *udpRuntime
+
 	active  atomic.Int64
 	total   atomic.Uint64
 	blocked atomic.Uint64
@@ -560,16 +625,28 @@ func (m *Manager) Apply(id string, cfg Config) error {
 			return err
 		}
 		rt.cfg = norm
-		addr := net.JoinHostPort(norm.ListenIP, strconv.Itoa(norm.Port))
-		ln, err := net.Listen("tcp", addr)
-		if err != nil {
-			rt.lastErr.Store(err.Error())
-			listenErr = fmt.Errorf("listen on %s: %w", addr, err)
+		rt.setSource(compileSources(norm, m.configuredLists(norm.ListIDs)))
+		if norm.Protocol == "udp" {
+			u, err := m.bindUDP(rt)
+			if err != nil {
+				rt.lastErr.Store(err.Error())
+				listenErr = err
+			} else {
+				rt.udp = u
+				m.log.Info("streaming udp forwarder listening", "service", id, "addr", u.listenAddr(), "upstream", norm.Upstream,
+					"sessions", norm.MaxConns, "max_per_source", norm.MaxPerSource, "allow_list_entries", len(norm.Allow), "named_lists", len(norm.ListIDs))
+			}
 		} else {
-			rt.ln, rt.done = ln, make(chan struct{})
-			rt.setSource(compileSources(norm, m.configuredLists(norm.ListIDs)))
-			m.log.Info("streaming forwarder listening", "service", id, "addr", ln.Addr().String(), "upstream", norm.Upstream,
-				"allow_list_entries", len(norm.Allow), "named_lists", len(norm.ListIDs))
+			addr := net.JoinHostPort(norm.ListenIP, strconv.Itoa(norm.Port))
+			ln, err := net.Listen("tcp", addr)
+			if err != nil {
+				rt.lastErr.Store(err.Error())
+				listenErr = fmt.Errorf("listen on %s: %w", addr, err)
+			} else {
+				rt.ln, rt.done = ln, make(chan struct{})
+				m.log.Info("streaming forwarder listening", "service", id, "addr", ln.Addr().String(), "upstream", norm.Upstream,
+					"allow_list_entries", len(norm.Allow), "named_lists", len(norm.ListIDs))
+			}
 		}
 	}
 	m.mu.Unlock()
@@ -577,6 +654,9 @@ func (m *Manager) Apply(id string, cfg Config) error {
 	if rt.ln != nil {
 		rt.wg.Add(1)
 		go m.accept(rt)
+	}
+	if rt.udp != nil {
+		rt.udp.start()
 	}
 	return listenErr
 }
@@ -597,6 +677,11 @@ func (m *Manager) stopLocked(id string) {
 	}
 	if rt.done != nil {
 		close(rt.done)
+	}
+	// The UDP sessions go before the listen sockets, so a demotion leaves the
+	// ports free for the node that takes over.
+	if rt.udp != nil {
+		rt.udp.close()
 	}
 	if rt.ln != nil {
 		_ = rt.ln.Close()
@@ -636,6 +721,15 @@ func (m *Manager) Statuses() []Status {
 			st.Bound = true
 			st.ListenAddr = rt.ln.Addr().String()
 		}
+		if u := rt.udp; u != nil {
+			st.Bound = true
+			st.ListenAddr = u.listenAddr()
+			st.Active = u.active.Load()
+			st.Total = u.total.Load()
+			st.Blocked = u.blocked.Load()
+			st.Banned = u.banned.Load()
+			st.Dropped = u.dropped.Load()
+		}
 		out = append(out, st)
 	}
 	return out
@@ -650,6 +744,7 @@ func (m *Manager) DropBanned(match func(netip.Addr) bool, detail string) int {
 	type victim struct {
 		rt *runtime
 		r  *relay
+		s  *udpSession
 	}
 	var doomed []victim
 
@@ -658,19 +753,31 @@ func (m *Manager) DropBanned(match func(netip.Addr) bool, detail string) int {
 		rt.connMu.Lock()
 		for r := range rt.conns {
 			if match(r.addr) {
-				doomed = append(doomed, victim{rt, r})
+				doomed = append(doomed, victim{rt: rt, r: r})
 			}
 		}
 		rt.connMu.Unlock()
+		if rt.udp != nil {
+			for _, s := range rt.udp.matching(match) {
+				doomed = append(doomed, victim{rt: rt, s: s})
+			}
+		}
 	}
 	m.mu.Unlock()
 
 	for _, v := range doomed {
+		if v.s != nil {
+			v.rt.udp.drop(v.s)
+			v.rt.udp.dropped.Add(1)
+			m.emit(Event{Service: v.rt.def.ID, Label: v.rt.def.Label, Method: "UDP", Port: v.s.key.port,
+				Addr: v.s.addr, Kind: "stream-ban", Detail: detail})
+			continue
+		}
 		// Closing both ends unblocks the two copy goroutines immediately.
 		_ = v.r.client.Close()
 		_ = v.r.upstream.Close()
 		v.rt.dropped.Add(1)
-		m.emit(Event{Service: v.rt.def.ID, Label: v.rt.def.Label, Port: v.rt.cfg.Port, Addr: v.r.addr, Kind: "stream-ban", Detail: detail})
+		m.emit(Event{Service: v.rt.def.ID, Label: v.rt.def.Label, Method: "TCP", Port: v.rt.cfg.Port, Addr: v.r.addr, Kind: "stream-ban", Detail: detail})
 	}
 	return len(doomed)
 }
@@ -739,6 +846,12 @@ func (m *Manager) accept(rt *runtime) {
 // retry loop cannot fill the event log. list is the named list that decided the
 // refusal, if any, and is kept on the event for the log row.
 func (m *Manager) refuse(rt *runtime, addr netip.Addr, kind, detail, list string) {
+	m.refuseAt(rt, rt.cfg.Port, "TCP", addr, kind, detail, list)
+}
+
+// refuseAt reports a refusal on one protocol and listen port: a UDP range has a
+// socket per port, so the event names the port that was actually hit.
+func (m *Manager) refuseAt(rt *runtime, port int, method string, addr netip.Addr, kind, detail, list string) {
 	emit, suppressed := m.refusals.allow(rt.def.ID, addr, m.now())
 	if !emit {
 		return
@@ -749,7 +862,7 @@ func (m *Manager) refuse(rt *runtime, addr netip.Addr, kind, detail, list string
 	if list != "" {
 		detail += " [" + list + "]"
 	}
-	m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Port: rt.cfg.Port, Addr: addr, Kind: kind, Detail: detail})
+	m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Method: method, Port: port, Addr: addr, Kind: kind, Detail: detail})
 }
 
 func (m *Manager) handle(rt *runtime, client net.Conn, addr netip.Addr) {
@@ -772,7 +885,7 @@ func (m *Manager) handle(rt *runtime, client net.Conn, addr netip.Addr) {
 
 	if m.isBanned(addr) {
 		rt.dropped.Add(1)
-		m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Port: rt.cfg.Port, Addr: addr, Kind: "stream-ban",
+		m.emit(Event{Service: rt.def.ID, Label: rt.def.Label, Method: "TCP", Port: rt.cfg.Port, Addr: addr, Kind: "stream-ban",
 			Detail: fmt.Sprintf("stream closed by active ban on the %s port", rt.def.Label)})
 		return
 	}

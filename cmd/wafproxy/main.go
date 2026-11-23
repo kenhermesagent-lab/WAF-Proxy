@@ -762,9 +762,13 @@ func run() error {
 		if kind == "" {
 			kind = "stream-ban"
 		}
+		method := ev.Method
+		if method == "" {
+			method = "TCP"
+		}
 		row := model.Event{
 			TS: time.Now(), Host: ev.Service, SrcIP: ev.Addr.String(),
-			Method: "TCP", Path: fmt.Sprintf(":%d", ev.Port),
+			Method: method, Path: fmt.Sprintf(":%d", ev.Port),
 			Status: http.StatusForbidden, Stage: "stream", Action: "block",
 			RuleID: kind, RuleMsg: ev.Detail,
 		}

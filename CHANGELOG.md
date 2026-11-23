@@ -12,6 +12,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.63.0] — unreleased
+
+### Added
+
+- **A game server is now a first-class service.** A streaming service can forward UDP, with one
+  session per client source and a connected upstream socket per session, so replies are
+  demultiplexed by the kernel rather than by parsing the game's protocol. Sessions are capped in
+  total and per source address, and an idle session is reclaimed after 60 seconds by default
+  while media keeps its 30-minute window. No schema change and no new outbox row.
+- **Port ranges.** `port_count` maps a listen range 1:1 onto the upstream — 2456–2458 forwards to
+  2456–2458 — so a Valheim or ARK server is one card instead of three. A range that would run past
+  65535 on either side is refused with the offending port named.
+- **A ban cuts a live UDP session.** The ban map is checked on every datagram, not only when a
+  session opens, so a source banned mid-session stops within one datagram; the cut is counted and
+  logged once per throttle window instead of once per packet.
+- Relay events now carry the protocol and the exact listen port that was hit, so a UDP range names
+  the port a refusal came from in Logs as well as in the counters.
+
+### Security
+
+- An oversized datagram is dropped and counted, never truncated and forwarded. `max_datagram`
+  bounds the buffer in both directions; the default is 1500 bytes.
+
 ## [1.60.1] — 2026-11-23
 
 ### Fixed
