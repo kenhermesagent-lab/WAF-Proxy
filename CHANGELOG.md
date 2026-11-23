@@ -12,7 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.54.0] — 2026-11-23
+## [1.55.0] — 2026-11-23
 
 ### Added
 
@@ -31,6 +31,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **Forgot password by email.** When the email channel is configured, the login form offers a
   single-use 30-minute reset link to the alert mailbox; it is hidden otherwise. The link works once,
   sets a password of 12+ characters, and signs out every session and remembered device.
+
+- **Policy, notifications, anomaly detection, the canary and ACME are per site.** A new
+  `internal/siteres` registry builds one instance of each per site from a store handle scoped to
+  that site, and every console endpoint, the proxy's request path, the manual canary probe, the
+  certificate listener, the expiry warning and the ban/gate alerts use the active site's
+  instance. The five configuration surfaces no longer share one global copy: one site's
+  `max_body`, notification channels, anomaly thresholds, canary target or ACME account cannot
+  reach another site's.
+- **The proxy decides every request with the site's own policy engine**, selected by the
+  hostname's site (and by the proxy row's site for response inspection and WAF profiles). A
+  second site's WAF profiles and policies are compiled instead of being ignored, which a
+  single shared engine read from the default site only.
+- **The certificate listener multiplexes every site's certificates**, and the plain-HTTP
+  ACME-01 handler and TLS-ALPN-01 store answer from the site that started the issuance.
+
+### Changed
+
+- **A manual `POST /api/canary` uses the site's monitor**, so it dials the way the scheduled
+  probe does instead of constructing a bare prober.
+- **`docs/OPERATIONS.md` describes the per-site instances**, their host-wide exceptions and the
+  upgrade fallback.
+
+## [1.53.1] — 2026-11-23
+
+### Changed
+
+- A bundle provider whose last check failed now shows an amber **check failed** badge instead of the
+  green **signed** one. Its already-downloaded packs stay listed, and the badge returns to `signed`
+  with the next successful check.
+
+### Fixed
+
+- The admin menu left-aligns its entries — the shared `button` rule was centring them — and is a
+  little narrower.
+- The administrator activity and managed host package tables in Settings no longer scroll sideways
+  at 360px and 768px: the audit detail is capped and wraps on a phone, the user and source columns
+  drop below 900px, and the package rows wrap their advisory text.
 
 ### Fixed
 

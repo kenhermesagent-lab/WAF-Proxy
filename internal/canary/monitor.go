@@ -67,6 +67,12 @@ func (m *Monitor) config() (host string, interval time.Duration, retries int, en
 	return host, interval, retries, enabled
 }
 
+// Probe runs one check against host through the monitor's own prober, so a
+// manual probe uses the same dialers and client as the scheduled one.
+func (m *Monitor) Probe(ctx context.Context, host string) Result {
+	return m.probe.Run(ctx, host)
+}
+
 // Check runs one probe with its retries and records the result. It reports
 // whether the site failed after every attempt.
 func (m *Monitor) Check(ctx context.Context) Snapshot {

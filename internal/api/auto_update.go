@@ -92,23 +92,23 @@ func (s *Server) runAutoUpdate(ctx context.Context) {
 	}
 	snap, err := s.updates.Check(ctx)
 	if err != nil {
-		s.notify.Enqueue("update", "Automatic update check failed: "+err.Error(), "auto-update-check", true)
+		s.notifyFor(nil).Enqueue("update", "Automatic update check failed: "+err.Error(), "auto-update-check", true)
 		return
 	}
 	if !snap.AppUpdateAvailable {
 		return
 	}
 	if !snap.AppUpdateSupported {
-		s.notify.Enqueue("update", "A newer build is available but this host cannot apply it: "+snap.AppUpdateReason, "auto-update-unsupported", true)
+		s.notifyFor(nil).Enqueue("update", "A newer build is available but this host cannot apply it: "+snap.AppUpdateReason, "auto-update-unsupported", true)
 		return
 	}
 	s.st.AddAudit("system", "updates.auto", snap.AppRemoteVersion, "scheduler")
 	err = s.updates.StartAppUpdate(func() {
-		s.notify.Enqueue("update", "Automatic update finished; the console is restarting on the new build.", "auto-update-done", true)
+		s.notifyFor(nil).Enqueue("update", "Automatic update finished; the console is restarting on the new build.", "auto-update-done", true)
 	})
 	if err != nil {
-		s.notify.Enqueue("update", "Automatic update could not start: "+err.Error(), "auto-update-start", true)
+		s.notifyFor(nil).Enqueue("update", "Automatic update could not start: "+err.Error(), "auto-update-start", true)
 		return
 	}
-	s.notify.Enqueue("update", "Automatic update started for "+snap.AppRemoteVersion+".", "auto-update-start", true)
+	s.notifyFor(nil).Enqueue("update", "Automatic update started for "+snap.AppRemoteVersion+".", "auto-update-start", true)
 }

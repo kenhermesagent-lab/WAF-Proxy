@@ -57,7 +57,7 @@ func newObservabilityServer(t *testing.T) (*Server, *store.Store, string, string
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := New(st, box, &config.Config{DataDir: t.TempDir()}, nil, nil, bans, nil, nil, nil, metrics.New("", ""), nil, nil, log)
+	srv := New(st, box, &config.Config{DataDir: t.TempDir()}, nil, nil, bans, nil, nil, nil, metrics.New("", ""), nil, nil, nil, log)
 	t.Cleanup(func() { _ = st.Close() })
 	return srv, st, token, csrf
 }

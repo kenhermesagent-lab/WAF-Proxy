@@ -154,6 +154,11 @@ func (s *Server) deleteSite(w http.ResponseWriter, r *http.Request) {
 		siteError(w, err)
 		return
 	}
+	// The site's instances read rows that no longer exist; forget them so the
+	// next request through here rebuilds from scratch.
+	if s.res != nil {
+		s.res.Drop(site.ID)
+	}
 	s.st.AddAudit(sessionFrom(r).Username, "site.delete", site.Slug, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"removed": site.Slug})
 }

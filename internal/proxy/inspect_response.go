@@ -33,7 +33,7 @@ func (s *Server) modifyResponse(e *edge, res *http.Response) error {
 	if responses != "flag" && responses != "block" {
 		return nil
 	}
-	eng := s.d.Policy.WAFEngine(e.proxy.ProfileID)
+	eng := s.d.Policy.ResponseEngine(&e.proxy)
 	if eng == nil {
 		return nil
 	}

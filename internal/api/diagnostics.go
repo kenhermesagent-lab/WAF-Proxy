@@ -123,7 +123,14 @@ func (s *Server) runCanary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "no site to probe")
 		return
 	}
-	res := (canary.Prober{}).Run(r.Context(), host)
+	// A manual probe goes through this site's monitor, so it uses the same
+	// dialers and client as the scheduled check instead of a bare prober.
+	res := canary.Result{}
+	if m := s.canaryFor(r); m != nil {
+		res = m.Probe(r.Context(), host)
+	} else {
+		res = (canary.Prober{}).Run(r.Context(), host)
+	}
 	code := http.StatusOK
 	if !res.OK {
 		code = http.StatusBadGateway

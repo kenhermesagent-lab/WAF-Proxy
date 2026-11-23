@@ -85,7 +85,7 @@ func newAccountHarness(t *testing.T) *accountHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := New(st, box, &config.Config{}, nil, nil, bans, nil, nil, nil, metrics.New("", ""), nil, nil, log)
+	srv := New(st, box, &config.Config{}, nil, nil, bans, nil, nil, nil, metrics.New("", ""), nil, nil, nil, log)
 	t.Cleanup(func() { _ = st.Close() })
 	return &accountHarness{srv: srv, st: st, box: box, userID: uid, token: token, csrf: csrf,
 		secret: secret, recovery: codes[0]}

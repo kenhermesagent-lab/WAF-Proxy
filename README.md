@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.54.0.
+systemd service. Version 1.55.0.
 
 ## Contents
 
@@ -345,6 +345,21 @@ secrets are not part of the document.
   observed it, retention follows each site's own `retention_days`, and
   `wafproxy backup --site <slug>` / `--all` export one file per site while a restore writes
   only into the site whose console posted it.
+- **Per-site policy, notifications, anomaly detection, canary and ACME.** Each of these is one
+  instance per site, built from that site's own rows and settings (`internal/siteres`). A site's
+  `dos_rps`, `max_body`, normalization mode, decoy hosts, WAF and access profiles, notification
+  channels and alert classes, anomaly thresholds, canary target and ACME account/staging switch
+  are its own: writing one site's console leaves every other site's policy compiled state,
+  channels and thresholds untouched. The proxy asks the site's engine for every request, resolved
+  from the hostname; the certificate listener serves whichever site holds the name, and a
+  certificate can only be listed, renewed or revoked from the console of the site that stores it.
+  Only `default` sets host-wide behaviour (body cap, stealth, interface names) — every other site's
+  console reads those from `default`. A `host_admin` is confined to its own site's instances: a
+  site header it sends is ignored, so it cannot read or write another tenant's channels,
+  thresholds, policies, canary or certificates.
+- **Upgrade behaviour.** Nothing migrates: every row and setting written before sites existed
+  already lives on `default`, so the default-site instances read exactly the configuration an
+  earlier release used, and the first new site starts from the shipped defaults.
 
 ## Development
 

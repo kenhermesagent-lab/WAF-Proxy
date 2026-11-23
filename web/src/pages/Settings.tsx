@@ -454,18 +454,18 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
             <p className="muted small-text" style={{ margin: 0 }}>No audit entries yet.</p>
           ) : (
             <TableWrap>
-              <table>
+              <table className="audit-table">
                 <thead>
-                  <tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th><th>Source</th></tr>
+                  <tr><th>Time</th><th className="hide-compact">User</th><th>Action</th><th>Detail</th><th className="hide-compact">Source</th></tr>
                 </thead>
                 <tbody>
                   {audit.map((a) => (
                     <tr key={a.id}>
-                      <td className="muted" style={{ whiteSpace: "nowrap" }}>{fmtTime(a.ts)}</td>
-                      <td className="mono">{a.user}</td>
+                      <td className="muted">{fmtTime(a.ts)}</td>
+                      <td className="mono hide-compact">{a.user}</td>
                       <td>{a.action}</td>
-                      <td className="muted" style={{ maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.detail}>{a.detail || "—"}</td>
-                      <td className="mono">{a.ip || "—"}</td>
+                      <td className="muted audit-detail" title={a.detail}>{a.detail || "—"}</td>
+                      <td className="mono hide-compact">{a.ip || "—"}</td>
                     </tr>
                   ))}
                 </tbody>

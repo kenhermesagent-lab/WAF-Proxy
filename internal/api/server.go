@@ -39,6 +39,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/rbac"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/siteres"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 	updatepkg "github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates"
@@ -59,15 +60,18 @@ const (
 
 // Server is the admin API.
 type Server struct {
-	st         *store.Store
-	box        *wfcrypto.Box
-	cfg        *config.Config
-	proxy      *proxy.Server
-	policy     *policy.Engine
-	bans       *ban.Engine
-	feeds      *intel.Manager
-	bundles    *bundle.Manager
-	certs      *acme.Manager
+	st      *store.Store
+	box     *wfcrypto.Box
+	cfg     *config.Config
+	proxy   *proxy.Server
+	policy  *policy.Engine
+	bans    *ban.Engine
+	feeds   *intel.Manager
+	bundles *bundle.Manager
+	certs   *acme.Manager
+	// res holds one instance of policy, notify, anomaly, canary and ACME per
+	// site. It is nil in tests and CLI paths, which set the single fields above.
+	res        *siteres.Set
 	cs         *crowdsec.Manager
 	metrics    *metrics.Collector
 	notify     *notify.Manager
@@ -117,10 +121,10 @@ type pendingTOTP struct {
 // New builds the API and registers every route.
 func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Server, pol *policy.Engine,
 	bans *ban.Engine, feeds *intel.Manager, certs *acme.Manager, cs *crowdsec.Manager,
-	met *metrics.Collector, nt *notify.Manager, geo *geoip.Geo, log *slog.Logger) *Server {
+	met *metrics.Collector, nt *notify.Manager, geo *geoip.Geo, res *siteres.Set, log *slog.Logger) *Server {
 	s := &Server{
 		st: st, box: box, cfg: cfg, proxy: px, policy: pol, bans: bans, feeds: feeds,
-		certs: certs, cs: cs, metrics: met, notify: nt, geo: geo, log: log,
+		certs: certs, cs: cs, metrics: met, notify: nt, geo: geo, res: res, log: log,
 		limiter: auth.NewLimiter(), mux: http.NewServeMux(), started: time.Now(),
 		totpPending: map[string]pendingTOTP{},
 	}
@@ -131,6 +135,60 @@ func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Serve
 	}
 	s.routes()
 	return s
+}
+
+// siteRes is the instance set of the site this request answers for. It is nil
+// when the server was built with single instances (tests, CLI paths), and the
+// single fields are used instead.
+func (s *Server) siteRes(r *http.Request) *siteres.Bundle {
+	if s.res == nil {
+		return nil
+	}
+	b, err := s.res.For(s.db(r).SiteID())
+	if err != nil {
+		s.log.Error("per-site resources unavailable", "err", err)
+		return nil
+	}
+	return b
+}
+
+// The five accessors below read the active site's instance, so a request on one
+// site's console can never reach another site's policy, channels, anomaly
+// thresholds, canary target or ACME account.
+
+func (s *Server) policyFor(r *http.Request) *policy.Engine {
+	if b := s.siteRes(r); b != nil {
+		return b.Policy
+	}
+	return s.policy
+}
+
+func (s *Server) notifyFor(r *http.Request) *notify.Manager {
+	if b := s.siteRes(r); b != nil {
+		return b.Notify
+	}
+	return s.notify
+}
+
+func (s *Server) anomalyFor(r *http.Request) *anomaly.Manager {
+	if b := s.siteRes(r); b != nil {
+		return b.Anomaly
+	}
+	return s.anomaly
+}
+
+func (s *Server) canaryFor(r *http.Request) *canary.Monitor {
+	if b := s.siteRes(r); b != nil {
+		return b.Canary
+	}
+	return s.canary
+}
+
+func (s *Server) certsFor(r *http.Request) *acme.Manager {
+	if b := s.siteRes(r); b != nil {
+		return b.ACME
+	}
+	return s.certs
 }
 
 func (s *Server) routes() {
@@ -419,12 +477,43 @@ func (s *Server) db(r *http.Request) *store.Store {
 	return s.st.InSite(id)
 }
 
+// reloadPolicies recompiles every site's policy after a write. Each engine
+// reads only its own site's rows, so the cost is one reload per site and one
+// site's edit can never leave another site's engine stale.
+func (s *Server) reloadPolicies() {
+	if s.res != nil {
+		s.res.Each(func(b *siteres.Bundle) {
+			if err := b.Policy.Reload(); err != nil {
+				s.log.Error("reload site policies", "site", b.Site.Slug, "err", err)
+			}
+		})
+		return
+	}
+	if s.policy != nil {
+		if err := s.policy.Reload(); err != nil {
+			s.log.Error("reload policies", "err", err)
+		}
+	}
+}
+
+// hostSettings is the default site's view, which the process-wide knobs
+// (body cap, stealth, interfaces) come from.
+func (s *Server) hostSettings() policy.Settings {
+	if s.res != nil {
+		if b := s.res.Default(); b != nil {
+			return b.Policy.CurrentSettings()
+		}
+	}
+	if s.policy != nil {
+		return s.policy.CurrentSettings()
+	}
+	return policy.Settings{}
+}
+
 // reloadEngines recompiles the policy and proxy tables after a write. A server
 // built without those engines (CLI paths and tests) skips the reload.
 func (s *Server) reloadEngines(ctx context.Context) {
-	if s.policy != nil {
-		_ = s.policy.Reload()
-	}
+	s.reloadPolicies()
 	if s.proxy != nil {
 		if err := s.proxy.Reload(ctx); err != nil {
 			s.log.Error("reload after write", "err", err)
@@ -537,8 +626,8 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		"status": "ok", "version": version.Version, "uptime_s": int(time.Since(s.started).Seconds()),
 		"ready": ready,
 	}
-	if s.canary != nil {
-		body["canary"] = s.canary.Snapshot()
+	if m := s.canaryFor(r); m != nil {
+		body["canary"] = m.Snapshot()
 	}
 	writeJSON(w, status, body)
 }
@@ -756,7 +845,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 			_ = s.db(r).UpsertDNSCredential("duckdns", "DuckDNS", enc)
 		}
 	}
-	_ = s.policy.Reload()
+	_ = s.policyFor(r).Reload()
 	s.db(r).AddAudit(req.Username, "setup", "initial administrator created", clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"username":       req.Username,
@@ -1066,12 +1155,19 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("reload admin allowlist", "err", err)
 		}
 	}
-	if s.policy != nil {
-		_ = s.policy.Reload()
-		cur := s.policy.CurrentSettings()
-		s.proxy.SetBodyLimit(cur.MaxBody)
-		s.bans.SetStealth(cur.StealthPing, cur.WANIface)
-		s.metrics.SetInterfaces(cur.WANIface, cur.LANIface)
+	if s.policyFor(r) != nil {
+		_ = s.policyFor(r).Reload()
+		host := s.hostSettings()
+		// A server built for a test or a CLI path has no listener to update.
+		if s.proxy != nil {
+			s.proxy.SetBodyLimit(host.MaxBody)
+		}
+		if s.bans != nil {
+			s.bans.SetStealth(host.StealthPing, host.WANIface)
+		}
+		if s.metrics != nil {
+			s.metrics.SetInterfaces(host.WANIface, host.LANIface)
+		}
 	}
 	if s.proxy != nil {
 		if err := s.proxy.Reload(r.Context()); err != nil {

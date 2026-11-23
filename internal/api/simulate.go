@@ -113,7 +113,7 @@ func (s *Server) simulate(w http.ResponseWriter, r *http.Request) {
 
 	body := []byte(in.Body)
 	truncated := false
-	if limit := s.policy.MaxBody(site); int64(len(body)) > limit {
+	if limit := s.policyFor(r).MaxBody(site); int64(len(body)) > limit {
 		body, truncated = body[:limit], true
 	}
 	hreq := &http.Request{
@@ -134,7 +134,7 @@ func (s *Server) simulate(w http.ResponseWriter, r *http.Request) {
 		loc = s.geo.Lookup(addr)
 	}
 
-	res := s.policy.Simulate(policy.SimRequest{
+	res := s.policyFor(r).Simulate(policy.SimRequest{
 		Proxy: site, Host: site.Hostname, Method: method, Path: u.Path, Query: u.RawQuery,
 		UA: hreq.Header.Get("User-Agent"), Addr: addr, Loc: loc, Body: body, HTTP: hreq,
 	})

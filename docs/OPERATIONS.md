@@ -182,6 +182,11 @@ site's console is reached at its own `console_host`:
 - An administrator whose role holds `sites.read` sees a switcher in the console's topbar; the
   choice is sent as `X-WAF-Site` on every request and remembered in the browser. The switch is
   still served by one process, so certificates and console hosts do not change with it.
+- Policy, notification channels, anomaly thresholds, the canary target and the ACME account are
+  one instance per site. Each reads that site's rows and settings, so editing one console never
+  recompiles or rewrites another site's configuration. Only the default site's values feed the
+  process-wide knobs (inspected-body cap, stealth mode, interface names); another site's console
+  shows those read-only.
 - The built-in `host_admin` role runs one site and nothing else: no sites area, so no Sites page
   and no switcher, and the server ignores a site header from it. Give it to a tenant's own
   operator, not to the host's administrator.
