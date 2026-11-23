@@ -46,7 +46,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   **High availability** page shows the
   four states, the peer, replication, the console's action history and the guarded actions; the
   Settings switch starts and stops the HA loops in the running process. `wafproxy ha` exposes the
-  same operations on a node whose console is unreachable.
+  same operations on a node whose console is unreachable, and `wafproxy ha upgrade --check`
+  compares the two nodes' release, schema and protocol before an upgrade starts, exiting non-zero
+  when a move would be refused.
 - **Tests.** A partition simulator that runs the real state machine, heartbeat, witness, fence and
   flap guard on a fake clock (the partition matrix plus 200 randomized partitions, asserting at
   most one live active per tick and an unexpired lease for every promotion), handler and route

@@ -846,16 +846,18 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 - Verify: `npm test`.
 - Done: removing the `requires` check or the disable rule makes a test fail.
 
-### P7-07 OpenAPI, docs and upgrade path — S, 1 day — docs built
+### P7-07 OpenAPI, docs and upgrade path — S, 1 day — built
 
 - Built: `docs/openapi.yaml` regenerated (no route changes, `make docs-check` clean); the
   standby-first upgrade path in `docs/OPERATIONS.md`; the HA row in the daily checks; the
   `[Unreleased]` CHANGELOG entry; the README section, headless commands and docs index; this
   file's status rows. Every doc says HA is off by default and that the hardware lab gates are
   still outstanding.
-- Not built: `ha upgrade --check`. Compatibility is enforced where it matters — the automatic
-  gate refuses a peer on a different release or schema and the preflight shows the fix — but
-  there is no CLI command that reports it ahead of time.
+- Built: `wafproxy ha upgrade --check` (`internal/ha/upgrade.go`). The heartbeat now carries the
+  peer's release, and the command compares it with the local one: a schema or protocol mismatch
+  fails the check because a move or join would be refused, a release difference passes with a
+  warning because that is the normal halfway state, and an unreachable peer fails with the dial
+  error. `--json` prints the same report.
 - Files: `docs/openapi.yaml` (generated), `docs/OPERATIONS.md`, `CHANGELOG.md`, `README.md`,
   `docs/HA.md` status block.
 - Verify: `make docs-check`.

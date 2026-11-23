@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
 )
 
 // PeerPing is the heartbeat's answer. It carries the facts a promotion gate
@@ -23,6 +24,7 @@ type PeerPing struct {
 	Epoch    int64  `json:"epoch"`
 	Schema   string `json:"schema"`
 	Protocol int    `json:"protocol"`
+	Version  string `json:"version"`
 	Time     string `json:"time"`
 }
 
@@ -35,7 +37,7 @@ func (s *JoinServer) pingNode(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJoinJSON(w, http.StatusOK, PeerPing{
 		OK: true, Node: s.id.Node, Role: node.Role, State: node.EffectiveState(),
-		Epoch: node.Epoch, Schema: store.SchemaVersion(), Protocol: ProtocolVersion,
+		Epoch: node.Epoch, Schema: store.SchemaVersion(), Protocol: ProtocolVersion, Version: version.Version,
 		Time: time.Now().UTC().Format(time.RFC3339Nano),
 	})
 }

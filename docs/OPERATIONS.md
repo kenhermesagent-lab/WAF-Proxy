@@ -163,19 +163,23 @@ both nodes at once, and do not run a move while either node is rebuilding.
 1. **Record the state.** `wafproxy ha status` on both nodes, and `GET /api/ha` for the role,
    epoch and `serving`. Confirm which node holds the virtual address and that the pair is
    healthy (`paired: true`, no `split-brain-risk`, outbox depth falling).
-2. **Sync before you start.** **Sync now** on the active (`wafproxy ha sync`) so the standby holds
+2. **Check the pair is ready.** `wafproxy ha upgrade --check` prints both nodes' release,
+   schema and protocol. It exits non-zero when they disagree on schema or protocol, because a
+   move or a join would be refused, and exits zero with a warning when only the releases differ
+   (the normal state halfway through an upgrade).
+3. **Sync before you start.** **Sync now** on the active (`wafproxy ha sync`) so the standby holds
    the current configuration. A planned move drains new configuration writes first and refuses to
    start while an edit is still landing.
-3. **Upgrade the standby.** Rebuild or pull the new image on the standby and restart its service.
+4. **Upgrade the standby.** Rebuild or pull the new image on the standby and restart its service.
    The node comes back in its standby role; it does not take the address. Check `wafproxy ha
    status` and `/api/ha`: the version is new, the role is still `standby`, and replication resumes.
-4. **Move the service.** **Fail over** (dry run first, then for real) from the console, or
+5. **Move the service.** **Fail over** (dry run first, then for real) from the console, or
    `wafproxy ha failover`. The old active stops serving, the new active serves, keepalived moves
    the address and the epoch increases. Wait for the console and the site to answer, then confirm
    the old node reports `standby`.
-5. **Upgrade the old active.** It is now the standby, so the same restart is safe. It rejoins as a
+6. **Upgrade the old active.** It is now the standby, so the same restart is safe. It rejoins as a
    standby following the new active; check replication catches up and the outbox drains.
-6. **Fail back when convenient**, or leave the roles as they are. A fail back is only offered once
+7. **Fail back when convenient**, or leave the roles as they are. A fail back is only offered once
    the pair has been healthy for the configured interval; the flap guard parks automatic moves
    after too many in an hour.
 

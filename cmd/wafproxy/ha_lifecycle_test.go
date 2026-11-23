@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
@@ -83,6 +84,16 @@ func TestHADisableRefusalFollowsTheRoleAndTypedID(t *testing.T) {
 	}
 	if got := haDisableRefusal(standby, pair, "cluster-abc"); got == "" {
 		t.Fatal("a paired standby was allowed to disable even with the cluster id")
+	}
+}
+
+func TestHAUpgradeCheckNeedsAPair(t *testing.T) {
+	t.Setenv("WAFPROXY_DATA_DIR", t.TempDir())
+	if err := haUpgradeCLI([]string{}); err == nil || !strings.Contains(err.Error(), "--check") {
+		t.Fatalf("no flag = %v, want the usage error", err)
+	}
+	if err := haUpgradeCLI([]string{"--check"}); err == nil || !strings.Contains(err.Error(), "not paired") {
+		t.Fatalf("unpaired = %v, want the pairing error", err)
 	}
 }
 

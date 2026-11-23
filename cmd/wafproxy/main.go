@@ -467,7 +467,7 @@ func run() error {
 	// stops serving; without one, moves stay manual.
 	var witness *ha.WitnessClient
 	if haOn && cfg.HAWitness != "" {
-		if pair, err := ha.LoadPair(cfg.DataDir); err == nil && pair != nil {
+		if pair != nil {
 			witness = &ha.WitnessClient{
 				URL: cfg.HAWitness, Token: cfg.HAWitnessToken,
 				ClusterID: pair.ClusterID, Holder: haIdent.Node,
@@ -1060,13 +1060,15 @@ func run() error {
 			if on {
 				return rt.Start()
 			}
+			// A read failure is not permission: refuse the switch rather than
+			// disabling a pair whose records could not be checked.
 			n, err := ha.Load(cfg.DataDir)
 			if err != nil {
-				return nil
+				return err
 			}
 			p, err := ha.LoadPair(cfg.DataDir)
 			if err != nil {
-				return nil
+				return err
 			}
 			if refusal := haDisableRefusal(n, p, confirm); refusal != "" {
 				return errors.New(refusal)

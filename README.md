@@ -93,7 +93,8 @@ systemd service. Version 1.57.0.
 - `wafproxy unban <ip|cidr>` removes a ban while the console is unreachable.
 - `wafproxy sites list|add|rename|remove` manages the sites one process serves.
 - `wafproxy ha status|pair|join|sync|failover|failback|unpair|notify` runs the same pair and move
-  sequence as the console and API, for a node whose console is unreachable.
+  sequence as the console and API, for a node whose console is unreachable; `wafproxy ha upgrade
+  --check` says whether the pair can be upgraded before either node restarts.
 - `bundletool keygen|sign` publishes a signed signature-bundle channel.
 
 ## How a request is handled

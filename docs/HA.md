@@ -19,8 +19,8 @@
 > built, the `ha_enabled` host-wide switch starts and stops the HA loops live and
 > appears in Settings (P7-02, P7-03), the nav item is gated on it (P7-04), and the
 > HA page renders its four states (P7-05) with a partial card set, covered by page
-> and toggle tests (P7-06), and the docs, CHANGELOG and README entry are written
-> (P7-07). The two-VM hardware lab gates and the P8 chaos/soak gate have not been
+> and toggle tests (P7-06), and the docs, CHANGELOG, README entry and
+> `ha upgrade --check` are written (P7-07). The two-VM hardware lab gates and the P8 chaos/soak gate have not been
 > run, and the page still lacks the VIP, sessions, bans and witness cards, so
 > those parts remain the intended end state. The branch carries version 1.58.0 but its
 > CHANGELOG section is marked unreleased until those gates and the three deslop

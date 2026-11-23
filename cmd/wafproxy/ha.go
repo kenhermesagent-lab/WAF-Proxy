@@ -14,13 +14,14 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ha"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
 )
 
 // haCLI is the operator's view of the pair. Status reads the same role file the
 // data plane uses, so it cannot disagree with what the node is doing.
 func haCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: wafproxy ha status|pair|join|unpair|sync|failover|failback|abort|notify|ping|witness")
+		return errors.New("usage: wafproxy ha status|pair|join|unpair|sync|failover|failback|abort|notify|ping|witness|upgrade")
 	}
 	switch args[0] {
 	case "status":
@@ -43,6 +44,8 @@ func haCLI(args []string) error {
 		return haPingCLI(args[1:])
 	case "witness":
 		return haWitnessCLI(args[1:])
+	case "upgrade":
+		return haUpgradeCLI(args[1:])
 	default:
 		return fmt.Errorf("unknown ha command %q (want status, pair, join, unpair, sync, failover, failback, abort or notify)", args[0])
 	}
@@ -234,6 +237,61 @@ func haJoinCLI(args []string) error {
 // haSyncCLI catches up by hand. The standby daemon does this every second; the
 // command exists for the first sync and for diagnosing a lagging node. A gap
 // or a stream over its size limit falls back to a sealed snapshot.
+// haUpgradeCLI answers whether this pair may start an upgrade. Schema and
+// protocol have to match for a move; a release difference is expected halfway
+// through and is reported without failing the check.
+func haUpgradeCLI(args []string) error {
+	fs := flag.NewFlagSet("ha upgrade", flag.ContinueOnError)
+	check := fs.Bool("check", false, "report whether this pair can be upgraded")
+	asJSON := fs.Bool("json", false, "print one JSON object")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if !*check {
+		return errors.New("usage: wafproxy ha upgrade --check [--json]")
+	}
+	dir := dataDir()
+	pair, err := ha.LoadPair(dir)
+	if err != nil {
+		return err
+	}
+	if pair == nil {
+		return errors.New("this node is not paired; nothing to check")
+	}
+	node, err := ha.Load(dir)
+	if err != nil {
+		return err
+	}
+	local := ha.NodeVersion{Node: node.NodeID, Role: string(node.Role), Version: version.Version,
+		Schema: store.SchemaVersion(), Protocol: ha.ProtocolVersion}
+	var peer *ha.NodeVersion
+	ping, pingErr := ha.PingPeer(context.Background(), dir)
+	if pingErr == nil {
+		peer = &ha.NodeVersion{Node: ping.Node, Role: string(ping.Role), Version: ping.Version,
+			Schema: ping.Schema, Protocol: ping.Protocol}
+	}
+	report := ha.CheckUpgrade(local, peer, pingErr)
+	if *asJSON {
+		raw, _ := json.Marshal(report)
+		fmt.Println(string(raw))
+	} else {
+		fmt.Printf("local: node=%s role=%s version=%s schema=%s protocol=%d\n",
+			report.Local.Node, report.Local.Role, report.Local.Version, report.Local.Schema, report.Local.Protocol)
+		if report.Peer != nil {
+			fmt.Printf("peer:  node=%s role=%s version=%s schema=%s protocol=%d\n",
+				report.Peer.Node, report.Peer.Role, report.Peer.Version, report.Peer.Schema, report.Peer.Protocol)
+		}
+		for _, problem := range report.Problems {
+			fmt.Println("problem:", problem)
+		}
+		fmt.Println(report.Advice)
+	}
+	if !report.Compatible {
+		return errors.New("this pair is not ready for a move or an upgrade")
+	}
+	return nil
+}
+
 func haSyncCLI(args []string) error {
 	fs := flag.NewFlagSet("ha sync", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {

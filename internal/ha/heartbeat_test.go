@@ -62,4 +62,8 @@ func TestPingPeerReportsTheRole(t *testing.T) {
 	if ping.Role != RoleActive || ping.Epoch != 11 || ping.State != StateActive || ping.Node != idA.Node || !ping.OK {
 		t.Fatalf("ping = %+v", ping)
 	}
+	// The upgrade check reads these, so the heartbeat has to carry them.
+	if ping.Version == "" || ping.Schema == "" || ping.Protocol != ProtocolVersion {
+		t.Fatalf("ping lacks release facts: %+v", ping)
+	}
 }
