@@ -113,6 +113,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.clearPendingTOTP(sess.ID)
+	s.db(r).DeleteUserTrustedDevices(user.ID)
 	// Credential rotations invalidate every other browser. The current session
 	// survives so the operator is not bounced out mid-change.
 	revoked := true
@@ -227,6 +228,7 @@ func (s *Server) confirmTOTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot update authenticator")
 		return
 	}
+	s.db(r).DeleteUserTrustedDevices(user.ID)
 	revoked := true
 	if err := s.db(r).DeleteOtherSessions(user.ID, sess.ID); err != nil {
 		revoked = false

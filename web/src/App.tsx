@@ -370,7 +370,7 @@ export default function App() {
           ) : (
             <PageBoundary page={page}>
               {page === "dashboard" && <Dashboard onError={onError} home={home} onOpenSource={setSourceIp} />}
-              {page === "statistics" && <Statistics onError={onError} />}
+              {page === "statistics" && <Statistics onError={onError} {...tabProps("statistics")} />}
               {page === "proxies" && <Proxies onError={onError} onOK={onOK} base={me?.base_domain ?? ""} {...tabProps("proxies")} />}
               {page === "agent" && <AgentPage onError={onError} onOK={onOK} />}
               {page === "tailscale" && <TailscalePage onError={onError} onOK={onOK} />}
@@ -590,25 +590,124 @@ function Setup({ defaults, onDone }: { defaults: SetupStatus | null; onDone: (e:
   );
 }
 
+type LoginResult = {
+  csrf: string;
+  recovery_used?: boolean;
+  totp_secret?: string;
+  otpauth_url?: string;
+};
+
+type LoginView = "login" | "forgot" | "reset" | "recover" | "codes";
+
 function Login({ onDone }: { onDone: (m: Me) => void }) {
-  const [form, setForm] = useState({ username: "", password: "", totp: "", recovery: "" });
+  const [form, setForm] = useState({ username: "", password: "", totp: "", remember: false });
+  const [recovery, setRecovery] = useState("");
+  const [showRecovery, setShowRecovery] = useState(false);
+  const [forgotUser, setForgotUser] = useState("");
+  const [resetToken] = useState(() => new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("token") ?? "");
+  const [view, setView] = useState<LoginView>(resetToken ? "reset" : "login");
+  const [emailAvailable, setEmailAvailable] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [newPassword, setNewPassword] = useState({ next: "", confirm: "" });
+  const [pending, setPending] = useState<{ secret: string; url: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [codes, setCodes] = useState<string[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<{ available: boolean }>("/api/password/forgot")
+      .then((r) => setEmailAvailable(r.available))
+      .catch(() => undefined);
+  }, []);
+
+  // A reset link carries its token in the hash; drop it from the URL once the
+  // form is done so a refresh cannot replay it.
+  const leaveReset = (message: string) => {
+    window.history.replaceState(null, "", window.location.pathname);
+    setView("login");
+    setNotice(message);
+  };
+
+  const enter = async () => onDone(await api.get<Me>("/api/me"));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setErr("");
     try {
-      await api.post("/api/login", form);
-      const m = await api.get<Me>("/api/me");
-      onDone(m);
+      const r = await api.post<LoginResult>("/api/login", {
+        ...form,
+        recovery: showRecovery ? recovery : "",
+      });
+      setCSRF(r.csrf);
+      if (r.recovery_used && r.totp_secret) {
+        setPending({ secret: r.totp_secret, url: r.otpauth_url ?? "" });
+        setView("recover");
+        return;
+      }
+      await enter();
     } catch (ex) {
       setErr(errText(ex));
     } finally {
       setBusy(false);
     }
   };
+
+  const sendReset = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr("");
+    try {
+      await api.post("/api/password/forgot", { username: forgotUser });
+      setSent(true);
+    } catch (ex) {
+      setErr(errText(ex));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const savePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    if (newPassword.next !== newPassword.confirm) {
+      setErr("The new passwords do not match");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    try {
+      await api.post("/api/password/reset", { token: resetToken, password: newPassword.next });
+      leaveReset("Password changed. Sign in with the new one.");
+    } catch (ex) {
+      setErr(errText(ex));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmRecoverySetup = async () => {
+    if (!pending) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await api.post<{ recovery_codes: string[] }>("/api/account/totp/confirm", {
+        secret: pending.secret,
+        code,
+      });
+      setCodes(r.recovery_codes || []);
+      setView("codes");
+    } catch (ex) {
+      setErr(errText(ex));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const heading =
+    view === "forgot" ? "Reset password" : view === "reset" ? "Choose a new password" : view === "recover" ? "Replace your authenticator" : view === "codes" ? "Save your recovery codes" : "Sign in";
 
   return (
     <div className="login-split">
@@ -630,22 +729,133 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
         </div>
       </section>
       <section className="login-form-side">
-        <form className="login-form" onSubmit={submit}>
+        <div className="login-form">
           <div className="login-mobile-brand"><BrandLockup /></div>
-          <h2>Sign in</h2>
-          <p className="sub">Administrator access requires your password and an authenticator code.</p>
-          <div className="field"><label>Username</label><input autoFocus value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="username" /></div>
-          <div className="field"><label>Password</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="current-password" /></div>
-          <div className="field"><label>Authenticator code</label><input value={form.totp} onChange={(e) => setForm({ ...form, totp: e.target.value })} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" /></div>
-          <div className="field"><label>Recovery code <span className="faint">(only if the authenticator is lost)</span></label><input value={form.recovery} onChange={(e) => setForm({ ...form, recovery: e.target.value })} autoComplete="off" placeholder="ABCDE-12345" /></div>
-          {err && <div className="err-text">{err}</div>}
-          <button className="primary mt" style={{ width: "100%" }} disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+          <h2>{heading}</h2>
+
+          {view === "login" && (
+            <>
+              <p className="sub">Administrator access requires your password and an authenticator code.</p>
+              {notice && <div className="banner ok" role="status" style={{ marginBottom: 14 }}>{notice}</div>}
+              <form onSubmit={submit}>
+                <div className="field">
+                  <label>Username</label>
+                  <input autoFocus value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="username" />
+                </div>
+                <div className="field">
+                  <label>Password</label>
+                  <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="current-password" />
+                </div>
+                <div className="field">
+                  <label>Authenticator code</label>
+                  <input value={form.totp} onChange={(e) => setForm({ ...form, totp: e.target.value })} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" />
+                </div>
+                {showRecovery ? (
+                  <div className="field">
+                    <label>Recovery code</label>
+                    <input autoFocus value={recovery} onChange={(e) => setRecovery(e.target.value)} autoComplete="off" placeholder="ABCDE-12345" />
+                  </div>
+                ) : null}
+                <label className="checkbox" style={{ marginBottom: 12 }}>
+                  <input type="checkbox" checked={form.remember} onChange={(e) => setForm({ ...form, remember: e.target.checked })} />
+                  Remember this device for 30 days
+                </label>
+                <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setShowRecovery((v) => !v)}
+                  >
+                    {showRecovery ? "Use the authenticator instead" : "Don't have your authenticator code?"}
+                  </button>
+                  {emailAvailable ? (
+                    <button type="button" className="link-button" onClick={() => { setView("forgot"); setErr(""); setSent(false); }}>
+                      Forgot password?
+                    </button>
+                  ) : null}
+                </div>
+                {err && <div className="err-text">{err}</div>}
+                <button className="primary mt" style={{ width: "100%" }} disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+              </form>
+            </>
+          )}
+
+          {view === "forgot" && (
+            <>
+              <p className="sub">A single-use link is emailed to the console's configured alert mailbox. It expires in 30 minutes.</p>
+              {sent ? (
+                <>
+                  <div className="banner ok" role="status">
+                    If {forgotUser || "that name"} is an administrator here, a reset link is on its way.
+                  </div>
+                  <button className="mt" style={{ width: "100%" }} onClick={() => setView("login")}>Back to sign in</button>
+                </>
+              ) : (
+                <form onSubmit={sendReset}>
+                  <div className="field">
+                    <label>Username</label>
+                    <input autoFocus value={forgotUser} onChange={(e) => setForgotUser(e.target.value)} autoComplete="username" />
+                  </div>
+                  {err && <div className="err-text">{err}</div>}
+                  <button className="primary mt" style={{ width: "100%" }} disabled={busy || !forgotUser}>{busy ? "Sending…" : "Email me a reset link"}</button>
+                  <button type="button" className="link-button mt" style={{ display: "block", margin: "12px auto 0" }} onClick={() => setView("login")}>Back to sign in</button>
+                </form>
+              )}
+            </>
+          )}
+
+          {view === "reset" && (
+            <form onSubmit={savePassword}>
+              <p className="sub">Choose a password of at least 12 characters. Signing in again needs the authenticator unless this device is remembered.</p>
+              <div className="field">
+                <label>New password</label>
+                <input autoFocus type="password" value={newPassword.next} onChange={(e) => setNewPassword({ ...newPassword, next: e.target.value })} autoComplete="new-password" />
+              </div>
+              <div className="field">
+                <label>Repeat new password</label>
+                <input type="password" value={newPassword.confirm} onChange={(e) => setNewPassword({ ...newPassword, confirm: e.target.value })} autoComplete="new-password" />
+              </div>
+              {err && <div className="err-text">{err}</div>}
+              <button className="primary mt" style={{ width: "100%" }} disabled={busy || newPassword.next.length < 12}>
+                {busy ? "Saving…" : "Set new password"}
+              </button>
+              <button type="button" className="link-button mt" style={{ display: "block", margin: "12px auto 0" }} onClick={() => setView("login")}>Back to sign in</button>
+            </form>
+          )}
+
+          {view === "recover" && pending && (
+            <>
+              <p className="sub">Your recovery code worked, so the old authenticator is no longer trusted. Add this secret to your authenticator app now, or skip and do it later from Account.</p>
+              <div className="secret-box">{pending.secret}</div>
+              <div className="secret-box" style={{ fontSize: 11.5 }}>{pending.url}</div>
+              <div className="field" style={{ marginTop: 12 }}>
+                <label>New authenticator code</label>
+                <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" />
+              </div>
+              {err && <div className="err-text">{err}</div>}
+              <button className="primary mt" style={{ width: "100%" }} disabled={busy || code.length !== 6} onClick={confirmRecoverySetup}>
+                {busy ? "Confirming…" : "Confirm new authenticator"}
+              </button>
+              <button type="button" className="link-button mt" style={{ display: "block", margin: "12px auto 0" }} onClick={enter}>
+                Later — continue to the console
+              </button>
+            </>
+          )}
+
+          {view === "codes" && (
+            <>
+              <p className="sub">These replace every earlier recovery code. They are shown once.</p>
+              <div className="code-list">{codes.map((c) => <div key={c}>{c}</div>)}</div>
+              <button className="primary mt" style={{ width: "100%" }} onClick={enter}>I saved them — continue</button>
+            </>
+          )}
+
           <p className="login-foot">
             This console is restricted to administrators. Sessions expire after 12 hours of inactivity.
             {" "}<a href={DOCS_URL} target="_blank" rel="noreferrer">Documentation</a>
             {" · "}<a href={COFFEE_URL} target="_blank" rel="noreferrer">Buy me a coffee</a>
           </p>
-        </form>
+        </div>
       </section>
     </div>
   );

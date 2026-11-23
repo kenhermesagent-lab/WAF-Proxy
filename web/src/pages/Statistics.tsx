@@ -3,7 +3,14 @@ import { api } from "../api";
 import { countryFlag, countryName } from "../countries";
 import { Analytics, GateFailure, Uptime, UptimeTarget } from "../types";
 import Chart from "../components/Chart";
-import { Badge, Card, Empty, PageHead, errText, fmtAgo, fmtBytes, fmtTime } from "../ui";
+import { Badge, Card, Empty, PageHead, PageTabs, errText, fmtAgo, fmtBytes, fmtTime } from "../ui";
+
+const TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "traffic", label: "Traffic" },
+  { id: "uptime", label: "Uptime" },
+  { id: "gate", label: "Access gate logins" },
+];
 
 const day = (offset: number) => {
   const d = new Date();
@@ -48,13 +55,32 @@ function UptimeRow({ t }: { t: UptimeTarget }) {
   );
 }
 
-export default function Statistics({ onError }: { onError: (m: string) => void }) {
+export default function Statistics({
+  onError,
+  tab = "overview",
+  tabs = TABS,
+  onTab,
+}: {
+  onError: (m: string) => void;
+  tab?: string;
+  tabs?: { id: string; label: string }[];
+  onTab?: (id: string) => void;
+}) {
   const [from, setFrom] = useState(day(-6));
   const [to, setTo] = useState(day(0));
   const [stats, setStats] = useState<Analytics | null>(null);
   const [uptime, setUptime] = useState<Uptime | null>(null);
   const [failures, setFailures] = useState<GateFailure[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const loadStats = () => {
+    setLoading(true);
+    api
+      .get<Analytics>(`/api/analytics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .then(setStats)
+      .catch((e) => onError(errText(e)))
+      .finally(() => setLoading(false));
+  };
 
   const loadFailures = () =>
     api
@@ -63,16 +89,6 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
       )
       .then((r) => setFailures(r.failures || []))
       .catch((e) => onError(errText(e)));
-
-  const load = () => {
-    setLoading(true);
-    api
-      .get<Analytics>(`/api/analytics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
-      .then(setStats)
-      .catch((e) => onError(errText(e)))
-      .finally(() => setLoading(false));
-    loadFailures();
-  };
 
   const block = async (f: GateFailure) => {
     try {
@@ -88,8 +104,14 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
   };
 
   useEffect(() => {
-    load();
+    loadStats();
   }, [from, to]);
+
+  // The failures table is one click away and costs a query, so it is only
+  // fetched while its tab is open.
+  useEffect(() => {
+    if (tab === "gate") loadFailures();
+  }, [tab, from, to]);
 
   useEffect(() => {
     let alive = true;
@@ -107,13 +129,13 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
   }, []);
 
   const series = stats?.series ?? [];
-  const maxTraffic = Math.max(1, ...series.map((b) => b.bytes_in + b.bytes_out));
   const errors = stats?.totals.blocked ?? 0;
   const requests = stats?.totals.requests ?? 0;
   const success = Math.max(0, requests - errors);
   const topCountries = useMemo(() => (stats?.countries ?? []).slice(0, 24), [stats]);
   const countryTotal = Math.max(1, ...(stats?.countries ?? []).map((c) => c.count));
   const down = (uptime?.targets ?? []).filter((t) => t.state === "down").length;
+  const live = tab === "uptime";
 
   const labels = series.map((b) => {
     const d = new Date(b.bucket);
@@ -125,24 +147,15 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
   const compact = (n: number) =>
     n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n % 1e3 === 0 ? 0 : 1)}k` : `${Math.round(n)}`;
 
-  return (
-    <div className="grid" style={{ gap: 14 }}>
-      <PageHead
-        sub="Request outcomes, policy stages and backend uptime for the selected period."
-      />
-      <Card
-        title="Requests and uptime"
-        actions={
-          down > 0
-            ? <Badge tone="bad">{down} backend down</Badge>
-            : <Badge tone="ok">all probes healthy</Badge>
-        }
-      >
+  const rangeStrip = (
+    <>
+      <Card>
         <form
           className="filter-row"
           onSubmit={(e) => {
             e.preventDefault();
-            load();
+            loadStats();
+            if (tab === "gate") loadFailures();
           }}
         >
           <label className="field" style={{ flex: "0 0 165px", marginBottom: 0 }}>
@@ -164,38 +177,173 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
           are approximate at very high traffic.
         </p>
       </Card>
+    </>
+  );
 
-      <div className="kpi-grid">
-        <div className="kpi">
-          <div className="kpi-label">Total requests</div>
-          <div className="kpi-value">{requests.toLocaleString()}</div>
-          <div className="kpi-sub">{stats?.totals.src_ips.toLocaleString() ?? 0} unique source IPs</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Successful</div>
-          <div className="kpi-value" style={{ color: "var(--ok)" }}>{success.toLocaleString()}</div>
-          <div className="kpi-sub">{pct(success, requests)} of traffic</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Error / blocked</div>
-          <div className="kpi-value" style={{ color: "var(--danger)" }}>{errors.toLocaleString()}</div>
-          <div className="kpi-sub">{pct(errors, requests)} of traffic</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Process uptime</div>
-          <div className="kpi-value">{duration(uptime?.process_uptime_s ?? 0)}</div>
-          <div className="kpi-sub">{uptime?.targets.length ?? 0} backend probes</div>
-        </div>
-      </div>
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="Request outcomes, policy stages and backend uptime for the selected period." />
+      {!live && rangeStrip}
 
-      <Card
-        title="Failed access-gate logins"
-        actions={<span className="muted" style={{ fontSize: 11 }}>usernames and addresses the gate rejected</span>}
-      >
-        {failures.length === 0 ? (
-          <Empty>No failed logins in this range.</Empty>
-        ) : (
-          <div className="table-wrap"><table>
+      {!live && (
+        <Card title="Requests over time" sub="Hourly buckets; blocked traffic is overlaid on total requests.">
+          {series.length === 0 ? (
+            <Empty title="No events in this range" icon="chart">Choose a different date range to see traffic.</Empty>
+          ) : (
+            <Chart
+              series={[
+                { label: "Requests", color: "#4f8cff", values: series.map((b) => b.requests), area: true },
+                { label: "Blocked", color: "#f0616d", values: series.map((b) => b.errors) },
+              ]}
+              labels={labels}
+              height={240}
+              format={compact}
+              tooltipTitle={(l) => l}
+            />
+          )}
+        </Card>
+      )}
+
+      <PageTabs tabs={tabs} active={tab} onSelect={(id) => onTab?.(id)} />
+
+      {tab === "overview" && (
+        <>
+          <div className="kpi-grid">
+            <div className="kpi">
+              <div className="kpi-label">Total requests</div>
+              <div className="kpi-value">{requests.toLocaleString()}</div>
+              <div className="kpi-sub">{stats?.totals.src_ips.toLocaleString() ?? 0} unique source IPs</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Successful</div>
+              <div className="kpi-value" style={{ color: "var(--ok)" }}>{success.toLocaleString()}</div>
+              <div className="kpi-sub">{pct(success, requests)} of traffic</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Error / blocked</div>
+              <div className="kpi-value" style={{ color: "var(--danger)" }}>{errors.toLocaleString()}</div>
+              <div className="kpi-sub">{pct(errors, requests)} of traffic</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Process uptime</div>
+              <div className="kpi-value">{duration(uptime?.process_uptime_s ?? 0)}</div>
+              <div className="kpi-sub">{uptime?.targets.length ?? 0} backend probes</div>
+            </div>
+          </div>
+
+          <Card title="Request outcome by stage">
+            {(stats?.stages ?? []).length === 0 ? (
+              <Empty>No stage data in this range.</Empty>
+            ) : (
+              <div className="country-chips">
+                {stats?.stages.map((s) => (
+                  <span className="country-chip" key={s.name}>
+                    <span className="mono">{s.name}</span>
+                    <b>{s.count.toLocaleString()}</b>
+                  </span>
+                ))}
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      {tab === "traffic" && (
+        <div className="split">
+          <Card title="Forward types / proxies">
+            {(stats?.proxies ?? []).length === 0 ? (
+              <Empty>No routed traffic in this range.</Empty>
+            ) : (
+              <div className="table-wrap"><table>
+                <thead>
+                  <tr><th>Proxy</th><th className="num">Requests</th><th className="num hide-phone">Success</th><th className="num hide-phone">Errors</th><th className="num hide-phone">Traffic</th></tr>
+                </thead>
+                <tbody>
+                  {stats?.proxies.map((p) => (
+                    <tr key={p.proxy_id}>
+                      <td>{p.host || `proxy #${p.proxy_id}`}</td>
+                      <td className="num">{p.requests.toLocaleString()}</td>
+                      <td className="num hide-phone">{p.success.toLocaleString()}</td>
+                      <td className="num hide-phone">{p.errors.toLocaleString()}</td>
+                      <td className="num hide-phone">{fmtBytes(p.bytes_in + p.bytes_out)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+            )}
+          </Card>
+
+          <Card title="Visitors by country">
+            {topCountries.length === 0 ? (
+              <Empty>No country data. Install a GeoIP database in Settings.</Empty>
+            ) : (
+              <div className="country-chips">
+                {topCountries.map((c) => (
+                  <span className="country-chip" key={c.name} title={`${countryName(c.name)} — ${c.count.toLocaleString()} requests`}>
+                    <span>{countryFlag(c.name)} {countryName(c.name)}</span>
+                    <b>{c.count.toLocaleString()}</b>
+                    <i style={{ width: `${Math.max(4, (c.count / countryTotal) * 100)}%` }} />
+                  </span>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {tab === "uptime" && (
+        <Card
+          title="Uptime monitor"
+          actions={
+            <span className="row" style={{ gap: 8 }}>
+              {down > 0
+                ? <Badge tone="bad">{down} backend down</Badge>
+                : <Badge tone="ok">all probes healthy</Badge>}
+              <span className="muted" style={{ fontSize: 11 }}>
+                {uptime?.checked_at ? `checked ${fmtTime(uptime.checked_at)}` : "waiting for the first probe"}
+              </span>
+            </span>
+          }
+        >
+          <div className="grid cols-3" style={{ marginBottom: 12 }}>
+            {(uptime?.proxies ?? []).map((p) => (
+              <div className="bar-row" key={p.proxy_id}>
+                <div>
+                  <div>{p.host}</div>
+                  <div className="faint" style={{ fontSize: 11 }}>{p.up}/{p.targets} upstreams up</div>
+                </div>
+                <div>{stateBadge(p.state)}</div>
+              </div>
+            ))}
+            {(uptime?.proxies ?? []).length === 0 && <Empty>No proxies configured.</Empty>}
+          </div>
+          {(uptime?.targets ?? []).length > 0 && (
+            <div className="table-wrap"><table>
+              <thead>
+                <tr><th>Proxy / backend</th><th>State</th><th className="num">24h uptime</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">HTTP</th><th className="hide-tablet">Last check</th><th className="hide-tablet">Detail</th></tr>
+              </thead>
+              <tbody>
+                {uptime?.targets.map((t) => <UptimeRow key={t.id} t={t} />)}
+              </tbody>
+            </table></div>
+          )}
+          <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+            Every enabled upstream is checked with an HTTP HEAD request every 30 seconds. A backend returning 5xx or
+            timing out is marked down, and the transition is sent to the notification channels that have
+            <code> Backend up/down</code> enabled.
+          </p>
+        </Card>
+      )}
+
+      {tab === "gate" && (
+        <Card
+          title="Failed access-gate logins"
+          actions={<span className="muted" style={{ fontSize: 11 }}>usernames and addresses the gate rejected</span>}
+        >
+          {failures.length === 0 ? (
+            <Empty>No failed logins in this range.</Empty>
+          ) : (
+            <div className="table-wrap"><table>
               <thead>
                 <tr><th>Address / proxy</th><th className="hide-phone">Username tried</th><th className="num">Attempts</th><th className="hide-tablet">Last attempt</th><th>State</th></tr>
               </thead>
@@ -236,124 +384,13 @@ export default function Statistics({ onError }: { onError: (m: string) => void }
                 ))}
               </tbody>
             </table></div>
-        )}
-        <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-          The gate already bans by itself: three failures in ten minutes earns 15 minutes, ten in a day earns 24 hours.
-          A permanent ban here also covers the whole address at the proxy and in nftables, and is listed under Policies.
-        </p>
-      </Card>
-
-      <Card title="Requests over time" sub="Hourly buckets; blocked traffic is overlaid on total requests.">
-        {series.length === 0 ? (
-          <Empty title="No events in this range" icon="chart">Choose a different date range to see traffic.</Empty>
-        ) : (
-          <Chart
-            series={[
-              { label: "Requests", color: "#4f8cff", values: series.map((b) => b.requests), area: true },
-              { label: "Blocked", color: "#f0616d", values: series.map((b) => b.errors) },
-            ]}
-            labels={labels}
-            height={240}
-            format={compact}
-            tooltipTitle={(l) => l}
-          />
-        )}
-      </Card>
-
-      <div className="split">
-        <Card title="Forward types / proxies">
-          {(stats?.proxies ?? []).length === 0 ? (
-            <Empty>No routed traffic in this range.</Empty>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <div className="table-wrap"><table>
-                <thead>
-                  <tr><th>Proxy</th><th className="num">Requests</th><th className="num hide-phone">Success</th><th className="num hide-phone">Errors</th><th className="num hide-phone">Traffic</th></tr>
-                </thead>
-                <tbody>
-                  {stats?.proxies.map((p) => (
-                    <tr key={p.proxy_id}>
-                      <td>{p.host || `proxy #${p.proxy_id}`}</td>
-                      <td className="num">{p.requests.toLocaleString()}</td>
-                      <td className="num hide-phone">{p.success.toLocaleString()}</td>
-                      <td className="num hide-phone">{p.errors.toLocaleString()}</td>
-                      <td className="num hide-phone">{fmtBytes(p.bytes_in + p.bytes_out)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table></div>
-            </div>
           )}
+          <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+            The gate already bans by itself: three failures in ten minutes earns 15 minutes, ten in a day earns 24 hours.
+            A permanent ban here also covers the whole address at the proxy and in nftables, and is listed under Policies.
+          </p>
         </Card>
-
-        <Card title="Visitors by country">
-          {topCountries.length === 0 ? (
-            <Empty>No country data. Install a GeoIP database in Settings.</Empty>
-          ) : (
-            <div className="country-chips">
-              {topCountries.map((c) => (
-                <span className="country-chip" key={c.name} title={`${countryName(c.name)} — ${c.count.toLocaleString()} requests`}>
-                  <span>{countryFlag(c.name)} {countryName(c.name)}</span>
-                  <b>{c.count.toLocaleString()}</b>
-                  <i style={{ width: `${Math.max(4, (c.count / countryTotal) * 100)}%` }} />
-                </span>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      <Card
-        title="Uptime monitor"
-        actions={
-          <span className="muted" style={{ fontSize: 11 }}>
-            {uptime?.checked_at ? `checked ${fmtTime(uptime.checked_at)}` : "waiting for the first probe"}
-          </span>
-        }
-      >
-        <div className="grid cols-3" style={{ marginBottom: 12 }}>
-          {(uptime?.proxies ?? []).map((p) => (
-            <div className="bar-row" key={p.proxy_id}>
-              <div>
-                <div>{p.host}</div>
-                <div className="faint" style={{ fontSize: 11 }}>{p.up}/{p.targets} upstreams up</div>
-              </div>
-              <div>{stateBadge(p.state)}</div>
-            </div>
-          ))}
-          {(uptime?.proxies ?? []).length === 0 && <Empty>No proxies configured.</Empty>}
-        </div>
-        {(uptime?.targets ?? []).length > 0 && (
-          <div className="table-wrap"><table>
-            <thead>
-              <tr><th>Proxy / backend</th><th>State</th><th className="num">24h uptime</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">HTTP</th><th className="hide-tablet">Last check</th><th className="hide-tablet">Detail</th></tr>
-            </thead>
-            <tbody>
-              {uptime?.targets.map((t) => <UptimeRow key={t.id} t={t} />)}
-            </tbody>
-          </table></div>
-        )}
-        <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-          Every enabled upstream is checked with an HTTP HEAD request every 30 seconds. A backend returning 5xx or
-          timing out is marked down, and the transition is sent to the notification channels that have
-          <code> Backend up/down</code> enabled.
-        </p>
-      </Card>
-
-      <Card title="Request outcome by stage">
-        {(stats?.stages ?? []).length === 0 ? (
-          <Empty>No stage data in this range.</Empty>
-        ) : (
-          <div className="country-chips">
-            {stats?.stages.map((s) => (
-              <span className="country-chip" key={s.name}>
-                <span className="mono">{s.name}</span>
-                <b>{s.count.toLocaleString()}</b>
-              </span>
-            ))}
-          </div>
-        )}
-      </Card>
+      )}
     </div>
   );
 }

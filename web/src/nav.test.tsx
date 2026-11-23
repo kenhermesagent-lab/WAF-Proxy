@@ -7,11 +7,13 @@ describe("routeFromHash", () => {
     expect(routeFromHash("#/access")).toEqual({ page: "access", tab: "accounts" });
     expect(routeFromHash("#/proxies")).toEqual({ page: "proxies", tab: "sites" });
     expect(routeFromHash("#/intel")).toEqual({ page: "intel", tab: "feeds" });
+    expect(routeFromHash("#/statistics")).toEqual({ page: "statistics", tab: "overview" });
   });
 
   it("keeps an explicit tab and drops a trailing slash", () => {
     expect(routeFromHash("#/intel/lookup")).toEqual({ page: "intel", tab: "lookup" });
     expect(routeFromHash("#proxies/certs")).toEqual({ page: "proxies", tab: "certs" });
+    expect(routeFromHash("#/statistics/gate")).toEqual({ page: "statistics", tab: "gate" });
     expect(routeFromHash("#/settings/")).toEqual({ page: "settings", tab: "" });
     expect(routeFromHash("#/settings/readiness")).toEqual({ page: "settings", tab: "" });
   });

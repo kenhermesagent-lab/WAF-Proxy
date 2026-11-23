@@ -43,14 +43,31 @@ describe("Statistics page", () => {
     cleanup();
   });
 
-  it("shows request outcomes, proxy traffic, countries and backend uptime", async () => {
+  it("opens on overview with the KPI tiles and outcome stages", async () => {
     render(<Statistics onError={vi.fn()} />);
 
     expect(await screen.findByText("153,532")).toBeTruthy();
-    expect(screen.getAllByText("app.example.com").length).toBeGreaterThan(0);
-    expect(screen.getByText(/United States/)).toBeTruthy();
-    expect(screen.getByText("backend returned 503")).toBeTruthy();
-    expect(screen.getByText("98.5%")).toBeTruthy();
     expect(screen.getByText("1d 1h")).toBeTruthy();
+    expect(screen.getByText("route")).toBeTruthy();
+    expect(screen.getByText("Overview")).toBeTruthy();
+  });
+
+  it("keeps the trend chart above the tabs on the traffic view", async () => {
+    render(<Statistics onError={vi.fn()} tab="traffic" onTab={vi.fn()} />);
+
+    expect(await screen.findByText(/United States/)).toBeTruthy();
+    expect(screen.getAllByText("app.example.com").length).toBeGreaterThan(0);
+    const chart = screen.getByText("Requests over time");
+    const tabs = screen.getByRole("tablist");
+    expect(chart.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows backend uptime without the date strip on the uptime tab", async () => {
+    render(<Statistics onError={vi.fn()} tab="uptime" onTab={vi.fn()} />);
+
+    expect(await screen.findByText("backend returned 503")).toBeTruthy();
+    expect(screen.getByText("98.5%")).toBeTruthy();
+    expect(screen.queryByText("From")).toBeNull();
+    expect(screen.queryByText("Requests over time")).toBeNull();
   });
 });

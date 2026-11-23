@@ -368,6 +368,26 @@ func normalizeTelegramChat(raw string) string {
 }
 
 func (m *Manager) sendEmail(kv map[string]string, kind, text string) error {
+	return m.sendEmailMessage(kv, "[wafproxy] "+kind+" alert", text)
+}
+
+// EmailConfigured reports whether the email channel can deliver mail at all.
+func (m *Manager) EmailConfigured() bool {
+	return m.Channels()["email"]
+}
+
+// SendMail delivers a plain-text message to the configured alert mailbox. It
+// is used for console mail like password resets, which is why the subject is
+// not tied to an event kind.
+func (m *Manager) SendMail(subject, text string) error {
+	kv, err := m.st.Settings()
+	if err != nil {
+		return err
+	}
+	return m.sendEmailMessage(kv, subject, text)
+}
+
+func (m *Manager) sendEmailMessage(kv map[string]string, subject, text string) error {
 	host := kv["smtp_host"]
 	port := kv["smtp_port"]
 	if port == "" {
@@ -387,7 +407,7 @@ func (m *Manager) sendEmail(kv map[string]string, kind, text string) error {
 	msg := strings.Join([]string{
 		"From: " + from,
 		"To: " + to,
-		"Subject: [wafproxy] " + kind + " alert",
+		"Subject: " + subject,
 		"MIME-Version: 1.0",
 		"Content-Type: text/plain; charset=utf-8",
 		"",

@@ -25,6 +25,7 @@ var scopedTables = []string{
 	"access_lists", "policies", "bans", "feeds", "alerts", "audit",
 	"gate_users", "agent_deliveries", "agent_links", "anomaly_events",
 	"gate_failures", "gate_sessions", "username_bans", "mcp_tokens", "log_views",
+	"trusted_devices", "password_resets",
 }
 
 // hostSettingKeys are process-wide: one listener, one address, one update

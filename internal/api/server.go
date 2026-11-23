@@ -140,6 +140,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/setup/status", s.setupStatus)
 	m.HandleFunc("POST /api/setup", s.setup)
 	m.HandleFunc("POST /api/login", s.login)
+	m.HandleFunc("GET /api/password/forgot", s.forgotAvailable)
+	m.HandleFunc("POST /api/password/forgot", s.forgotPassword)
+	m.HandleFunc("POST /api/password/reset", s.resetPassword)
 
 	m.HandleFunc("POST /api/logout", s.authed(s.logout))
 	m.HandleFunc("POST /api/cache/purge", s.authed(s.purgeCache))
@@ -729,6 +732,7 @@ type loginRequest struct {
 	Password string `json:"password"`
 	TOTP     string `json:"totp"`
 	Recovery string `json:"recovery"`
+	Remember bool   `json:"remember"`
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -762,19 +766,24 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
+	recoveryUsed := false
 	if user.TOTPEnabled {
-		secret, derr := s.box.Open(user.TOTPSecret)
-		ok := false
-		if derr == nil {
-			if step, valid := auth.ValidateTOTPStep(secret, req.TOTP, time.Now()); valid {
-				// Spend the step: a code observed on the wire, or replayed from
-				// a previous login, is rejected once it has been used.
-				claimed, cerr := s.db(r).ClaimTOTPStep(user.ID, step)
-				ok = cerr == nil && claimed
+		// A remembered browser stands in for the code until its cookie expires.
+		ok := s.trustedDeviceUser(r, user.ID)
+		if !ok {
+			secret, derr := s.box.Open(user.TOTPSecret)
+			if derr == nil {
+				if step, valid := auth.ValidateTOTPStep(secret, req.TOTP, time.Now()); valid {
+					// Spend the step: a code observed on the wire, or replayed from
+					// a previous login, is rejected once it has been used.
+					claimed, cerr := s.db(r).ClaimTOTPStep(user.ID, step)
+					ok = cerr == nil && claimed
+				}
 			}
 		}
 		if !ok && req.Recovery != "" {
 			ok = s.consumeRecoveryCode(r, user, req.Recovery)
+			recoveryUsed = ok
 		}
 		if !ok {
 			writeError(w, http.StatusUnauthorized, "invalid credentials")
@@ -802,9 +811,30 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode, Expires: expires,
 	})
 	s.db(r).AddAudit(user.Username, "login", "", ip)
-	writeJSON(w, http.StatusOK, map[string]any{
+	if req.Remember && user.TOTPEnabled {
+		s.rememberDevice(w, r, user.ID)
+	}
+	out := map[string]any{
 		"username": user.Username, "csrf": csrf, "expires_at": expires.Format(time.RFC3339),
-	})
+		"recovery_used": recoveryUsed,
+	}
+	// A recovery code means the authenticator is gone. Prepare a replacement
+	// now, so the console can offer it before the operator leaves the page.
+	if recoveryUsed {
+		if secret, serr := auth.NewTOTPSecret(); serr == nil {
+			s.totpMu.Lock()
+			for id, p := range s.totpPending {
+				if time.Now().After(p.expires) {
+					delete(s.totpPending, id)
+				}
+			}
+			s.totpPending[token] = pendingTOTP{secret: secret, userID: user.ID, expires: time.Now().Add(5 * time.Minute)}
+			s.totpMu.Unlock()
+			out["totp_secret"] = secret
+			out["otpauth_url"] = auth.OTPAuthURL("WAF-Proxy", user.Username, secret)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {

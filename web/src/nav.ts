@@ -20,7 +20,20 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     title: "Overview",
     items: [
       { id: "dashboard", label: "Dashboard", icon: "dashboard", permission: "dashboard.read", hint: "Live traffic and blocked requests" },
-      { id: "statistics", label: "Statistics", icon: "chart", permission: "traffic.read", hint: "Traffic, outcomes and uptime" },
+      {
+        id: "statistics",
+        label: "Statistics",
+        icon: "chart",
+        permission: "traffic.read",
+        hint: "Traffic, outcomes and uptime",
+        defaultTab: "overview",
+        tabs: [
+          { id: "overview", label: "Overview" },
+          { id: "traffic", label: "Traffic" },
+          { id: "uptime", label: "Uptime" },
+          { id: "gate", label: "Access gate logins" },
+        ],
+      },
     ],
   },
   {
