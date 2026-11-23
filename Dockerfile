@@ -1,11 +1,15 @@
 # syntax=docker/dockerfile:1
 
+# The console's Vite config writes to "../internal/webui/dist", relative to the
+# package root. Keep the package at /src/web so that lands in /src/internal,
+# where the Go stage copies it from: flattening web/ into /src would write the
+# bundle to /internal instead and leave //go:embed dist with an empty directory.
 FROM node:22-alpine AS ui
-WORKDIR /src
+WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
-RUN mkdir -p /src/internal/webui/dist && npm run build
+RUN npm run build
 
 FROM golang:1.27-alpine AS build
 RUN apk add --no-cache ca-certificates git

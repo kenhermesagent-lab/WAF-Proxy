@@ -45,6 +45,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **The container image built without its console.** The `ui` stage copied `web/` flat into `/src`, so
+  the Vite `outDir` of `../internal/webui/dist` resolved to `/internal/webui/dist`; the Go stage
+  then copied an empty `/src/internal/webui/dist` and `//go:embed dist` stopped the build with
+  `pattern dist: cannot embed directory dist: contains no embeddable files`. The package now sits at
+  `/src/web`, which is what the relative output path expects.
 - **A non-default site's Settings page could not be saved.** The form posted the read-only
   host-wide keys (`wan_ip`, `max_body`, and the rest) that the API deliberately refuses for a
   tenant, so every save returned `403` even when only per-site fields changed. The server now
