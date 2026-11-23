@@ -37,6 +37,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   refused the whole form. Empty is accepted as "never set"; the engines already default it to off
   and flag.
 
+### Changed
+
+- **The container job also proxies a real request.** After the console answers, the smoke test
+  creates the first admin, signs in with a recovery code, issues a certificate from the internal CA,
+  points `app.smoke.test` at a loopback upstream and fetches it through the WAN listener. A console
+  that serves its own pages but cannot route traffic now fails the build.
+- **The CI actions run on Node 24.** `actions/checkout`, `docker/setup-buildx-action` and
+  `docker/build-push-action` moved to their current majors (`v7.0.1`, `v4.4.1`, `v7.4.0`), re-pinned
+  by commit with version comments, which clears the runner's Node 20 deprecation warning.
+
 ## [1.57.0] — 2026-11-23
 
 ### Added
