@@ -1,10 +1,15 @@
 package ha
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base32"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -83,6 +88,128 @@ func NewPair(nodeID, peerAddr, peerFingerprint string) (*Pair, error) {
 		Secret:          hex.EncodeToString(secret),
 	}, nil
 }
+
+const masterKeyInfo = "wafproxy-ha-masterkey-v1"
+
+// SealMasterKey encrypts the master key for the joining node. The key never
+// appears in the clear on the wire, even inside TLS: only a node holding the
+// cluster secret can open it.
+func SealMasterKey(secret []byte, clusterID string, key []byte) (string, error) {
+	if len(secret) != 32 || len(key) != 32 {
+		return "", errors.New("ha: sealing needs a 32-byte cluster secret and a 32-byte master key")
+	}
+	salt := sha256.Sum256([]byte("wafproxy-ha-salt\x00" + clusterID))
+	derived, err := hkdf.Key(sha256.New, secret, salt[:], masterKeyInfo, 32)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(derived)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	sealed := gcm.Seal(nonce, nonce, key, []byte(clusterID))
+	return base64.StdEncoding.EncodeToString(sealed), nil
+}
+
+// OpenMasterKey reverses SealMasterKey.
+func OpenMasterKey(secret []byte, clusterID, blob string) ([]byte, error) {
+	raw, err := base64.StdEncoding.DecodeString(blob)
+	if err != nil {
+		return nil, errors.New("ha: malformed master-key envelope")
+	}
+	salt := sha256.Sum256([]byte("wafproxy-ha-salt\x00" + clusterID))
+	derived, err := hkdf.Key(sha256.New, secret, salt[:], masterKeyInfo, 32)
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(derived)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) < gcm.NonceSize() {
+		return nil, errors.New("ha: truncated master-key envelope")
+	}
+	key, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], []byte(clusterID))
+	if err != nil {
+		return nil, errors.New("ha: the master-key envelope did not authenticate")
+	}
+	if len(key) != 32 {
+		return nil, errors.New("ha: the master key is not 32 bytes")
+	}
+	return key, nil
+}
+
+// SaveMasterKey stores the cluster's master key in data/ha/master.key, which
+// the service prefers over a locally generated data/master.key. It refuses to
+// replace a different key: silently overwriting it would make every secret
+// already sealed on this node unreadable.
+func SaveMasterKey(dataDir string, key []byte) error {
+	if len(key) != 32 {
+		return errors.New("ha: master key must be 32 bytes")
+	}
+	path := filepath.Join(RoleDir(dataDir), "master.key")
+	encoded := base64.StdEncoding.EncodeToString(key)
+	if existing, err := os.ReadFile(path); err == nil {
+		if subtle.ConstantTimeCompare(bytesTrimSpace(existing), []byte(encoded)) == 1 {
+			return nil
+		}
+		return errors.New("ha: this node already has a different master key; move data/ha/master.key aside to adopt the cluster key")
+	}
+	if err := os.MkdirAll(RoleDir(dataDir), 0o700); err != nil {
+		return err
+	}
+	return writeAtomic(path, []byte(encoded))
+}
+
+// LoadMasterKey reads data/ha/master.key, or returns nil when absent.
+func LoadMasterKey(dataDir string) ([]byte, error) {
+	raw, err := os.ReadFile(filepath.Join(RoleDir(dataDir), "master.key"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	key, err := base64.StdEncoding.DecodeString(string(bytesTrimSpace(raw)))
+	if err != nil || len(key) != 32 {
+		return nil, errors.New("ha: data/ha/master.key is corrupt")
+	}
+	return key, nil
+}
+
+// Unpair detaches this node from its peer. The role and the master key are
+// deliberately kept: an active node must not stop serving because its operator
+// removed the pairing, and the key may still decrypt local data.
+func Unpair(dataDir string) error {
+	for _, name := range []string{"pair.json", "pairing.json"} {
+		if err := os.Remove(filepath.Join(RoleDir(dataDir), name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	node, err := Load(dataDir)
+	if err != nil {
+		return nil // a damaged role file already means standby; nothing to clear
+	}
+	if node.Peer == "" {
+		return nil
+	}
+	node.Peer = ""
+	return Save(dataDir, node)
+}
+
+func bytesTrimSpace(b []byte) []byte { return []byte(strings.TrimSpace(string(b))) }
 
 // validSecret accepts exactly 32 bytes, hex encoded (64 characters).
 func validSecret(s string) bool {

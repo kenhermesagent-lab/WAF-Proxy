@@ -28,10 +28,17 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P1-06 console banner | not started | |
 | P2-01 cluster identity | partial | self-signed key per node pinned by fingerprint, not a cluster CA; `internal/ha/identity_test.go` |
 | P2-02 pairing code | landed | 128-bit code, hash at rest, 10-minute single use: `internal/ha/pair.go` |
-| P2-03 join handshake | partial | pinned TLS, cluster secret shared, join attempt limit; master key not transferred: `internal/ha/link_test.go` |
-| P2-04 unpair and rekey | not started | |
-| P2-05 pairing CLI | partial | `ha pair` and `ha join`; no audit trail beyond log lines |
-| P3-P8 | not started | |
+| P2-03 join handshake | landed | pinned TLS, cluster secret, master key sealed under it and written 0600: `internal/ha/link_test.go`, `internal/ha/pair_master_test.go` |
+| P2-04 unpair and rekey | partial | `ha unpair` removes pair and code, keeps role and key; no automatic rekey of the peer |
+| P2-05 pairing CLI | partial | `ha pair`, `ha join`, `ha unpair`; no persistent audit trail beyond log lines |
+| P3 snapshot replication | partial | full sealed snapshot every 30 s, transactional restore, manual `ha sync`: `internal/store/snapshot_test.go`, `internal/ha/snapshot_test.go`; no outbox yet |
+| P3-P8 remainder | not started | |
+
+P3 snapshot boundary: a standby replaces every replicated and streamed table from one
+read transaction on the active. Deletes are implicit because each table is cleared
+before insert, and foreign keys are deferred to commit. The cost is that a failover
+can lose the writes made since the last pull (30 s today), and every pull moves the
+whole database; the outbox in P4 is what closes that window.
 
 Gaps inside the landed slice: the role gate wraps the loops started in `run()`, but the
 backup and auto-update managers start inside `internal/api` and still run on a standby until

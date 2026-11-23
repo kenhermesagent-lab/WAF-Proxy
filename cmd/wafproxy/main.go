@@ -878,7 +878,7 @@ func run() error {
 		}
 		log.Info("ha identity ready", "node", ident.Node, "fingerprint", ha.Fingerprint(ident.Leaf))
 		if cfg.HALinkListen != "" {
-			join := ha.NewJoinServer(ident, cfg.DataDir, log)
+			join := ha.NewJoinServer(ident, cfg.DataDir, cfg.MasterKey, st, log)
 			ln, err := tls.Listen("tcp", cfg.HALinkListen, join.TLSConfig())
 			if err != nil {
 				log.Error("ha link listener failed", "addr", cfg.HALinkListen, "err", err)
@@ -893,6 +893,17 @@ func run() error {
 					}
 				}()
 			}
+		}
+	}
+	// A standby keeps a warm copy by pulling a sealed snapshot. This is the
+	// bridge until the row-level outbox lands: writes made in the last interval
+	// are not on the standby yet.
+	if cfg.HAEnabled {
+		if pair, err := ha.LoadPair(cfg.DataDir); err == nil && pair != nil && !node.Active() {
+			log.Info("ha snapshot sync started", "peer", pair.PeerAddr, "interval", "30s")
+			go ha.SyncLoop(ctx, cfg.DataDir, st, 30*time.Second, func(err error) {
+				log.Warn("ha snapshot sync failed", "err", err)
+			})
 		}
 	}
 	tailAdminUp := false

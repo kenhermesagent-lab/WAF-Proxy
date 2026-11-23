@@ -12,13 +12,14 @@ import (
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ha"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
 // haCLI is the operator's view of the pair. Status reads the same role file the
 // data plane uses, so it cannot disagree with what the node is doing.
 func haCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: wafproxy ha status|pair|join")
+		return errors.New("usage: wafproxy ha status|pair|join|unpair|sync")
 	}
 	switch args[0] {
 	case "status":
@@ -27,8 +28,12 @@ func haCLI(args []string) error {
 		return haPairCLI(args[1:])
 	case "join":
 		return haJoinCLI(args[1:])
+	case "unpair":
+		return haUnpairCLI(args[1:])
+	case "sync":
+		return haSyncCLI(args[1:])
 	default:
-		return fmt.Errorf("unknown ha command %q (want status, pair or join)", args[0])
+		return fmt.Errorf("unknown ha command %q (want status, pair, join, unpair or sync)", args[0])
 	}
 }
 
@@ -162,6 +167,43 @@ func haJoinCLI(args []string) error {
 	}
 	fmt.Printf("paired: cluster %s peer %s\n", pair.ClusterID, pair.PeerAddr)
 	fmt.Println("Restart the service so the node picks up the pair.")
+	return nil
+}
+
+// haSyncCLI pulls one snapshot by hand. The standby daemon does this on a timer;
+// the command exists for the first sync and for diagnosing a lagging node.
+func haSyncCLI(args []string) error {
+	fs := flag.NewFlagSet("ha sync", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	dir := dataDir()
+	node, _ := ha.Load(dir)
+	if node.Active() {
+		return errors.New("refusing to overwrite this active node from its peer; run sync on the standby")
+	}
+	st, err := store.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	snap, err := ha.Pull(context.Background(), dir, st)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("synced schema %s snapshot %s: %d tables\n", snap.SchemaVersion, snap.CreatedAt, len(snap.Tables))
+	return nil
+}
+
+func haUnpairCLI(args []string) error {
+	fs := flag.NewFlagSet("ha unpair", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := ha.Unpair(dataDir()); err != nil {
+		return err
+	}
+	fmt.Println("unpaired. The node keeps its current role and master key; restart it so the link and pin are dropped.")
 	return nil
 }
 

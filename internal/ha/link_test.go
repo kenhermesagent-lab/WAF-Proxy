@@ -12,17 +12,19 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
 func discardLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-func startJoinServer(t *testing.T, dataDir string) (*Identity, string) {
+func startJoinServer(t *testing.T, dataDir string, masterKey []byte, st *store.Store) (*Identity, string) {
 	t.Helper()
 	id, err := LoadOrCreateIdentity(dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := NewJoinServer(id, dataDir, discardLog())
+	srv := NewJoinServer(id, dataDir, masterKey, st, discardLog())
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +37,7 @@ func startJoinServer(t *testing.T, dataDir string) (*Identity, string) {
 
 func TestJoinEndToEnd(t *testing.T) {
 	dirA, dirB := t.TempDir(), t.TempDir()
-	idA, addr := startJoinServer(t, dirA)
+	idA, addr := startJoinServer(t, dirA, nil, nil)
 	code, err := WritePairingCode(dirA)
 	if err != nil {
 		t.Fatal(err)
@@ -70,9 +72,32 @@ func TestJoinEndToEnd(t *testing.T) {
 	}
 }
 
+func TestJoinTransfersMasterKey(t *testing.T) {
+	dirA, dirB := t.TempDir(), t.TempDir()
+	master := make([]byte, 32)
+	for i := range master {
+		master[i] = byte(i + 1)
+	}
+	idA, addr := startJoinServer(t, dirA, master, nil)
+	code, err := WritePairingCode(dirA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Join(context.Background(), dirB, addr, Fingerprint(idA.Leaf), code); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadMasterKey(dirB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(master) {
+		t.Fatalf("joined node master key = %x, want %x", got, master)
+	}
+}
+
 func TestJoinRefusesWrongCode(t *testing.T) {
 	dirA, dirB := t.TempDir(), t.TempDir()
-	idA, addr := startJoinServer(t, dirA)
+	idA, addr := startJoinServer(t, dirA, nil, nil)
 	if _, err := WritePairingCode(dirA); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +111,7 @@ func TestJoinRefusesWrongCode(t *testing.T) {
 
 func TestJoinRefusesWrongPin(t *testing.T) {
 	dirA, dirB, dirC := t.TempDir(), t.TempDir(), t.TempDir()
-	_, addr := startJoinServer(t, dirA)
+	_, addr := startJoinServer(t, dirA, nil, nil)
 	code, err := WritePairingCode(dirA)
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +130,7 @@ func TestJoinRefusesWrongPin(t *testing.T) {
 
 func TestJoinRefusesExpiredCode(t *testing.T) {
 	dirA, dirB := t.TempDir(), t.TempDir()
-	idA, addr := startJoinServer(t, dirA)
+	idA, addr := startJoinServer(t, dirA, nil, nil)
 	code := "WAF-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GG"
 	raw, err := json.Marshal(pendingCode{Hash: codeHash(code), ExpiresAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)})
 	if err != nil {

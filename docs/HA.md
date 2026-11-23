@@ -486,6 +486,12 @@ Expiry touches are asynchronous: `authed` only refreshes a session when less tha
 half of the 12-hour idle window remains, so at most one write every six hours. Losing
 a touch shortens an idle lifetime; it does not sign anyone out mid-request.
 
+> Implemented today: a standby pulls the active's whole replicated and streamed
+> state every 30 seconds and restores it in one transaction (`wafproxy ha sync`
+> performs one pull by hand). Admin and gate session rows therefore move, but a
+> failover can still lose the writes made since the last pull. The per-write
+> outbox in P4 is what narrows that to the acknowledgement contract above.
+
 What cannot move: established TCP/TLS sockets, WebSocket and SSE streams, streaming
 forwarder connections, in-flight requests, the response cache, and the in-memory
 rate-limit and lockout windows. Planned failover drains the first group; the rest

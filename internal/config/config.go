@@ -201,7 +201,18 @@ func loadMasterKey(dir string) ([]byte, error) {
 		return key, nil
 	}
 
+	// A paired node stores the cluster key under ha/. It takes precedence over
+	// the locally generated key, so a standby decrypts the same secrets as the
+	// active. Refusing a mismatch happens at pairing time, not here.
+	haPath := filepath.Join(dir, "ha", "master.key")
 	path := filepath.Join(dir, "master.key")
+	if b, err := os.ReadFile(haPath); err == nil {
+		key, decErr := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
+		if decErr != nil || len(key) != 32 {
+			return nil, fmt.Errorf("ha/master.key at %s is corrupt", haPath)
+		}
+		return key, nil
+	}
 	if b, err := os.ReadFile(path); err == nil {
 		key, decErr := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
 		if decErr != nil || len(key) != 32 {

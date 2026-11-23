@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
 // joinRequest is what a joining node proves: who it is, the key it will pin,
@@ -30,23 +32,29 @@ type joinReply struct {
 	Secret      string `json:"secret"`
 	Fingerprint string `json:"fingerprint"`
 	NodeID      string `json:"node_id"`
+	// MasterKey is the active's master key sealed under the cluster secret.
+	MasterKey string `json:"master_key,omitempty"`
 }
 
 // JoinServer answers /ha/join on the HA link. It is separate from the console
 // on purpose: the join endpoint must never be reachable through the admin UI.
 type JoinServer struct {
-	id      *Identity
-	dataDir string
-	log     *slog.Logger
-	limit   *attemptLimiter
+	id        *Identity
+	dataDir   string
+	masterKey []byte
+	store     *store.Store
+	log       *slog.Logger
+	limit     *attemptLimiter
 }
 
-// NewJoinServer builds the handler for one node.
-func NewJoinServer(id *Identity, dataDir string, log *slog.Logger) *JoinServer {
+// NewJoinServer builds the handler for one node. masterKey is handed to a
+// joining node sealed under the cluster secret; nil sends none, leaving the
+// operator to copy the key out of band.
+func NewJoinServer(id *Identity, dataDir string, masterKey []byte, st *store.Store, log *slog.Logger) *JoinServer {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &JoinServer{id: id, dataDir: dataDir, log: log, limit: newAttemptLimiter(5, 10*time.Minute)}
+	return &JoinServer{id: id, dataDir: dataDir, masterKey: masterKey, store: st, log: log, limit: newAttemptLimiter(5, 10*time.Minute)}
 }
 
 // TLSConfig requires a client certificate and pins the peer once a pair exists.
@@ -63,6 +71,7 @@ func (s *JoinServer) TLSConfig() *tls.Config {
 func (s *JoinServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /ha/join", s.join)
+	mux.HandleFunc("GET /ha/snapshot", s.snapshot)
 	return mux
 }
 
@@ -107,11 +116,58 @@ func (s *JoinServer) join(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ClearPairingCode(s.dataDir)
-	s.log.Info("node joined the pair", "peer", pair.PeerAddr, "node", req.NodeID)
-	writeJoinJSON(w, http.StatusOK, joinReply{
+	reply := joinReply{
 		ClusterID: pair.ClusterID, Secret: pair.Secret,
 		Fingerprint: Fingerprint(s.id.Leaf), NodeID: s.id.Node,
-	})
+	}
+	if len(s.masterKey) == 32 {
+		secret, err := pair.PairSecret()
+		if err != nil {
+			writeJoinError(w, http.StatusInternalServerError, "pair secret unreadable")
+			return
+		}
+		blob, err := SealMasterKey(secret, pair.ClusterID, s.masterKey)
+		if err != nil {
+			writeJoinError(w, http.StatusInternalServerError, "cannot seal the master key")
+			return
+		}
+		reply.MasterKey = blob
+	}
+	s.log.Info("node joined the pair", "peer", pair.PeerAddr, "node", req.NodeID)
+	writeJoinJSON(w, http.StatusOK, reply)
+}
+
+// snapshot serves the replicated tables to a paired peer. The listener's TLS
+// config already pins that peer, so reaching the handler is the authorization.
+func (s *JoinServer) snapshot(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeJoinError(w, http.StatusServiceUnavailable, "this node has no store to snapshot")
+		return
+	}
+	pair, err := LoadPair(s.dataDir)
+	if err != nil || pair == nil {
+		writeJoinError(w, http.StatusConflict, "this node is not paired")
+		return
+	}
+	secret, err := pair.PairSecret()
+	if err != nil {
+		writeJoinError(w, http.StatusInternalServerError, "pair secret unreadable")
+		return
+	}
+	snap, err := s.store.Snapshot()
+	if err != nil {
+		s.log.Error("snapshot failed", "err", err)
+		writeJoinError(w, http.StatusInternalServerError, "cannot build a snapshot")
+		return
+	}
+	raw, err := SealSnapshot(secret, pair.ClusterID, snap)
+	if err != nil {
+		s.log.Error("sealing the snapshot failed", "err", err)
+		writeJoinError(w, http.StatusInternalServerError, "cannot seal the snapshot")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(raw)
 }
 
 // Join pairs this node with an active one. It pins the active's fingerprint, so
@@ -172,6 +228,15 @@ func Join(ctx context.Context, dataDir, activeAddr, pin, code string) (*Pair, er
 	}
 	if reply.Fingerprint != normalizeFingerprint(pin) {
 		return nil, fmt.Errorf("ha: the active node's fingerprint %s does not match the pinned %s", reply.Fingerprint, pin)
+	}
+	if reply.MasterKey != "" {
+		master, err := OpenMasterKey(secret, reply.ClusterID, reply.MasterKey)
+		if err != nil {
+			return nil, err
+		}
+		if err := SaveMasterKey(dataDir, master); err != nil {
+			return nil, err
+		}
 	}
 	if err := SavePair(dataDir, pair); err != nil {
 		return nil, err
