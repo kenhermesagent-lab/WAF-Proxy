@@ -55,11 +55,14 @@ type Config struct {
 	// server (step-ca, Pebble). ACMECAFile is the PEM bundle to trust for it.
 	ACMEDirectory string
 	ACMECAFile    string
-	// BundleURL and BundlePublicKey configure the signed signature-bundle
-	// channel. Both are required to enable it; without them the service serves
-	// whatever packs are already installed and never fetches.
-	BundleURL       string
-	BundlePublicKey string
+	// BundleProvidersJSON lists the signed signature-bundle channels as a JSON
+	// array of {name, url, public_key}. BundleURL and BundlePublicKey are the
+	// original single channel and still work as the provider named "default".
+	// A provider without both a URL and a key is left off, and the service then
+	// serves whatever packs are already installed.
+	BundleProvidersJSON string
+	BundleURL           string
+	BundlePublicKey     string
 	// BundleIntervalSeconds is the manifest refresh period. The manager never
 	// checks more often than every five minutes.
 	BundleIntervalSeconds int
@@ -88,6 +91,7 @@ func Load() (*Config, error) {
 		ACMEDirectory:  strings.TrimSpace(os.Getenv("WAFPROXY_ACME_DIRECTORY")),
 		ACMECAFile:     strings.TrimSpace(os.Getenv("WAFPROXY_ACME_CA_FILE")),
 
+		BundleProvidersJSON:   strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_PROVIDERS")),
 		BundleURL:             strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_URL")),
 		BundlePublicKey:       strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_PUBKEY")),
 		BundleIntervalSeconds: envInt("WAFPROXY_BUNDLE_INTERVAL", 3600),

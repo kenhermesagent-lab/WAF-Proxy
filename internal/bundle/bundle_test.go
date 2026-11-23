@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
 )
@@ -77,7 +79,10 @@ func testPack(version string) Pack {
 func newTestManager(t *testing.T, dir, url string, pub ed25519.PublicKey) *Manager {
 	t.Helper()
 	m, err := New(Config{
-		Dir: dir, URL: url, PublicKey: hex.EncodeToString(pub),
+		Dir: dir,
+		Providers: []Provider{{
+			Name: "test", URL: url, PublicKey: hex.EncodeToString(pub),
+		}},
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
@@ -184,7 +189,7 @@ func TestChecksumAndRollbackAreRefused(t *testing.T) {
 	}
 	// A 304 must not reset the sequence, or the next check could accept a
 	// mirror's older manifest.
-	if got := m.Status().Sequence; got != 2 {
+	if got := m.Status().Providers[0].Sequence; got != 2 {
 		t.Fatalf("sequence after 304 = %d, want 2", got)
 	}
 
@@ -207,5 +212,160 @@ func TestChecksumAndRollbackAreRefused(t *testing.T) {
 	ch.etag = `"v1"`
 	if err := m.Check(context.Background()); err == nil {
 		t.Fatal("an older manifest sequence was accepted")
+	}
+}
+
+// TestProvidersAreCheckedIndependently covers the multi-provider channel: two
+// manifest URLs with their own publisher keys, each with its own sequence.
+func TestProvidersAreCheckedIndependently(t *testing.T) {
+	privA, err := GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	privB, err := GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubA := privA.Public().(ed25519.PublicKey)
+	pubB := privB.Public().(ed25519.PublicKey)
+
+	manifestA, packA := signedChannel(t, privA, 1, testPack("1"))
+	packB := Pack{Bundle: "edge-signatures", Version: "1", Rules: []waf.BundleRule{{
+		ID: 990418, Message: "scan signature", Severity: "ERROR",
+		Target: "REQUEST_URI", Operator: "@contains /.git/config",
+	}}}
+	manifestB, rawB := signedChannel(t, privB, 1, packB)
+	chA := &channel{manifest: manifestA, packs: map[string][]byte{"/packs/cve-2026-11.json": packA}}
+	chB := &channel{manifest: manifestB, packs: map[string][]byte{"/packs/edge-signatures.json": rawB}}
+	srvA, srvB := chA.serve(), chB.serve()
+	defer srvA.Close()
+	defer srvB.Close()
+
+	dir := t.TempDir()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	m, err := New(Config{Dir: dir, Interval: time.Minute, Log: log, Providers: []Provider{
+		{Name: "vendor-a", URL: srvA.URL + "/manifest.json", PublicKey: hex.EncodeToString(pubA)},
+		{Name: "vendor-b", URL: srvB.URL + "/manifest.json", PublicKey: hex.EncodeToString(pubB)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	st := m.Status()
+	if len(st.Providers) != 2 || st.Providers[0].Name != "vendor-a" || !st.Providers[0].Configured {
+		t.Fatalf("providers = %+v", st.Providers)
+	}
+	if st.Providers[0].Sequence != 1 || st.Providers[1].Sequence != 1 {
+		t.Fatalf("sequences = %d/%d, want 1/1", st.Providers[0].Sequence, st.Providers[1].Sequence)
+	}
+	owners := map[string]string{}
+	for _, b := range st.Bundles {
+		owners[b.Name] = b.Provider
+	}
+	if owners["cve-2026-11"] != "vendor-a" || owners["edge-signatures"] != "vendor-b" {
+		t.Fatalf("bundle owners = %+v", owners)
+	}
+	if len(m.Rules()) != 2 {
+		t.Fatalf("installed packs = %d, want 2", len(m.Rules()))
+	}
+
+	// The per-provider button refreshes only that provider.
+	chA.manifest = manifestA
+	if err := m.CheckProvider(context.Background(), "vendor-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CheckProvider(context.Background(), "nobody"); err == nil {
+		t.Fatal("checking an unknown provider was accepted")
+	}
+
+	// A name belongs to the provider that installed it: the second publisher
+	// cannot take it over, and the first pack keeps serving.
+	collidePack := testPack("9")
+	collide, rawCollide := signedChannel(t, privB, 2, collidePack)
+	chB.manifest = collide
+	chB.packs["/packs/cve-2026-11.json"] = rawCollide
+	if err := m.Check(context.Background()); err == nil {
+		t.Fatal("two providers installed a bundle with the same name")
+	}
+	if got := m.installedVersion(m.providers[0], "cve-2026-11"); got != "1" {
+		t.Fatalf("the owned bundle was replaced: version %q", got)
+	}
+	if !strings.Contains(m.Status().Providers[1].Error, "already provided by vendor-a") {
+		t.Fatalf("provider-b error = %q", m.Status().Providers[1].Error)
+	}
+
+	// Provider B goes away: provider A still updates, and B's installed pack
+	// keeps serving while its failure is reported.
+	srvB.Close()
+	nextA, nextPackA := signedChannel(t, privA, 2, testPack("2"))
+	chA.manifest, chA.packs["/packs/cve-2026-11.json"] = nextA, nextPackA
+	err = m.Check(context.Background())
+	if err == nil {
+		t.Fatal("a failed provider was not reported")
+	}
+	if !strings.Contains(err.Error(), "vendor-b") {
+		t.Fatalf("error = %q, want it to name vendor-b", err)
+	}
+	if got := m.installedVersion(m.providers[0], "cve-2026-11"); got != "2" {
+		t.Fatalf("reachable provider did not update: %q", got)
+	}
+	if got := m.installedVersion(m.providers[1], "edge-signatures"); got != "1" {
+		t.Fatalf("unreachable provider lost its pack: %q", got)
+	}
+
+	// A restart keeps both packs and the sequence each provider reached.
+	restarted, err := New(Config{Dir: dir, Interval: time.Minute, Log: log, Providers: []Provider{
+		{Name: "vendor-a", URL: srvA.URL + "/manifest.json", PublicKey: hex.EncodeToString(pubA)},
+		{Name: "vendor-b", URL: srvB.URL + "/manifest.json", PublicKey: hex.EncodeToString(pubB)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if len(restarted.Rules()) != 2 {
+		t.Fatalf("packs after restart = %+v", restarted.Rules())
+	}
+	if got := restarted.Status().Providers[0].Sequence; got != 2 {
+		t.Fatalf("sequence after restart = %d, want 2", got)
+	}
+}
+
+func TestParseProviders(t *testing.T) {
+	got, err := ParseProviders(`[{"name":"vendor-a","url":"https://a.example/manifest.json","public_key":"abc"}]`, "", "")
+	if err != nil || len(got) != 1 || got[0].Name != "vendor-a" || got[0].URL != "https://a.example/manifest.json" {
+		t.Fatalf("providers = %+v, err = %v", got, err)
+	}
+	legacy, err := ParseProviders("", "https://b.example/manifest.json", "key")
+	if err != nil || len(legacy) != 1 || legacy[0].Name != "default" {
+		t.Fatalf("legacy provider = %+v, err = %v", legacy, err)
+	}
+	if _, err := ParseProviders(`[{"name":"a"}]`, "", ""); err == nil {
+		t.Fatal("a provider without a url and key was accepted")
+	}
+	if _, err := ParseProviders("not json", "", ""); err == nil {
+		t.Fatal("invalid JSON was accepted")
+	}
+
+	// New rejects duplicate names and a URL that is not a channel.
+	pub, err := GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := hex.EncodeToString(pub.Public().(ed25519.PublicKey))
+	if _, err := New(Config{Providers: []Provider{
+		{Name: "a", URL: "https://a.example/m.json", PublicKey: key},
+		{Name: "a", URL: "https://b.example/m.json", PublicKey: key},
+	}}); err == nil {
+		t.Fatal("duplicate provider names were accepted")
+	}
+	if _, err := New(Config{Providers: []Provider{{Name: "a", URL: "file:///tmp/m.json", PublicKey: key}}}); err == nil {
+		t.Fatal("a non-http provider URL was accepted")
 	}
 }

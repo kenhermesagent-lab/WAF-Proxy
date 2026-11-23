@@ -30,6 +30,22 @@ export function profileBundleBadges(profile: { bundle_modes?: BundleModes }, nam
   return modeBadges(counts);
 }
 
+// outcomeBadges says what the requests that matched a rule actually got. It is
+// per hit, so a bundle two sites run differently still reads correctly.
+export function outcomeBadges(hit: { blocked: number; logged: number }): ModeBadge[] {
+  const out: ModeBadge[] = [];
+  if (hit.blocked > 0) out.push({ tone: "bad", label: `${hit.blocked.toLocaleString()} blocked` });
+  if (hit.logged > 0) out.push({ tone: "warn", label: `${hit.logged.toLocaleString()} logged` });
+  if (out.length === 0) out.push({ tone: "", label: "off" });
+  return out;
+}
+
+// loggedOnly is true when every match was served: no profile blocks these
+// rules yet. An empty list is not "logged only"; the card shows its empty state.
+export function loggedOnly(hits: { blocked: number; logged: number }[]): boolean {
+  return hits.length > 0 && hits.every((h) => h.blocked === 0);
+}
+
 // hitsByBundle groups the hit table by pack for the profile dialog.
 export function hitsByBundle(rules: { bundle?: string; hits: number }[]): Record<string, number> {
   const out: Record<string, number> = {};

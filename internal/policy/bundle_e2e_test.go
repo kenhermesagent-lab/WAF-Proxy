@@ -128,7 +128,11 @@ func TestBundleChannelReachesABlockingVerdict(t *testing.T) {
 	dir := t.TempDir()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	m, err := bundle.New(bundle.Config{
-		Dir: dir, URL: srv.URL + "/manifest.json", PublicKey: hex.EncodeToString(pub), Log: log,
+		Dir: dir,
+		Providers: []bundle.Provider{{
+			Name: "test", URL: srv.URL + "/manifest.json", PublicKey: hex.EncodeToString(pub),
+		}},
+		Log: log,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +164,7 @@ func TestBundleChannelReachesABlockingVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := m.Status()
-	if first.Sequence != 1 || len(first.Bundles) != 1 || first.Bundles[0].Version != "2026.11.23-1" {
+	if first.Providers[0].Sequence != 1 || len(first.Bundles) != 1 || first.Bundles[0].Version != "2026.11.23-1" {
 		t.Fatalf("after first check = %+v, want sequence 1 and the advertised pack", first)
 	}
 	if got := m.RuleIndex()[990417]; got.Version != "2026.11.23-1" {
@@ -181,7 +185,7 @@ func TestBundleChannelReachesABlockingVerdict(t *testing.T) {
 	if fetches != 2 || notModified != 1 {
 		t.Fatalf("channel saw %d fetches and %d 304s, want 2 and 1", fetches, notModified)
 	}
-	if again := m.Status(); again.Sequence != 1 || len(again.Bundles) != 1 || again.Bundles[0].Version != "2026.11.23-1" {
+	if again := m.Status(); again.Providers[0].Sequence != 1 || len(again.Bundles) != 1 || again.Bundles[0].Version != "2026.11.23-1" {
 		t.Fatalf("after 304 = %+v, want the state to be untouched", again)
 	}
 
@@ -191,7 +195,7 @@ func TestBundleChannelReachesABlockingVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 	bumped := m.Status()
-	if bumped.Sequence != 2 || len(bumped.Bundles) != 1 || bumped.Bundles[0].Version != "2026.11.23-2" {
+	if bumped.Providers[0].Sequence != 2 || len(bumped.Bundles) != 1 || bumped.Bundles[0].Version != "2026.11.23-2" {
 		t.Fatalf("after bump = %+v, want sequence 2 and the new version", bumped)
 	}
 	if got := m.RuleIndex()[990417]; got.Version != "2026.11.23-2" {

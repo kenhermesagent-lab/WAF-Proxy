@@ -16,15 +16,24 @@ type bundleView struct {
 	Modes map[string]int `json:"modes"`
 }
 
+// providerView is one signed channel as the console shows it.
+type providerView struct {
+	Name       string  `json:"name"`
+	Configured bool    `json:"configured"`
+	URL        string  `json:"url,omitempty"`
+	KeyID      string  `json:"key_id,omitempty"`
+	LastCheck  *string `json:"last_check,omitempty"`
+	NextCheck  *string `json:"next_check,omitempty"`
+	Sequence   int64   `json:"sequence"`
+	Error      string  `json:"error,omitempty"`
+}
+
 type bundleSnapshot struct {
-	Configured bool         `json:"configured"`
-	URL        string       `json:"url,omitempty"`
-	KeyID      string       `json:"key_id,omitempty"`
-	LastCheck  *string      `json:"last_check,omitempty"`
-	NextCheck  *string      `json:"next_check,omitempty"`
-	Sequence   int64        `json:"sequence"`
-	Error      string       `json:"error,omitempty"`
-	Bundles    []bundleView `json:"bundles"`
+	// Configured is true when at least one provider can fetch; the console
+	// keeps its empty state on this rather than on a single channel URL.
+	Configured bool           `json:"configured"`
+	Providers  []providerView `json:"providers"`
+	Bundles    []bundleView   `json:"bundles"`
 }
 
 // SetBundles attaches the installed signature packs. A server built without a
@@ -32,21 +41,35 @@ type bundleSnapshot struct {
 // unconfigured instead of panicking.
 func (s *Server) SetBundles(m *bundle.Manager) { s.bundles = m }
 
-// listBundles reports the channel and every installed pack. Modes are counted
+// listBundles reports every provider and installed pack. Modes are counted
 // across profiles, because a bundle mode is a profile setting, never a global
 // switch.
 func (s *Server) listBundles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.bundleSnapshot())
 }
 
+// checkBundles refreshes one provider when ?provider= names it, otherwise all
+// of them. Providers are independent, so a failure on one still returns the
+// snapshot with the other packs in place.
 func (s *Server) checkBundles(w http.ResponseWriter, r *http.Request) {
 	if s.bundles == nil || !s.bundles.Enabled() {
 		writeError(w, http.StatusConflict, "no signed bundle channel is configured")
 		return
 	}
-	err := s.bundles.Check(r.Context())
-	sess := sessionFrom(r)
+	name := strings.TrimSpace(r.URL.Query().Get("provider"))
+	if name != "" && !s.bundles.HasProvider(name) {
+		writeError(w, http.StatusBadRequest, "unknown bundle provider")
+		return
+	}
 	detail := "checked"
+	var err error
+	if name != "" {
+		detail = "checked " + name
+		err = s.bundles.CheckProvider(r.Context(), name)
+	} else {
+		err = s.bundles.Check(r.Context())
+	}
+	sess := sessionFrom(r)
 	if err != nil {
 		detail = err.Error()
 	}
@@ -83,7 +106,7 @@ func (s *Server) bundleHits(w http.ResponseWriter, r *http.Request) {
 	for _, h := range hits {
 		info := index[h.RuleID]
 		rules = append(rules, BundleHit{
-			RuleID: h.RuleID, Bundle: info.Bundle, Version: info.Version,
+			RuleID: h.RuleID, Provider: info.Provider, Bundle: info.Bundle, Version: info.Version,
 			Message: firstNonEmpty(h.Message, info.Message),
 			Hits:    h.Hits, Addresses: h.Addresses,
 			Blocked: h.Blocked, Logged: h.Logged, LastSeen: h.LastSeen,
@@ -96,6 +119,7 @@ func (s *Server) bundleHits(w http.ResponseWriter, r *http.Request) {
 // BundleHit is one bundle rule with its activity and profile modes.
 type BundleHit struct {
 	RuleID    int    `json:"rule_id"`
+	Provider  string `json:"provider,omitempty"`
 	Bundle    string `json:"bundle,omitempty"`
 	Version   string `json:"version,omitempty"`
 	Message   string `json:"message"`
@@ -125,16 +149,24 @@ func modeCounts(profiles []model.Profile, name string) map[string]int {
 
 func (s *Server) bundleSnapshot() bundleSnapshot {
 	if s.bundles == nil {
-		return bundleSnapshot{Configured: false, Bundles: []bundleView{}}
+		return bundleSnapshot{Configured: false, Providers: []providerView{}, Bundles: []bundleView{}}
 	}
 	st := s.bundles.Status()
 	profiles, _ := s.st.ListProfiles()
 	out := bundleSnapshot{
-		Configured: st.Configured, URL: st.URL, KeyID: st.KeyID,
-		Sequence: st.Sequence, Error: st.Error, Bundles: []bundleView{},
+		Providers: make([]providerView, 0, len(st.Providers)),
+		Bundles:   make([]bundleView, 0, len(st.Bundles)),
 	}
-	out.LastCheck = isoPtr(st.LastCheck)
-	out.NextCheck = isoPtr(st.NextCheck)
+	for _, p := range st.Providers {
+		out.Providers = append(out.Providers, providerView{
+			Name: p.Name, Configured: p.Configured, URL: p.URL, KeyID: p.KeyID,
+			LastCheck: isoPtr(p.LastCheck), NextCheck: isoPtr(p.NextCheck),
+			Sequence: p.Sequence, Error: p.Error,
+		})
+		if p.Configured {
+			out.Configured = true
+		}
+	}
 	for _, b := range st.Bundles {
 		out.Bundles = append(out.Bundles, bundleView{BundleStatus: b, Modes: modeCounts(profiles, b.Name)})
 	}

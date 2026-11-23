@@ -1056,23 +1056,23 @@ export default function Policies({
               {installedBundles.map((b) => (
                 <div
                   key={b.name}
-                  className="row"
+                  className="row bundle-mode"
                   style={{ justifyContent: "space-between", padding: "7px 0", borderTop: "1px solid var(--border-soft)" }}
                 >
                   <div style={{ minWidth: 0 }}>
-                    <div>
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {b.name}{" "}
                       {hitsFor(b.name) > 0 ? (
                         <span className="faint" style={{ fontSize: 11 }}>{hitsFor(b.name).toLocaleString()} hits / 24h</span>
                       ) : null}
                     </div>
                     <div className="faint mono" style={{ fontSize: 11 }}>
-                      {b.version} · {b.rules} {b.rules === 1 ? "rule" : "rules"}
+                      {b.provider ? `${b.provider} · ` : ""}{b.version} · {b.rules} {b.rules === 1 ? "rule" : "rules"}
                     </div>
                   </div>
                   <select
+                    className="bundle-mode-select"
                     aria-label={`Bundle ${b.name} mode`}
-                    style={{ width: 132 }}
                     value={bundleMode(profile.bundle_modes, b.name)}
                     onChange={(e) =>
                       setProfile({

@@ -289,6 +289,9 @@ export interface Profile {
 }
 
 export interface BundleStatus {
+  // The signed channel that installed the pack. Bundle names are unique across
+  // providers because a profile switches them by name.
+  provider?: string;
   name: string;
   version: string;
   rules: number;
@@ -298,7 +301,8 @@ export interface BundleStatus {
   modes: Record<string, number>;
 }
 
-export interface BundlesSnapshot {
+export interface BundleProvider {
+  name: string;
   configured: boolean;
   url?: string;
   key_id?: string;
@@ -306,11 +310,19 @@ export interface BundlesSnapshot {
   next_check?: string | null;
   sequence: number;
   error?: string;
+}
+
+export interface BundlesSnapshot {
+  // True when at least one provider can fetch; the per-provider state carries
+  // the URL, key, sequence and error.
+  configured: boolean;
+  providers: BundleProvider[];
   bundles: BundleStatus[];
 }
 
 export interface BundleHit {
   rule_id: number;
+  provider?: string;
   bundle?: string;
   version?: string;
   message: string;

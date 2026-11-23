@@ -12,7 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.49.2] — 2026-11-23
+## [1.49.3] — 2026-11-23
 
 ### Changed
 
@@ -42,6 +42,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   the same wrapping badge as Policies, so the page keeps its 390px width.
 - **Copy that named the old pages points at the new tabs**: access-profile hints name Profiles and
   Lists, Streaming points at Policies → Lists, and Settings names Threat intel → CrowdSec.
+
+## [1.49.2] — 2026-11-23
+
+### Added
+
+- **Several signed bundle providers.** `WAFPROXY_BUNDLE_PROVIDERS` takes a JSON list of
+  `{name, url, public_key}`; each provider keeps its own manifest URL, publisher key, anti-rollback
+  sequence and last error, and is checked and downloaded on its own, so an unreachable publisher
+  cannot hold up the others. The console lists every provider with its own **Check** button next to
+  **Check all**, each installed bundle shows the provider that delivered it, and bundle hits name
+  the provider too. The original `WAFPROXY_BUNDLE_URL`/`WAFPROXY_BUNDLE_PUBKEY` pair still works as
+  the provider `default`. A bundle name belongs to one provider, because profiles switch a bundle
+  by name: a second publisher advertising the same name is refused with an error naming the owner.
+
+### Changed
+
+- **The bundle card, hit table and profile switch fit a phone and a tablet.** Bundle names, rule IDs
+  and versions no longer break mid-word at 360px; the hit table drops counts and timestamps before
+  it can push the Outcome column off the card at 768px; and the profile dialog's per-bundle switch
+  aligns the same way on every row.
+- **`bundles.test.ts` was never running.** `vitest.config.ts` only includes `src/**/*.test.tsx`, so
+  the existing bundle tests were silently skipped. The file is now `bundles.test.tsx` and runs, with
+  new cases for the blocked/logged outcome badges and the "every match was served" banner.
 
 ## [1.49.1] — 2026-11-23
 
