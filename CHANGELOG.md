@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.8] — 2026-11-23
+
+### Fixed
+
+- The API reference now matches the two routes it got wrong: the internal CA root is
+  documented as an `application/x-pem-file` download, and `GET /api/notifications`
+  describes its real `settings` / `channels` / `recent` / `event_kinds` wrapper with
+  `Alert` rows, instead of loose objects and a typed settings object.
+
 ## [1.47.7] — 2026-11-23
 
 ### Fixed

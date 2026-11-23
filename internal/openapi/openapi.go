@@ -143,17 +143,22 @@ const schemaBlock = `    Proxy:
       properties:
         domains: {type: string}
         common_name: {type: string}
-    NotificationSettings:
+    Alert:
       type: object
       properties:
-        telegram_enabled: {type: string, enum: ["0", "1"]}
-        telegram_chat: {type: string}
-        email_enabled: {type: string, enum: ["0", "1"]}
-        smtp_host: {type: string}
-        smtp_from: {type: string}
-        webhook_enabled: {type: string, enum: ["0", "1"]}
-        notify_events: {type: string, description: Comma-separated event kinds or none}
-      description: Response masks stored secrets; writes accept plain values.
+        id: {type: integer}
+        channel: {type: string}
+        kind: {type: string}
+        dedupe: {type: string}
+        payload: {type: string}
+        state: {type: string}
+        attempts: {type: integer}
+        created_at: {type: string, format: date-time}
+        sent_at: {type: string, format: date-time}
+    NotificationSettings:
+      type: object
+      additionalProperties: {type: string}
+      description: Stored notification settings; responses mask secret values.
     NotificationTest:
       type: object
       required: [channel]
@@ -196,10 +201,20 @@ const schemaBlock = `    Proxy:
           additionalProperties: {type: boolean}
         recent:
           type: array
-          items: {type: object}
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Alert'
+              - type: object
+                properties:
+                  class: {type: string}
+                  muted: {type: boolean}
         event_kinds:
           type: array
-          items: {type: object}
+          items:
+            type: object
+            properties:
+              kind: {type: string}
+              label: {type: string}
     Status:
       type: object
       properties:
@@ -301,7 +316,7 @@ func render(routes []route, version string) []byte {
 		b.WriteString("      responses:\n        \"200\":\n")
 		switch {
 		case sh.text:
-			b.WriteString("          description: Certificate PEM\n          content:\n            text/plain:\n              schema: {type: string}\n")
+			b.WriteString("          description: Internal CA root certificate in PEM form\n          content:\n            application/x-pem-file:\n              schema: {type: string}\n")
 		case sh.response != "" && sh.array:
 			b.WriteString("          description: Success\n          content:\n            application/json:\n              schema:\n                type: array\n                items: {$ref: '#/components/schemas/" + sh.response + "'}\n")
 		case sh.response != "":

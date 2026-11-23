@@ -2,7 +2,7 @@
 openapi: 3.0.3
 info:
   title: WAF-Proxy admin API
-  version: "1.47.7"
+  version: "1.47.8"
   description: |
     Routes registered by the admin console. Every `/api` route except setup,
     login, health and version requires the session cookie and, for mutations,
@@ -84,17 +84,22 @@ components:
       properties:
         domains: {type: string}
         common_name: {type: string}
-    NotificationSettings:
+    Alert:
       type: object
       properties:
-        telegram_enabled: {type: string, enum: ["0", "1"]}
-        telegram_chat: {type: string}
-        email_enabled: {type: string, enum: ["0", "1"]}
-        smtp_host: {type: string}
-        smtp_from: {type: string}
-        webhook_enabled: {type: string, enum: ["0", "1"]}
-        notify_events: {type: string, description: Comma-separated event kinds or none}
-      description: Response masks stored secrets; writes accept plain values.
+        id: {type: integer}
+        channel: {type: string}
+        kind: {type: string}
+        dedupe: {type: string}
+        payload: {type: string}
+        state: {type: string}
+        attempts: {type: integer}
+        created_at: {type: string, format: date-time}
+        sent_at: {type: string, format: date-time}
+    NotificationSettings:
+      type: object
+      additionalProperties: {type: string}
+      description: Stored notification settings; responses mask secret values.
     NotificationTest:
       type: object
       required: [channel]
@@ -137,10 +142,20 @@ components:
           additionalProperties: {type: boolean}
         recent:
           type: array
-          items: {type: object}
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Alert'
+              - type: object
+                properties:
+                  class: {type: string}
+                  muted: {type: boolean}
         event_kinds:
           type: array
-          items: {type: object}
+          items:
+            type: object
+            properties:
+              kind: {type: string}
+              label: {type: string}
     Status:
       type: object
       properties:
@@ -915,9 +930,9 @@ paths:
         - sessionCookie: []
       responses:
         "200":
-          description: Certificate PEM
+          description: Internal CA root certificate in PEM form
           content:
-            text/plain:
+            application/x-pem-file:
               schema: {type: string}
         "401":
           description: Missing or expired session
