@@ -34,7 +34,7 @@ func scanProtectionProfile(row interface{ Scan(...any) error }) (*model.Protecti
 
 // ListProtectionProfiles returns the response-hardening profiles.
 func (s *Store) ListProtectionProfiles() ([]model.ProtectionProfile, error) {
-	rows, err := s.db.Query(`SELECT ` + protectionProfileColumns + `
+	rows, err := s.db.Query(`SELECT `+protectionProfileColumns+`
 		FROM protection_profiles WHERE (site_id = 0 OR site_id = ?) ORDER BY id`, s.site)
 	if err != nil {
 		return nil, err
@@ -187,7 +187,7 @@ func accessListValues(a *model.AccessProfile) string {
 
 // ListAccessProfiles returns the named access profiles.
 func (s *Store) ListAccessProfiles() ([]model.AccessProfile, error) {
-	rows, err := s.db.Query(`SELECT ` + accessProfileColumns + `
+	rows, err := s.db.Query(`SELECT `+accessProfileColumns+`
 		FROM access_profiles WHERE (? = 0 OR site_id = ?) ORDER BY id`, s.site, s.site)
 	if err != nil {
 		return nil, err

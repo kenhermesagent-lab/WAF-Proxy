@@ -25,7 +25,7 @@ func scanAuthProvider(row interface{ Scan(...any) error }) (*model.AuthProvider,
 
 // ListAuthProviders returns the configured forward-auth providers.
 func (s *Store) ListAuthProviders() ([]model.AuthProvider, error) {
-	rows, err := s.db.Query(`SELECT ` + authProviderColumns + ` FROM auth_providers WHERE (? = 0 OR site_id = ?) ORDER BY name`, s.site, s.site)
+	rows, err := s.db.Query(`SELECT `+authProviderColumns+` FROM auth_providers WHERE (? = 0 OR site_id = ?) ORDER BY name`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}

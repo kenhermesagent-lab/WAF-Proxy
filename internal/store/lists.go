@@ -26,7 +26,7 @@ func scanAccessList(row interface{ Scan(...any) error }) (*model.AccessList, err
 
 // ListAccessLists returns every named blocklist and whitelist.
 func (s *Store) ListAccessLists() ([]model.AccessList, error) {
-	rows, err := s.db.Query(`SELECT ` + accessListColumns + ` FROM access_lists WHERE (? = 0 OR site_id = ?) ORDER BY kind DESC, name`, s.site, s.site)
+	rows, err := s.db.Query(`SELECT `+accessListColumns+` FROM access_lists WHERE (? = 0 OR site_id = ?) ORDER BY kind DESC, name`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}

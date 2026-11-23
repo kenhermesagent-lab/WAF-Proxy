@@ -29,7 +29,7 @@ func scanAgentLink(row interface{ Scan(...any) error }) (*model.AgentLink, error
 
 // ListAgentLinks returns the configured agent webhooks.
 func (s *Store) ListAgentLinks() ([]model.AgentLink, error) {
-	rows, err := s.db.Query(`SELECT ` + agentLinkColumns + ` FROM agent_links WHERE (? = 0 OR site_id = ?) ORDER BY name`, s.site, s.site)
+	rows, err := s.db.Query(`SELECT `+agentLinkColumns+` FROM agent_links WHERE (? = 0 OR site_id = ?) ORDER BY name`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
