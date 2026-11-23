@@ -1,8 +1,10 @@
 # Plan C — Game-server streaming (and HTTP/3 as the follow-on)
 
-Status: **proposed, awaiting approval.** No code until this plan is approved.
-Owner: a second agent, on its own branch, in parallel with Plan A. Window: two
-weeks for the relay; HTTP/3 is the next slice. Releases: **1.63.0**, **1.64.0**.
+Status: **approved 2026-11-23.** Owned by the second agent, which starts at C1.
+Owner: a second agent, on its own branch, in parallel with Plan A. Window: **three
+weeks** for the relay (14.5 task-days), then one review-and-merge pass; HTTP/3 is
+the next slice. Releases: **1.63.0**, **1.64.0**. Build loop: the roadmap's
+[Post-1.60 scale track](../ROADMAP.md).
 Companion plan: [Plan A — fat node](2026-11-23-scale-plan-a-fat-node.md).
 
 ## Why this plan exists
@@ -24,7 +26,7 @@ not gateway-grade**:
   a game panel, mod management, anti-cheat, UDP health checks, and any promise
   of DDoS scrubbing beyond what the kernel and existing L3/L4 bans do.
 
-That boundary is what makes two weeks enough. It also matches what the existing
+That boundary is what makes three weeks enough. It also matches what the existing
 relay already is: a transparent byte pipe that deliberately does not terminate
 TLS, because Plex clients validate `*.plex.direct` names.
 
@@ -315,7 +317,7 @@ The relay must remain "active node only":
 
 ## Task C8 — HTTP/3 and QUIC (next release, 5 days)
 
-Deliberately not in the two-week window. It is the second reason a self-hoster
+Deliberately not in the three-week window. It is the second reason a self-hoster
 keeps another proxy around, and it is a protocol project, not a relay tweak.
 
 - Dependency: `github.com/quic-go/quic-go` (pin; no cgo). `http3.Server` wraps
@@ -383,9 +385,17 @@ game server, so the tests prove mechanics, not a specific game.
 | HTTP/3 scope creep into the relay release | h3 is a separate release with its own gate; 1.63.0 ships without it |
 | Plan A touches the same settings loader | this plan adds keys only; no change to `internal/proxy`, `internal/waf`, `internal/config`, `internal/store` schema or classification |
 
-## Order and commits
+## Order, weeks and commits
+
+| Week | Tasks | Ends with |
+| --- | --- | --- |
+| 1–2 | C1 → C5 (10.5 days) | — |
+| 3 | C6, C7, C9 (4 days) | **1.63.0** committed on the branch |
+| 4 | deslop pass, reviews, one merge to `main` | 1.63.0 on `main`; C8 is next |
 
 C1 → C2 → C3 → C4 → C5 → C6 → C7 → C9 (1.63.0), then C8 → C9 (1.64.0). One
-commit per task. Rebase on `main` after Plan A's releases land; the only shared
+commit per task. The 14.5 task-days are the build, with half a day of slack in
+weeks 1–2; the week-4 pass is the review and merge the roadmap's build loop
+requires. Rebase on `main` after Plan A's releases land; the only shared
 files are `VERSION`, `CHANGELOG.md`, `docs/ROADMAP.md` and `internal/api/server.go`
 (one route block), and each is a one-line conflict by construction.

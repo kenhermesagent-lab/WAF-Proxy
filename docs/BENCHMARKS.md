@@ -53,16 +53,54 @@ second on this CPU before TLS, proxying and event writes. That is adequate for a
 edge, but it is the first stage to profile on a busier host. On real hardware measure with
 your own workload; the microbenchmark is not a capacity guarantee.
 
+## End-to-end proxy pipeline (`cmd/perftool -proxy`)
+
+The real `proxy.Server` — TLS listener, routing, cache and event writer into a throwaway SQLite
+database — in front of an `httptest` upstream, with 200 keep-alive clients over 4 hostnames and a
+1 KiB compressible body per request. Each row is one 30 s run of the command in its first column.
+
+| Run | Requests | rps | p50 | p95 | p99 | Shed | Errors | Peak RSS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `-cache=off` (h1) | 182,540 | 6,080 | 28.9 ms | 76.5 ms | 103.3 ms | 0 | 0 | 317 MiB |
+| `-cache=on` (h1) | 1,651,669 | 54,776 | 3.0 ms | 8.7 ms | 13.5 ms | 0 | 0 | 237 MiB |
+| `-cache=on` (h2) | 1,617,323 | 53,668 | 3.4 ms | 7.2 ms | 10.5 ms | 0 | 0 | 201 MiB |
+| `-cache=on -waf=block` (h1) | 317,465 | 10,574 | 15.2 ms | 47.0 ms | 68.6 ms | 0 | 0 | 181 MiB |
+
+```bash
+go run ./cmd/perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=on -waf=block -record
+```
+
+| Item | Value |
+|---|---|
+| CPU | `AMD EPYC 7003 (Milan)`, 8 vCPU (shared cloud sandbox) |
+| OS / arch | Linux, amd64 |
+| Go | 1.27.4 |
+| Date | 2026-11-23 |
+| Client and proxy | same process, loopback |
+
+What the numbers say, and do not:
+
+- **A cache hit is 9× the uncached path** (54,776 vs 6,080 rps) and **5× the inspected path**
+  (10,574 rps). The gap between the second and third row is the cost of running Coraza on a
+  request the cache could have answered: it is defect 3 of Plan A, measured.
+- Every client shares one loopback source address, so the run raises `dos_rps`/`dos_burst` out of
+  the way. The per-source rate limit has its own tests; it is not what these rows measure.
+- `bytes` in `perf/proxy-*.json` is the body the client received (identity), not the gzip bytes
+  on the wire.
+- One process, no real NIC and no separate client host: this is the pipeline's own ceiling, not a
+  network measurement. `perf/proxy-*.json` carries each run's date and CPU, because a shared
+  sandbox's neighbours change the numbers between runs.
+
 ## Not measured
 
 The plan's Phase 9 list also asked for:
 
-- end-to-end requests/s and added latency with the WAF on vs. off,
-- resident memory at 1k and 5k rps,
 - behaviour of the nftables set at 200k entries,
 - 7-day query latency and database growth.
 
-These need a Docker host with a real client generating traffic. Reproduce them there:
+Requests/s and resident memory now come from `cmd/perftool -proxy` above, which runs the real
+listener in one process. What it cannot show is a separate client host, a real network or a
+container memory limit. Reproduce those on a Docker host:
 
 ```bash
 # On a separate client, against a test proxy:

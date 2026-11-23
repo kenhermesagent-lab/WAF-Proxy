@@ -12,6 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.61.0] — unreleased
+
+### Added
+
+- **A capacity number instead of a guess.** `cmd/perftool -proxy` runs the real proxy — TLS
+  listener, routing, cache and event writer — against stub upstreams with a keep-alive client
+  fan-out, and records requests, rps, p50/p95/p99, shed count and peak RSS per mode in
+  `perf/proxy-*.json`. The first recorded runs are in `docs/BENCHMARKS.md`: on this sandbox the
+  uncached path served 6,080 rps, a cache hit 54,776 rps, and the same hit with the WAF on
+  10,574 rps.
+
 ## [1.60.1] — 2026-11-23
 
 ### Fixed
