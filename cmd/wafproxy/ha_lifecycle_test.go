@@ -42,6 +42,28 @@ func TestHABootOnNeedsTheBootSwitchAndTheSetting(t *testing.T) {
 	}
 }
 
+func TestHABootRoleKeepsAPairedStandbyOutOfService(t *testing.T) {
+	dir := t.TempDir()
+	standby := &ha.Node{NodeID: "node-b", Role: ha.RoleStandby, State: ha.StateStandby, Epoch: 2}
+	if err := ha.Save(dir, standby); err != nil {
+		t.Fatal(err)
+	}
+	got, err := haBootRole(dir, standby, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Active() || got.Role != ha.RoleStandby {
+		t.Fatalf("a paired standby became %+v with HA off", got)
+	}
+	unpaired, err := haBootRole(dir, got, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !unpaired.Active() || unpaired.Role != ha.RoleStandalone {
+		t.Fatalf("an unpaired standby became %+v with HA off", unpaired)
+	}
+}
+
 func TestHARuntimeStartsAndStopsLive(t *testing.T) {
 	dir := t.TempDir()
 	st, err := store.Open(dir)

@@ -10,7 +10,7 @@ import SourceDrawer from "./components/SourceDrawer";
 import AdminsOnline from "./components/AdminsOnline";
 import Icon from "./components/Icon";
 import { Me, SetupStatus, can } from "./types";
-import { NAV, NAV_GROUPS, NAV_UTILITY, href, routeFromHash, type NavItem } from "./nav";
+import { NAV, NAV_GROUPS, NAV_UTILITY, href, navAllowed, routeFromHash, type NavItem } from "./nav";
 import Dashboard from "./pages/Dashboard";
 import Statistics from "./pages/Statistics";
 import Proxies from "./pages/Proxies";
@@ -32,6 +32,39 @@ type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 type Enrolment = { username: string; secret: string; url: string; codes: string[] };
 type ToastTone = "ok" | "error" | "info" | "warn";
 type Toast = { id: number; tone: ToastTone; title: string; message: string };
+type HAInfo = {
+  paired?: boolean; cluster_id?: string; role?: string; state?: string;
+  serving?: boolean; boot_enabled?: boolean; enabled?: boolean; reason?: string;
+};
+
+// The HA page is P7-05; until then a deep link still says which switch is off
+// and shows the node's place in the pair instead of a blank page.
+function HAPage({ me, onOpenSettings }: { me: Me | null; onOpenSettings: () => void }) {
+  const [ha, setHa] = useState<HAInfo | null>(null);
+  useEffect(() => {
+    api.get<HAInfo>("/api/ha").then(setHa).catch(() => undefined);
+  }, [me?.ha_enabled]);
+  return (
+    <div className="card">
+      <div className="section-head">
+        <h2>High availability</h2>
+        <p>{me?.ha_enabled ? "This node's place in the pair." : ha?.reason || "High availability is not enabled on this node."}</p>
+      </div>
+      {!me?.ha_enabled ? (
+        <p className="faint">Two nodes share one service address. Turn it on in Settings → High availability.</p>
+      ) : (
+        <>
+          <div className="bar-row"><div>Role</div><div>{ha?.role ?? "—"}</div></div>
+          <div className="bar-row"><div>State</div><div>{ha?.state ?? "—"}</div></div>
+          <div className="bar-row"><div>Serving</div><div>{ha ? (ha.serving ? "yes" : "no") : "—"}</div></div>
+          <div className="bar-row"><div>Pair</div><div>{ha?.paired ? `paired, cluster ${ha.cluster_id ?? ""}` : "not paired"}</div></div>
+          {ha?.reason ? <p className="faint small-text">{ha.reason}</p> : null}
+        </>
+      )}
+      <button className="secondary" onClick={onOpenSettings}>Open Settings</button>
+    </div>
+  );
+}
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("loading");
@@ -257,8 +290,14 @@ export default function App() {
     );
   }
 
-  const allowed = (n: NavItem) =>
-    (!n.permission || can(me?.permissions, n.permission)) && !(n.hideFor ?? []).includes(me?.role ?? "");
+  const allowed = (n: NavItem) => navAllowed(n, me);
+  // /api/me is the source of the nav, so a saved HA switch has to refresh it
+  // for the item to appear without a reload.
+  const reloadMe = () =>
+    api.get<Me>("/api/me").then((m) => {
+      setCSRF(m.csrf);
+      setMe(m);
+    }).catch(() => undefined);
   const visibleNav = NAV.filter(allowed);
   // The crumb names the page the URL asked for, even when the role cannot read
   // it; the card offers the first page the role can open instead.
@@ -408,7 +447,9 @@ export default function App() {
         </header>
 
         <div className="content">
-          {!pageAllowed ? (
+          {!pageAllowed && page === "ha" && can(me?.permissions, "ha.read") ? (
+            <HAPage me={me} onOpenSettings={() => navigate("settings")} />
+          ) : !pageAllowed ? (
             <div className="card">
               <p style={{ marginTop: 0 }}>Your role does not include this page.</p>
               <button className="primary" onClick={() => navigate(fallback.id)}>Open {fallback.label}</button>
@@ -445,7 +486,8 @@ export default function App() {
                   canShareViews={can(me?.permissions, "traffic.write")}
                 />
               )}
-              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} />}
+              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} onMeChanged={reloadMe} />}
+              {page === "ha" && <HAPage me={me} onOpenSettings={() => navigate("settings")} />}
               {page === "sites" && <SitesPage onError={onError} onOK={onOK} me={me} />}
               {page === "account" && (
                 <Account

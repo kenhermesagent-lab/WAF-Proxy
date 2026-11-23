@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
@@ -99,7 +100,10 @@ func TestHAChangeFiresOnlyWhenTheSwitchMoves(t *testing.T) {
 	srv, _, token, csrf := newObservabilityServer(t)
 	srv.cfg.HAEnabled = true
 	var calls []bool
-	srv.SetHAChange(func(on bool) { calls = append(calls, on) })
+	srv.SetHAChange(func(on bool) error {
+		calls = append(calls, on)
+		return nil
+	})
 	put := func(body string) {
 		t.Helper()
 		if rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", body); rec.Code != http.StatusOK {
@@ -114,6 +118,53 @@ func TestHAChangeFiresOnlyWhenTheSwitchMoves(t *testing.T) {
 
 	if len(calls) != 2 || !calls[0] || calls[1] {
 		t.Fatalf("switch calls = %v, want [true false]", calls)
+	}
+}
+
+func TestHARefusedDisableRollsTheSettingBack(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	srv.cfg.HAEnabled = true
+	settingDrivenHA(srv)
+	srv.SetHAChange(func(on bool) error {
+		if !on {
+			return errors.New("this node is a paired standby; turning high availability off would take it out of service")
+		}
+		return nil
+	})
+	if rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"1"}`); rec.Code != http.StatusOK {
+		t.Fatalf("enable = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"0"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("refused disable = %d, want 409", rec.Code)
+	}
+	if got, _ := st.GetSetting("ha_enabled"); got != "1" {
+		t.Fatalf("ha_enabled after a refused disable = %q, want 1", got)
+	}
+	if !srv.haStatusOf().Enabled {
+		t.Fatal("a refused disable must leave the runtime reported as on")
+	}
+}
+
+func TestHAPairedStandbyReportsWhyItIsOutOfService(t *testing.T) {
+	srv, _, token, csrf := newObservabilityServer(t)
+	srv.cfg.HAEnabled = true
+	srv.SetHAStatus(func() HAStatus {
+		return HAStatus{Enabled: false, Paired: true, Serving: false, Role: "standby", State: "standby"}
+	})
+	rec := haCall(t, srv, token, csrf, http.MethodGet, "/api/ha", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/ha = %d", rec.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["serving"] != false {
+		t.Fatalf("serving = %v, want false", body["serving"])
+	}
+	if reason, _ := body["reason"].(string); !strings.Contains(reason, "paired standby") {
+		t.Fatalf("reason = %q, want it to explain the paired standby", reason)
 	}
 }
 

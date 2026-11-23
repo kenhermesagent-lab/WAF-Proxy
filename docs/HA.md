@@ -16,10 +16,11 @@
 > and a fence command. Everything is gated by `WAFPROXY_HA_ENABLE` (off by
 > default), so a single-node install behaves as it did before. The partition
 > simulator (P6-07) and the guarded HA API (P7-01, including `GET /api/ha`) are
-> built, and the `ha_enabled` host-wide switch starts and stops the HA loops live
-> and appears in Settings (P7-02, P7-03). The HA page and its tests (P7-04 to
-> P7-06) and the two-VM lab gates are not, so sections that describe them state
-> the intended end state. `docs/HA-BUILD.md`
+> built, the `ha_enabled` host-wide switch starts and stops the HA loops live and
+> appears in Settings (P7-02, P7-03), and the nav item is gated on it (P7-04).
+> The HA page itself and its tests (P7-05, P7-06) and the two-VM lab gates are
+> not, so sections that describe them state the intended end state.
+> `docs/HA-BUILD.md`
 > carries the per-task status and the known gaps.
 >
 > The document is written so an operator can read the runbooks as the intended
@@ -1445,16 +1446,15 @@ Rules:
   no loops exist and the switch is disabled with that reason; `1` or unset lets the stored
   setting decide. `GET /api/me.ha_enabled` and `GET /api/ha.enabled` report the
   **effective** value, so the console never links to a page that would 404.
-- Enabling does nothing else. No listener, no replication, no keepalived change. It makes
-  `POST /api/ha/pair` and `/api/ha/join` legal, shows the nav entry and page, and lets the
-  role machine initialise at the next boot. The confirmation toast says exactly that and
-  links to the page.
-- Disabling stops the HA manager, closes the HA listener and returns the node to the
-  single-node state. With a live pair it is refused until the operator types the cluster
-  id, because the peer keeps its copy and its keepalived instance. The confirmation lists
-  the manual steps — remove the VIP or stop keepalived on the peer, expect the peer to keep
-  serving a frozen copy, then unpair or wipe it — and the console calls
-  `POST /api/ha/unpair` before saving `ha_enabled=0`.
+- Enabling starts the HA loops in the running process: the control socket, the failover
+  watcher, replication on a standby and the witness lease on an active, plus outbox capture.
+  No listener moves and no keepalived change happens, so traffic is untouched until a move.
+  It also makes `POST /api/ha/pair` and `/api/ha/join` legal and shows the nav entry and page.
+- Disabling stops those loops and closes the HA listener. An active node keeps serving, and
+  an unpaired node returns to the single-node state, but a **paired standby is refused**: it
+  is out of service by design, and starting it would give the pair two writers. The refusal
+  answers 409 with the reason and the setting is rolled back, so `GET /api/ha` keeps
+  reporting `serving: false` and the reason says the node is a paired standby.
 - Audit: `settings.update` already records changed keys; add explicit `ha.enable` and
   `ha.disable` rows with the acting administrator and source IP, because this switch
   changes who can move the service address.

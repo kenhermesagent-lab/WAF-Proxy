@@ -425,20 +425,24 @@ func run() error {
 		log.Info("sealed certificate private keys", "count", n)
 	}
 	// The stored host-wide switch decides whether this boot runs HA. Missing
-	// means off, and a leftover standby must serve as a single node rather than
-	// answer traffic with none of the active loops running.
+	// means off, and a leftover standby without a pair must serve as a single
+	// node rather than answer traffic with none of the active loops running. A
+	// paired standby is different: it is the backup, so it stays a standby and
+	// stays out of service, or the pair would have two writers.
 	haOn := haBootOn(cfg, st)
-	if !haOn {
-		if n, err := ha.MakeStandalone(cfg.DataDir, node); err != nil {
-			log.Warn("could not normalise the role while HA is off", "err", err)
-		} else {
-			node = n
-		}
+	pair, pairErr := ha.LoadPair(cfg.DataDir)
+	if pairErr != nil {
+		log.Warn("could not read the HA pair", "err", pairErr)
 	}
-	startActive := !haOn || node.Active()
+	if n, err := haBootRole(cfg.DataDir, node, pair != nil, haOn); err != nil {
+		log.Warn("could not normalise the role while HA is off", "err", err)
+	} else {
+		node = n
+	}
+	startActive := node.Active()
 	if cfg.HAEnabled {
 		log.Info("high availability", "boot_switch", cfg.HAEnabled, "enabled", haOn,
-			"role", node.Role, "active_work", startActive)
+			"paired", pair != nil, "role", node.Role, "active_work", startActive)
 	}
 	// The pairing identity exists as soon as HA is enabled. An active node
 	// captures every streamed change into the outbox; a standby writes none and
@@ -845,7 +849,7 @@ func run() error {
 		enabled := cfg.HAEnabled && haSettingOn(st)
 		status := api.HAStatus{
 			Enabled: enabled, Role: string(n.Role), State: string(state),
-			Serving: !enabled || ha.Serving(state), Epoch: n.Epoch, Peer: n.Peer,
+			Serving: ha.Serving(state), Epoch: n.Epoch, Peer: n.Peer,
 			Reason: n.Reason,
 		}
 		if pair != nil {
@@ -1018,8 +1022,10 @@ func run() error {
 
 	plane := newDataPlane(ctx, px, streams, cfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
 	defer plane.Close()
-	if haOn && !node.Active() {
-		// Hold the service address without accepting. IP_FREEBIND lets this
+	if !node.Active() {
+		// Hold the service address without accepting. A paired standby stays
+		// here even when HA is off, so turning it off cannot put two nodes on
+		// the address. IP_FREEBIND lets this
 		// succeed before the address has moved to this node, so a promotion
 		// does not wait for a bind.
 		if err := plane.Prebind(ctx); err != nil {
@@ -1040,18 +1046,29 @@ func run() error {
 			autoFailover: cfg.HAAutoFailover, log: log,
 		}
 		if haOn {
-			rt.Start()
+			if err := rt.Start(); err != nil {
+				log.Error("high availability did not start", "err", err)
+			}
 		}
 		// The write gate stays installed: quiesce is only set during a move.
 		apiServer.SetWriteGate(haQuiesce.Active)
 		apiServer.SetHAOps(haControl{dir: cfg.DataDir, st: st, fallback: cfg.HAMaxFailovers, rt: rt})
 		// The settings route flips the loops live; the data plane is untouched.
-		apiServer.SetHAChange(func(on bool) {
+		// Turning HA off on a paired standby is refused: it is out of service by
+		// design, and starting it here would give the pair two writers.
+		apiServer.SetHAChange(func(on bool) error {
 			if on {
-				rt.Start()
-			} else {
-				rt.Stop()
+				return rt.Start()
 			}
+			n, err := ha.Load(cfg.DataDir)
+			if err != nil {
+				return nil
+			}
+			if p, err := ha.LoadPair(cfg.DataDir); err == nil && p != nil && !n.Active() {
+				return errors.New("this node is a paired standby; turning high availability off would take it out of service. Move the service to this node or unpair it first")
+			}
+			rt.Stop()
+			return nil
 		})
 	}
 

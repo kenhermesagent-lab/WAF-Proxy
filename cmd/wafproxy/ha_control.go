@@ -18,6 +18,16 @@ func haBootOn(cfg *config.Config, st *store.Store) bool {
 	return cfg.HAEnabled && haSettingOn(st)
 }
 
+// haBootRole decides the role this boot runs with. A paired node keeps its role
+// even while HA is off, so a standby stays out of service; an unpaired leftover
+// standby becomes a single node and serves again.
+func haBootRole(dir string, node *ha.Node, paired, haOn bool) (*ha.Node, error) {
+	if haOn || paired {
+		return node, nil
+	}
+	return ha.MakeStandalone(dir, node)
+}
+
 // flapBudget is the console-set budget when there is one, else the environment
 // default. The setting is host-wide; a per-site copy is ignored.
 func flapBudget(st *store.Store, fallback int) int {

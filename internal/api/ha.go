@@ -44,8 +44,9 @@ type HAEvent struct {
 func (s *Server) SetHAOps(o HAOps) { s.haOps = o }
 
 // SetHAChange installs the live switch the settings route calls after saving
-// ha_enabled, so turning HA off stops its loops instead of only hiding it.
-func (s *Server) SetHAChange(fn func(bool)) { s.haChange = fn }
+// ha_enabled, so turning HA off stops its loops instead of only hiding it. A
+// refused change rolls the setting back and answers 409.
+func (s *Server) SetHAChange(fn func(bool) error) { s.haChange = fn }
 
 // haStatusOf reads the live role, falling back to standalone when HA is off.
 func (s *Server) haStatusOf() HAStatus {
@@ -88,9 +89,12 @@ func (s *Server) haRoute(w http.ResponseWriter, r *http.Request) {
 		canWrite = sess.Can(rbac.Permission("ha", "write"))
 	}
 	reason := st.Reason
-	if !s.cfg.HAEnabled {
+	switch {
+	case !st.Enabled && st.Paired && !st.Serving:
+		reason = "this node is a paired standby; it stays out of service while high availability is off"
+	case !s.cfg.HAEnabled:
 		reason = "this host booted with WAFPROXY_HA_ENABLE=0"
-	} else if !st.Enabled {
+	case !st.Enabled:
 		reason = "high availability is turned off in Settings"
 	}
 	body := map[string]any{

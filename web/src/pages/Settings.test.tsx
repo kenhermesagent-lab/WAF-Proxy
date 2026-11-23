@@ -123,6 +123,27 @@ describe("Settings configuration transport", () => {
     expect((put.mock.calls[0][1] as Record<string, string>).ha_enabled).toBe("1");
   });
 
+  it("refreshes the HA help and the nav after saving", async () => {
+    let haCalls = 0;
+    const base = get.getMockImplementation();
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/ha") {
+        haCalls++;
+        return haCalls === 1
+          ? { enabled: false, boot_enabled: true }
+          : { enabled: true, boot_enabled: true, paired: false };
+      }
+      return base ? base(path) : {};
+    });
+    const onMeChanged = vi.fn();
+    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} onMeChanged={onMeChanged} />);
+    const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByText("Save settings"));
+    await screen.findByText(/not paired yet/);
+    expect(onMeChanged).toHaveBeenCalledTimes(1);
+  });
+
   it("says the boot switch is in the way and disables the toggle", async () => {
     mockHA({ enabled: false, boot_enabled: false, paired: false, reason: "this host booted with WAFPROXY_HA_ENABLE=0" });
     renderPage();

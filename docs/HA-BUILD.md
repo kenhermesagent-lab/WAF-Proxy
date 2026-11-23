@@ -53,8 +53,9 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P6-05 higher-epoch demotion | landed, lab pending | a heartbeat with a higher epoch makes the active stop serving into `split-brain-risk`; it follows the peer again only after `Reconcile` adopts the peer's epoch |
 | P6-06 guards and flap control | landed | `internal/ha/flap.go`; the fourth automatic move in an hour parks the node with a reason `ha status` shows, and only a manual move clears it |
 | P6-07 partition simulator | landed | `internal/ha/sim_test.go`: the partition matrix plus 200 randomized partitions on a fake clock; every tick asserts at most one live active and every promotion carried an unexpired lease for its own epoch |
-| P7-02 `ha_enabled` backend | landed | `ha_enabled` is host-wide (`publicSettingKeys`, `hostSettingKeys`), accepts only `0`/`1`, is audited as `ha.enable`/`ha.disable`, and the effective value is read per request for `/api/me` and `/api/ha`; saving it starts or stops the HA loops live, and a boot with it off serves as a single node |
-| P7-03 Settings toggle | landed | `web/src/pages/Settings.tsx`: a High availability section between Retention and Backup, one switch saved by the page's SaveBar, help text that distinguishes env-locked, unpaired and paired, read-only for site consoles and `host_admin` |
+| P7-02 `ha_enabled` backend | landed | `ha_enabled` is host-wide (`publicSettingKeys`, `hostSettingKeys`), accepts only `0`/`1`, is audited as `ha.enable`/`ha.disable`, and the effective value is read per request for `/api/me` and `/api/ha`; saving it starts or stops the HA loops live. An unpaired node with it off serves as a single node; a paired standby stays out of service and a live disable is refused |
+| P7-03 Settings toggle | landed | `web/src/pages/Settings.tsx`: a High availability section between Retention and Backup, one switch saved by the page's SaveBar, help text that distinguishes env-locked, unpaired and paired, read-only for site consoles and `host_admin`, refreshed after every save |
+| P7-04 nav rule and fallback | landed | `navAllowed` in `web/src/nav.ts` honours `requires: "ha_enabled"`; the System item appears once `/api/me` says on (Settings refetches it after saving); `#/ha` renders a status card with the `/api/ha` reason until P7-05 |
 | P7-01 HA API | landed | `internal/api/ha.go`: `GET /api/ha`, `GET /api/ha/events`, `GET /api/ha/diagnostics`, `PUT /api/ha/config`, `POST /api/ha/{pair,join,sync,failover,failback,unpair,notify}`; `ha.read`/`ha.write`, fresh re-authentication, cluster id on failover and unpair, 409 while disabled; the events list is process-local |
 
 **Replication boundary.** Configuration still travels as a whole snapshot, once
@@ -762,6 +763,10 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
   A boot with the setting off behaves as a true single node: `/api/ha` reports why, no HA
   listener, identity capture, witness or control socket exists, and a leftover standby role
   is rewritten to standalone so the active loops run.
+- Safety: a **paired** standby is never rewritten to standalone and never serves while
+  HA is off — it prebinds the address and `/api/ha` says `serving: false` with a reason.
+  A live disable on that node is refused with 409 (the setting is rolled back), because
+  starting it would give the pair two writers. Live enable starts the loops, not traffic.
 - Not built: nothing in this task; the nav rule is P7-04.
 
 - Files: `internal/api/server.go` (`publicSettingKeys`, `putSettings`, `/api/me`),
@@ -786,7 +791,13 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 - Done: the switch appears directly above Backup, saves with the page, and its help text
   reflects paired/unpaired/env-locked.
 
-### P7-04 Nav rule, fallback card and banner wiring — S, 1 day
+### P7-04 Nav rule, fallback card and banner wiring — S, 1 day — built
+
+- Built: `navAllowed` in `nav.ts` is the single visibility rule for the sidebar and a deep
+  link (`permission`, `hideFor`, `requires`). The System item appears after enabling without
+  a reload because Settings calls `onMeChanged` and App refetches `/api/me`. `#/ha` renders
+  a small read-only card (role, state, serving, pair, reason) that P7-05 replaces.
+- Not built: the full page and the standby banner (no banner exists yet).
 
 - Files: `web/src/nav.ts`, `web/src/App.tsx`, `web/src/nav.test.tsx`, `web/src/types.ts`.
 - Change: `requires?: "ha_enabled"` on `NavItem`, `allowed()` check, System item, reason-aware

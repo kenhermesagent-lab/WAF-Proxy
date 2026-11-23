@@ -1,5 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { NAV, href, routeFromHash } from "./nav";
+import { NAV, href, navAllowed, routeFromHash } from "./nav";
+import type { Me } from "./types";
+
+const asMe = (fields: Partial<Me>) => fields as unknown as Me;
+
+describe("navAllowed", () => {
+  const ha = NAV.find((n) => n.id === "ha");
+  if (!ha) throw new Error("the HA item is missing from NAV");
+
+  it("hides high availability until the switch is on", () => {
+    expect(navAllowed(ha, asMe({ permissions: ["ha.read"], role: "administrator", ha_enabled: false }))).toBe(false);
+    expect(navAllowed(ha, asMe({ permissions: ["ha.read"], role: "administrator", ha_enabled: true }))).toBe(true);
+  });
+
+  it("still needs the permission and hides it from a host admin", () => {
+    expect(navAllowed(ha, asMe({ permissions: [], role: "viewer", ha_enabled: true }))).toBe(false);
+    expect(navAllowed(ha, asMe({ permissions: ["ha.read"], role: "host_admin", ha_enabled: true }))).toBe(false);
+  });
+
+  it("leaves other items alone", () => {
+    const dashboard = NAV.find((n) => n.id === "dashboard");
+    if (!dashboard) throw new Error("the dashboard item is missing");
+    expect(navAllowed(dashboard, asMe({ permissions: ["dashboard.read"], role: "viewer" }))).toBe(true);
+  });
+});
 
 describe("routeFromHash", () => {
   it("maps a canonical page hash to its page and default tab", () => {

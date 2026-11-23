@@ -101,8 +101,9 @@ type Server struct {
 	// haOps runs the HA mutations; nil means the routes answer 409. haMu and
 	// haLog keep the process-local action history the page shows.
 	haOps HAOps
-	// haChange starts or stops the HA loops after the switch is saved.
-	haChange func(bool)
+	// haChange starts or stops the HA loops after the switch is saved. It can
+	// refuse, and the save is then rolled back.
+	haChange func(bool) error
 	haMu     sync.Mutex
 	haLog    []HAEvent
 
@@ -1283,6 +1284,20 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot save settings")
 		return
 	}
+	changedHA, haOn := false, false
+	if v, ok := next["ha_enabled"]; ok && v != previousHA {
+		changedHA, haOn = true, v == "1"
+		if s.haChange != nil {
+			if err := s.haChange(haOn); err != nil {
+				// The switch is refused as a whole, so put back what was there.
+				if rerr := s.db(r).SetSettings(map[string]string{"ha_enabled": previousHA}); rerr != nil {
+					s.log.Error("cannot restore ha_enabled after refusing the change", "err", rerr)
+				}
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
+		}
+	}
 	if _, ok := next["admin_allow_cidrs"]; ok {
 		if err := s.loadAdminAllowlist(); err != nil {
 			s.log.Error("reload admin allowlist", "err", err)
@@ -1309,17 +1324,14 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "settings.update", strings.Join(keys(next), ","), clientIP(r))
-	if v, ok := next["ha_enabled"]; ok && v != previousHA {
+	if changedHA {
 		// This switch changes who can move the service address, so it gets its
 		// own audit row rather than a phrase inside settings.update.
 		action := "ha.enable"
-		if v == "0" {
+		if !haOn {
 			action = "ha.disable"
 		}
 		s.db(r).AddAudit(sess.Username, action, "", clientIP(r))
-		if s.haChange != nil {
-			s.haChange(v == "1")
-		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

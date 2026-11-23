@@ -37,11 +37,13 @@ const SECTIONS = [
   { id: "about", label: "About" },
 ];
 
-export default function SettingsPage({ onError, onOK, version = "", me }: {
+export default function SettingsPage({ onError, onOK, version = "", me, onMeChanged }: {
   onError: (m: string) => void;
   onOK: (m: string) => void;
   version?: string;
   me?: Me | null;
+  // Called after a save that changes the HA switch, so the nav follows /api/me.
+  onMeChanged?: () => void;
 }) {
   const [s, setS] = useState<Settings>({});
   const [saved, setSaved] = useState<Settings>({});
@@ -76,6 +78,7 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
       })
       .catch((e) => onError(errText(e)));
 
+  const loadHA = () => api.get<HAInfo>("/api/ha").then(setHaInfo).catch(() => setHaInfo(null));
   const loadGeo = () => api.get<GeoIPStatus>("/api/geoip").then(setGeo).catch(() => undefined);
   const loadAudit = () =>
     api.get<AuditEntry[]>("/api/audit").then((r) => setAudit((r || []).slice(0, 20))).catch(() => undefined);
@@ -90,7 +93,7 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
 
   useEffect(() => {
     load();
-    api.get<HAInfo>("/api/ha").then(setHaInfo).catch(() => setHaInfo(null));
+    loadHA();
     api.get<CrowdSecStatus>("/api/crowdsec/status").then(setCs).catch(() => undefined);
     loadGeo();
     loadAudit();
@@ -214,10 +217,15 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
   const save = async () => {
     setSaving(true);
     try {
-      await api.put("/api/settings", siteEditable(s));
+      const posted = siteEditable(s);
+      await api.put("/api/settings", posted);
       onOK("Settings saved");
       setSaved(editable(s));
       load();
+      // The help text depends on the server's view of the switch, and the nav
+      // depends on /api/me, so both are refreshed instead of guessed at.
+      loadHA();
+      if (posted.ha_enabled !== saved.ha_enabled) onMeChanged?.();
     } catch (e) {
       onError(errText(e));
     } finally {

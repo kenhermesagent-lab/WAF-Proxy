@@ -76,24 +76,22 @@ func (h *haRuntime) manager() *ha.Manager {
 
 // Start brings up the HA loops this role needs. It is idempotent, and it does
 // not touch the data plane: turning HA on does not start or stop traffic.
-func (h *haRuntime) Start() {
+func (h *haRuntime) Start() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.started {
-		return
+		return nil
 	}
 	if h.ident == nil {
 		ident, err := ha.LoadOrCreateIdentity(h.dir)
 		if err != nil {
-			h.log.Error("ha identity", "err", err)
-			return
+			return err
 		}
 		h.ident = ident
 	}
 	node, err := ha.Load(h.dir)
 	if err != nil {
-		h.log.Error("ha role", "err", err)
-		return
+		return err
 	}
 	life, stop := context.WithCancel(h.root)
 	h.stopLife, h.started = stop, true
@@ -123,6 +121,7 @@ func (h *haRuntime) Start() {
 		h.startAuto(life)
 	}
 	h.log.Info("high availability started", "role", node.Role)
+	return nil
 }
 
 // Stop takes the HA loops down and leaves the node serving on its own. A
