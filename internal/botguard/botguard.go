@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -120,8 +121,8 @@ func (g *Guard) validCookie(value string, r *http.Request, ip string) bool {
 
 func clientKey(r *http.Request, ip string) string {
 	host := r.Host
-	if i := strings.IndexByte(host, ':'); i > 0 {
-		host = host[:i]
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
 	}
 	return host + "|" + r.UserAgent() + "|" + clientNetwork(ip)
 }

@@ -72,6 +72,21 @@ func TestChallengeCookieIsBoundToTheClientNetwork(t *testing.T) {
 	}
 }
 
+// Stripping the port at the first colon cut an IPv6 Host header down to "[2001",
+// so two unrelated IPv6 sites shared a binding and a cookie solved on one was
+// accepted by the other.
+func TestChallengeCookieKeepsIPv6HostsApart(t *testing.T) {
+	g := New([]byte("test secret"), nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	c := solvedCookie(t, g, "[2001:db8::1]:443", "Mozilla/5.0", "203.0.113.7")
+
+	if !g.Verified(checkCookie(c, "[2001:db8::1]:443", "Mozilla/5.0"), "203.0.113.7") {
+		t.Fatal("the issuing host was rejected")
+	}
+	if g.Verified(checkCookie(c, "[2001:db8::2]:443", "Mozilla/5.0"), "203.0.113.7") {
+		t.Fatal("a cookie solved on one IPv6 host worked on another")
+	}
+}
+
 // IPv6 clients rotate addresses inside their /64 constantly, so that block is
 // the unit the cookie follows.
 func TestChallengeCookieFollowsAnIPv6Slash64(t *testing.T) {

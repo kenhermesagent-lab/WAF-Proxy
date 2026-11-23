@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.36.1] — 2026-11-23
+
+### Fixed
+
+- **Bot challenge on IPv6 sites.** The challenge cookie is signed over the site's host name, and the
+  port was stripped at the first colon, so a `Host` header such as `[2001:db8::1]:443` was reduced to
+  `[2001`. Every host name starting with those characters shared one binding, and a challenge solved
+  on one site was accepted by another from the same client network. The port is now split with the
+  standard host/port parser, and a regression test keeps two IPv6 sites apart.
+
 ## [1.36.0] — 2026-11-22
 
 ### Added
