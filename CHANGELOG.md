@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.1] — 2026-11-23
+
+### Changed
+
+- `make test` runs `go run ./tools/openapi -check` first, and CI has the same step, so a
+  route change without a regenerated `docs/openapi.yaml` fails the build instead of
+  waiting for someone to read the diff.
+
 ## [1.47.0] — 2026-11-23
 
 ### Added
