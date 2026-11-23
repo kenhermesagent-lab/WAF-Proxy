@@ -47,8 +47,10 @@ its test exists and `go test ./...` passes; everything else is untouched.
 | P5-05 drain and rejoin | code landed, lab pending | standby pre-binds with `IP_FREEBIND` and serves nothing; `dataPlane.Drain` closes listeners and forwarders |
 | P5-06 failback | landed | `Demote`, `ha failback`; an abort is refused once the data plane serves |
 | P6-01 heartbeat | landed | `/ha/ping` on the pinned link, `internal/ha/heartbeat.go`; two lost beats change nothing, the third trips, recovery resets |
-| P6-02 witness and lease | partial | `internal/ha/witness.go`, `wafproxy ha witness --listen`; the active renews every 3 s and self-demotes after the 10 s TTL; no automatic promotion yet |
-| P6-03 to P6-07 | not started | fencing command, automatic gate, epoch demotion, flap control, partition simulator |
+| P6-02 witness and lease | landed | `internal/ha/witness.go`, `wafproxy ha witness --listen`; the active renews every 3 s and self-demotes after the 10 s TTL |
+| P6-03 fencing hook | landed | `internal/ha/fence.go`; `{peer}` is shell-quoted, a timeout kills the whole process group, exit 0 means down |
+| P6-04 automatic gate | landed, lab pending | `internal/ha/auto.go`; heartbeat + witness + fence evidence, the automatic sequence skips a dead peer and renews the lease before Serve; `WAFPROXY_HA_AUTO_FAILOVER` requires both witness and fence |
+| P6-05 to P6-07 | not started | higher-epoch demotion, flap control, partition simulator |
 
 **Replication boundary.** Configuration still travels as a whole snapshot, once
 immediately after pairing and every 30 s after that (P3-04's debounce replaces the
@@ -638,13 +640,17 @@ replication stays, the operator returns to manual stop/start.
 
 **Entry:** P5 merged. **Exit:** P6 gate.
 
-**Build note (started, dark).** P6-01 and P6-02's library halves are built: `/ha/ping` on
-the pinned link, a monitor that treats the third lost beat as a decision, and a witness
-with one 10 s lease, a 3 s renewal and a bearer token. The active renews through it and
-demotes itself after the TTL, so a node that cannot prove it still holds the lease stops
-writing. Nothing promotes automatically yet: the heartbeat is not consumed by a move, and
-fencing, the automatic gate, higher-epoch demotion, flap control and the partition
-simulator are P6-03 to P6-07.
+**Build note (started, dark).** P6-01 to P6-04 are built. `/ha/ping` feeds a monitor
+where the third lost beat is the decision; the witness grants one 10 s lease, renewed
+every 3 s, and an active that cannot renew demotes itself after the TTL. Fencing runs the
+operator's command with the peer quoted and kills its process group on timeout. The
+automatic gate needs the peer down, a live baseline heartbeat, this node's lease for the
+next epoch, a successful fence, matching last-known schema and protocol, and the local
+database, disk, certificate and in-flight-write checks; the move then skips quiesce and
+drain and renews the lease once more before Serve. It is enabled only by
+`WAFPROXY_HA_AUTO_FAILOVER`, which refuses to load without both the witness and the fence
+command. Higher-epoch demotion, flap control and the partition simulator are P6-05 to
+P6-07.
 
 ### P6-01 Heartbeat — M, 2 days
 

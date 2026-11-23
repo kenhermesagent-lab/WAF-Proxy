@@ -82,6 +82,12 @@ type Config struct {
 	// HAWitnessToken authenticates the active to the witness. It is required
 	// with HAWitness: an open witness grants two actives.
 	HAWitnessToken string
+	// HAAutoFailover lets a standby promote itself when the heartbeat, the
+	// witness lease and the fence command all agree. Off by default.
+	HAAutoFailover bool
+	// HAFenceCommand runs on the local node before an automatic promotion, with
+	// {peer} substituted. Exit 0 means the peer is down.
+	HAFenceCommand string
 }
 
 // Load reads configuration from the environment, applying safe defaults.
@@ -116,6 +122,8 @@ func Load() (*Config, error) {
 		HALinkListen:          strings.TrimSpace(os.Getenv("WAFPROXY_HA_LINK_LISTEN")),
 		HAWitness:             strings.TrimSpace(os.Getenv("WAFPROXY_HA_WITNESS")),
 		HAWitnessToken:        strings.TrimSpace(os.Getenv("WAFPROXY_HA_WITNESS_TOKEN")),
+		HAAutoFailover:        envBoolOr("WAFPROXY_HA_AUTO_FAILOVER", false),
+		HAFenceCommand:        strings.TrimSpace(os.Getenv("WAFPROXY_HA_FENCE_COMMAND")),
 	}
 	if c.HAEnabled && c.HAMgmtListen == "" {
 		return nil, errors.New("WAFPROXY_HA_MGMT_LISTEN is required when WAFPROXY_HA_ENABLE=1")
@@ -125,6 +133,17 @@ func Load() (*Config, error) {
 	}
 	if c.HAWitnessToken != "" && len(c.HAWitnessToken) < 32 {
 		return nil, errors.New("WAFPROXY_HA_WITNESS_TOKEN must be at least 32 characters")
+	}
+	if c.HAAutoFailover {
+		if !c.HAEnabled {
+			return nil, errors.New("WAFPROXY_HA_AUTO_FAILOVER needs WAFPROXY_HA_ENABLE=1")
+		}
+		if c.HAWitness == "" {
+			return nil, errors.New("WAFPROXY_HA_AUTO_FAILOVER needs WAFPROXY_HA_WITNESS: a promotion without a lease is unsafe")
+		}
+		if c.HAFenceCommand == "" {
+			return nil, errors.New("WAFPROXY_HA_AUTO_FAILOVER needs WAFPROXY_HA_FENCE_COMMAND: a promotion without a fence is unsafe")
+		}
 	}
 	if c.ListenGUITLS && c.GUIHost == "" {
 		return nil, errors.New("WAFPROXY_GUI_HOST is required when WAFPROXY_LISTEN_GUI_TLS is set")

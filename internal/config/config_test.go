@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestIsLocalAddress(t *testing.T) {
 	cases := []struct {
@@ -20,6 +23,29 @@ func TestIsLocalAddress(t *testing.T) {
 		if got := IsLocalAddress(tc.addr); got != tc.want {
 			t.Errorf("IsLocalAddress(%q) = %v, want %v", tc.addr, got, tc.want)
 		}
+	}
+}
+
+func TestLoadRefusesAnUnsafeAutomaticFailover(t *testing.T) {
+	t.Setenv("WAFPROXY_DATA_DIR", t.TempDir())
+	t.Setenv("WAFPROXY_HA_ENABLE", "1")
+	t.Setenv("WAFPROXY_HA_MGMT_LISTEN", "127.0.0.1:8443")
+	t.Setenv("WAFPROXY_HA_AUTO_FAILOVER", "1")
+	if _, err := Load(); err == nil {
+		t.Fatal("automatic failover loaded without a witness")
+	}
+	t.Setenv("WAFPROXY_HA_WITNESS", "http://10.0.0.12:9444")
+	t.Setenv("WAFPROXY_HA_WITNESS_TOKEN", strings.Repeat("a", 32))
+	if _, err := Load(); err == nil {
+		t.Fatal("automatic failover loaded without a fence command")
+	}
+	t.Setenv("WAFPROXY_HA_FENCE_COMMAND", "ipmitool power off {peer}")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("a complete automatic setup was refused: %v", err)
+	}
+	if !cfg.HAAutoFailover || cfg.HAFenceCommand == "" {
+		t.Fatalf("automatic config = %+v", cfg)
 	}
 }
 

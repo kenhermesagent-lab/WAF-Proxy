@@ -48,6 +48,17 @@ func NewManager(dataDir string, hooks Hooks) *Manager {
 
 // Failover promotes this standby, or explains why it refused.
 func (m *Manager) Failover(ctx context.Context, opts MoveOptions) (Result, error) {
+	return m.failover(ctx, PromoteOptions{Force: opts.Force, DryRun: opts.DryRun}, nil)
+}
+
+// FailoverAuto runs an unattended promotion with the gate's evidence. It shares
+// the manager's lock with a manual move, so an operator and the heartbeat can
+// never start two sequences at once.
+func (m *Manager) FailoverAuto(ctx context.Context, in AutoInput) (Result, error) {
+	return m.failover(ctx, PromoteOptions{Auto: true}, &in)
+}
+
+func (m *Manager) failover(ctx context.Context, opts PromoteOptions, autoIn *AutoInput) (Result, error) {
 	m.mu.Lock()
 	if m.running {
 		m.mu.Unlock()
@@ -75,8 +86,11 @@ func (m *Manager) Failover(ctx context.Context, opts MoveOptions) (Result, error
 			return nil
 		}
 	}
+	if autoIn != nil {
+		hooks.AutoChecks = func(context.Context) (AutoInput, error) { return *autoIn, nil }
+	}
 
-	res, err := Promote(runCtx, m.dataDir, hooks, opts.Force, opts.DryRun)
+	res, err := PromoteWith(runCtx, m.dataDir, hooks, opts)
 	cancel()
 
 	m.mu.Lock()

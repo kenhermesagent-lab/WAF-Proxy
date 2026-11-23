@@ -8,18 +8,22 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
 // PeerPing is the heartbeat's answer. It carries the facts a promotion gate
 // needs to tell a live peer from a wedged one, over the same pinned link as
 // replication.
 type PeerPing struct {
-	OK    bool   `json:"ok"`
-	Node  string `json:"node"`
-	Role  Role   `json:"role"`
-	State State  `json:"state"`
-	Epoch int64  `json:"epoch"`
-	Time  string `json:"time"`
+	OK       bool   `json:"ok"`
+	Node     string `json:"node"`
+	Role     Role   `json:"role"`
+	State    State  `json:"state"`
+	Epoch    int64  `json:"epoch"`
+	Schema   string `json:"schema"`
+	Protocol int    `json:"protocol"`
+	Time     string `json:"time"`
 }
 
 // pingNode answers the peer's heartbeat.
@@ -31,7 +35,8 @@ func (s *JoinServer) pingNode(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJoinJSON(w, http.StatusOK, PeerPing{
 		OK: true, Node: s.id.Node, Role: node.Role, State: node.EffectiveState(),
-		Epoch: node.Epoch, Time: time.Now().UTC().Format(time.RFC3339Nano),
+		Epoch: node.Epoch, Schema: store.SchemaVersion(), Protocol: ProtocolVersion,
+		Time: time.Now().UTC().Format(time.RFC3339Nano),
 	})
 }
 

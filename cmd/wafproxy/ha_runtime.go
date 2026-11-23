@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/api"
@@ -32,7 +34,12 @@ type haRuntime struct {
 	// witness is nil unless a lease authority is configured.
 	witness     *ha.WitnessClient
 	leaseCancel context.CancelFunc
-	log         *slog.Logger
+	// auto is nil unless unattended promotion is enabled. autoCtx is the
+	// process context the watcher lives on, so a demoted node can resume it.
+	auto    *ha.AutoPromoter
+	autoCtx context.Context
+	fence   string
+	log     *slog.Logger
 }
 
 // serveControl exposes the move commands on the local Unix socket. Nothing here
@@ -59,11 +66,108 @@ func (h *haRuntime) hooks() ha.Hooks {
 			h.bans.Reconcile()
 			return nil
 		},
-		Serve:            h.serveDataPlane,
-		DemotePlane:      h.demoteDataPlane,
-		StopReplication:  h.repl.Stop,
-		StartReplication: h.repl.Start,
-		OnRollback:       h.repl.Start,
+		Serve:           h.serveDataPlane,
+		DemotePlane:     h.demoteDataPlane,
+		StopReplication: h.repl.Stop,
+		StartReplication: func() {
+			h.repl.Start()
+			// A node that just stepped down is a standby again, so unattended
+			// promotion applies to it too.
+			h.resumeAuto()
+		},
+		OnRollback:   h.repl.Start,
+		RecheckLease: h.recheckLease,
+	}
+}
+
+// recheckLease renews the lease at the epoch that is now on disk, right before
+// the data plane serves.
+func (h *haRuntime) recheckLease(ctx context.Context) error {
+	if h.witness == nil {
+		return errors.New("ha: automatic promotion needs a witness")
+	}
+	node, err := ha.Load(h.dir)
+	if err != nil {
+		return err
+	}
+	_, err = h.witness.Acquire(ctx, node.Epoch)
+	return err
+}
+
+// startAuto watches the peer and promotes when the heartbeat, the witness lease
+// and the fence all agree. It runs on a standby only.
+func (h *haRuntime) startAuto(ctx context.Context) {
+	if h.witness == nil || h.mgr == nil {
+		h.log.Error("automatic failover needs a witness and the move manager; not starting")
+		return
+	}
+	pair, err := ha.LoadPair(h.dir)
+	if err != nil || pair == nil {
+		h.log.Error("automatic failover needs a paired node; not starting")
+		return
+	}
+	var mu sync.Mutex
+	var last ha.PeerPing
+	have := false
+	monitor := ha.NewMonitor(func(ctx context.Context) error {
+		ping, err := ha.PingPeer(ctx, h.dir)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		last, have = ping, true
+		mu.Unlock()
+		return nil
+	})
+	fencer := ha.Fencer{Command: h.fence, Peer: pair.PeerAddr}
+	h.auto = &ha.AutoPromoter{
+		Monitor:    monitor,
+		LocalNode:  h.ident.Node,
+		LocalEpoch: func() int64 { n, _ := ha.Load(h.dir); return n.Epoch },
+		Gather:     h.preflight,
+		Peer:       func() (ha.PeerPing, bool) { mu.Lock(); defer mu.Unlock(); return last, have },
+		Lease:      h.witness.Acquire,
+		Fence:      fencer.Run,
+		Promote:    h.mgr.FailoverAuto,
+	}
+	h.autoCtx = ctx
+	go monitor.Run(ctx)
+	go h.runAuto(ctx)
+}
+
+func (h *haRuntime) resumeAuto() {
+	if h.auto == nil || h.autoCtx == nil {
+		return
+	}
+	go h.runAuto(h.autoCtx)
+}
+
+func (h *haRuntime) runAuto(ctx context.Context) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	lastReason := ""
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if node, err := ha.Load(h.dir); err != nil || node.Active() {
+			return
+		}
+		res, acted, err := h.auto.Step(ctx)
+		if err != nil {
+			if reason := err.Error(); reason != lastReason {
+				h.log.Warn("automatic failover held", "reason", reason)
+				lastReason = reason
+			}
+			continue
+		}
+		lastReason = ""
+		if acted {
+			h.log.Info("automatic failover promoted this node", "epoch", res.Epoch, "steps", len(res.Steps))
+			return
+		}
 	}
 }
 

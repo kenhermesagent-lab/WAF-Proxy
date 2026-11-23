@@ -1017,7 +1017,7 @@ func run() error {
 		rt := &haRuntime{
 			dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
 			plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
-			ident: haIdent, quiesce: haQuiesce, witness: witness, log: log,
+			ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand, log: log,
 		}
 		apiServer.SetWriteGate(haQuiesce.Active)
 		if !node.Active() {
@@ -1029,6 +1029,8 @@ func run() error {
 		}
 		if node.Active() {
 			rt.startLease(ctx, node.Epoch)
+		} else if cfg.HAAutoFailover {
+			rt.startAuto(ctx)
 		}
 	}
 
