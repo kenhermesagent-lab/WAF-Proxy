@@ -431,10 +431,14 @@ func run() error {
 	// stays out of service, or the pair would have two writers.
 	haOn := haBootOn(cfg, st)
 	pair, pairErr := ha.LoadPair(cfg.DataDir)
+	paired := pair != nil
 	if pairErr != nil {
-		log.Warn("could not read the HA pair", "err", pairErr)
+		// An unreadable record is not proof of a single node: while HA is on,
+		// count it as paired so a standby cannot start serving alone.
+		log.Error("could not read the HA pair", "err", pairErr)
+		paired = cfg.HAEnabled
 	}
-	if n, err := haBootRole(cfg.DataDir, node, pair != nil, haOn); err != nil {
+	if n, err := haBootRole(cfg.DataDir, node, paired, haOn); err != nil {
 		log.Warn("could not normalise the role while HA is off", "err", err)
 	} else {
 		node = n
@@ -442,7 +446,7 @@ func run() error {
 	startActive := node.Active()
 	if cfg.HAEnabled {
 		log.Info("high availability", "boot_switch", cfg.HAEnabled, "enabled", haOn,
-			"paired", pair != nil, "role", node.Role, "active_work", startActive)
+			"paired", paired, "role", node.Role, "active_work", startActive)
 	}
 	// The pairing identity exists as soon as HA is enabled. An active node
 	// captures every streamed change into the outbox; a standby writes none and
@@ -1057,24 +1061,7 @@ func run() error {
 		// Turning HA off on a paired standby is refused: it is out of service by
 		// design, and starting it here would give the pair two writers.
 		apiServer.SetHAChange(func(on bool, confirm string) error {
-			if on {
-				return rt.Start()
-			}
-			// A read failure is not permission: refuse the switch rather than
-			// disabling a pair whose records could not be checked.
-			n, err := ha.Load(cfg.DataDir)
-			if err != nil {
-				return err
-			}
-			p, err := ha.LoadPair(cfg.DataDir)
-			if err != nil {
-				return err
-			}
-			if refusal := haDisableRefusal(n, p, confirm); refusal != "" {
-				return errors.New(refusal)
-			}
-			rt.Stop()
-			return nil
+			return haApplyChange(rt, cfg.DataDir, on, confirm)
 		})
 	}
 

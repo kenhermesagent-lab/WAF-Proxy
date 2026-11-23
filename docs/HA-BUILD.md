@@ -774,7 +774,8 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
   (typed in Settings), and a paired standby is always refused, because with HA off no node
   takes over. Unpairing first is the other way out. The guard runs before anything is
   written, so a refused save changes no key and writes no audit row; Settings clears the
-  typed id after the save either way.
+  typed id after the save either way. An unreadable role or pair record is refused as well, and at
+  boot a corrupt pair record counts as paired while HA is on, so a standby cannot serve alone.
 
 - Files: `internal/api/server.go` (`publicSettingKeys`, `putSettings`, `/api/me`),
   `internal/store/sites.go` (`hostSettingKeys`), `internal/ha/manager.go`.

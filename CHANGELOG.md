@@ -48,7 +48,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   Settings switch starts and stops the HA loops in the running process. `wafproxy ha` exposes the
   same operations on a node whose console is unreachable, and `wafproxy ha upgrade --check`
   compares the two nodes' release, schema and protocol before an upgrade starts, exiting non-zero
-  when a move would be refused.
+  when a move would be refused. An unreadable role or pair record is never read as permission: a
+  settings save that cannot re-check it is refused, and at boot a corrupt pair record counts as
+  paired while HA is on, so a standby cannot start serving alone.
 - **Tests.** A partition simulator that runs the real state machine, heartbeat, witness, fence and
   flap guard on a fake clock (the partition matrix plus 200 randomized partitions, asserting at
   most one live active per tick and an unexpired lease for every promotion), handler and route

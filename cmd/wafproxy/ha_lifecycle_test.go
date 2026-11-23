@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -84,6 +86,37 @@ func TestHADisableRefusalFollowsTheRoleAndTypedID(t *testing.T) {
 	}
 	if got := haDisableRefusal(standby, pair, "cluster-abc"); got == "" {
 		t.Fatal("a paired standby was allowed to disable even with the cluster id")
+	}
+}
+
+func TestHADisableIsRefusedWhenTheRoleOrPairCannotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(ha.RoleDir(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rt := &haRuntime{}
+
+	// The settings save reaches this callback, so a refusal here is the save
+	// being refused. A broken role record must not read as "standalone".
+	role := filepath.Join(ha.RoleDir(dir), "node.json")
+	if err := os.WriteFile(role, []byte("{truncated"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := haApplyChange(rt, dir, false, ""); err == nil {
+		t.Fatal("a disable was allowed with an unreadable role")
+	}
+
+	// A readable active role with a broken pair record is refused too: the
+	// cluster id cannot be checked, so the node must not stop on its own.
+	if err := ha.Save(dir, &ha.Node{NodeID: "node-a", Role: ha.RoleActive, Epoch: 4}); err != nil {
+		t.Fatal(err)
+	}
+	pair := filepath.Join(ha.RoleDir(dir), "pair.json")
+	if err := os.WriteFile(pair, []byte("{truncated"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := haApplyChange(rt, dir, false, ""); err == nil {
+		t.Fatal("a disable was allowed with an unreadable pair")
 	}
 }
 

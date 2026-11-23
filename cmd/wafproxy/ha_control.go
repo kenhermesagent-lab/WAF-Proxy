@@ -65,6 +65,28 @@ func haSettingOn(st *store.Store) bool {
 	return err == nil && raw == "1"
 }
 
+// haApplyChange starts or stops the HA loops for the stored switch. A disable
+// re-reads the role and pair, and a read failure is refused rather than treated
+// as permission to stop: the nodes cannot be checked, so they must not change.
+func haApplyChange(rt *haRuntime, dir string, on bool, confirm string) error {
+	if on {
+		return rt.Start()
+	}
+	node, err := ha.Load(dir)
+	if err != nil {
+		return err
+	}
+	pair, err := ha.LoadPair(dir)
+	if err != nil {
+		return err
+	}
+	if refusal := haDisableRefusal(node, pair, confirm); refusal != "" {
+		return errors.New(refusal)
+	}
+	rt.Stop()
+	return nil
+}
+
 // haControl is the console's HA backend. It calls the same move manager and the
 // same role files as `wafproxy ha`, so a click cannot take a different path than
 // the CLI. Pairing and syncing only need the data directory and the store, so
