@@ -17,7 +17,7 @@ func (s *Store) ListProxies() ([]model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version FROM proxies WHERE (? = 0 OR site_id = ?) ORDER BY hostname`, s.site, s.site)
+		request_headers, response_headers, tls_min_version, site_id FROM proxies WHERE (? = 0 OR site_id = ?) ORDER BY hostname`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func scanProxy(row interface{ Scan(...any) error }) (*model.Proxy, error) {
 		&p.GateTOTPHint, &p.Fingerprint, &p.BotLevel, &maint, &p.WAFMode, &created, &protectionID, &accessID, &providerID,
 		&p.LBPolicy, &p.HealthPath, &p.HealthExpect, &p.HealthInterval, &p.HealthFailAfter,
 		&p.MaxInflight, &p.MaxInflightPerClient, &p.UpstreamTimeout, &p.Retries, &reqHeaders, &respHeaders,
-		&p.TLSMinVersion)
+		&p.TLSMinVersion, &p.SiteID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -96,7 +96,7 @@ func (s *Store) GetProxy(id int64) (*model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version FROM proxies WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
+		request_headers, response_headers, tls_min_version, site_id FROM proxies WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
 }
 
 // ProxyByHost loads a proxy by hostname.
@@ -106,7 +106,7 @@ func (s *Store) ProxyByHost(host string) (*model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version FROM proxies WHERE hostname = ? AND (? = 0 OR site_id = ?)`, host, s.site, s.site))
+		request_headers, response_headers, tls_min_version, site_id FROM proxies WHERE hostname = ? AND (? = 0 OR site_id = ?)`, host, s.site, s.site))
 }
 
 // CreateProxy inserts a proxy and returns its ID.

@@ -876,17 +876,26 @@ func newLogger() *slog.Logger {
 
 func retentionLoop(ctx context.Context, st *store.Store, log *slog.Logger) {
 	run := func() {
-		kv, err := st.Settings()
+		// Retention is per site: one site keeping a year of history must not
+		// delete another site's week.
+		sites, err := st.ListSites()
 		if err != nil {
 			return
 		}
-		days := 7
-		if v, err := strconv.Atoi(kv["retention_days"]); err == nil && v >= 1 && v <= 30 {
-			days = v
-		}
-		cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-		if n, err := st.DeleteEventsBefore(cutoff); err == nil && n > 0 {
-			log.Info("retention applied", "deleted_events", n, "days", days)
+		for _, site := range sites {
+			siteSt := st.InSite(site.ID)
+			kv, err := siteSt.Settings()
+			if err != nil {
+				continue
+			}
+			days := 7
+			if v, err := strconv.Atoi(kv["retention_days"]); err == nil && v >= 1 && v <= 30 {
+				days = v
+			}
+			cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+			if n, err := siteSt.DeleteEventsBefore(cutoff); err == nil && n > 0 {
+				log.Info("retention applied", "site", site.Slug, "deleted_events", n, "days", days)
+			}
 		}
 		_ = st.RollupFlows(time.Now().Add(-time.Hour))
 		_ = st.PurgeBans()

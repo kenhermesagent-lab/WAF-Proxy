@@ -151,3 +151,38 @@ func TestScopedStoreCannotSeeAnotherSite(t *testing.T) {
 		t.Fatalf("the default site cannot set a host-wide key: %v", err)
 	}
 }
+
+// TestRetentionKeepsAnotherSitesEvents is the per-site retention contract: one
+// site shortening its history must not delete another site's rows.
+func TestRetentionKeepsAnotherSitesEvents(t *testing.T) {
+	alpha := openTempStore(t)
+	site, err := alpha.CreateSite("bravo", "Bravo", "console.bravo.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bravo := alpha.InSite(site.ID)
+	alphaProxy := testProxy(t, alpha, "alpha.example.com")
+	bravoProxy := testProxy(t, bravo, "bravo.example.com")
+
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	for _, pair := range []struct {
+		st    *Store
+		proxy int64
+		host  string
+	}{{alpha, alphaProxy, "alpha.example.com"}, {bravo, bravoProxy, "bravo.example.com"}} {
+		if err := pair.st.InsertEvents([]model.Event{{TS: old, ProxyID: &pair.proxy, Host: pair.host,
+			Action: "allow", Stage: "route"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := alpha.DeleteEventsBefore(time.Now().Add(-7 * 24 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := alpha.CountEvents(); n != 0 {
+		t.Fatalf("the default site kept %d expired events", n)
+	}
+	if n, _ := bravo.CountEvents(); n != 1 {
+		t.Fatalf("the default site's retention deleted another site's events: %d left", n)
+	}
+}
