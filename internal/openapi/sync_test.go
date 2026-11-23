@@ -40,6 +40,8 @@ func routes() {
 	m.HandleFunc("POST /api/certs/upload", s.authed(s.uploadCert))
 	m.HandleFunc("POST /api/notifications/test", s.authed(s.testNotification))
 	m.HandleFunc("PUT /api/anomaly/settings", s.authed(s.putAnomalySettings))
+	m.HandleFunc("GET /api/notifications", s.authed(s.getNotifications))
+	m.HandleFunc("GET /api/certs/internal/root", s.authed(s.internalCARoot))
 }`)
 	doc, err := Generate(src, "test")
 	if err != nil {
@@ -48,7 +50,8 @@ func routes() {
 	out := string(doc)
 	for _, want := range []string{
 		"Proxy:", "Ban:", "BanRequest:", "Cert:", "CertUpload:",
-		"NotificationSettings:", "NotificationTest:", "AnomalyConfig:", "AnomalyReport:",
+		"NotificationSettings:", "NotificationReport:", "NotificationTest:", "AnomalyConfig:", "AnomalyReport:",
+		"text/plain:",
 		"requestBody:", "/components/schemas/Proxy",
 	} {
 		if !strings.Contains(out, want) {

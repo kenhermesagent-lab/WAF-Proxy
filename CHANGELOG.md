@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.3] — 2026-11-23
+
+### Fixed
+
+- The API reference described `GET /api/notifications` as bare settings and the internal
+  CA root as JSON; it now documents the settings/channels/recent wrapper and a
+  `text/plain` PEM response.
+- The canary monitor carried an unused logger and notification marker; both were
+  removed rather than left as future placeholders.
+
 ## [1.47.2] — 2026-11-23
 
 ### Fixed

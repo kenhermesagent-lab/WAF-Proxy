@@ -2,7 +2,6 @@ package canary
 
 import (
 	"context"
-	"log/slog"
 	"strconv"
 	"sync"
 	"time"
@@ -35,18 +34,16 @@ type Monitor struct {
 	st     *store.Store
 	probe  Probe
 	notify Notifier
-	log    *slog.Logger
 	now    func() time.Time
 
-	mu       sync.Mutex
-	last     Snapshot
-	failing  bool
-	notified string
+	mu      sync.Mutex
+	last    Snapshot
+	failing bool
 }
 
 // NewMonitor builds a monitor bound to the settings store.
-func NewMonitor(st *store.Store, probe Probe, notify Notifier, log *slog.Logger) *Monitor {
-	return &Monitor{st: st, probe: probe, notify: notify, log: log, now: time.Now}
+func NewMonitor(st *store.Store, probe Probe, notify Notifier) *Monitor {
+	return &Monitor{st: st, probe: probe, notify: notify, now: time.Now}
 }
 
 func (m *Monitor) config() (host string, interval time.Duration, retries int, enabled bool) {
@@ -106,7 +103,6 @@ func (m *Monitor) Check(ctx context.Context) Snapshot {
 		snap.Failures = 0
 		if m.failing {
 			m.failing = false
-			m.notified = ""
 			m.notify.Enqueue("uptime", "Canary recovered: "+host+" answers through the proxy again", "canary:"+host+":recovered", true)
 		}
 	} else {

@@ -2,8 +2,6 @@ package canary
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
@@ -43,7 +41,7 @@ func TestMonitorRetriesThenNotifiesOnceAndRecovers(t *testing.T) {
 	bad := Result{Failed: "waf", Stages: []Stage{{Name: "waf", OK: false, Detail: "the WAF blocked the canary with 403"}}}
 	probe := &fakeProbe{results: []Result{bad, bad, bad, bad, bad, bad, ok}}
 	notify := &fakeNotifier{}
-	m := NewMonitor(st, probe, notify, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := NewMonitor(st, probe, notify)
 
 	snap := m.Check(context.Background())
 	if snap.OK || snap.FailedStage != "waf" || snap.Failures != 1 {
@@ -87,7 +85,7 @@ func TestMonitorSkipsWhenDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	probe := &fakeProbe{results: []Result{{OK: true}}}
-	m := NewMonitor(st, probe, &fakeNotifier{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := NewMonitor(st, probe, &fakeNotifier{})
 	snap := m.Check(context.Background())
 	if probe.calls != 0 || snap.Enabled {
 		t.Fatalf("disabled monitor probed: %+v, calls %d", snap, probe.calls)

@@ -338,7 +338,8 @@ Each cycle runs the probe, retries a failure up to `canary_retries` times, and r
 the last result: host, ok, failing stage, detail, connect latency in milliseconds,
 consecutive failed cycles and the check time. Failures notify the **Backend up/down**
 class once per outage (dedupe key `canary:<host>`, no alert on every retry); a
-recovery sends one message and resets the counter. Ordinary probe results are not
+recovery sends one message and resets the counter, under its own
+`canary:<host>:recovered` key so the outage dedupe cannot swallow it. Ordinary probe results are not
 notified.
 
 The last result is part of `GET /api/health`:

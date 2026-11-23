@@ -2,7 +2,7 @@
 openapi: 3.0.3
 info:
   title: WAF-Proxy admin API
-  version: "1.47.2"
+  version: "1.47.3"
   description: |
     Routes registered by the admin console. Every `/api` route except setup,
     login, health and version requires the session cookie and, for mutations,
@@ -128,6 +128,19 @@ components:
         events:
           type: array
           items: {$ref: '#/components/schemas/AnomalyEvent'}
+    NotificationReport:
+      type: object
+      properties:
+        settings: {$ref: '#/components/schemas/NotificationSettings'}
+        channels:
+          type: object
+          additionalProperties: {type: boolean}
+        recent:
+          type: array
+          items: {type: object}
+        event_kinds:
+          type: array
+          items: {type: object}
     Status:
       type: object
       properties:
@@ -902,10 +915,10 @@ paths:
         - sessionCookie: []
       responses:
         "200":
-          description: Success
+          description: Certificate PEM
           content:
-            application/json:
-              schema: {$ref: '#/components/schemas/Status'}
+            text/plain:
+              schema: {type: string}
         "401":
           description: Missing or expired session
         "400":
@@ -1737,7 +1750,7 @@ paths:
           description: Success
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/NotificationSettings'}
+              schema: {$ref: '#/components/schemas/NotificationReport'}
         "401":
           description: Missing or expired session
         "400":
@@ -1758,7 +1771,7 @@ paths:
           description: Success
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/NotificationSettings'}
+              schema: {$ref: '#/components/schemas/Status'}
         "401":
           description: Missing or expired session
         "400":

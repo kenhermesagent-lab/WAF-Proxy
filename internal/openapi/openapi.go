@@ -187,6 +187,19 @@ const schemaBlock = `    Proxy:
         events:
           type: array
           items: {$ref: '#/components/schemas/AnomalyEvent'}
+    NotificationReport:
+      type: object
+      properties:
+        settings: {$ref: '#/components/schemas/NotificationSettings'}
+        channels:
+          type: object
+          additionalProperties: {type: boolean}
+        recent:
+          type: array
+          items: {type: object}
+        event_kinds:
+          type: array
+          items: {type: object}
     Status:
       type: object
       properties:
@@ -198,6 +211,7 @@ type shape struct {
 	request  string
 	response string
 	array    bool
+	text     bool
 }
 
 func shapeFor(r route) shape {
@@ -214,7 +228,7 @@ func shapeFor(r route) shape {
 		case strings.HasSuffix(r.path, "/internal"):
 			return shape{request: "CertInternal", response: "Cert"}
 		case strings.HasSuffix(r.path, "/internal/root"):
-			return shape{response: "Status"}
+			return shape{text: true}
 		case strings.HasSuffix(r.path, "/renew"), strings.HasSuffix(r.path, "/revoke"):
 			return shape{response: "Status"}
 		case single:
@@ -226,8 +240,10 @@ func shapeFor(r route) shape {
 		switch {
 		case strings.HasSuffix(r.path, "/test"):
 			return shape{request: "NotificationTest", response: "Status"}
+		case r.method == "GET":
+			return shape{response: "NotificationReport"}
 		default:
-			return shape{request: "NotificationSettings", response: "NotificationSettings"}
+			return shape{request: "NotificationSettings", response: "Status"}
 		}
 	case "anomaly":
 		switch {
@@ -279,6 +295,8 @@ func render(routes []route, version string) []byte {
 		}
 		b.WriteString("      responses:\n        \"200\":\n")
 		switch {
+		case sh.text:
+			b.WriteString("          description: Certificate PEM\n          content:\n            text/plain:\n              schema: {type: string}\n")
 		case sh.response != "" && sh.array:
 			b.WriteString("          description: Success\n          content:\n            application/json:\n              schema:\n                type: array\n                items: {$ref: '#/components/schemas/" + sh.response + "'}\n")
 		case sh.response != "":

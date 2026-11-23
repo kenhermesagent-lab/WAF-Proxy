@@ -647,7 +647,7 @@ func run() error {
 	anomalyMon.SetSink(agentLinks.Publish)
 	apiServer.SetAnomaly(anomalyMon)
 	go anomalyMon.Start(ctx)
-	canaryMon := canary.NewMonitor(st, canary.Prober{}, notifier, log)
+	canaryMon := canary.NewMonitor(st, canary.Prober{}, notifier)
 	apiServer.SetCanary(canaryMon)
 	go canaryMon.Start(ctx)
 	apiServer.SetStreaming(streams)

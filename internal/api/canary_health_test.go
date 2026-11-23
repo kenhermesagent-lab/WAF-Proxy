@@ -17,7 +17,7 @@ func TestHealthReportsCanarySnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := canary.NewMonitor(st, &canarytest.Probe{Result: canary.Result{OK: true,
-		Stages: []canary.Stage{{Name: "connect", OK: true, Detail: "8ms"}}}}, nil, nil)
+		Stages: []canary.Stage{{Name: "connect", OK: true, Detail: "8ms"}}}}, nil)
 	m.Check(context.Background())
 	srv.SetCanary(m)
 
