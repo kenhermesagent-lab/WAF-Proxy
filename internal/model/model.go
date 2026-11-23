@@ -418,6 +418,8 @@ type Event struct {
 	Action    string    `json:"action"` // allow | block | challenge | ban | log
 	UA        string    `json:"ua"`
 	Sample    int       `json:"sample"`
+	// RequestID follows one request from the edge through the pipeline.
+	RequestID string `json:"request_id,omitempty"`
 }
 
 // Flow is an hourly traffic rollup.

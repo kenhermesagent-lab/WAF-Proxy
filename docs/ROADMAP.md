@@ -543,4 +543,8 @@ screenshots. None of them are required by a single-node deployment.
   source tracking (acme/uploaded/internal) and the inventory field. Not delivered: internal CA
   and domain-less installs, HTTP-01 inside the listener, renewal jitter/backoff/429, per-site TLS
   policy, revocation, console TLS.
-- **Phase 5 (operability/observability): in progress.**
+- **1.36.0 — Phase 5: partial.** Request-ID propagation and JSON access logs with stage, rule,
+  latency and action. Not delivered: unattended setup, preflight is in the console only,
+  break-glass recovery, CLI encrypted backup and retention, per-stage latency metrics, alerting
+  dedupe/Test, diagnostics bundle, SLO rollups, certificate/ACME counters, upstream flap
+  detection, synthetic canary, the INSTALL split, generated OpenAPI and recipes.

@@ -11,7 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
-## [1.36.0] — 2026-11-22
+## [1.37.0] — 2026-11-22
 
 ### Added
 
@@ -34,6 +34,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   write. Snapshot writes are best-effort and never block the change they describe.
 - `GET /api/audit/{id}` returns an entry with its stored state; `POST /api/audit/{id}/rollback`
   restores an edit after checking the entity's own write permission rather than the route's area.
+
+## [1.36.0] — 2026-11-22
+
+### Added
+
+- **Request-ID propagation.** `X-Request-Id` is accepted from a client or load balancer when it is
+  a plain token (at most 64 characters), generated otherwise, echoed on the response and carried
+  on the access-log event.
+- **JSON access logs.** `WAFPROXY_ACCESS_LOG_FORMAT=json` writes one JSON object per request with
+  the request ID, host, status, bytes, latency, stage, rule and action. The nginx combined format
+  remains the default.
 
 ## [1.35.0] — 2026-11-22
 

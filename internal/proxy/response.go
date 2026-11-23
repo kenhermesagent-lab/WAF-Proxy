@@ -355,3 +355,22 @@ func newRequestID() string {
 	}
 	return hex.EncodeToString(b)
 }
+
+// requestIDFor keeps a client-supplied ID when it is a plain token, so a trace
+// can follow a request from an upstream load balancer; anything else is
+// replaced rather than echoed into logs and headers.
+func requestIDFor(r *http.Request) string {
+	id := strings.TrimSpace(r.Header.Get("X-Request-Id"))
+	if id == "" || len(id) > 64 {
+		return newRequestID()
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '-' || c == '_' || c == '.'
+		if !ok {
+			return newRequestID()
+		}
+	}
+	return id
+}

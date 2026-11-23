@@ -163,3 +163,15 @@ capabilities).
 - The access log under `/logs` contains client IPs and user agents. Treat it as personal
   data and rotate it with the host's log policy.
 - Never expose the CrowdSec LAPI beyond loopback; the compose file binds `127.0.0.1:8081`.
+
+## Request IDs and JSON access logs
+
+Every request gets an `X-Request-Id` response header. A client or upstream load
+balancer may supply one (letters, digits, `.`, `_`, `-`, at most 64 characters);
+unsafe or oversized values are replaced rather than echoed.
+
+Set `WAFPROXY_ACCESS_LOG_FORMAT=json` alongside `WAFPROXY_ACCESS_LOG` to write
+one JSON object per request instead of nginx combined format. The object carries
+the request ID, host, source, method, path, status, bytes, latency, stage, rule
+and action, so a failed request can be traced to the stage that rejected it.
+The default stays nginx combined format for CrowdSec's nginx parser.
