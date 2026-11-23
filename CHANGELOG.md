@@ -11,6 +11,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.5] — 2026-11-23
+
+### Added
+
+- **Saved log views are shared with the team.** Named views now live on the server behind
+  `GET /api/log-views` and `PUT`/`DELETE /api/log-views/{name}`, guarded by the `traffic` area:
+  any role that can read logs sees every view, and only a role that can write traffic may save
+  or delete one. The browser's `localStorage` copy is still read first and kept up to date, so a
+  node that cannot reach the API keeps its last known views and a refused save falls back to a
+  browser-only view with an explicit notice.
+
+### Fixed
+
+- The API reference typed every path parameter as an integer; `{name}` and `{ip}` are strings now.
+
 ## [1.47.4] — 2026-11-23
 
 ### Fixed

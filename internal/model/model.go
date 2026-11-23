@@ -497,6 +497,15 @@ type Alert struct {
 	SentAt    *time.Time `json:"sent_at,omitempty"`
 }
 
+// LogView is a named set of log filters kept on the server, so the whole team
+// sees the same views instead of each browser keeping its own.
+type LogView struct {
+	Name      string    `json:"name"`
+	Query     string    `json:"query"`
+	UpdatedBy string    `json:"updated_by"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // AuditEntry records an administrative mutation.
 type AuditEntry struct {
 	ID     int64     `json:"id"`

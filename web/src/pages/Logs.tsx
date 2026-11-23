@@ -129,6 +129,25 @@ export default function Logs({
     load(0);
   }, []);
 
+  // Views live on the server so the whole team sees them. The browser copy is
+  // the fallback: it is read on first paint and rewritten whenever the server
+  // answers, so a node whose API is unreachable still has the last known views.
+  useEffect(() => {
+    let alive = true;
+    api
+      .get<{ views: SavedView[] }>("/api/log-views")
+      .then((r) => {
+        if (!alive || !Array.isArray(r?.views)) return;
+        const list = r.views.map((v) => ({ name: v.name, query: v.query }));
+        setViews(list);
+        writeViews(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // A command-palette result opens the log with a prefilled filter.
   useEffect(() => {
     if (!query) return;
@@ -177,7 +196,7 @@ export default function Logs({
     load(0, f);
   };
 
-  const saveView = () => {
+  const saveView = async () => {
     const name = viewName.trim();
     if (!name) return;
     const next = [...views.filter((v) => v.name !== name), { name, query: queryOf(filters).toString() }];
@@ -185,15 +204,26 @@ export default function Logs({
     writeViews(next);
     setViewName("");
     setViewSel(name);
-    onOK(`View “${name}” saved`);
+    try {
+      await api.put(`/api/log-views/${encodeURIComponent(name)}`, { query: queryOf(filters).toString() });
+      onOK(`View “${name}” saved for the team`);
+    } catch (e) {
+      onError(`Saved on this browser only: ${errText(e)}`);
+    }
   };
 
-  const removeView = () => {
+  const removeView = async () => {
     if (!viewSel) return;
+    const name = viewSel;
     const next = views.filter((v) => v.name !== viewSel);
     setViews(next);
     writeViews(next);
     setViewSel("");
+    try {
+      await api.del(`/api/log-views/${encodeURIComponent(name)}`);
+    } catch (e) {
+      onError(errText(e));
+    }
   };
 
   const copyLink = async () => {

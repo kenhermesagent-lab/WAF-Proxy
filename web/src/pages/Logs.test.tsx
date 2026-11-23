@@ -10,6 +10,7 @@ import { api } from "../api";
 
 const get = vi.mocked(api.get);
 const post = vi.mocked(api.post);
+const put = vi.mocked(api.put);
 
 const blockedEvent = {
   id: 9,
@@ -47,6 +48,15 @@ describe("Logs request simulator", () => {
   beforeEach(() => {
     get.mockReset();
     post.mockReset();
+    put.mockReset();
+    // The test environment has no storage, so each test gets a fresh fake one.
+    const store: Record<string, string> = {};
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => { store[k] = v; },
+      removeItem: (k: string) => { delete store[k]; },
+      clear: () => { for (const k of Object.keys(store)) delete store[k]; },
+    });
     get.mockImplementation(async (path: string) => {
       if (path.startsWith("/api/events")) return { events: [blockedEvent], total: 1 };
       if (path === "/api/proxies") return [{ id: 7, hostname: "app.lab.local" }];
@@ -117,13 +127,56 @@ describe("Logs request simulator", () => {
     fireEvent.change(screen.getByPlaceholderText("Port scans"), { target: { value: "Port scans" } });
     fireEvent.click(screen.getByRole("button", { name: "Save view" }));
 
-    expect(onOK).toHaveBeenCalledWith("View “Port scans” saved");
+    await waitFor(() => expect(onOK).toHaveBeenCalledWith("View “Port scans” saved for the team"));
+    expect(put).toHaveBeenCalledWith("/api/log-views/Port%20scans", { query: "ip=203.0.113.7" });
     expect(JSON.parse(store["waf.logs.views"])).toEqual([{ name: "Port scans", query: "ip=203.0.113.7" }]);
 
     // A fresh mount reads the saved view back from storage.
     cleanup();
     render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
     expect(await screen.findByRole("option", { name: "Port scans" })).toBeTruthy();
+  });
+
+  it("loads the team's saved views from the server and keeps a browser copy", async () => {
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/log-views") {
+        return { views: [{ name: "Team scans", query: "stage=waf", updated_by: "admin", updated_at: "2026-11-23T10:00:00Z" }] };
+      }
+      if (path.startsWith("/api/events")) return { events: [blockedEvent], total: 1 };
+      return [];
+    });
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+
+    expect(await screen.findByRole("option", { name: "Team scans" })).toBeTruthy();
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem("waf.logs.views") ?? "[]")).toEqual([{ name: "Team scans", query: "stage=waf" }]),
+    );
+  });
+
+  it("falls back to the browser's saved views when the server list is unreachable", async () => {
+    localStorage.setItem("waf.logs.views", JSON.stringify([{ name: "Offline scans", query: "stage=waf" }]));
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/log-views") throw new Error("offline");
+      if (path.startsWith("/api/events")) return { events: [blockedEvent], total: 1 };
+      return [];
+    });
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+
+    expect(await screen.findByRole("option", { name: "Offline scans" })).toBeTruthy();
+  });
+
+  it("keeps a view in this browser when the server refuses the save", async () => {
+    put.mockRejectedValue(new Error("forbidden"));
+    const onError = vi.fn();
+    render(<Logs onError={onError} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+    await screen.findByText("GET /.env");
+
+    fireEvent.change(screen.getByPlaceholderText("203.0.113.7"), { target: { value: "203.0.113.7" } });
+    fireEvent.change(screen.getByPlaceholderText("Port scans"), { target: { value: "Mine" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith("Saved on this browser only: forbidden"));
+    expect(await screen.findByRole("option", { name: "Mine" })).toBeTruthy();
   });
 
   it("ignores a corrupt saved-view list", async () => {

@@ -441,6 +441,12 @@ CREATE TABLE IF NOT EXISTS mcp_tokens (
   revoked_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
+CREATE TABLE IF NOT EXISTS log_views (
+  name TEXT PRIMARY KEY,
+  query TEXT NOT NULL,
+  updated_by TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
 `
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators

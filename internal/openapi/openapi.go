@@ -286,7 +286,12 @@ func render(routes []route, version string) []byte {
 		if len(r.params) > 0 {
 			b.WriteString("      parameters:\n")
 			for _, p := range r.params {
-				b.WriteString("        - name: " + p + "\n          in: path\n          required: true\n          schema: {type: integer}\n")
+				// Row ids are numeric; names and addresses such as {ip} are not.
+				kind := "string"
+				if p == "id" || strings.HasSuffix(p, "_id") {
+					kind = "integer"
+				}
+				b.WriteString("        - name: " + p + "\n          in: path\n          required: true\n          schema: {type: " + kind + "}\n")
 			}
 		}
 		mutating := r.method == "POST" || r.method == "PUT" || r.method == "PATCH"
