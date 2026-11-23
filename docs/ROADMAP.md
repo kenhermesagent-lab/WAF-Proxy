@@ -539,4 +539,8 @@ screenshots. None of them are required by a single-node deployment.
   forwarding through the Custom TCP stream service (with bans, allow lists and caps). Not
   delivered: per-upstream transports with DNS TTL, explicit Happy Eyeballs tuning, UDP
   forwarding.
-- **Phase 4 (TLS/ACME) and Phase 5 (operability/observability): in progress.**
+- **1.35.0 — Phase 4: partial.** Certificate upload with pair/expiry validation, certificate
+  source tracking (acme/uploaded/internal) and the inventory field. Not delivered: internal CA
+  and domain-less installs, HTTP-01 inside the listener, renewal jitter/backoff/429, per-site TLS
+  policy, revocation, console TLS.
+- **Phase 5 (operability/observability): in progress.**

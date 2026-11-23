@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
@@ -1557,6 +1559,73 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	s.st.AddAudit(sess.Username, "cert.create", in.Domains, clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "status": "pending"})
+}
+
+// uploadCert stores an operator-supplied certificate and key. The pair must
+// parse and match, and the names come from the certificate itself so the
+// inventory cannot disagree with what is served.
+func (s *Server) uploadCert(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		CertPEM string `json:"cert_pem"`
+		KeyPEM  string `json:"key_pem"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	if len(in.CertPEM) > 256<<10 || len(in.KeyPEM) > 256<<10 {
+		writeError(w, http.StatusBadRequest, "the certificate or key is too large")
+		return
+	}
+	pair, err := tls.X509KeyPair([]byte(in.CertPEM), []byte(in.KeyPEM))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "the certificate and key do not match")
+		return
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "the certificate cannot be parsed")
+		return
+	}
+	names := leaf.DNSNames
+	if len(names) == 0 && leaf.Subject.CommonName != "" {
+		names = []string{leaf.Subject.CommonName}
+	}
+	if len(names) == 0 {
+		writeError(w, http.StatusBadRequest, "the certificate names no hostname")
+		return
+	}
+	for _, name := range names {
+		base := strings.TrimPrefix(strings.ToLower(name), "*.")
+		if !validHostname(base) {
+			writeError(w, http.StatusBadRequest, "invalid domain in the certificate: "+name)
+			return
+		}
+	}
+	if time.Now().After(leaf.NotAfter) {
+		writeError(w, http.StatusBadRequest, "the certificate has expired")
+		return
+	}
+	c := &model.Cert{
+		Domains: strings.Join(names, ","), Provider: "upload", Status: "issued",
+		Source: model.CertSourceUploaded, CertPEM: []byte(in.CertPEM), KeyPEM: []byte(in.KeyPEM),
+		IssuedAt: &leaf.NotBefore, ExpiresAt: &leaf.NotAfter,
+		Wildcard: strings.Contains(strings.Join(names, ","), "*."), RenewMode: model.CertRenewBeforeExpiry,
+		Challenge: "upload",
+	}
+	id, err := s.st.SaveCert(c)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot store the certificate")
+		return
+	}
+	if s.certs != nil {
+		if err := s.certs.Load(); err != nil {
+			s.log.Warn("reload certificates after upload", "err", err)
+		}
+	}
+	sess := sessionFrom(r)
+	s.st.AddAudit(sess.Username, "cert.upload", c.Domains, clientIP(r))
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "domains": c.Domains, "expires_at": c.ExpiresAt})
 }
 
 func (s *Server) updateCert(w http.ResponseWriter, r *http.Request) {

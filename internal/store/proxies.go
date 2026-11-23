@@ -362,7 +362,7 @@ func (s *Store) seedProfiles() error {
 
 // ListCerts returns all certificates.
 func (s *Store) ListCerts() ([]model.Cert, error) {
-	rows, err := s.db.Query(`SELECT id, domains, provider, status, issued_at, expires_at, is_wildcard, renew_mode, challenge, last_error, created_at
+	rows, err := s.db.Query(`SELECT id, domains, provider, status, issued_at, expires_at, is_wildcard, renew_mode, challenge, last_error, created_at, source
 		FROM certificates ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -374,7 +374,7 @@ func (s *Store) ListCerts() ([]model.Cert, error) {
 		var issued, expires sql.NullString
 		var wildcard int
 		var created string
-		if err := rows.Scan(&c.ID, &c.Domains, &c.Provider, &c.Status, &issued, &expires, &wildcard, &c.RenewMode, &c.Challenge, &c.LastError, &created); err != nil {
+		if err := rows.Scan(&c.ID, &c.Domains, &c.Provider, &c.Status, &issued, &expires, &wildcard, &c.RenewMode, &c.Challenge, &c.LastError, &created, &c.Source); err != nil {
 			return nil, err
 		}
 		c.IssuedAt = parseStampPtr(issued)
@@ -395,9 +395,9 @@ func (s *Store) GetCert(id int64) (*model.Cert, error) {
 	var wildcard int
 	var created string
 	err := s.db.QueryRow(`SELECT id, domains, provider, status, issued_at, expires_at, cert_pem, key_pem,
-		is_wildcard, renew_mode, challenge, last_error, created_at FROM certificates WHERE id = ?`, id).
+		is_wildcard, renew_mode, challenge, last_error, created_at, source FROM certificates WHERE id = ?`, id).
 		Scan(&c.ID, &c.Domains, &c.Provider, &c.Status, &issued, &expires, &c.CertPEM, &c.KeyPEM,
-			&wildcard, &c.RenewMode, &c.Challenge, &c.LastError, &created)
+			&wildcard, &c.RenewMode, &c.Challenge, &c.LastError, &created, &c.Source)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -417,21 +417,22 @@ func (s *Store) GetCert(id int64) (*model.Cert, error) {
 func (s *Store) SaveCert(c *model.Cert) (int64, error) {
 	if c.ID == 0 {
 		res, err := s.db.Exec(`INSERT INTO certificates(domains, provider, status, issued_at, expires_at,
-			cert_pem, key_pem, is_wildcard, renew_mode, challenge, last_error, created_at)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cert_pem, key_pem, is_wildcard, renew_mode, challenge, last_error, created_at, source)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			c.Domains, c.Provider, c.Status, nullTime(c.IssuedAt), nullTime(c.ExpiresAt),
 			c.CertPEM, c.KeyPEM, b2i(c.Wildcard), defaultStr(c.RenewMode, model.CertRenewBeforeExpiry),
-			defaultStr(c.Challenge, model.CertChallengeDNS), c.LastError, stamp(time.Now()))
+			defaultStr(c.Challenge, model.CertChallengeDNS), c.LastError, stamp(time.Now()),
+			defaultStr(c.Source, model.CertSourceACME))
 		if err != nil {
 			return 0, err
 		}
 		return res.LastInsertId()
 	}
 	_, err := s.db.Exec(`UPDATE certificates SET domains = ?, provider = ?, status = ?, issued_at = ?,
-		expires_at = ?, cert_pem = ?, key_pem = ?, is_wildcard = ?, renew_mode = ?, challenge = ?, last_error = ? WHERE id = ?`,
+		expires_at = ?, cert_pem = ?, key_pem = ?, is_wildcard = ?, renew_mode = ?, challenge = ?, last_error = ?, source = ? WHERE id = ?`,
 		c.Domains, c.Provider, c.Status, nullTime(c.IssuedAt), nullTime(c.ExpiresAt),
 		c.CertPEM, c.KeyPEM, b2i(c.Wildcard), defaultStr(c.RenewMode, model.CertRenewBeforeExpiry),
-		defaultStr(c.Challenge, model.CertChallengeDNS), c.LastError, c.ID)
+		defaultStr(c.Challenge, model.CertChallengeDNS), c.LastError, defaultStr(c.Source, model.CertSourceACME), c.ID)
 	return c.ID, err
 }
 

@@ -42,8 +42,8 @@ systemd service. Version 1.28.0.
 
 **Front door**
 
-- TLS with SNI, certificates via DNS-01, HTTP-01 or TLS-ALPN-01, DuckDNS updates, and automatic
-  renewal; HTTP/2 and WebSocket pass-through.
+- TLS with SNI, certificates via DNS-01, HTTP-01 or TLS-ALPN-01, uploaded PEM pairs, DuckDNS
+  updates, and automatic renewal; HTTP/2 and WebSocket pass-through.
 - Proxies with per-site load balancing (`weighted_rr`, `least_conn`, `least_latency`, `ip_hash`,
   `sticky_cookie`), per-upstream connection caps, configurable health probes with passive ejection,
   per-site and per-client request budgets, per-site upstream timeouts with bounded idempotent
