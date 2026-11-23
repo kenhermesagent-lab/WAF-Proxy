@@ -128,8 +128,11 @@ export default function App() {
       const query = hash.split("?")[1];
       const canonical = `${href(next.page, next.tab)}${query ? `?${query}` : ""}`;
       // A pre-restructure hash is redirected by rewriting the URL, so a stale
-      // bookmark lands on the new route without a detour in the history.
-      if (hash && hash !== canonical) {
+      // bookmark lands on the new route without a detour in the history. The
+      // signed-out invite and reset links are not app routes and keep their
+      // page so the login form can tell them apart.
+      const signedOutLink = /^#\/(invite|reset-password)\b/.test(hash);
+      if (hash && hash !== canonical && !signedOutLink) {
         window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${canonical}`);
       }
       setRoute(next);
@@ -641,15 +644,20 @@ type LoginResult = {
   otpauth_url?: string;
 };
 
-type LoginView = "login" | "forgot" | "reset" | "recover" | "codes";
+type LoginView = "login" | "forgot" | "reset" | "recover" | "codes" | "invite" | "invited";
 
 function Login({ onDone }: { onDone: (m: Me) => void }) {
   const [form, setForm] = useState({ username: "", password: "", totp: "", remember: false });
   const [recovery, setRecovery] = useState("");
   const [showRecovery, setShowRecovery] = useState(false);
   const [forgotUser, setForgotUser] = useState("");
-  const [resetToken] = useState(() => new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("token") ?? "");
-  const [view, setView] = useState<LoginView>(resetToken ? "reset" : "login");
+  const loginParams = new URLSearchParams(window.location.hash.split("?")[1] ?? "");
+  const [inviteToken] = useState(() => (window.location.hash.startsWith("#/invite") ? loginParams.get("token") ?? "" : ""));
+  const [resetToken] = useState(() => (window.location.hash.startsWith("#/invite") ? "" : loginParams.get("token") ?? ""));
+  const [view, setView] = useState<LoginView>(inviteToken ? "invite" : resetToken ? "reset" : "login");
+  const [invite, setInvite] = useState<{ email: string; first_name: string; last_name: string } | null>(null);
+  const [inviteForm, setInviteForm] = useState({ username: "", password: "", confirm: "" });
+  const [inviteDone, setInviteDone] = useState<{ secret: string; url: string; codes: string[] } | null>(null);
   const [emailAvailable, setEmailAvailable] = useState(false);
   const [sent, setSent] = useState(false);
   const [notice, setNotice] = useState("");
@@ -666,6 +674,17 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
       .then((r) => setEmailAvailable(r.available))
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!inviteToken) return;
+    api
+      .get<{ email: string; first_name: string; last_name: string }>(`/api/invite?token=${encodeURIComponent(inviteToken)}`)
+      .then(setInvite)
+      .catch((ex) => {
+        setErr(errText(ex));
+        setView("login");
+      });
+  }, [inviteToken]);
 
   // A reset link carries its token in the hash; drop it from the URL once the
   // form is done so a refresh cannot replay it.
@@ -720,6 +739,28 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
     }
   };
 
+  const acceptInvite = async (e: FormEvent) => {
+    e.preventDefault();
+    if (inviteForm.password !== inviteForm.confirm) {
+      setErr("The new passwords do not match");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await api.post<{ totp_secret: string; otpauth_url: string; recovery_codes: string[] }>(
+        "/api/invite/accept",
+        { token: inviteToken, username: inviteForm.username, password: inviteForm.password },
+      );
+      setInviteDone({ secret: r.totp_secret, url: r.otpauth_url, codes: r.recovery_codes || [] });
+      setView("invited");
+    } catch (ex) {
+      setErr(errText(ex));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const savePassword = async (e: FormEvent) => {
     e.preventDefault();
     if (newPassword.next !== newPassword.confirm) {
@@ -757,7 +798,9 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
   };
 
   const heading =
-    view === "forgot" ? "Reset password" : view === "reset" ? "Choose a new password" : view === "recover" ? "Replace your authenticator" : view === "codes" ? "Save your recovery codes" : "Sign in";
+    view === "forgot" ? "Reset password" : view === "reset" ? "Choose a new password"
+      : view === "recover" ? "Replace your authenticator" : view === "codes" ? "Save your recovery codes"
+        : view === "invite" ? "Create your account" : view === "invited" ? "Your account is ready" : "Sign in";
 
   return (
     <div className="login-split">
@@ -871,6 +914,50 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
               </button>
               <button type="button" className="link-button mt" style={{ display: "block", margin: "12px auto 0" }} onClick={() => setView("login")}>Back to sign in</button>
             </form>
+          )}
+
+          {view === "invite" && (
+            <form onSubmit={acceptInvite}>
+              <p className="sub">
+                {invite
+                  ? `Welcome${invite.first_name ? `, ${invite.first_name}` : ""}. Create the administrator account for ${invite.email}.`
+                  : "Checking this invitation…"}
+              </p>
+              <div className="field">
+                <label>Username</label>
+                <input autoFocus value={inviteForm.username} onChange={(e) => setInviteForm({ ...inviteForm, username: e.target.value })} autoComplete="username" />
+              </div>
+              <div className="field">
+                <label>Password (12+ characters)</label>
+                <input type="password" value={inviteForm.password} onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })} autoComplete="new-password" />
+              </div>
+              <div className="field">
+                <label>Repeat password</label>
+                <input type="password" value={inviteForm.confirm} onChange={(e) => setInviteForm({ ...inviteForm, confirm: e.target.value })} autoComplete="new-password" />
+              </div>
+              {err && <div className="err-text">{err}</div>}
+              <button className="primary mt" style={{ width: "100%" }} disabled={busy || !invite?.email || !inviteForm.username || inviteForm.password.length < 12}>
+                {busy ? "Creating…" : "Create account"}
+              </button>
+              <button type="button" className="link-button mt" style={{ display: "block", margin: "12px auto 0" }} onClick={() => leaveReset("")}>Back to sign in</button>
+            </form>
+          )}
+
+          {view === "invited" && inviteDone && (
+            <>
+              <p className="sub">
+                Add this secret to your authenticator app now; every sign-in asks for the code it
+                shows. Store the recovery codes somewhere safe, then sign in with your new
+                username and password.
+              </p>
+              <div className="secret-box">{inviteDone.secret}</div>
+              <div className="secret-box" style={{ fontSize: 11.5 }}>{inviteDone.url}</div>
+              <label style={{ marginTop: 14 }}>Recovery codes</label>
+              <div className="code-list">{inviteDone.codes.map((c) => <div key={c}>{c}</div>)}</div>
+              <button className="primary mt" style={{ width: "100%" }} onClick={() => leaveReset("Account created. Sign in with your username, password and authenticator code.")}>
+                Continue to sign in
+              </button>
+            </>
           )}
 
           {view === "recover" && pending && (

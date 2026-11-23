@@ -106,9 +106,8 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		if terr == nil && s.db(r).CreatePasswordReset(tokenDigest(token), user.ID, time.Now().Add(resetTTL)) == nil {
 			link := requestOrigin(r) + "/#/reset-password?token=" + url.QueryEscape(token)
 			text := fmt.Sprintf("Someone asked to reset the WAF-Proxy console password for %q.\n\n"+
-				"Open this link within 30 minutes to choose a new password:\n\n%s\n\n"+
-				"If you did not ask for this, ignore the message; the password is unchanged.\n", user.Username, link)
-			if serr := s.notify.SendMailTo([]string{user.Email}, "Reset your WAF-Proxy console password", text); serr != nil {
+				"This link expires in 30 minutes. If you did not ask for it, ignore this message; the password is unchanged.\n", user.Username)
+			if serr := s.notify.SendMailLink([]string{user.Email}, "Reset your WAF-Proxy console password", text, "Choose a new password", link); serr != nil {
 				s.log.Warn("password reset email", "err", serr)
 			} else {
 				s.db(r).AddAudit(user.Username, "account.forgot", "reset email sent", ip)

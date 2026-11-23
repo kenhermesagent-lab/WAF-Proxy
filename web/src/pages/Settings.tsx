@@ -10,7 +10,7 @@ import Readiness from "./Readiness";
 
 type Settings = Record<string, string>;
 
-const RUNTIME_KEYS = new Set(["kernel", "geoip", "iface_available"]);
+const RUNTIME_KEYS = new Set(["kernel", "geoip", "iface_available", "host_wide_keys"]);
 function editable(s: Settings): Settings {
   const out: Settings = {};
   for (const [k, v] of Object.entries(s)) {
@@ -192,10 +192,23 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
     }
   };
 
+  // The server returns the process-wide keys with the settings, so a site
+  // console can leave them out of its save instead of posting them and being
+  // refused as a whole.
+  const siteEditable = (v: Settings): Settings => {
+    const out = editable(v);
+    if (hostWide) {
+      for (const k of (s.host_wide_keys ?? "").split(",")) {
+        if (k) delete out[k.trim()];
+      }
+    }
+    return out;
+  };
+
   const save = async () => {
     setSaving(true);
     try {
-      await api.put("/api/settings", editable(s));
+      await api.put("/api/settings", siteEditable(s));
       onOK("Settings saved");
       setSaved(editable(s));
       load();

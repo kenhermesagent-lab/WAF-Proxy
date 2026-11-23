@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,7 +26,7 @@ var scopedTables = []string{
 	"access_lists", "policies", "bans", "feeds", "alerts", "audit",
 	"gate_users", "agent_deliveries", "agent_links", "anomaly_events",
 	"gate_failures", "gate_sessions", "username_bans", "mcp_tokens", "log_views",
-	"trusted_devices", "password_resets",
+	"trusted_devices", "password_resets", "invites",
 }
 
 // hostSettingKeys are process-wide: one listener, one address, one update
@@ -37,9 +38,24 @@ var hostSettingKeys = map[string]bool{
 	"admin_allow_cidrs": true, "home_lat": true, "home_lon": true,
 	"auto_update_enabled": true, "auto_update_time": true,
 	"geoip_auto_update": true,
-	"crowdsec_enabled":  true, "crowdsec_url": true, "crowdsec_key": true,
+	// max_body is the proxy's single inspection buffer, read from the default
+	// site, so a tenant cannot change it for traffic it does not own.
+	"max_body":         true,
+	"crowdsec_enabled": true, "crowdsec_url": true, "crowdsec_key": true,
 	"tailscale_admin_enabled": true, "tailscale_dns_enabled": true,
 	"tailscale_proxy_enabled": true,
+}
+
+// HostSettingKeys returns the host-wide keys for the console, so the settings
+// form can leave them out of a non-default site's save instead of earning a
+// refusal.
+func HostSettingKeys() []string {
+	out := make([]string, 0, len(hostSettingKeys))
+	for k := range hostSettingKeys {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,31}$`)

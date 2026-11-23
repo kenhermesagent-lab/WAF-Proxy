@@ -34,6 +34,15 @@ func TestScopedStoreCannotSeeAnotherSite(t *testing.T) {
 	if _, err := beta.CreateUser("ops", "hash", "", "", false); err != nil {
 		t.Fatal(err)
 	}
+	if err := beta.CreateInvite("invite-digest", "new@example.com", "New", "Admin", beta.AdminRoleID(), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := alpha.InviteByToken("invite-digest"); ok {
+		t.Fatal("alpha resolved beta's invitation")
+	}
+	if _, ok := beta.InviteByToken("invite-digest"); !ok {
+		t.Fatal("beta cannot resolve its own invitation")
+	}
 
 	if err := alpha.InsertEvents([]model.Event{{TS: time.Now(), ProxyID: &alphaProxy, Host: "alpha.example.com", Action: "allow", Stage: "route"}}); err != nil {
 		t.Fatal(err)
@@ -140,6 +149,9 @@ func TestScopedStoreCannotSeeAnotherSite(t *testing.T) {
 	}
 	if err := beta.SetSettings(map[string]string{"retention_days": "5", "wan_ip": "203.0.113.9"}); !errors.Is(err, ErrHostWideSetting) {
 		t.Fatalf("a site moved the host's WAN address in bulk: %v", err)
+	}
+	if err := beta.SetSetting("max_body", "2048"); !errors.Is(err, ErrHostWideSetting) {
+		t.Fatalf("a site moved the host's body cap: %v", err)
 	}
 	if got, _ := alpha.GetSetting("wan_ip"); got == "203.0.113.9" {
 		t.Fatal("the host's WAN address changed")

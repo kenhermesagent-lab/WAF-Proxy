@@ -12,6 +12,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.57.0] — 2026-11-23
+
+### Added
+
+- **Administrators can be invited by email.** The Team page has an **Invite by email** action that
+  asks only for an email address, first and last name, and a role. The recipient gets a single-use
+  link, valid for seven days, back to this console's own address (the internal IP and port it was
+  reached on). There they choose their own username and password and are shown a new authenticator
+  secret and recovery codes; the account exists only once that link is opened, so nobody has to
+  hand over a password.
+- **Alert routing is per event and per channel.** Notifications now show one row per event with a
+  checkbox for Telegram, one for email and one for the Slack/Teams/webhook channel. Every event
+  reaches all three by default; untick a box to drop that channel for the event, or all three to
+  suppress it everywhere. The choice is stored as `notify_routes`; the older `notify_events` list
+  and its `none` mute still apply to installs that have not saved the new grid.
+- **Console mail is a branded HTML message.** Alerts, the channel test, password-reset links and
+  invitations are sent as `multipart/alternative`: the console's header and an action button for
+  HTML readers, and the same text with the link written out for clients that do not render HTML.
+  The logo is drawn in the message itself, so no mail client has to fetch anything from the
+  internal console.
+
+### Fixed
+
+- **A non-default site's Settings page could not be saved.** The form posted the read-only
+  host-wide keys (`wan_ip`, `max_body`, and the rest) that the API deliberately refuses for a
+  tenant, so every save returned `403` even when only per-site fields changed. The server now
+  returns the host-wide key list with the settings and the form leaves those keys out of its save;
+  the API still refuses them if anything else posts them.
+- **A line break in a configured address could add mail headers.** SMTP From and recipient values
+  containing CR/LF are refused before the message is built.
+
 ## [1.56.0] — 2026-11-23
 
 ### Added
@@ -37,9 +68,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `sample_above_rps`, `retention_days`, normalization, protection switches, decoy hosts, WAF and
   access profiles, notification channels, anomaly thresholds, canary and ACME email/staging are
   read and applied per site by that site's own engines. `max_body` is one process-wide buffer
-  read from the default site, so its field is disabled with a note on any other site's console,
-  and the host-wide sections (network, admin source allowlist, CrowdSec, GeoIP, updates) stay
-  read-only there. The README lists both groups.
+  read from the default site, so its field is disabled with a note on any other site's console and
+  the API refuses a per-site write of it with the same `403` as the other host-wide keys. The
+  host-wide sections (network, admin source allowlist, CrowdSec, GeoIP, updates) stay read-only
+  there too. The README lists both groups.
 
 ### Fixed
 

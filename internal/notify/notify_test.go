@@ -252,6 +252,78 @@ func TestLegacyBanRowWithCrowdSecSourceIsSuppressed(t *testing.T) {
 	}
 }
 
+// Each event routes to the three channels independently; an empty row
+// suppresses the event everywhere.
+func TestPerChannelRoutesGateEachChannel(t *testing.T) {
+	f := newNotifyFixture(t)
+	if err := f.st.SetSettings(map[string]string{
+		"notify_routes": `{"ban":[],"permanent_ban":["webhook"]}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.mgr.Enqueue(KindBan, "Temporary ban: 203.0.113.9/32 — scan (source: scan)", "ban:203.0.113.9", false)
+	f.mgr.Enqueue(KindPermanentBan, "Permanent ban: 203.0.113.10/32 — scan (source: scan)", "ban:203.0.113.10", false)
+	f.mgr.process(false)
+
+	if n := atomic.LoadInt32(f.hits); n != 1 {
+		t.Fatalf("made %d deliveries, want only the routed permanent ban", n)
+	}
+	if f.mgr.EventEnabled(KindBan) {
+		t.Fatal("an event with no routed channel still counts as enabled")
+	}
+	if !f.mgr.EventEnabled(KindPermanentBan) {
+		t.Fatal("a routed event counts as muted")
+	}
+	settings, err := f.mgr.Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(settings["routes"], `"permanent_ban":["webhook"]`) || !strings.Contains(settings["routes"], `"ban":[]`) {
+		t.Fatalf("routes = %s", settings["routes"])
+	}
+}
+
+// The default routing (no choice saved yet) spells out every channel, and a
+// legacy notify_events mute still narrows it.
+func TestRoutesDefaultAndLegacy(t *testing.T) {
+	f := newNotifyFixture(t)
+	settings, err := f.mgr.Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(settings["routes"], `"ban":["email","telegram","webhook"]`) {
+		t.Fatalf("default routes = %s", settings["routes"])
+	}
+	f.setEvents(t, "none")
+	if f.mgr.EventEnabled(KindBan) {
+		t.Fatal("a legacy \"none\" mute no longer suppresses events")
+	}
+}
+
+func TestEmailTemplateCarriesLogoAndAction(t *testing.T) {
+	action := &mailAction{Label: "Choose a new password", URL: "https://10.0.0.2:8443/#/reset-password?token=a&b"}
+	msg, err := buildEmail("alerts@example.com", []string{"admin@example.com"},
+		"Reset your WAF-Proxy console password", "Someone asked to reset the password.", action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"multipart/alternative", "text/plain", "text/html", "quoted-printable"} {
+		if !bytes.Contains(msg, []byte(want)) {
+			t.Fatalf("email is missing %q", want)
+		}
+	}
+	html := htmlEmail("Reset your WAF-Proxy console password", "Someone asked to reset the password.", action)
+	for _, want := range []string{"WAF-Proxy", "Reset your WAF-Proxy console password", "Choose a new password", "token=a&amp;b"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("HTML email is missing %q:\n%s", want, html)
+		}
+	}
+	plain := plainEmail("Someone asked to reset the password.", action)
+	if !strings.Contains(plain, "Choose a new password: "+action.URL) {
+		t.Fatalf("plain fallback is missing the link:\n%s", plain)
+	}
+}
+
 func TestTestSendsAREalWebhook(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {

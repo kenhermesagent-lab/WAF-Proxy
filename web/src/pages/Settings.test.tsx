@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SettingsPage from "./Settings";
+import type { Me } from "../types";
 
 vi.mock("../api", () => ({
   api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn(), postRaw: vi.fn(), download: vi.fn() },
@@ -9,6 +10,7 @@ vi.mock("../api", () => ({
 import { api } from "../api";
 
 const get = vi.mocked(api.get);
+const put = vi.mocked(api.put);
 const postRaw = vi.mocked(api.postRaw);
 const download = vi.mocked(api.download);
 
@@ -26,6 +28,7 @@ function renderPage() {
 describe("Settings configuration transport", () => {
   beforeEach(() => {
     get.mockReset();
+    put.mockReset();
     postRaw.mockReset();
     download.mockReset();
     get.mockImplementation(async (path: string) => {
@@ -56,6 +59,48 @@ describe("Settings configuration transport", () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it("leaves host-wide keys out of a non-default site's save", async () => {
+    get.mockImplementation(async (path: string) => {
+      switch (path) {
+        case "/api/settings":
+          return {
+            wan_ip: "192.168.1.2", max_body: "131072", retention_days: "7",
+            host_wide_keys: "wan_ip,max_body", kernel: "active", geoip: "false",
+          };
+        case "/api/backup/schedule":
+          return { config: backupConfig, status: {} };
+        case "/api/geoip":
+          return { available: false };
+        case "/api/crowdsec/status":
+          return { configured: false };
+        case "/api/audit":
+          return [];
+        case "/api/updates":
+          return { packages: [], updating: false, app_updating: false };
+        case "/api/certs":
+          return { certs: [] };
+        case "/api/notifications":
+          return { settings: {}, channels: {}, recent: [], event_kinds: [] };
+        default:
+          return {};
+      }
+    });
+    const me = { username: "ops", site: "bravo", site_name: "Bravo", permissions: [] } as unknown as Me;
+    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} me={me} />);
+
+    const retention = (await screen.findByText(/Event retention/)).parentElement?.querySelector("input");
+    if (!retention) throw new Error("retention field not found");
+    fireEvent.change(retention, { target: { value: "3" } });
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    const body = put.mock.calls[0][1] as Record<string, string>;
+    expect(body.retention_days).toBe("3");
+    expect(body.wan_ip).toBeUndefined();
+    expect(body.max_body).toBeUndefined();
+    expect(body.host_wide_keys).toBeUndefined();
   });
 
   it("downloads both formats, encrypting them when a passphrase is set", async () => {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -125,27 +126,42 @@ func TestPerSiteResourcesAreIsolated(t *testing.T) {
 	f := newSiteFixtures(t)
 	st := f.st
 
-	// --- policy settings (max body drives the compiled policy) ---
+	// --- policy settings: max_body is one process-wide buffer ---
 	if rec := f.call("gui.local", http.MethodPut, "/api/settings", f.adminToken, f.adminCSRF, "", map[string]string{"max_body": "8192"}); rec.Code != http.StatusOK {
 		t.Fatalf("default settings = %d: %s", rec.Code, rec.Body.String())
 	}
-	if rec := f.call("console.bravo.test", http.MethodPut, "/api/settings", f.bravoToken, f.bravoCSRF, "", map[string]string{"max_body": "2048"}); rec.Code != http.StatusOK {
-		t.Fatalf("bravo settings = %d: %s", rec.Code, rec.Body.String())
+	// A non-default console may not move the buffer every site's traffic uses.
+	rec := f.call("console.bravo.test", http.MethodPut, "/api/settings", f.bravoToken, f.bravoCSRF, "", map[string]string{"max_body": "2048"})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("bravo max_body write = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), store.ErrHostWideSetting.Error()) {
+		t.Fatalf("bravo max_body refusal = %s", rec.Body.String())
 	}
 	bravoRes, err := f.res.For(f.bravo.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := bravoRes.Policy.CurrentSettings().MaxBody; got != 2048 {
-		t.Fatalf("bravo policy max body = %d, want 2048", got)
+	if err := bravoRes.Policy.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if got := bravoRes.Policy.CurrentSettings().MaxBody; got != 8192 {
+		t.Fatalf("bravo policy max body = %d, want the host's 8192", got)
 	}
 	if got := f.res.Default().Policy.CurrentSettings().MaxBody; got != 8192 {
-		t.Fatalf("default policy picked up another site's max body: %d", got)
+		t.Fatalf("default policy max body = %d, want 8192", got)
 	}
-	// The proxy asks the router, which must answer for the proxy's own site.
+	if got, err := f.st.InSite(f.bravo.ID).GetSetting("max_body"); err != nil || got != "8192" {
+		t.Fatalf("bravo reads max_body %q (%v), want the host's 8192", got, err)
+	}
+	// The refusal is specific to host-wide keys: the same console still saves
+	// its own settings.
+	if rec := f.call("console.bravo.test", http.MethodPut, "/api/settings", f.bravoToken, f.bravoCSRF, "", map[string]string{"retention_days": "5"}); rec.Code != http.StatusOK {
+		t.Fatalf("bravo retention write = %d: %s", rec.Code, rec.Body.String())
+	}
 	router := siteres.NewRouter(f.res)
-	if got := router.Settings(f.bravo.ID).MaxBody; got != 2048 {
-		t.Fatalf("router answered %d for bravo", got)
+	if got := router.Settings(f.bravo.ID).MaxBody; got != 8192 {
+		t.Fatalf("router answered %d for bravo, want the host's 8192", got)
 	}
 
 	// --- notification channels ---

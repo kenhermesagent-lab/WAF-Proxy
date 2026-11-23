@@ -18,6 +18,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
   const [areas, setAreas] = useState<PermissionArea[]>([]);
   const [draft, setDraft] = useState<Role | null>(null);
   const [invite, setInvite] = useState<{ username: string; email: string; password: string; role_id: number } | null>(null);
+  const [mailInvite, setMailInvite] = useState<{ first_name: string; last_name: string; email: string; role_id: number } | null>(null);
   const [created, setCreated] = useState<{ username: string; totp_secret: string; otpauth_url: string; recovery_codes: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -99,6 +100,20 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
     }
   };
 
+  const sendInvite = async () => {
+    if (!mailInvite) return;
+    setBusy(true);
+    try {
+      await api.post("/api/users/invite", mailInvite);
+      onOK(`Invitation sent to ${mailInvite.email}`);
+      setMailInvite(null);
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const newRole = (): Role => ({ id: 0, name: "", description: "", builtin: false, permissions: ["dashboard.read"] });
   const togglePermission = (role: Role, token: string) => {
     const has = role.permissions.includes(token);
@@ -145,9 +160,14 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
         title={`Administrators (${users.length})`}
         actions={
           canManage && (
-            <button className="small primary" onClick={() => setInvite({ username: "", email: "", password: "", role_id: roles[0]?.id ?? 0 })}>
-              Add administrator
-            </button>
+            <span className="row" style={{ gap: 6 }}>
+              <button className="small" onClick={() => setMailInvite({ first_name: "", last_name: "", email: "", role_id: roles[0]?.id ?? 0 })}>
+                Invite by email
+              </button>
+              <button className="small primary" onClick={() => setInvite({ username: "", email: "", password: "", role_id: roles[0]?.id ?? 0 })}>
+                Add administrator
+              </button>
+            </span>
           )
         }
       >
@@ -247,6 +267,37 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
           known-good Administrator, Operator, Read-only and Viewer to fall back on.
         </p>
       </Card>
+
+      {mailInvite && (
+        <Modal title="Invite administrator" onClose={() => setMailInvite(null)}>
+          <p className="muted" style={{ fontSize: 13 }}>
+            The recipient gets a link to choose their own username and password and to enrol an
+            authenticator. The invitation expires after 7 days.
+          </p>
+          <div className="row grow">
+            <Field label="First name">
+              <input value={mailInvite.first_name} onChange={(e) => setMailInvite({ ...mailInvite, first_name: e.target.value })} autoFocus />
+            </Field>
+            <Field label="Last name">
+              <input value={mailInvite.last_name} onChange={(e) => setMailInvite({ ...mailInvite, last_name: e.target.value })} />
+            </Field>
+          </div>
+          <Field label="Email address" hint="The invitation and password-reset links go here.">
+            <input type="email" value={mailInvite.email} onChange={(e) => setMailInvite({ ...mailInvite, email: e.target.value })} autoComplete="email" placeholder="admin@your-domain.tld" />
+          </Field>
+          <Field label="Role">
+            <select value={mailInvite.role_id} onChange={(e) => setMailInvite({ ...mailInvite, role_id: Number(e.target.value) })}>
+              {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </Field>
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button onClick={() => setMailInvite(null)}>Cancel</button>
+            <button className="primary" disabled={busy || !mailInvite.email} onClick={sendInvite}>
+              {busy ? "Sending…" : "Send invitation"}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {invite && (
         <Modal title="Add administrator" onClose={() => setInvite(null)}>

@@ -6,10 +6,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net/http"
 	"net/smtp"
+	"net/textproto"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,15 +32,18 @@ type EventKind struct {
 	Label string `json:"label"`
 }
 
-// EventKinds is the set of per-event toggles the API exposes. An empty
-// notify_events setting means every kind is delivered; the sentinel "none"
-// suppresses every event class while keeping channels configured.
+// EventKinds is the set of routable events the API exposes. No saved routing
+// means every kind reaches every channel; the older notify_events sentinel
+// "none" still suppresses every event class while keeping channels configured.
 // Routing classes raised by ban handling.
 const (
 	KindBan          = "ban"
 	KindPermanentBan = "permanent_ban"
 	KindCrowdSecBan  = "crowdsec"
 )
+
+// RouteChannels are the delivery channels an event can be routed to.
+var RouteChannels = []string{"telegram", "email", "webhook"}
 
 var EventKinds = []EventKind{
 	{Kind: "ban", Label: "Temporary ban"},
@@ -80,6 +88,10 @@ func (m *Manager) Channels() map[string]bool {
 	if err != nil {
 		return map[string]bool{}
 	}
+	return channelsFrom(kv)
+}
+
+func channelsFrom(kv map[string]string) map[string]bool {
 	return map[string]bool{
 		"telegram": kv["notify_telegram_enabled"] == "1" && kv["notify_telegram_token"] != "" && kv["notify_telegram_chat"] != "",
 		// The SMTP username is also the envelope sender. There is no separate
@@ -90,14 +102,16 @@ func (m *Manager) Channels() map[string]bool {
 	}
 }
 
-// Enqueue records an alert for every enabled channel. Immediate alerts are
-// delivered on the next worker kick; everything else waits for the 5 minute
-// digest so a ban wave becomes one message instead of hundreds.
+// Enqueue records an alert for every enabled channel routed this event.
+// Immediate alerts are delivered on the next worker kick; everything else
+// waits for the 5 minute digest so a ban wave becomes one message instead of
+// hundreds.
 func (m *Manager) Enqueue(kind, text, dedupe string, immediate bool) {
-	if !m.EventEnabled(kind) {
+	kv, err := m.st.Settings()
+	if err != nil {
 		return
 	}
-	channels := m.Channels()
+	routes := routesFromSettings(kv)
 	if dedupe != "" {
 		if seen, err := m.st.AlertRecentlySent(dedupe, m.now().Add(-24*time.Hour)); err == nil && seen {
 			return
@@ -107,8 +121,8 @@ func (m *Manager) Enqueue(kind, text, dedupe string, immediate bool) {
 	if immediate {
 		state = "immediate"
 	}
-	for name, enabled := range channels {
-		if !enabled {
+	for name, enabled := range channelsFrom(kv) {
+		if !enabled || !routeAllows(routes, kind, name) {
 			continue
 		}
 		if err := m.st.EnqueueAlertState(name, kind, dedupe, text, state); err != nil {
@@ -163,22 +177,69 @@ func banSourceInPayload(payload string) (string, bool) {
 	return strings.TrimSpace(payload[i+len(marker) : len(payload)-1]), true
 }
 
-// EventEnabled reports whether a class may be delivered under the current
-// routing settings: an empty value means every class, "none" means none.
+// EventEnabled reports whether a class reaches any channel at all, which is
+// what the queue re-check and the recent-delivery badge need.
 func (m *Manager) EventEnabled(kind string) bool {
 	kv, err := m.st.Settings()
 	if err != nil {
 		return true
 	}
-	raw := strings.TrimSpace(kv["notify_events"])
-	if raw == "none" {
-		return false
+	return eventRouted(routesFromSettings(kv), kind)
+}
+
+// routesFromSettings returns nil when every event reaches every channel (the
+// default), otherwise the channel set per event. An empty notify_routes falls
+// back to the older global notify_events list, so a pending upgrade keeps the
+// mutes an operator already set.
+func routesFromSettings(kv map[string]string) map[string]map[string]bool {
+	if raw := strings.TrimSpace(kv["notify_routes"]); raw != "" {
+		var stored map[string][]string
+		if err := json.Unmarshal([]byte(raw), &stored); err != nil {
+			return nil
+		}
+		out := map[string]map[string]bool{}
+		for kind, channels := range stored {
+			out[kind] = map[string]bool{}
+			for _, channel := range channels {
+				out[kind][channel] = true
+			}
+		}
+		return out
 	}
-	if raw == "" {
+	switch events := strings.TrimSpace(kv["notify_events"]); events {
+	case "":
+		return nil
+	case "none":
+		return map[string]map[string]bool{}
+	default:
+		out := map[string]map[string]bool{}
+		for _, part := range strings.Split(events, ",") {
+			kind := strings.ToLower(strings.TrimSpace(part))
+			if kind == "" {
+				continue
+			}
+			out[kind] = map[string]bool{}
+			for _, channel := range RouteChannels {
+				out[kind][channel] = true
+			}
+		}
+		return out
+	}
+}
+
+func routeAllows(routes map[string]map[string]bool, kind, channel string) bool {
+	if routes == nil {
+		return validRouteChannel(channel)
+	}
+	return routes[kind][channel]
+}
+
+func eventRouted(routes map[string]map[string]bool, kind string) bool {
+	if routes == nil {
 		return true
 	}
-	for _, part := range strings.Split(raw, ",") {
-		if strings.EqualFold(strings.TrimSpace(part), kind) {
+	for _, channel := range RouteChannels {
+		if routes[kind][channel] {
 			return true
 		}
 	}
@@ -212,15 +273,17 @@ func (m *Manager) process(immediateOnly bool) {
 	if len(alerts) == 0 {
 		return
 	}
+	kv, _ := m.st.Settings()
+	routes := routesFromSettings(kv)
 	byChannel := map[string][]model.Alert{}
 	for _, a := range alerts {
 		if immediateOnly && a.State != "immediate" {
 			continue
 		}
 		// Routing is checked again here, not only when the alert was queued: a
-		// class muted while its alerts are still pending must stop them, and a
+		// route muted while its alerts are still pending must stop them, and a
 		// backlog queued by an older build must not outlive the mute.
-		if !m.EventEnabled(RouteClass(a)) {
+		if !routeAllows(routes, RouteClass(a), a.Channel) {
 			_ = m.st.MarkAlert(a.ID, "suppressed", a.Attempts)
 			continue
 		}
@@ -375,7 +438,7 @@ func (m *Manager) sendEmail(kv map[string]string, kind, text string) error {
 	if err != nil {
 		return err
 	}
-	return m.sendEmailMessage(kv, to, "[wafproxy] "+kind+" alert", text)
+	return m.sendEmailMessage(kv, to, "WAF-Proxy alert: "+kind, text, nil)
 }
 
 // EmailConfigured reports whether the email channel can deliver mail at all.
@@ -394,17 +457,32 @@ func (m *Manager) SendMail(subject, text string) error {
 	return m.SendMailTo(to, subject, text)
 }
 
-// SendMailTo delivers a plain-text message to the given addresses. A password
-// reset uses it to reach only the account that asked for it.
+// SendMailTo delivers a message to the given addresses. A password reset uses
+// it to reach only the account that asked for it.
 func (m *Manager) SendMailTo(to []string, subject, text string) error {
+	return m.SendMailLink(to, subject, text, "", "")
+}
+
+// SendMailLink adds a button and the same URL as text, for reset and invite
+// mail where the recipient needs one obvious next step.
+func (m *Manager) SendMailLink(to []string, subject, text, label, link string) error {
 	kv, err := m.st.Settings()
 	if err != nil {
 		return err
 	}
-	return m.sendEmailMessage(kv, to, subject, text)
+	var action *mailAction
+	if label != "" && link != "" {
+		action = &mailAction{Label: label, URL: link}
+	}
+	return m.sendEmailMessage(kv, to, subject, text, action)
 }
 
-func (m *Manager) sendEmailMessage(kv map[string]string, to []string, subject, text string) error {
+type mailAction struct {
+	Label string
+	URL   string
+}
+
+func (m *Manager) sendEmailMessage(kv map[string]string, to []string, subject, text string, action *mailAction) error {
 	host := kv["smtp_host"]
 	port := kv["smtp_port"]
 	if port == "" {
@@ -418,24 +496,108 @@ func (m *Manager) sendEmailMessage(kv map[string]string, to []string, subject, t
 	if host == "" || from == "" || len(to) == 0 {
 		return fmt.Errorf("email is not configured")
 	}
+	// A newline in an address would add a header of the sender's choosing.
+	for _, addr := range append([]string{from}, to...) {
+		if strings.ContainsAny(addr, "\r\n") {
+			return fmt.Errorf("email address contains a line break")
+		}
+	}
+	if _, err := strconv.Atoi(port); err != nil {
+		return fmt.Errorf("invalid smtp port")
+	}
+	msg, err := buildEmail(from, to, subject, text, action)
+	if err != nil {
+		return err
+	}
 	var auth smtp.Auth
 	if user != "" || pass != "" {
 		auth = smtp.PlainAuth("", user, pass, host)
 	}
-	msg := strings.Join([]string{
-		"From: " + from,
+	return smtp.SendMail(host+":"+port, auth, from, to, msg)
+}
+
+// buildEmail is a multipart/alternative message: the plain text an operator
+// can read anywhere, and the same content in the console's own styling. The
+// logo is drawn with a table cell and a monogram, so no client has to load a
+// remote image the internal console may not serve.
+func buildEmail(from string, to []string, subject, text string, action *mailAction) ([]byte, error) {
+	var content bytes.Buffer
+	mw := multipart.NewWriter(&content)
+	plain, err := mw.CreatePart(textproto.MIMEHeader{
+		"Content-Type": {"text/plain; charset=utf-8"}, "Content-Transfer-Encoding": {"quoted-printable"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := writeQuotedPrintable(plain, plainEmail(text, action)); err != nil {
+		return nil, err
+	}
+	htmlPart, err := mw.CreatePart(textproto.MIMEHeader{
+		"Content-Type": {"text/html; charset=utf-8"}, "Content-Transfer-Encoding": {"quoted-printable"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := writeQuotedPrintable(htmlPart, htmlEmail(subject, text, action)); err != nil {
+		return nil, err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	headers := []string{
+		"From: WAF-Proxy <" + from + ">",
 		"To: " + strings.Join(to, ", "),
 		"Subject: " + subject,
+		"Date: " + time.Now().Format(time.RFC1123Z),
 		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=utf-8",
-		"",
-		text,
-	}, "\r\n")
-	addr := host + ":" + port
-	if _, err := strconv.Atoi(port); err != nil {
-		return fmt.Errorf("invalid smtp port")
+		"Content-Type: multipart/alternative; boundary=" + mw.Boundary(),
 	}
-	return smtp.SendMail(addr, auth, from, to, []byte(msg))
+	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + content.String()), nil
+}
+
+// writeQuotedPrintable keeps every line under the SMTP limit; the HTML is
+// otherwise one long line that strict servers reject.
+func writeQuotedPrintable(w io.Writer, body string) error {
+	qp := quotedprintable.NewWriter(w)
+	if _, err := io.WriteString(qp, body); err != nil {
+		return err
+	}
+	return qp.Close()
+}
+
+func plainEmail(text string, action *mailAction) string {
+	if action == nil || strings.Contains(text, action.URL) {
+		return text
+	}
+	return strings.TrimSpace(text) + "\n\n" + action.Label + ": " + action.URL + "\n"
+}
+
+func htmlEmail(subject, text string, action *mailAction) string {
+	var b strings.Builder
+	b.WriteString(`<!doctype html><html><body style="margin:0;padding:24px 12px;background:#f1f5f9">`)
+	b.WriteString(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center">`)
+	b.WriteString(`<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%">`)
+	b.WriteString(`<tr><td style="padding:22px 28px;background:#0b1220;border-radius:12px 12px 0 0">`)
+	b.WriteString(`<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>`)
+	b.WriteString(`<td width="36" height="36" align="center" style="background:#2563eb;border-radius:8px;color:#ffffff;font:700 19px Arial,sans-serif">W</td>`)
+	b.WriteString(`<td style="padding-left:12px;color:#e5edff;font:700 18px Arial,sans-serif">WAF-Proxy</td>`)
+	b.WriteString(`</tr></table></td></tr>`)
+	b.WriteString(`<tr><td style="padding:28px;background:#ffffff;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 12px 12px;font:15px/1.6 Arial,sans-serif;color:#1e293b">`)
+	b.WriteString(`<h1 style="margin:0 0 16px;font:600 20px Arial,sans-serif;color:#0f172a">` + html.EscapeString(subject) + `</h1>`)
+	for _, para := range strings.Split(strings.TrimSpace(text), "\n\n") {
+		if para = strings.TrimSpace(para); para == "" {
+			continue
+		}
+		b.WriteString(`<p style="margin:0 0 14px">` + strings.ReplaceAll(html.EscapeString(para), "\n", "<br>") + `</p>`)
+	}
+	if action != nil {
+		link := html.EscapeString(action.URL)
+		b.WriteString(`<p style="margin:22px 0"><a href="` + link + `" style="display:inline-block;padding:11px 22px;background:#2563eb;border-radius:8px;color:#ffffff;text-decoration:none;font-weight:600">` + html.EscapeString(action.Label) + `</a></p>`)
+		b.WriteString(`<p style="margin:0;font-size:12px;color:#64748b;word-break:break-all">If the button does not work, open this link:<br>` + link + `</p>`)
+	}
+	b.WriteString(`<p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;color:#64748b">Sent by your self-hosted WAF-Proxy console. If you were not expecting this message, you can safely ignore it.</p>`)
+	b.WriteString(`</td></tr></table></td></tr></table></body></html>`)
+	return b.String()
 }
 
 func (m *Manager) sendWebhook(kv map[string]string, text string) error {
@@ -479,8 +641,33 @@ func (m *Manager) Settings() (map[string]string, error) {
 		"webhook_enabled":  kv["notify_webhook_enabled"],
 		"webhook_url":      mask(kv["notify_webhook_url"]),
 		"events":           kv["notify_events"],
+		"routes":           routesJSON(routesFromSettings(kv)),
 	}
 	return out, nil
+}
+
+// routesJSON returns the full matrix, with the default all-channels state
+// spelled out so the console does not have to infer it.
+func routesJSON(routes map[string]map[string]bool) string {
+	if routes == nil {
+		routes = map[string]map[string]bool{}
+		for _, event := range EventKinds {
+			routes[event.Kind] = map[string]bool{}
+			for _, channel := range RouteChannels {
+				routes[event.Kind][channel] = true
+			}
+		}
+	}
+	out := map[string][]string{}
+	for kind, channels := range routes {
+		out[kind] = []string{}
+		for channel := range channels {
+			out[kind] = append(out[kind], channel)
+		}
+		sort.Strings(out[kind])
+	}
+	raw, _ := json.Marshal(out)
+	return string(raw)
 }
 
 func mask(v string) string {
@@ -501,7 +688,20 @@ func (m *Manager) Update(in map[string]string) error {
 		"smtp_port":               strings.TrimSpace(in["smtp_port"]),
 		"smtp_user":               strings.TrimSpace(in["smtp_user"]),
 		"notify_webhook_enabled":  boolString(in["webhook_enabled"]),
-		"notify_events":           strings.TrimSpace(in["events"]),
+	}
+	if raw := strings.TrimSpace(in["routes"]); raw != "" {
+		routes, err := cleanRoutes(raw)
+		if err != nil {
+			return err
+		}
+		kv["notify_routes"] = routes
+		// The per-channel matrix supersedes the older global list.
+		kv["notify_events"] = ""
+	} else {
+		kv["notify_events"] = strings.TrimSpace(in["events"])
+		// A legacy client saving the global list must not leave an older
+		// per-channel matrix in place to override it.
+		kv["notify_routes"] = ""
 	}
 	if raw := strings.TrimSpace(in["webhook_url"]); raw != "" && raw != "********" {
 		if err := urlguard.Check(raw, urlguard.Webhook); err != nil {
@@ -527,6 +727,50 @@ func (m *Manager) Update(in map[string]string) error {
 		kv[key] = enc
 	}
 	return m.st.SetSettings(kv)
+}
+
+// cleanRoutes validates the console's matrix and stores a canonical JSON
+// object. Unknown event kinds are dropped so an old browser tab cannot persist
+// a route nothing will ever read.
+func cleanRoutes(raw string) (string, error) {
+	var in map[string][]string
+	if err := json.Unmarshal([]byte(raw), &in); err != nil {
+		return "", fmt.Errorf("notification routes: %w", err)
+	}
+	known := map[string]bool{}
+	for _, event := range EventKinds {
+		known[event.Kind] = true
+	}
+	out := map[string][]string{}
+	for kind, channels := range in {
+		if !known[kind] {
+			continue
+		}
+		seen := map[string]bool{}
+		out[kind] = []string{}
+		for _, channel := range channels {
+			channel = strings.ToLower(strings.TrimSpace(channel))
+			if !seen[channel] && validRouteChannel(channel) {
+				seen[channel] = true
+				out[kind] = append(out[kind], channel)
+			}
+		}
+		sort.Strings(out[kind])
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func validRouteChannel(channel string) bool {
+	for _, c := range RouteChannels {
+		if c == channel {
+			return true
+		}
+	}
+	return false
 }
 
 func boolString(v string) string {

@@ -204,6 +204,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/password/forgot", s.forgotAvailable)
 	m.HandleFunc("POST /api/password/forgot", s.forgotPassword)
 	m.HandleFunc("POST /api/password/reset", s.resetPassword)
+	m.HandleFunc("GET /api/invite", s.inviteInfo)
+	m.HandleFunc("POST /api/invite/accept", s.acceptInvite)
 
 	m.HandleFunc("POST /api/logout", s.authed(s.logout))
 	m.HandleFunc("POST /api/cache/purge", s.authed(s.purgeCache))
@@ -224,6 +226,7 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/users", s.authed(s.listUsers))
 	m.HandleFunc("POST /api/users", s.authed(s.createUser))
+	m.HandleFunc("POST /api/users/invite", s.authed(s.inviteUser))
 	m.HandleFunc("PUT /api/users/{id}", s.authed(s.updateUser))
 	m.HandleFunc("DELETE /api/users/{id}", s.authed(s.deleteUser))
 	m.HandleFunc("GET /api/roles", s.authed(s.listRoles))
@@ -1049,6 +1052,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		out["kernel"] = reason
 	}
 	out["geoip"] = fmt.Sprint(s.geo.Available())
+	// The settings form leaves the process-wide keys out of a non-default
+	// site's save instead of submitting them and earning a refusal.
+	out["host_wide_keys"] = strings.Join(store.HostSettingKeys(), ",")
 	// Report the interfaces the collector is actually sampling, plus which of
 	// them came from auto-detection rather than a configured field, so a fully
 	// configured host still sees what its charts read.

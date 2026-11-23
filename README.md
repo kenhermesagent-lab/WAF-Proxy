@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.56.0.
+systemd service. Version 1.57.0.
 
 ## Contents
 
@@ -347,7 +347,7 @@ secrets are not part of the document.
   only into the site whose console posted it.
 - **Per-site policy, notifications, anomaly detection, canary and ACME.** Each of these is one
   instance per site, built from that site's own rows and settings (`internal/siteres`). A site's
-  `dos_rps`, `max_body`, normalization mode, decoy hosts, WAF and access profiles, notification
+  `dos_rps`, normalization mode, decoy hosts, WAF and access profiles, notification
   channels and alert classes, anomaly thresholds, canary target and ACME account/staging switch
   are its own: writing one site's console leaves every other site's policy compiled state,
   channels and thresholds untouched. The proxy asks the site's engine for every request, resolved
@@ -363,7 +363,8 @@ secrets are not part of the document.
   access lists, certificates, saved log views, notification channels, anomaly thresholds, canary
   and the ACME email and staging switch. One setting is deliberately not per site: `max_body` is a
   single process-wide inspection buffer read from the default site, so a non-default console shows
-  it disabled with a note instead of pretending the save changed traffic. The remaining host-wide
+  it disabled with a note, and the API refuses a per-site write of it with the same `403` as the
+  other host-wide keys, instead of pretending the save changed traffic. The remaining host-wide
   sections (network addressing, admin source allowlist, CrowdSec, GeoIP and updates) are read-only
   on a non-default console for the same reason, and each says so.
 - **Upgrade behaviour.** Nothing migrates: every row and setting written before sites existed

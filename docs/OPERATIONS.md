@@ -296,9 +296,10 @@ stored as settings and edited with `PUT /api/anomaly/settings`:
 
 Each raised event is stored once and refreshed while the condition stays open, so a
 long spike is one row, not one row per minute. Alerts are routed through the same
-notification channels and event toggles as bans (`notify_events`), and deduplication
-uses the key `anomaly:<kind>:<proxy id>`: a second alert with the same key inside 24
-hours is dropped before it reaches the queue.
+notification channels and event matrix as bans (`notify_routes`, with the older
+`notify_events` list still honoured), and deduplication uses the key
+`anomaly:<kind>:<proxy id>`: a second alert with the same key inside 24 hours is
+dropped before it reaches the queue.
 
 ## Testing a notification channel
 

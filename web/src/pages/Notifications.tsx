@@ -5,6 +5,13 @@ import { Badge, Card, Empty, Field, SaveBar, errText, fmtAgo, fmtTime, PageHead 
 type Settings = Record<string, string>;
 type Alert = { id: number; channel: string; kind: string; payload: string; state: string; created_at: string; sent_at?: string | null; class?: string; muted?: boolean };
 type EventKind = { kind: string; label: string };
+// Each event row routes to these three channels independently.
+const CHANNELS = [
+  { id: "telegram", label: "Telegram" },
+  { id: "email", label: "Email" },
+  { id: "webhook", label: "Slack / Teams / webhook" },
+] as const;
+type Routes = Record<string, string[]>;
 
 const FALLBACK_KINDS: EventKind[] = [
   { kind: "ban", label: "Temporary ban" },
@@ -44,20 +51,21 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
     return [...keys].filter((k) => (settings[k] ?? "") !== (saved[k] ?? "")).length;
   }, [settings, saved]);
 
-  const rawEvents = (settings.events ?? "").trim();
-  const allEvents = rawEvents === "";
-  const noEvents = rawEvents === "none";
-  const chosen = new Set(
-    allEvents || noEvents ? [] : rawEvents.split(",").map((v) => v.trim()).filter(Boolean),
-  );
-  const eventOn = (kind: string) => allEvents || (!noEvents && chosen.has(kind));
+  const routes: Routes = useMemo(() => {
+    try {
+      return JSON.parse(settings.routes || "{}") as Routes;
+    } catch {
+      return {};
+    }
+  }, [settings.routes]);
 
-  const toggleEvent = (kind: string, on: boolean) => {
-    const next = new Set(allEvents ? kinds.map((k) => k.kind) : noEvents ? [] : [...chosen]);
-    if (on) next.add(kind);
-    else next.delete(kind);
-    const value = next.size === 0 ? "none" : next.size === kinds.length ? "" : [...next].join(",");
-    set("events", value);
+  const toggleRoute = (kind: string, channel: string, on: boolean) => {
+    const next: Routes = { ...routes };
+    const selected = new Set(next[kind] ?? []);
+    if (on) selected.add(channel);
+    else selected.delete(channel);
+    next[kind] = [...selected];
+    set("routes", JSON.stringify(next));
   };
 
   const save = async () => {
@@ -150,22 +158,33 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
       </div>
 
       <Card title="Event routing">
-        <div className="grid cols-4">
-          {kinds.map((k) => (
-            <label key={k.kind} style={{ display: "flex", gap: 9, alignItems: "center", textTransform: "none", letterSpacing: 0, margin: 0 }}>
-              <input
-                type="checkbox"
-                style={{ width: "auto" }}
-                checked={eventOn(k.kind)}
-                onChange={(e) => toggleEvent(k.kind, e.target.checked)}
-              />
-              {k.label}
-            </label>
-          ))}
-        </div>
+        <div className="table-wrap"><table>
+          <thead>
+            <tr><th>Event</th>{CHANNELS.map((c) => <th key={c.id}>{c.label}</th>)}</tr>
+          </thead>
+          <tbody>
+            {kinds.map((k) => (
+              <tr key={k.kind}>
+                <td>{k.label}</td>
+                {CHANNELS.map((c) => (
+                  <td key={c.id}>
+                    <input
+                      type="checkbox"
+                      aria-label={`${k.label}: ${c.label}`}
+                      style={{ width: "auto" }}
+                      checked={(routes[k.kind] ?? []).includes(c.id)}
+                      onChange={(e) => toggleRoute(k.kind, c.id, e.target.checked)}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
         <p className="muted" style={{ fontSize: 12 }}>
-          Every event is delivered by default. Untick a class to suppress it on all channels and on
-          agent webhooks; explicit channel test messages are always sent.
+          Every event reaches all three channels by default. Untick a box to stop that channel for
+          the event; untick all three to suppress it everywhere, including agent webhooks. Explicit
+          test messages above are always sent.
         </p>
       </Card>
 
