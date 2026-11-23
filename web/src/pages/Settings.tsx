@@ -13,14 +13,11 @@ type Settings = Record<string, string>;
 const RUNTIME_KEYS = new Set(["kernel", "geoip", "iface_available", "host_wide_keys", "site_slug", "site_name"]);
 
 // The parts of /api/ha the Settings switch needs for its help text.
-type HAInfo = { enabled?: boolean; boot_enabled?: boolean; paired?: boolean; cluster_id?: string; reason?: string };
+type HAInfo = { enabled?: boolean; paired?: boolean; cluster_id?: string; reason?: string };
 
 function haSwitchHelp(hostWide: boolean, me: Me | null | undefined, info: HAInfo | null): string {
   if (hostWide || me?.role === "host_admin") {
     return "Only an administrator on the default site can change this.";
-  }
-  if (info && info.boot_enabled === false) {
-    return "Locked off: this host booted with WAFPROXY_HA_ENABLE=0. Set it to 1, restart, then use this switch.";
   }
   if (info?.enabled && info.paired) {
     return "This node is paired. Turning it off stops replication and the HA API on this node; the pair stays configured for when you turn it back on.";
@@ -407,7 +404,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             help={haSwitchHelp(hostWide, me, haInfo)}
             checked={s.ha_enabled === "1"}
             onChange={(v) => set("ha_enabled", v ? "1" : "0")}
-            disabled={!mayToggleHA || haInfo?.boot_enabled === false}
+            disabled={!mayToggleHA}
           />
           {haInfo?.paired && s.ha_enabled === "0" && !hostWide && (
             <Field

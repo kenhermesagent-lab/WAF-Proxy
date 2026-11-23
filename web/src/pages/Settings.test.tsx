@@ -177,8 +177,8 @@ describe("Settings configuration transport", () => {
       if (path === "/api/ha") {
         haCalls++;
         return haCalls === 1
-          ? { enabled: false, boot_enabled: true }
-          : { enabled: true, boot_enabled: true, paired: false };
+          ? { enabled: false }
+          : { enabled: true, paired: false };
       }
       return base ? base(path) : {};
     });
@@ -192,7 +192,7 @@ describe("Settings configuration transport", () => {
   });
 
   it("asks for the cluster id and sends it only with the save that turns HA off", async () => {
-    mockHA({ enabled: true, boot_enabled: true, paired: true, cluster_id: "cluster-abc" });
+    mockHA({ enabled: true, paired: true, cluster_id: "cluster-abc" });
     let storedHA = "1";
     const beforeSettings = get.getMockImplementation();
     get.mockImplementation(async (path: string) => {
@@ -218,21 +218,13 @@ describe("Settings configuration transport", () => {
     await waitFor(() => expect((screen.getByPlaceholderText("cluster-abc") as HTMLInputElement).value).toBe(""));
   });
 
-  it("says the boot switch is in the way and disables the toggle", async () => {
-    mockHA({ enabled: false, boot_enabled: false, paired: false, reason: "this host booted with WAFPROXY_HA_ENABLE=0" });
-    renderPage();
-    const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
-    await screen.findByText(/WAFPROXY_HA_ENABLE=0/);
-    expect((toggle as HTMLInputElement).disabled).toBe(true);
-  });
-
   it("distinguishes a paired node from one that still needs pairing", async () => {
-    mockHA({ enabled: true, boot_enabled: true, paired: true });
+    mockHA({ enabled: true, paired: true });
     renderPage();
     await screen.findByText(/This node is paired/);
     cleanup();
 
-    mockHA({ enabled: true, boot_enabled: true, paired: false });
+    mockHA({ enabled: true, paired: false });
     renderPage();
     await screen.findByText(/not paired yet/);
   });

@@ -7,16 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ha"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
-
-// haBootOn reports whether this boot runs HA: the environment switch allows it
-// and the stored host-wide setting has it on.
-func haBootOn(cfg *config.Config, st *store.Store) bool {
-	return cfg.HAEnabled && haSettingOn(st)
-}
 
 // haBootRole decides the role this boot runs with. A paired node keeps its role
 // even while HA is off, so a standby stays out of service; an unpaired leftover
@@ -111,6 +104,15 @@ func (c haControl) Pair(context.Context) (string, error) {
 	} else if pair != nil {
 		return "", errors.New("this node is already paired; unpair it first")
 	}
+	// The node that issues the pairing code is the pair's active. Writing the
+	// role keeps a later failback legal; a standalone node serves either way.
+	if node, err := ha.Load(c.dir); err != nil {
+		return "", err
+	} else if node.Role == ha.RoleStandalone {
+		if _, err := ha.Activate(c.dir, node, node.Epoch); err != nil {
+			return "", err
+		}
+	}
 	return ha.WritePairingCode(c.dir)
 }
 
@@ -123,6 +125,13 @@ func (c haControl) Join(ctx context.Context, addr, fingerprint, code string) err
 	if _, err := ha.Join(ctx, c.dir, addr, fingerprint, code); err != nil {
 		return err
 	}
+	// Join leaves a serving node as standby. The restart the API asks for starts
+	// its follower; starting it here would restore over live traffic.
+	if node, err := ha.Load(c.dir); err != nil {
+		return err
+	} else if node.Active() {
+		return nil
+	}
 	if c.rt != nil && c.rt.usable() {
 		c.rt.repl.Start()
 	}
@@ -130,6 +139,13 @@ func (c haControl) Join(ctx context.Context, addr, fingerprint, code string) err
 }
 
 func (c haControl) Sync(ctx context.Context) (ha.SyncResult, error) {
+	// Replacing the active from its peer would discard live writes; the CLI
+	// refuses this too.
+	if node, err := ha.Load(c.dir); err != nil {
+		return ha.SyncResult{}, err
+	} else if node.Active() {
+		return ha.SyncResult{}, errors.New("refusing to overwrite this active node from its peer; run sync on the standby")
+	}
 	return ha.SyncOnce(ctx, c.dir, c.st)
 }
 
@@ -154,6 +170,9 @@ func (c haControl) Unpair(context.Context) error {
 		return err
 	}
 	if c.rt != nil {
+		// Without this the keeper keeps renewing an old cluster's lease and can
+		// demote this node after it is no longer part of the pair.
+		c.rt.stopLease()
 		c.rt.repl.Stop()
 		c.rt.quiesce.Set(false)
 	}

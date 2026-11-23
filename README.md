@@ -75,9 +75,10 @@ systemd service. Version 1.60.1.
 - **Optional two-node high availability.** A role machine on disk, a keepalived virtual address, a
   witness lease and a fencing hook move the service between an active and a standby without
   restarting the process, while configuration, sessions, bans, audit and alerts replicate over an
-  authenticated TLS link. Off by default: it needs `WAFPROXY_HA_ENABLE=1` and the switch in
-  Settings. The two-node hardware lab gates have not been run, so read [docs/HA.md](docs/HA.md)
-  before trusting a pair with production traffic.
+  authenticated TLS link. Off by default: turn it on with the **Settings → High availability**
+  switch, which enables the runtime and restarts once to bind the HA listeners. No environment
+  variable is needed. The two-node hardware lab gates have not been run, so read
+  [docs/HA.md](docs/HA.md) before trusting a pair with production traffic.
 
 **Console**
 
@@ -329,9 +330,10 @@ default** and changes nothing about a single-node install until an operator turn
 two-node hardware lab gates in [docs/HA.md](docs/HA.md) have not been run and the page still
 lacks some cards, so run that checklist before trusting a pair with production traffic:
 
-1. Give both nodes a private HA link address (`WAFPROXY_HA_LINK_LISTEN`, port 9443) and a fixed
-   management console address (`WAFPROXY_HA_MGMT_LISTEN`), start both with
-   `WAFPROXY_HA_ENABLE=1`, then enable **Settings → High availability** on each.
+1. Give both nodes a private HA link address (`WAFPROXY_HA_LINK_LISTEN`, port 9443) and an
+   optional fixed management console address (`WAFPROXY_HA_MGMT_LISTEN`), then enable
+   **Settings → High availability** on each; the first enable restarts the service so the HA
+   listeners bind.
 2. **Create a pair** on one node (a 26-character code, valid for 10 minutes) and **join** it from
    the other with that code and the first node's address and fingerprint. Both nodes must share
    the master key; certificates may differ because the link pins fingerprints rather than names.

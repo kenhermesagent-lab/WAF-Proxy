@@ -37,4 +37,13 @@ func TestReadHAStatusFailClosed(t *testing.T) {
 	if !st.Serving || st.State != ha.StateStandalone {
 		t.Fatalf("HA off = %+v; want standalone and serving", st)
 	}
+
+	// A paired standby is the one node that must stay out of service.
+	if err := ha.Save(dir, &ha.Node{NodeID: "node-a", Role: ha.RoleStandby, Epoch: 4}); err != nil {
+		t.Fatal(err)
+	}
+	st = readHAStatus(false, dir)
+	if st.Serving || st.Role != ha.RoleStandby || st.Reason == "" {
+		t.Fatalf("HA off paired standby = %+v; want not serving and a reason", st)
+	}
 }

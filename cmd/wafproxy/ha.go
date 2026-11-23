@@ -118,11 +118,12 @@ func readOutboxStatus(dir, peerFingerprint string) *haOutboxStatus {
 // readHAStatus never fails closed to active: a damaged role file reports
 // standby, exactly as the data plane would treat it.
 func readHAStatus(enabled bool, dataDir string) haStatus {
-	if !enabled {
-		return haStatus{Enabled: false, Role: ha.RoleStandalone, State: ha.StateStandalone, Serving: true, DataDir: dataDir}
-	}
 	node, _ := ha.Load(dataDir) // a damaged file already loads as standby
 	pair, _ := ha.LoadPair(dataDir)
+	// HA off keeps an unpaired node, and a paired active, serving on its own.
+	if !enabled && (pair == nil || node.Active()) {
+		return haStatus{Enabled: false, Role: ha.RoleStandalone, State: ha.StateStandalone, Serving: true, DataDir: dataDir}
+	}
 	st := haStatus{Enabled: enabled, Role: node.Role, Epoch: node.Epoch, Reason: node.Reason, Peer: node.Peer, UpdatedAt: node.UpdatedAt, DataDir: dataDir}
 	if pair != nil {
 		st.Paired = true
@@ -132,7 +133,27 @@ func readHAStatus(enabled bool, dataDir string) haStatus {
 	}
 	st.State = node.EffectiveState()
 	st.Serving = !enabled || node.Active()
+	if !enabled && st.Paired && !node.Active() {
+		// The console refuses this disable, but a boot with HA off and a pair
+		// on disk must not report a standby as serving.
+		st.Serving = false
+		st.Reason = "this node is a paired standby; it stays out of service while high availability is off"
+	}
 	return st
+}
+
+// haSettingFromDir reads the stored host-wide switch for the CLI. A missing
+// database was never enabled, which is off.
+func haSettingFromDir(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, "wafproxy.db")); err != nil {
+		return false
+	}
+	st, err := store.Open(dir)
+	if err != nil {
+		return false
+	}
+	defer st.Close()
+	return haSettingOn(st)
 }
 
 func haStatusCLI(args []string) error {
@@ -143,7 +164,7 @@ func haStatusCLI(args []string) error {
 		return err
 	}
 	dir := dataDir()
-	enabled := envFlag("WAFPROXY_HA_ENABLE")
+	enabled := haSettingFromDir(dir)
 	print := func() {
 		st := readHAStatus(enabled, dir)
 		if st.Enabled && st.Paired {
@@ -189,6 +210,12 @@ func haPairCLI(args []string) error {
 	id, err := ha.LoadOrCreateIdentity(dir)
 	if err != nil {
 		return err
+	}
+	// The node that issues the pairing code is the pair's active.
+	if node, err := ha.Load(dir); err == nil && node.Role == ha.RoleStandalone {
+		if _, err := ha.Activate(dir, node, node.Epoch); err != nil {
+			return err
+		}
 	}
 	code, err := ha.WritePairingCode(dir)
 	if err != nil {
@@ -337,9 +364,4 @@ func dataDir() string {
 		dir = "./data"
 	}
 	return dir
-}
-
-func envFlag(name string) bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
-	return v == "1" || v == "true" || v == "yes"
 }

@@ -13,7 +13,6 @@ const get = vi.mocked(api.get);
 
 const status = (over: Partial<HAStatus> = {}): HAStatus => ({
   enabled: true,
-  boot_enabled: true,
   paired: false,
   role: "standalone",
   state: "standalone",

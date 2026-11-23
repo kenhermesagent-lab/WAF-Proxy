@@ -12,6 +12,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.61.0] — 2026-11-23
+
+### Changed
+
+- **The High availability switch is the only switch.** `WAFPROXY_HA_ENABLE` is gone. Turning
+  on **Settings → High availability** enables the runtime, starts the HA loops and allows
+  pairing; the first enable asks the service supervisor for one restart, which binds the HA
+  link and management listeners and settles the floating service address. Later enables and
+  disables are live. An upgrading operator can delete the variable; it is ignored.
+
+### Fixed
+
+- **Joining a pair now makes the joining node the standby**, so the pair cannot end up with two
+  writers and a failover has a standby to promote. The node that issues the pairing code is
+  recorded as the active.
+- **A sync on the active is refused from the console as well as the CLI**, so a mirror pass
+  cannot overwrite the serving node with its peer's copy.
+- **A witness that was never reachable no longer leaves an active writing.** The lease keeper
+  reports a loss after one TTL even when it never obtained a lease, and unpairing stops the
+  keeper instead of letting it demote the node later.
+- **`wafproxy ha status` reads the stored switch** instead of the removed boot variable, and a
+  paired standby is reported out of service when HA is off.
+- **HA metrics follow the switch**, and an empty `WAFPROXY_HA_MGMT_LISTEN` no longer attempts a
+  wildcard management listener.
+
 ## [1.60.1] — 2026-11-23
 
 ### Fixed

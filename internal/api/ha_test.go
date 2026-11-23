@@ -52,7 +52,6 @@ const haTestPassword = "a sufficiently long password"
 func haServer(t *testing.T) (*Server, *store.Store, *fakeHA, string, string) {
 	t.Helper()
 	srv, st, token, csrf := newObservabilityServer(t)
-	srv.cfg.HAEnabled = true
 	srv.SetHAStatus(func() HAStatus {
 		return HAStatus{Enabled: true, Paired: true, ClusterID: "cluster-1",
 			Role: "active", State: "active", Serving: true, Epoch: 9,
@@ -158,7 +157,6 @@ func TestHAActionsNeedFreshCredentialsAndTheClusterID(t *testing.T) {
 
 func TestHAActionsAreRefusedWhileDisabled(t *testing.T) {
 	srv, _, ops, token, csrf := haServer(t)
-	srv.cfg.HAEnabled = false
 	srv.SetHAStatus(func() HAStatus {
 		return HAStatus{Enabled: false, Role: "standalone", State: "standalone", Serving: true}
 	})

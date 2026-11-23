@@ -13,8 +13,9 @@
 > down into `split-brain-risk`, and more than three automatic moves in an hour
 > parks the pair until an operator moves by hand. Automatic failover is opt-in
 > through `WAFPROXY_HA_AUTO_FAILOVER`, which refuses to start without a witness
-> and a fence command. Everything is gated by `WAFPROXY_HA_ENABLE` (off by
-> default), so a single-node install behaves as it did before. The partition
+> and a fence command. HA stays off until the operator turns on the stored
+> `ha_enabled` switch in Settings, so a single-node install behaves as it did
+> before. There is no boot variable. The partition
 > simulator (P6-07) and the guarded HA API (P7-01, including `GET /api/ha`) are
 > built, the `ha_enabled` host-wide switch starts and stops the HA loops live and
 > appears in Settings (P7-02, P7-03), the nav item is gated on it (P7-04), and the
@@ -302,14 +303,15 @@ and accept the same session cookies.
 
 ### 5.1 On node A (the active)
 
-Both nodes need `WAFPROXY_HA_ENABLE=1`, `WAFPROXY_HA_MGMT_LISTEN`, and the stored
-`ha_enabled=1` (Settings → High availability). With the stored
-setting missing the node stays single-node even when the boot switch is on.
-Pairing also needs `WAFPROXY_HA_LINK_LISTEN` (for example `10.0.0.10:9443`),
-which must be reachable only on the private network between the two nodes.
+Both nodes need `WAFPROXY_HA_LINK_LISTEN` (for example `10.0.0.10:9443`), which
+must be reachable only on the private network between the two nodes, and the
+stored `ha_enabled=1` (Settings → High availability). `WAFPROXY_HA_MGMT_LISTEN`
+is optional; without it the console keeps its existing LAN listener. Turning the
+switch on the first time restarts the service so the HA link and management
+listeners bind.
 
 ```bash
-sudo systemctl restart wafproxy   # after setting the variables
+sudo systemctl restart wafproxy   # only if you changed the variables
 sudo wafproxy ha pair
 ```
 
@@ -811,7 +813,7 @@ is debugged by breaking a pair.
 
 Rules that apply to every phase:
 
-1. **Every phase merges dark.** `WAFPROXY_HA_ENABLE` (Appendix A) defaults to `0`, and with it off
+1. **Every phase merges dark.** The stored `ha_enabled` switch defaults to off, and with it off
    the binary behaves exactly as 1.55.2, with every new path unreachable. Turn it on in the lab
    from P1, and keep it the only difference between a passing and a failing test.
 2. **A phase ends with a revertible commit series and a gate.** If the gate fails, revert the
@@ -841,8 +843,8 @@ deploy/ha-lab/
   logs/                # gitignored; the artifact attached to every failover bug
 ```
 
-- `node-a` and `node-b` run the same image built from the working tree with
-  `WAFPROXY_HA_ENABLE=1`, their own data volume, `cap_add: [NET_ADMIN, NET_RAW]`, and fixed
+- `node-a` and `node-b` run the same image built from the working tree with the HA link and
+  witness variables, their own data volume, `cap_add: [NET_ADMIN, NET_RAW]`, and fixed
   addresses on `ha` (`10.77.0.0/24`) and `wan` (`10.78.0.0/24`).
 - `witness` runs the same binary as `wafproxy ha witness --listen :9444`, so the lease protocol
   has two implementations from P6 instead of one.
@@ -925,11 +927,11 @@ holes that replication would otherwise broadcast. No HA behaviour ships.
    the old password, re-seal every sealed secret, re-key the session HMAC (all sessions die),
    print a fresh recovery code. Test: old cookies rejected, sealed certificate keys still load,
    gate sessions invalid.
-10. **Management listener** — `WAFPROXY_HA_MGMT_LISTEN`, required in HA mode, and never a silent
-    fallback to loopback (correction 4).
+10. **Management listener** — `WAFPROXY_HA_MGMT_LISTEN`, optional in HA mode; when empty the
+    console keeps its existing LAN listener. Never a silent fallback to loopback (correction 4).
 
 **Gate.** `go test ./...` and `make perf-gate` pass on one node. A container built from the tree
-serves identically with HA off and with `WAFPROXY_HA_ENABLE=1, role: active`. Dropping and
+serves identically with HA off and with the switch on and `role: active`. Dropping and
 re-binding the data plane works 100 times. `sqlite3` on a migrated database shows no plaintext
 gate token and no plaintext `key_pem`.
 
@@ -1166,13 +1168,12 @@ everyone who has not turned it on.
    `ha.write` for everything that changes state), then regenerate with
    `go generate ./internal/api` and commit `docs/openapi.yaml`. `make docs-check` runs
    `tools/openapi -check` and fails on drift, so this is not optional.
-2. Enablement is two layers, and both must be honest in the UI. `WAFPROXY_HA_ENABLE` is the
-   boot-time master switch: `0` registers no routes and no loops, and the console must say
-   why the switch is disabled. The day-to-day switch is the stored host-wide setting
-   `ha_enabled`; add it to `publicSettingKeys` and its `0`/`1` validation in `putSettings`
-   (`internal/api/server.go`), and to `hostSettingKeys` in `internal/store/sites.go` so a
-   tenant console cannot set it. Missing means off. The HA manager starts and stops its
-   loops on the setting change from `PUT /api/settings`, so no restart is needed.
+2. Enablement is one stored host-wide setting, `ha_enabled`; add it to `publicSettingKeys`
+   and its `0`/`1` validation in `putSettings` (`internal/api/server.go`), and to
+   `hostSettingKeys` in `internal/store/sites.go` so a tenant console cannot set it. Missing
+   means off. The HA manager starts and stops its loops on the setting change from
+   `PUT /api/settings`. The first enable asks the supervisor for one restart, because the HA
+   link and management listeners and the floating service address decision belong to boot.
    `GET /api/me` gains the effective `ha_enabled` (and `ha_role`) so the sidebar can hide
    the page without a second request.
 3. Settings: insert `{ id: "ha", label: "High availability" }` into `SECTIONS` in
@@ -1217,7 +1218,7 @@ With it on and no pair, the page shows the setup card and `ha status` says `unpa
    during a backup; upgrading the standby while the active writes.
 3. A 72-hour soak at production request rate with one planned failover per day, watching RSS,
    file descriptors, goroutine count and table growth.
-4. Performance: `make perf-gate` with `WAFPROXY_HA_ENABLE=1, role: active`. The ban and session
+4. Performance: `make perf-gate` with the switch on and `role: active`. The ban and session
    paths are the hot ones; record before and after, put the delta in the PR, and only re-record
    with `make perf-record` after a reviewed decision that the cost is acceptable.
 5. Security review against section 12, including the two tests in 12.7. Break each property
@@ -1282,8 +1283,7 @@ excerpt, and the failing `--dry-run --json` output. Without them the report is a
 17. The page answers every question in B.4 in all four states (unpaired, paired-active,
     paired-standby, disabled), and its **Copy diagnostics** output contains all five
     artifacts 13.12 asks for.
-18. With `WAFPROXY_HA_ENABLE=0` no HA route or loop exists, the Settings switch is disabled
-    with the reason, and every HA table is still empty.
+18. With HA off no HA loop runs, the Settings switch is off, and every HA table is still empty.
 
 ### 13.14 Definition of done
 
@@ -1292,8 +1292,8 @@ the top of this file is rewritten to describe what exists rather than what is pr
 `docs/OPERATIONS.md` documents the pair as an operational mode; `CHANGELOG.md` names the three
 data migrations (`23` sealed certificate keys, `24` hashed gate tokens, `25` outbox) and the
 one-time gate re-login; `README.md` lists HA without a "planned" qualifier;
-`WAFPROXY_HA_ENABLE` defaults to off with an explicit note that a single node is still the
-supported default; `ha_enabled` is absent on a fresh install, so the console has no HA page
+`ha_enabled` defaults to off with an explicit note that a single node is still the
+supported default and is absent on a fresh install, so the console has no HA page
 and no HA nav entry until an operator turns it on; no new module appears in `go.mod`; and the upgrade path has been exercised in
 both directions, standby first and then back, on real hosts rather than only in the lab.
 
@@ -1331,8 +1331,7 @@ both directions, standby first and then back, on real hosts rather than only in 
 Boot-only environment. None of these are read by 1.55.2.
 
 ```ini
-WAFPROXY_HA_ENABLE=0                    # boot master switch; 0 registers no HA routes or loops
-WAFPROXY_HA_MGMT_LISTEN=10.0.0.11:8080  # management console on this node's own address
+WAFPROXY_HA_MGMT_LISTEN=10.0.0.11:8080  # optional management console on this node's own address
 WAFPROXY_HA_CONTROL_SOCKET=/run/wafproxy-ha/ha.sock
 WAFPROXY_HA_LINK_IFACE=eth1
 WAFPROXY_HA_WITNESS=https://10.0.0.5:9444
@@ -1429,7 +1428,6 @@ Help text, which changes with state:
 | Off, unpaired | Off. This node serves on its own, exactly as it does today. |
 | On, unpaired | On, not paired yet. Open High availability under System to create or join a pair. |
 | On, paired | On, paired with `<peer>` (`active`/`standby`, last sync `<age>`). |
-| Boot switch off | Disabled: this host booted with `WAFPROXY_HA_ENABLE=0`. |
 
 While the switch is on, a `link-button` **Open High availability** navigates to `#/ha`.
 The paired and unpaired lines come from `GET /api/ha` and are omitted for a role without
@@ -1446,10 +1444,8 @@ Rules:
 - On a tenant console the section renders read-only with the existing `hostWide` note. For
   `host_admin` it is disabled with "Host-wide capability: the default console administers
   it." The API enforces both; the UI just does not offer a control that will fail.
-- Precedence: `WAFPROXY_HA_ENABLE` is the boot master switch. `0` means no HA routes and
-  no loops exist and the switch is disabled with that reason; `1` or unset lets the stored
-  setting decide. `GET /api/me.ha_enabled` and `GET /api/ha.enabled` report the
-  **effective** value, so the console never links to a page that would 404.
+- The stored setting is the only switch. `GET /api/me.ha_enabled` and `GET /api/ha.enabled`
+  report it, so the console never links to a page that would 404.
 - Enabling starts the HA loops in the running process: the control socket, the failover
   watcher, replication on a standby and the witness lease on an active, plus outbox capture.
   No listener moves and no keepalived change happens, so traffic is untouched until a move.
@@ -1464,8 +1460,9 @@ Rules:
 - Audit: `settings.update` already records changed keys; add explicit `ha.enable` and
   `ha.disable` rows with the acting administrator and source IP, because this switch
   changes who can move the service address.
-- Timing: live, through the existing `reloadEngines` path. A node whose `WAFPROXY_HA_ENABLE`
-  is `0` still needs a restart, which is what a boot-time master switch means.
+- Timing: the loops start live through `haChange`. The first enable also asks the service
+  supervisor for one restart, which binds the HA-only listeners and settles the floating
+  service address; later enables and disables need no restart.
 
 ### B.4 The High availability page
 
@@ -1491,7 +1488,7 @@ Agent access, Notifications, Tailscale, Sites, High availability.
    so `nav.test.tsx` covers it without a DOM.
 3. not `host_admin` — HA is a host capability, not a tenant one.
 4. the default-site console.
-5. the effective value after `WAFPROXY_HA_ENABLE` (folded into `me.ha_enabled`).
+5. the effective value of `ha_enabled` (folded into `me.ha_enabled`).
 
 `CommandPalette` receives `visibleNav`, so the same rule applies there. `NAV` keeps the
 item, so `routeFromHash` still parses `#/ha`: the URL is not the security boundary.

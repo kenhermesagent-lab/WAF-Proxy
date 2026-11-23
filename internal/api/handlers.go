@@ -1965,7 +1965,7 @@ func (s *Server) prometheusMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	// A growing outbox is the first sign of a peer that stopped acknowledging
 	// or a write path whose transaction is holding the stream back.
-	if s.cfg.HAEnabled {
+	if s.haStatusOf().Enabled {
 		var depth, bytes int64
 		if stats, err := s.db(r).Unscoped().OutboxStats(); err == nil {
 			depth, bytes = stats.Depth, stats.Bytes

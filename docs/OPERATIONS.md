@@ -186,8 +186,8 @@ both nodes at once, and do not run a move while either node is rebuilding.
 If the new release changes the database schema, the first node to start migrates it; the other
 node then refuses to join or promote while its schema is older, with the fix shown in the
 preflight. Upgrade the standby first for exactly this reason: the active keeps serving on the old
-schema until the move, and the new one is already current when it takes over. `ha_enabled` and the
-`WAFPROXY_HA_ENABLE` boot switch are left exactly as the operator set them by an upgrade.
+schema until the move, and the new one is already current when it takes over. The stored
+`ha_enabled` switch is left exactly as the operator set it by an upgrade.
 
 Roll back by rebuilding the previous release on the node you are working on. Do not roll back a
 node that has already applied a newer schema while the other node is serving; restore the pair's

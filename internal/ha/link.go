@@ -247,6 +247,13 @@ func Join(ctx context.Context, dataDir, activeAddr, pin, code string) (*Pair, er
 	if err := SavePair(dataDir, pair); err != nil {
 		return nil, err
 	}
+	// The node that joins is the pair's standby. The caller restarts so the data
+	// plane and the follower pick this up together.
+	if node, err := Load(dataDir); err == nil && node.Active() {
+		if _, err := EnterState(dataDir, node, StateStandby); err != nil {
+			return nil, err
+		}
+	}
 	return pair, nil
 }
 

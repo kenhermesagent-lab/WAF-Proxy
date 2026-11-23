@@ -2,7 +2,6 @@
 // the console's own action history.
 export interface HAStatus {
   enabled: boolean;
-  boot_enabled: boolean;
   paired: boolean;
   cluster_id?: string;
   role: string;
