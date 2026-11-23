@@ -544,9 +544,9 @@ screenshots. None of them are required by a single-node deployment.
   own listener, renewal backoff with jitter, and per-site minimum TLS version. Not delivered:
   console TLS and certificate revocation.
 - **1.36.0–1.37.0 — Phase 5: partial.** Request IDs, JSON access logs, unattended
-  `wafproxy setup`, and `wafproxy recover`. Not delivered: encrypted backup CLI, alerting
+  `wafproxy setup`, and `wafproxy recover`. Not delivered: alerting
   dedupe/Test, diagnostics bundle, SLO rollups, upstream flap detection, synthetic canary, the
-  INSTALL split, generated OpenAPI, recipes. Request-ID propagation and JSON access logs with stage, rule,
+  INSTALL split, generated OpenAPI, recipes. The encrypted backup command shipped in 1.38.0. Request-ID propagation and JSON access logs with stage, rule,
   latency and action. Not delivered: unattended setup, preflight is in the console only,
   break-glass recovery, CLI encrypted backup and retention, per-stage latency metrics, alerting
   dedupe/Test, diagnostics bundle, SLO rollups, certificate/ACME counters, upstream flap

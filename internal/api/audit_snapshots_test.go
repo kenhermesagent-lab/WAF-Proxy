@@ -72,7 +72,7 @@ func TestPolicyUpdateSnapshotAndRollback(t *testing.T) {
 		t.Fatalf("entry status = %d: %s", rec.Code, rec.Body.String())
 	}
 	var detail struct {
-		Entry    model.AuditEntry    `json:"entry"`
+		Entry    model.AuditEntry     `json:"entry"`
 		Snapshot *model.AuditSnapshot `json:"snapshot"`
 	}
 	decodeJSON(t, rec, &detail)

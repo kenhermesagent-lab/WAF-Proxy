@@ -12,6 +12,8 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -22,6 +24,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/anomaly"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/api"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
@@ -59,12 +62,14 @@ func main() {
 			err = setupCLI(os.Args[2:])
 		case "recover":
 			err = recoverCLI(os.Args[2:])
+		case "backup":
+			err = backupCLI(os.Args[2:])
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, os.Args[1]+":", err)
 			os.Exit(1)
 		}
-		if os.Args[1] == "unban" || os.Args[1] == "setup" || os.Args[1] == "recover" {
+		if os.Args[1] == "unban" || os.Args[1] == "setup" || os.Args[1] == "recover" || os.Args[1] == "backup" {
 			return
 		}
 	}
@@ -97,6 +102,86 @@ func unbanCLI(args []string) error {
 	}
 	fmt.Printf("ban for %s removed; the running proxy reconciles within 30s\n", args[0])
 	return nil
+}
+
+// backupCLI writes an encrypted backup and prunes older ones, so a nightly
+// job is one command.
+func backupCLI(args []string) error {
+	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
+	out := fs.String("out", "", "output file (default: <data>/backups/wafproxy-backup-<time>.json.enc)")
+	pass := fs.String("passphrase", os.Getenv("WAFPROXY_BACKUP_PASSPHRASE"), "encryption passphrase, at least 16 characters")
+	keep := fs.Int("keep", 0, "keep only the newest N backups in the output directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(*pass) < 16 {
+		return errors.New("the passphrase must be at least 16 characters")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if *out == "" {
+		dir := filepath.Join(cfg.DataDir, "backups")
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+		*out = filepath.Join(dir, "wafproxy-backup-"+time.Now().UTC().Format("20060102T150405Z")+".json.enc")
+	}
+	doc, err := api.BuildBackupDocument(st)
+	if err != nil {
+		return err
+	}
+	sealed, err := backup.Encrypt(*pass, doc)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(*out, sealed, 0o600); err != nil {
+		return err
+	}
+	if *keep > 0 {
+		removed, err := pruneBackups(filepath.Dir(*out), *keep)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("wrote %s; removed %d older backup(s)\n", *out, removed)
+		return nil
+	}
+	fmt.Printf("wrote %s\n", *out)
+	return nil
+}
+
+// pruneBackups keeps the newest keep files matching the backup name.
+func pruneBackups(dir string, keep int) (int, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "wafproxy-backup-*.json.enc"))
+	if err != nil {
+		return 0, err
+	}
+	type entry struct {
+		path string
+		mod  time.Time
+	}
+	entries := make([]entry, 0, len(files))
+	for _, path := range files {
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		entries = append(entries, entry{path: path, mod: info.ModTime()})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].mod.After(entries[j].mod) })
+	removed := 0
+	for i := keep; i < len(entries); i++ {
+		if err := os.Remove(entries[i].path); err == nil {
+			removed++
+		}
+	}
+	return removed, nil
 }
 
 // setupCLI creates the first administrator without a browser, for image builds
