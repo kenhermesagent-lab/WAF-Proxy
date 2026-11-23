@@ -38,6 +38,7 @@ type Monitor struct {
 
 	mu      sync.Mutex
 	last    Snapshot
+	host    string
 	failing bool
 }
 
@@ -99,6 +100,13 @@ func (m *Monitor) Check(ctx context.Context) Snapshot {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// A different site is a different outage; carrying the old one over would
+	// suppress its first failure alert and overstate the consecutive count.
+	if host != m.host {
+		m.host = host
+		m.failing = false
+		m.last = Snapshot{}
+	}
 	if res.OK {
 		snap.Failures = 0
 		if m.failing {
