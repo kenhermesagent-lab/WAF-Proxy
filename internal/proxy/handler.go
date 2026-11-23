@@ -193,7 +193,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// The filter runs before the challenge: a crawler the operator asked to
 	// refuse should not be asked to prove it is a browser first.
-	if settings := s.d.Policy.CurrentSettings(); settings.Enabled {
+	if settings := s.d.Policy.Settings(e.proxy.SiteID); settings.Enabled {
 		if denied, rule := botfilter.Blocked(r.UserAgent(), settings.BotFilter, settings.BotFilterAllow); denied {
 			blocked = true
 			event.Stage, event.RuleID = "bot-filter", "bot:"+rule

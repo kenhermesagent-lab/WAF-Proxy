@@ -32,6 +32,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
 )
 
 // CertProvider resolves certificates for SNI names.
@@ -51,9 +52,23 @@ type ALPNProvider interface {
 }
 
 // Deps are the collaborators the proxy needs.
+// PolicyEngine is the part of the policy engine the proxy needs. Two
+// implementations satisfy it: a single engine (one site) and siteres.Router,
+// which picks the engine of the site each request belongs to.
+type PolicyEngine interface {
+	DecoyHost(host string) bool
+	Settings(siteID int64) policy.Settings
+	Screen(req *policy.Request) model.Verdict
+	Inspect(req *policy.Request) (model.Verdict, policy.WAFInfo)
+	ResponseInspection(p *model.Proxy) (responses, mode string)
+	// ResponseEngine compiles the profile the proxy names, for its own site.
+	ResponseEngine(p *model.Proxy) *waf.Engine
+	ProfileFor(p *model.Proxy) *model.Profile
+}
+
 type Deps struct {
 	Store    *store.Store
-	Policy   *policy.Engine
+	Policy   PolicyEngine
 	Gate     *gate.Gate
 	Bots     *botguard.Guard
 	Bans     *ban.Engine

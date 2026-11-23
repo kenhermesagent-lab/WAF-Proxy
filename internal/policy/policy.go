@@ -562,6 +562,20 @@ func (e *Engine) siteFor(host string) int64 {
 	return e.siteByHost[NormalizeHost(host)]
 }
 
+// ResponseEngine is the compiled profile the proxy's responses are inspected
+// with. A per-site engine holds only its own site's profiles, so the lookup
+// cannot reach another site's row.
+func (e *Engine) ResponseEngine(p *model.Proxy) *waf.Engine {
+	if p == nil {
+		return nil
+	}
+	return e.WAFEngine(p.ProfileID)
+}
+
+// Settings returns the cached settings of the site this engine was built for.
+// A per-site engine ignores the id: it already reads one site's rows.
+func (e *Engine) Settings(siteID int64) Settings { return e.CurrentSettings() }
+
 // CurrentSettings returns a copy of the cached settings.
 func (e *Engine) CurrentSettings() Settings {
 	e.mu.RLock()

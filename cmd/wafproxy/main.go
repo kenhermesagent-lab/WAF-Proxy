@@ -21,16 +21,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/acme"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/agentlink"
-	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/anomaly"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/api"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/bundle"
-	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/canary"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crowdsec"
@@ -42,8 +39,8 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
-	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/siteres"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/tailnet"
@@ -344,7 +341,14 @@ func recoverCLI(args []string) error {
 // handshake rather than capturing the certificate at startup, so a renewal or
 // replacement is picked up without restarting the listener, and a second site's
 // console host gets its own certificate from the same listener.
-func consoleTLSConfig(certs *acme.Manager, host string) (*tls.Config, error) {
+// consoleCerts is the certificate lookup the console listener needs: one ACME
+// manager on a single-site install, the per-site set once sites exist.
+type consoleCerts interface {
+	CertificateForHost(host string) (*tls.Certificate, error)
+	GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
+}
+
+func consoleTLSConfig(certs consoleCerts, host string) (*tls.Config, error) {
 	if _, err := certs.CertificateForHost(host); err != nil {
 		return nil, err
 	}
@@ -530,9 +534,20 @@ func run() error {
 	}
 	wafs := waf.NewSet(profiles, log)
 	wafs.SetBundles(bundles.Rules())
-	certs := acme.New(all, box, log)
-	certs.SetDirectory(cfg.ACMEDirectory, cfg.ACMECAFile)
-	notifier := notify.New(all, box, log)
+	// One instance of policy, notifications, anomaly detection, the canary and
+	// the ACME client per site. The default site's instances are the ones a
+	// single-site install has always used, so an upgrade changes nothing.
+	res, err := siteres.New(siteres.Deps{
+		Store: st, Box: box, Log: log, Bans: bans, Feeds: feeds, Geo: geo,
+		Metrics: met, Bundles: bundles.Rules,
+		ACMEDirectory: cfg.ACMEDirectory, ACMECAFile: cfg.ACMECAFile,
+	})
+	if err != nil {
+		return err
+	}
+	router := siteres.NewRouter(res)
+	certs := res.Default().ACME
+	notifier := res.Default().Notify
 	uptimeMon := uptime.New(all, notifier, log)
 
 	// Assigned once the listeners exist; the ban callback needs it to cut
@@ -555,7 +570,11 @@ func run() error {
 		if rec.Permanent {
 			dedupe = "permanent-ban:" + rec.CIDR
 		}
-		notifier.Enqueue(event, text, dedupe, immediate)
+		target := notifier
+		if b, err := res.For(rec.SiteID); err == nil {
+			target = b.Notify
+		}
+		target.Enqueue(event, text, dedupe, immediate)
 		if streams == nil {
 			return
 		}
@@ -598,34 +617,32 @@ func run() error {
 		log.Info("crowdsec bouncer enabled", "lapi", csURL)
 	}
 
-	pol, err := policy.New(all, bans, feeds, geo, wafs, log)
-	if err != nil {
-		return err
-	}
-	pol.SetBundleRules(bundles.Rules)
-	// A new pack is compiled into every profile before the next request, the
-	// same path a profile edit already takes.
+	// A new pack is compiled into every site's profiles before the next
+	// request, the same path a profile edit already takes.
 	bundles.OnChange(func() {
-		if err := pol.ReloadWAF(); err != nil {
-			log.Error("reload WAF after bundle install", "err", err)
-		}
+		res.Each(func(b *siteres.Bundle) {
+			b.Wafs.SetBundles(bundles.Rules())
+			if err := b.Policy.ReloadWAF(); err != nil {
+				log.Error("reload WAF after bundle install", "site", b.Site.Slug, "err", err)
+			}
+		})
 	})
 	px, err := proxy.New(proxy.Deps{
-		Store: all, Policy: pol, Gate: gateEngine, Bots: bots, Bans: bans,
+		Store: all, Policy: router, Gate: gateEngine, Bots: bots, Bans: bans,
 		Geo: geo, Metrics: met, Log: log, ClientIP: trusted,
 	})
 	if err != nil {
 		return err
 	}
 	px.SetMaxInflight(cfg.MaxInflight)
-	px.SetCertProvider(certs)
+	px.SetCertProvider(res)
 	// TLS-ALPN-01 validations are answered by the WAN listener itself; lego's
 	// own server would have to bind port 443 a second time.
-	px.SetALPNProvider(certs.TLSALPN())
+	px.SetALPNProvider(res)
 	// HTTP-01 tokens are served by our own plain-HTTP listener, not a second
 	// bind on port 80 started from inside the ACME client.
-	px.SetHTTPChallengeHandler(certs.HTTP01())
-	cur := pol.CurrentSettings()
+	px.SetHTTPChallengeHandler(res.HTTPChallenge())
+	cur := router.Settings(res.DefaultID())
 	px.SetBodyLimit(cur.MaxBody)
 	bans.SetStealth(cur.StealthPing, cur.WANIface)
 
@@ -733,7 +750,7 @@ func run() error {
 		}
 	}()
 	api.SetTrustedProxies(trusted)
-	apiServer := api.New(st, box, cfg, px, pol, bans, feeds, certs, cs, met, notifier, geo, log)
+	apiServer := api.New(st, box, cfg, px, res.Default().Policy, bans, feeds, certs, cs, met, notifier, geo, res, log)
 	apiServer.SetBundles(bundles)
 	apiServer.StartBackup(ctx)
 	apiServer.StartAutoUpdate(ctx)
@@ -741,13 +758,7 @@ func run() error {
 	agentLinks.SetRouting(notifier.EventEnabled)
 	apiServer.SetAgentLinks(agentLinks)
 	go agentLinks.Start(ctx)
-	anomalyMon := anomaly.New(all, met, notifier, log)
-	anomalyMon.SetSink(agentLinks.Publish)
-	apiServer.SetAnomaly(anomalyMon)
-	go anomalyMon.Start(ctx)
-	canaryMon := canary.NewMonitor(st, canary.Prober{}, notifier)
-	apiServer.SetCanary(canaryMon)
-	go canaryMon.Start(ctx)
+	res.Each(func(b *siteres.Bundle) { b.Anomaly.SetSink(agentLinks.Publish) })
 	apiServer.SetStreaming(streams)
 	apiServer.SetUpdates(updateManager)
 	apiServer.SetUptime(uptimeMon)
@@ -789,7 +800,7 @@ func run() error {
 		if cfg.ListenGUITLS {
 			// Resolve once here so a missing certificate fails the listener at
 			// boot, then again on every handshake so renewals reach the console.
-			tlsCfg, err := consoleTLSConfig(certs, cfg.GUIHost)
+			tlsCfg, err := consoleTLSConfig(res, cfg.GUIHost)
 			if err != nil {
 				ln.Close()
 				return "console TLS: " + err.Error()
@@ -838,15 +849,15 @@ func run() error {
 	go bots.Start(ctx)
 	go feeds.Start(ctx)
 	go bundles.Start(ctx)
-	go pol.Start(ctx)
+	go res.Start(ctx)
 	go bans.Start(ctx)
-	go certs.RenewLoop(ctx)
+
 	go geoAutoUpdate(ctx, st, geo, log)
-	notifier.Start(ctx)
+
 	uptimeMon.Start(ctx)
 	cs.Start(ctx)
 	go retentionLoop(ctx, st, log)
-	go certWatch(ctx, st, certs, notifier, log)
+	go certWatch(ctx, res, log)
 
 	for _, gl := range guiListeners {
 		go func(gl guiListener) {
@@ -1000,7 +1011,7 @@ func geoAutoUpdate(ctx context.Context, st *store.Store, geo *geoip.Geo, log *sl
 	}
 }
 
-func certWatch(ctx context.Context, st *store.Store, certs *acme.Manager, nt *notify.Manager, log *slog.Logger) {
+func certWatch(ctx context.Context, res *siteres.Set, log *slog.Logger) {
 	t := time.NewTicker(6 * time.Hour)
 	defer t.Stop()
 	for {
@@ -1008,20 +1019,25 @@ func certWatch(ctx context.Context, st *store.Store, certs *acme.Manager, nt *no
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			list, err := st.ListCerts()
-			if err != nil {
-				continue
-			}
-			for _, c := range list {
-				if c.ExpiresAt == nil {
-					continue
+			// Each site warns through its own channels about its own
+			// certificates, so one tenant's expiry never lands in another's
+			// inbox.
+			res.Each(func(b *siteres.Bundle) {
+				list, err := b.Store.ListCerts()
+				if err != nil {
+					return
 				}
-				days := int(time.Until(*c.ExpiresAt).Hours() / 24)
-				if days <= 7 {
-					nt.Enqueue("cert", fmt.Sprintf("Certificate for %s expires in %d days", c.Domains, days),
-						"cert:"+c.Domains, true)
+				for _, c := range list {
+					if c.ExpiresAt == nil {
+						continue
+					}
+					days := int(time.Until(*c.ExpiresAt).Hours() / 24)
+					if days <= 7 {
+						b.Notify.Enqueue("cert", fmt.Sprintf("Certificate for %s expires in %d days", c.Domains, days),
+							"cert:"+c.Domains, true)
+					}
 				}
-			}
+			})
 		}
 	}
 }

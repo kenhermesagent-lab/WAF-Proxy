@@ -620,11 +620,7 @@ func (s *Server) revokeGate(w http.ResponseWriter, r *http.Request) {
 
 // A server built without the runtime engines (unit tests) has nothing to reload.
 func (s *Server) reload(ctx context.Context) {
-	if s.policy != nil {
-		if err := s.policy.Reload(); err != nil {
-			s.log.Error("reload policies", "err", err)
-		}
-	}
+	s.reloadPolicies()
 	if s.proxy != nil {
 		if err := s.proxy.Reload(ctx); err != nil {
 			s.log.Error("reload proxy routes", "err", err)
@@ -701,8 +697,8 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A server built without the engines (unit tests) has nothing to reload.
-	if s.policy != nil {
-		if err := s.policy.ReloadWAF(); err != nil {
+	if pol := s.policyFor(r); pol != nil {
+		if err := pol.ReloadWAF(); err != nil {
 			s.log.Error("reload WAF profiles", "err", err)
 		}
 	}
@@ -776,8 +772,8 @@ func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot create profile")
 		return
 	}
-	if s.policy != nil {
-		if err := s.policy.ReloadWAF(); err != nil {
+	if pol := s.policyFor(r); pol != nil {
+		if err := pol.ReloadWAF(); err != nil {
 			s.log.Error("reload WAF profiles", "err", err)
 		}
 	}
@@ -863,8 +859,8 @@ func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot delete profile")
 		return
 	}
-	if s.policy != nil {
-		if err := s.policy.ReloadWAF(); err != nil {
+	if pol := s.policyFor(r); pol != nil {
+		if err := pol.ReloadWAF(); err != nil {
 			s.log.Error("reload WAF profiles", "err", err)
 		}
 	}
@@ -1474,7 +1470,7 @@ func (s *Server) listCerts(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(list))
 	for _, c := range list {
-		out = append(out, s.certs.CertSummary(c))
+		out = append(out, s.certsFor(r).CertSummary(c))
 	}
 	creds, err := s.db(r).ListDNSCredentials()
 	if err != nil {
@@ -1576,8 +1572,9 @@ func (s *Server) createCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot create certificate")
 		return
 	}
+	certs := s.certsFor(r)
 	go func() {
-		if err := s.certs.Issue(id); err != nil {
+		if err := certs.Issue(id); err != nil {
 			s.log.Warn("certificate issuance failed", "id", id, "err", err)
 		}
 	}()
@@ -1635,8 +1632,8 @@ func (s *Server) issueInternalCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot store the certificate")
 		return
 	}
-	if s.certs != nil {
-		_ = s.certs.Load()
+	if m := s.certsFor(r); m != nil {
+		_ = m.Load()
 	}
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "cert.internal", c.Domains, clientIP(r))
@@ -1713,8 +1710,8 @@ func (s *Server) uploadCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot store the certificate")
 		return
 	}
-	if s.certs != nil {
-		if err := s.certs.Load(); err != nil {
+	if m := s.certsFor(r); m != nil {
+		if err := m.Load(); err != nil {
 			s.log.Warn("reload certificates after upload", "err", err)
 		}
 	}
@@ -1758,8 +1755,9 @@ func (s *Server) renewCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
+	certs := s.certsFor(r)
 	go func() {
-		if err := s.certs.Issue(id); err != nil {
+		if err := certs.Issue(id); err != nil {
 			s.log.Warn("certificate renewal failed", "id", id, "err", err)
 		}
 	}()
@@ -1780,11 +1778,11 @@ func (s *Server) revokeCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cert.Source == model.CertSourceACME {
-		if s.certs == nil {
+		if s.certsFor(r) == nil {
 			writeError(w, http.StatusServiceUnavailable, "certificate manager unavailable")
 			return
 		}
-		if err := s.certs.Revoke(id); err != nil {
+		if err := s.certsFor(r).Revoke(id); err != nil {
 			writeError(w, http.StatusBadGateway, "the CA refused revocation: "+err.Error())
 			return
 		}
@@ -1793,8 +1791,8 @@ func (s *Server) revokeCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
 	}
-	if s.certs != nil {
-		_ = s.certs.Load()
+	if m := s.certsFor(r); m != nil {
+		_ = m.Load()
 	}
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "cert.revoke", cert.Domains, clientIP(r))
@@ -1815,7 +1813,7 @@ func (s *Server) deleteCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot delete")
 		return
 	}
-	_ = s.certs.Load()
+	_ = s.certsFor(r).Load()
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "cert.delete", domains, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -1948,7 +1946,7 @@ func (s *Server) prometheusMetrics(w http.ResponseWriter, r *http.Request) {
 // ---------- notifications ----------
 
 func (s *Server) getNotifications(w http.ResponseWriter, r *http.Request) {
-	settings, err := s.notify.Settings()
+	settings, err := s.notifyFor(r).Settings()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -1969,10 +1967,10 @@ func (s *Server) getNotifications(w http.ResponseWriter, r *http.Request) {
 	rows := make([]recentRow, 0, len(recent))
 	for _, a := range recent {
 		class := notify.RouteClass(a)
-		rows = append(rows, recentRow{Alert: a, Class: class, Muted: !s.notify.EventEnabled(class)})
+		rows = append(rows, recentRow{Alert: a, Class: class, Muted: !s.notifyFor(r).EventEnabled(class)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"settings": settings, "channels": s.notify.Channels(), "recent": rows,
+		"settings": settings, "channels": s.notifyFor(r).Channels(), "recent": rows,
 		"event_kinds": notify.EventKinds,
 	})
 }
@@ -1983,7 +1981,7 @@ func (s *Server) putNotifications(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if err := s.notify.Update(in); err != nil {
+	if err := s.notifyFor(r).Update(in); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save")
 		return
 	}
@@ -2005,7 +2003,7 @@ func (s *Server) testNotification(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "unknown channel")
 		return
 	}
-	if err := s.notify.Test(channel); err != nil {
+	if err := s.notifyFor(r).Test(channel); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}

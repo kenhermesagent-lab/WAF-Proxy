@@ -12,6 +12,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.54.0] — 2026-11-23
+
+### Added
+
+- **Policy, notifications, anomaly detection, the canary and ACME are per site.** A new
+  `internal/siteres` registry builds one instance of each per site from a store handle scoped to
+  that site, and every console endpoint, the proxy's request path, the manual canary probe, the
+  certificate listener, the expiry warning and the ban/gate alerts use the active site's
+  instance. The five configuration surfaces no longer share one global copy: one site's
+  `max_body`, notification channels, anomaly thresholds, canary target or ACME account cannot
+  reach another site's.
+- **The proxy decides every request with the site's own policy engine**, selected by the
+  hostname's site (and by the proxy row's site for response inspection and WAF profiles). A
+  second site's WAF profiles and policies are compiled instead of being ignored, which a
+  single shared engine read from the default site only.
+- **The certificate listener multiplexes every site's certificates**, and the plain-HTTP
+  ACME-01 handler and TLS-ALPN-01 store answer from the site that started the issuance.
+
+### Changed
+
+- **A manual `POST /api/canary` uses the site's monitor**, so it dials the way the scheduled
+  probe does instead of constructing a bare prober.
+- **`docs/OPERATIONS.md` describes the per-site instances**, their host-wide exceptions and the
+  upgrade fallback.
+
 ## [1.53.0] — 2026-11-23
 
 ### Added

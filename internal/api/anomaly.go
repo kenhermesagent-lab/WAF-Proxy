@@ -11,7 +11,8 @@ import (
 func (s *Server) SetAnomaly(m *anomaly.Manager) { s.anomaly = m }
 
 func (s *Server) getAnomaly(w http.ResponseWriter, r *http.Request) {
-	if s.anomaly == nil {
+	det := s.anomalyFor(r)
+	if det == nil {
 		writeError(w, http.StatusServiceUnavailable, "the anomaly detector is not configured")
 		return
 	}
@@ -20,7 +21,7 @@ func (s *Server) getAnomaly(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	cfg, err := s.anomaly.Config()
+	cfg, err := det.Config()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -29,7 +30,8 @@ func (s *Server) getAnomaly(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) putAnomalySettings(w http.ResponseWriter, r *http.Request) {
-	if s.anomaly == nil {
+	det := s.anomalyFor(r)
+	if det == nil {
 		writeError(w, http.StatusServiceUnavailable, "the anomaly detector is not configured")
 		return
 	}
@@ -38,18 +40,18 @@ func (s *Server) putAnomalySettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if err := s.anomaly.Save(in); err != nil {
+	if err := det.Save(in); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "anomaly.configure", strconv.FormatBool(in.Enabled), clientIP(r))
-	cfg, _ := s.anomaly.Config()
+	cfg, _ := det.Config()
 	writeJSON(w, http.StatusOK, cfg)
 }
 
 func (s *Server) acknowledgeAnomaly(w http.ResponseWriter, r *http.Request) {
-	if s.anomaly == nil {
+	if s.anomalyFor(r) == nil {
 		writeError(w, http.StatusServiceUnavailable, "the anomaly detector is not configured")
 		return
 	}
