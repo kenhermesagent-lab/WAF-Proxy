@@ -9,6 +9,10 @@
 - [Native Tailscale access](install/06-tailscale.md)
 - [Upgrades and removal](install/07-upgrades-and-removal.md)
 
+**Configure**
+- [Admin configuration reference](CONFIGURATION.md) — every page, field, option, default and
+  environment variable, and what each one changes
+
 **Operate**
 - [Operations runbook](OPERATIONS.md) — health, logs, backup, alerting, diagnostics, canary
 - [API reference](openapi.yaml) — generated from the routes the console serves, with

@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.28.0.
+systemd service. Version 1.48.2.
 
 ## Contents
 
@@ -327,6 +327,8 @@ re-records the performance baseline after a deliberate change.
 
 - [SECURITY.md](SECURITY.md) — supported versions, private vulnerability reporting, delivered fixes
 - [docs/README.md](docs/README.md) — documentation index, split by task
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — admin configuration reference: every page,
+  setting, option and default, plus environment variables
 - [docs/INSTALL.md](docs/INSTALL.md) — installation hub: Docker, DNS/TLS, first site, bare metal, Tailscale
 - [docs/openapi.yaml](docs/openapi.yaml) — generated reference for every admin API route
 - [docs/MCP.md](docs/MCP.md) — agent gateway, tool reference, containment playbook

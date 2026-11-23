@@ -11,6 +11,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.48.2] — 2026-11-23
+
+### Added
+
+- **An admin configuration reference**, `docs/CONFIGURATION.md`. It documents every console page,
+  tab, field, option and default, the settings that exist only in the API or YAML, the signature
+  bundle channel, every environment variable, the data directory and the headless commands, and
+  it is linked from the README and the documentation index.
+
+### Fixed
+
+- **The published version now matches `VERSION`.** The README introduction said 1.28.0 and the
+  supported-versions table in `SECURITY.md` listed 1.28.x, so both now read 1.48.x.
+
 ## [1.48.1] — 2026-11-23
 
 ### Fixed
