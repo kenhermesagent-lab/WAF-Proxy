@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.0] — 2026-11-23
+
+### Added
+
+- The generated OpenAPI reference now carries request and response schemas for the main
+  groups — sites/proxies, bans, certificates, notifications and anomaly — including the
+  upload, internal-certificate, test and settings bodies plus 400/401 responses.
+
 ## [1.46.0] — 2026-11-23
 
 ### Added

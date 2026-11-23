@@ -11,7 +11,8 @@
 
 **Operate**
 - [Operations runbook](OPERATIONS.md) — health, logs, backup, alerting, diagnostics, canary
-- [API reference](openapi.yaml) — generated from the routes the console serves
+- [API reference](openapi.yaml) — generated from the routes the console serves, with
+  request and response schemas for sites, bans, certificates, notifications and anomaly
 - [MCP gateway](MCP.md)
 - [Conformance](CONFORMANCE.md)
 - [Benchmarks](BENCHMARKS.md)

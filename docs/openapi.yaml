@@ -2,7 +2,7 @@
 openapi: 3.0.3
 info:
   title: WAF-Proxy admin API
-  version: "1.46.0"
+  version: "1.47.0"
   description: |
     Routes registered by the admin console. Every `/api` route except setup,
     login, health and version requires the session cookie and, for mutations,
@@ -16,6 +16,122 @@ components:
       type: apiKey
       in: cookie
       name: __wfp_sid
+  schemas:
+    Proxy:
+      type: object
+      properties:
+        id: {type: integer}
+        hostname: {type: string}
+        enabled: {type: boolean}
+        upstreams:
+          type: array
+          items: {$ref: '#/components/schemas/Upstream'}
+        tls_min_version: {type: string, enum: ["1.2", "1.3"]}
+        upstream_timeout_s: {type: integer}
+        retries: {type: integer}
+    Upstream:
+      type: object
+      properties:
+        id: {type: integer}
+        url: {type: string}
+        weight: {type: integer}
+        max_conns: {type: integer}
+    Ban:
+      type: object
+      properties:
+        id: {type: integer}
+        cidr: {type: string, description: IP or CIDR}
+        reason: {type: string}
+        source: {type: string}
+        permanent: {type: boolean}
+        expires_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+    BanRequest:
+      type: object
+      required: [cidr]
+      properties:
+        cidr: {type: string, example: 203.0.113.7/32}
+        reason: {type: string}
+        permanent: {type: boolean}
+    Cert:
+      type: object
+      properties:
+        id: {type: integer}
+        domains: {type: string}
+        status: {type: string}
+        source: {type: string, enum: [acme, uploaded, internal]}
+        challenge: {type: string, enum: [dns-01, http-01, tls-alpn-01]}
+        renew_mode: {type: string}
+        expires_at: {type: string, format: date-time}
+        last_error: {type: string}
+    CertRequest:
+      type: object
+      required: [domains]
+      properties:
+        domains: {type: string, description: Comma-separated names}
+        challenge: {type: string, enum: [dns-01, http-01, tls-alpn-01]}
+        provider: {type: string}
+        renew_mode: {type: string}
+    CertUpload:
+      type: object
+      required: [cert_pem, key_pem]
+      properties:
+        cert_pem: {type: string}
+        key_pem: {type: string}
+    CertInternal:
+      type: object
+      required: [domains]
+      properties:
+        domains: {type: string}
+        common_name: {type: string}
+    NotificationSettings:
+      type: object
+      properties:
+        telegram_enabled: {type: string, enum: ["0", "1"]}
+        telegram_chat: {type: string}
+        email_enabled: {type: string, enum: ["0", "1"]}
+        smtp_host: {type: string}
+        smtp_from: {type: string}
+        webhook_enabled: {type: string, enum: ["0", "1"]}
+        notify_events: {type: string, description: Comma-separated event kinds or none}
+      description: Response masks stored secrets; writes accept plain values.
+    NotificationTest:
+      type: object
+      required: [channel]
+      properties:
+        channel: {type: string, enum: [telegram, email, webhook]}
+    AnomalyConfig:
+      type: object
+      properties:
+        enabled: {type: boolean}
+        egress_mb: {type: integer, minimum: 1}
+        egress_factor: {type: number, minimum: 1.1}
+        rate_rps: {type: integer, minimum: 1}
+        rate_factor: {type: number, minimum: 1.1}
+        auth_burst: {type: integer, minimum: 1}
+    AnomalyEvent:
+      type: object
+      properties:
+        id: {type: integer}
+        kind: {type: string, enum: [egress_spike, rate_spike, auth_burst]}
+        proxy_id: {type: integer}
+        proxy_host: {type: string}
+        value: {type: number}
+        baseline: {type: number}
+        detail: {type: string}
+        state: {type: string, enum: [open, acknowledged]}
+        created_at: {type: string, format: date-time}
+    AnomalyReport:
+      type: object
+      properties:
+        config: {$ref: '#/components/schemas/AnomalyConfig'}
+        events:
+          type: array
+          items: {$ref: '#/components/schemas/AnomalyEvent'}
+    Status:
+      type: object
+      properties:
+        status: {type: string}
 paths:
   /api/access-profiles:
     get:
@@ -29,6 +145,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [access-profiles]
@@ -40,6 +158,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/access-profiles/{id}:
     delete:
       operationId: authed
@@ -57,6 +177,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [access-profiles]
@@ -73,6 +195,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/account/logout-all:
     post:
       operationId: authed
@@ -85,6 +209,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/account/password:
     post:
       operationId: authed
@@ -97,6 +223,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/account/totp:
     post:
       operationId: authed
@@ -109,6 +237,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/account/totp/confirm:
     post:
       operationId: authed
@@ -121,6 +251,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/agents:
     get:
       operationId: authed
@@ -133,6 +265,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [agents]
@@ -144,6 +278,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/agents/{id}:
     delete:
       operationId: authed
@@ -161,6 +297,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [agents]
@@ -177,6 +315,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/agents/{id}/deliveries:
     get:
       operationId: authed
@@ -194,6 +334,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/agents/{id}/retry:
     post:
       operationId: authed
@@ -211,6 +353,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/agents/{id}/test:
     post:
       operationId: authed
@@ -228,6 +372,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/analytics:
     get:
       operationId: authed
@@ -240,6 +386,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/anomaly:
     get:
       operationId: authed
@@ -250,8 +398,13 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnomalyReport'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/anomaly/events/{id}/ack:
     post:
       operationId: authed
@@ -267,8 +420,13 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Status'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/anomaly/settings:
     put:
       operationId: authed
@@ -276,11 +434,21 @@ paths:
       summary: Authed
       security:
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AnomalyConfig'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Status'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/asn-recommendations:
     get:
       operationId: authed
@@ -293,6 +461,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/audit:
     get:
       operationId: authed
@@ -305,6 +475,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/audit/verify:
     get:
       operationId: authed
@@ -317,6 +489,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/audit/{id}:
     get:
       operationId: authed
@@ -334,6 +508,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/audit/{id}/rollback:
     post:
       operationId: authed
@@ -351,6 +527,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/auth-providers:
     get:
       operationId: authed
@@ -363,6 +541,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [auth-providers]
@@ -374,6 +554,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/auth-providers/{id}:
     delete:
       operationId: authed
@@ -391,6 +573,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [auth-providers]
@@ -407,6 +591,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/backup:
     get:
       operationId: authed
@@ -419,6 +605,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/backup/restore:
     post:
       operationId: authed
@@ -431,6 +619,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/backup/schedule:
     get:
       operationId: authed
@@ -443,6 +633,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [backup]
@@ -454,6 +646,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/backup/schedule/run:
     post:
       operationId: authed
@@ -466,6 +660,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/bans:
     get:
       operationId: authed
@@ -476,19 +672,38 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Ban'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [bans]
       summary: Authed
       security:
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BanRequest'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Ban'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/bans/bulk:
     post:
       operationId: authed
@@ -496,11 +711,23 @@ paths:
       summary: Authed
       security:
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BanRequest'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Ban'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/bans/rollup:
     post:
       operationId: authed
@@ -508,11 +735,23 @@ paths:
       summary: Authed
       security:
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BanRequest'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Ban'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/bans/{id}:
     delete:
       operationId: authed
@@ -528,8 +767,13 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Ban'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/bans/{id}/promote:
     post:
       operationId: authed
@@ -542,11 +786,21 @@ paths:
           in: path
           required: true
           schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BanRequest'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Ban'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/cache/purge:
     post:
       operationId: authed
@@ -559,6 +813,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/canary:
     post:
       operationId: authed
@@ -571,6 +827,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/certs:
     get:
       operationId: authed
@@ -581,19 +839,38 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Cert'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [certs]
       summary: Authed
       security:
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CertRequest'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Cert'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/certs/internal:
     post:
       operationId: authed
@@ -601,11 +878,21 @@ paths:
       summary: Authed
       security:
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CertInternal'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cert'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/certs/internal/root:
     get:
       operationId: authed
@@ -616,8 +903,13 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Status'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/certs/upload:
     post:
       operationId: authed
@@ -625,11 +917,21 @@ paths:
       summary: Authed
       security:
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CertUpload'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cert'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/certs/{id}:
     delete:
       operationId: authed
@@ -645,8 +947,13 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cert'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [certs]
@@ -658,11 +965,21 @@ paths:
           in: path
           required: true
           schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CertRequest'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cert'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/certs/{id}/renew:
     post:
       operationId: authed
@@ -678,8 +995,13 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Status'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/certs/{id}/revoke:
     post:
       operationId: authed
@@ -695,8 +1017,13 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Status'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/config/export.yaml:
     get:
       operationId: authed
@@ -709,6 +1036,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/config/import.yaml:
     post:
       operationId: authed
@@ -721,6 +1050,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/crowdsec:
     get:
       operationId: authed
@@ -733,6 +1064,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [crowdsec]
@@ -744,6 +1077,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/crowdsec/blocklists:
     get:
       operationId: authed
@@ -756,6 +1091,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/crowdsec/console:
     post:
       operationId: authed
@@ -768,6 +1105,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/crowdsec/install:
     get:
       operationId: authed
@@ -780,6 +1119,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [crowdsec]
@@ -791,6 +1132,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/crowdsec/restart:
     post:
       operationId: authed
@@ -803,6 +1146,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/crowdsec/status:
     get:
       operationId: authed
@@ -815,6 +1160,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/crowdsec/test:
     post:
       operationId: authed
@@ -827,6 +1174,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/diagnostics:
     get:
       operationId: authed
@@ -839,6 +1188,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/diagnostics/bundle:
     get:
       operationId: authed
@@ -851,6 +1202,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/events:
     get:
       operationId: authed
@@ -863,6 +1216,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/events/export.csv:
     get:
       operationId: authed
@@ -875,6 +1230,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/feeds:
     get:
       operationId: authed
@@ -887,6 +1244,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [feeds]
@@ -898,6 +1257,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/feeds/upload:
     post:
       operationId: authed
@@ -910,6 +1271,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/feeds/{id}:
     delete:
       operationId: authed
@@ -927,6 +1290,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [feeds]
@@ -943,6 +1308,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/feeds/{id}/refresh:
     post:
       operationId: authed
@@ -960,6 +1327,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/gate-failures:
     get:
       operationId: authed
@@ -972,6 +1341,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/gate-users:
     get:
       operationId: authed
@@ -984,6 +1355,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [gate-users]
@@ -995,6 +1368,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/gate-users/{id}:
     delete:
       operationId: authed
@@ -1012,6 +1387,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [gate-users]
@@ -1028,6 +1405,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/geoip:
     get:
       operationId: authed
@@ -1040,6 +1419,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/geoip/install:
     post:
       operationId: authed
@@ -1052,6 +1433,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/global-lists:
     get:
       operationId: authed
@@ -1064,6 +1447,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [global-lists]
@@ -1075,6 +1460,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/globe:
     get:
       operationId: authed
@@ -1087,6 +1474,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/globe/hits:
     get:
       operationId: authed
@@ -1099,6 +1488,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/health:
     get:
       operationId: health
@@ -1108,6 +1499,8 @@ paths:
       responses:
         "200":
           description: Success
+        "400":
+          description: Invalid request
   /api/intel/lookup:
     get:
       operationId: authed
@@ -1120,6 +1513,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/ips:
     get:
       operationId: authed
@@ -1132,6 +1527,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/ips/{ip}:
     get:
       operationId: authed
@@ -1149,6 +1546,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/lists:
     get:
       operationId: authed
@@ -1161,6 +1560,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [lists]
@@ -1172,6 +1573,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/lists/{id}:
     delete:
       operationId: authed
@@ -1189,6 +1592,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [lists]
@@ -1205,6 +1610,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/login:
     post:
       operationId: login
@@ -1214,6 +1621,8 @@ paths:
       responses:
         "200":
           description: Success
+        "400":
+          description: Invalid request
   /api/logout:
     post:
       operationId: authed
@@ -1226,6 +1635,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/mcp:
     get:
       operationId: authed
@@ -1238,6 +1649,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/mcp/tokens:
     get:
       operationId: authed
@@ -1250,6 +1663,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [mcp]
@@ -1261,6 +1676,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/mcp/tokens/{id}:
     delete:
       operationId: authed
@@ -1278,6 +1695,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/me:
     get:
       operationId: authed
@@ -1290,6 +1709,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/metrics:
     get:
       operationId: authed
@@ -1302,6 +1723,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/notifications:
     get:
       operationId: authed
@@ -1312,19 +1735,34 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NotificationSettings'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [notifications]
       summary: Authed
       security:
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NotificationSettings'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NotificationSettings'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/notifications/test:
     post:
       operationId: authed
@@ -1332,11 +1770,21 @@ paths:
       summary: Authed
       security:
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NotificationTest'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Status'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/policies:
     get:
       operationId: authed
@@ -1349,6 +1797,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [policies]
@@ -1360,6 +1810,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/policies/preflight:
     post:
       operationId: authed
@@ -1372,6 +1824,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/policies/{id}:
     delete:
       operationId: authed
@@ -1389,6 +1843,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [policies]
@@ -1405,6 +1861,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/presets:
     get:
       operationId: authed
@@ -1417,6 +1875,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/profiles:
     get:
       operationId: authed
@@ -1429,6 +1889,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [profiles]
@@ -1440,6 +1902,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/profiles/{id}:
     delete:
       operationId: authed
@@ -1457,6 +1921,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [profiles]
@@ -1473,6 +1939,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/protection-profiles:
     get:
       operationId: authed
@@ -1485,6 +1953,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [protection-profiles]
@@ -1496,6 +1966,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/protection-profiles/audit:
     get:
       operationId: authed
@@ -1508,6 +1980,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/protection-profiles/{id}:
     delete:
       operationId: authed
@@ -1525,6 +1999,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [protection-profiles]
@@ -1541,6 +2017,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/proxies:
     get:
       operationId: authed
@@ -1551,19 +2029,38 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Proxy'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [proxies]
       summary: Authed
       security:
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Proxy'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Proxy'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/proxies/{id}:
     delete:
       operationId: authed
@@ -1579,8 +2076,13 @@ paths:
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Proxy'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [proxies]
@@ -1592,11 +2094,21 @@ paths:
           in: path
           required: true
           schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Proxy'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Proxy'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/proxies/{id}/gate/revoke:
     post:
       operationId: authed
@@ -1609,11 +2121,21 @@ paths:
           in: path
           required: true
           schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Proxy'}
       responses:
         "200":
           description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Proxy'}
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/roles:
     get:
       operationId: authed
@@ -1626,6 +2148,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [roles]
@@ -1637,6 +2161,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/roles/{id}:
     delete:
       operationId: authed
@@ -1654,6 +2180,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [roles]
@@ -1670,6 +2198,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/search:
     get:
       operationId: authed
@@ -1682,6 +2212,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/settings:
     get:
       operationId: authed
@@ -1694,6 +2226,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [settings]
@@ -1705,6 +2239,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/setup:
     post:
       operationId: setup
@@ -1714,6 +2250,8 @@ paths:
       responses:
         "200":
           description: Success
+        "400":
+          description: Invalid request
   /api/setup/status:
     get:
       operationId: setupStatus
@@ -1723,6 +2261,8 @@ paths:
       responses:
         "200":
           description: Success
+        "400":
+          description: Invalid request
   /api/simulate:
     post:
       operationId: authed
@@ -1735,6 +2275,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/stream:
     get:
       operationId: authed
@@ -1747,6 +2289,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/streaming:
     get:
       operationId: authed
@@ -1759,6 +2303,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/streaming/{id}:
     put:
       operationId: authed
@@ -1776,6 +2322,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/system/restart:
     post:
       operationId: authed
@@ -1788,6 +2336,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/tailscale:
     get:
       operationId: authed
@@ -1800,6 +2350,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [tailscale]
@@ -1811,6 +2363,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/updates:
     get:
       operationId: authed
@@ -1823,6 +2377,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/updates/app:
     get:
       operationId: authed
@@ -1835,6 +2391,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [updates]
@@ -1846,6 +2404,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/updates/app/config:
     post:
       operationId: authed
@@ -1858,6 +2418,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/updates/apply:
     post:
       operationId: authed
@@ -1870,6 +2432,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/updates/auto:
     get:
       operationId: authed
@@ -1882,6 +2446,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [updates]
@@ -1893,6 +2459,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/updates/check:
     post:
       operationId: authed
@@ -1905,6 +2473,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/uptime:
     get:
       operationId: authed
@@ -1917,6 +2487,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/users:
     get:
       operationId: authed
@@ -1929,6 +2501,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     post:
       operationId: authed
       tags: [users]
@@ -1940,6 +2514,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/users/{id}:
     delete:
       operationId: authed
@@ -1957,6 +2533,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
     put:
       operationId: authed
       tags: [users]
@@ -1973,6 +2551,8 @@ paths:
           description: Success
         "401":
           description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/version:
     get:
       operationId: versionInfo
@@ -1982,6 +2562,8 @@ paths:
       responses:
         "200":
           description: Success
+        "400":
+          description: Invalid request
   /metrics:
     get:
       operationId: prometheusMetrics
@@ -1991,3 +2573,5 @@ paths:
       responses:
         "200":
           description: Success
+        "400":
+          description: Invalid request

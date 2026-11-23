@@ -30,3 +30,29 @@ func TestCommittedDocumentMatchesRoutes(t *testing.T) {
 		t.Fatal("docs/openapi.yaml is stale: run go generate ./internal/api")
 	}
 }
+
+func TestMainGroupsHaveSchemas(t *testing.T) {
+	src := []byte(`package api
+func routes() {
+	m.HandleFunc("GET /api/proxies", s.authed(s.listProxies))
+	m.HandleFunc("POST /api/proxies", s.authed(s.createProxy))
+	m.HandleFunc("POST /api/bans", s.authed(s.createBan))
+	m.HandleFunc("POST /api/certs/upload", s.authed(s.uploadCert))
+	m.HandleFunc("POST /api/notifications/test", s.authed(s.testNotification))
+	m.HandleFunc("PUT /api/anomaly/settings", s.authed(s.putAnomalySettings))
+}`)
+	doc, err := Generate(src, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(doc)
+	for _, want := range []string{
+		"Proxy:", "Ban:", "BanRequest:", "Cert:", "CertUpload:",
+		"NotificationSettings:", "NotificationTest:", "AnomalyConfig:", "AnomalyReport:",
+		"requestBody:", "/components/schemas/Proxy",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("generated document is missing %q", want)
+		}
+	}
+}
