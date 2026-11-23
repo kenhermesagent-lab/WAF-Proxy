@@ -420,6 +420,7 @@ func run() error {
 	}
 	wafs := waf.NewSet(profiles, log)
 	certs := acme.New(st, box, log)
+	certs.SetDirectory(cfg.ACMEDirectory, cfg.ACMECAFile)
 	notifier := notify.New(st, box, log)
 	uptimeMon := uptime.New(st, notifier, log)
 

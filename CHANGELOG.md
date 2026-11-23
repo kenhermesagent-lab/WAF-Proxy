@@ -11,6 +11,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.43.0] — 2026-11-23
+
+### Added
+
+- **Private ACME directory.** `WAFPROXY_ACME_DIRECTORY` and `WAFPROXY_ACME_CA_FILE`
+  point issuance and revocation at an on-prem ACME server, and the plain-HTTP
+  challenge/redirect handler is exported so integration tests exercise the listener
+  itself.
+- **Pebble end-to-end test.** `TestPebbleHTTP01` issues a real certificate through the
+  listener against Pebble, checks that an unresolvable name fails and is stored as an
+  error, and verifies the HTTPS redirect.
+
 ## [1.42.0] — 2026-11-23
 
 ### Changed
