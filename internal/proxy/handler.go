@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -253,11 +255,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		event.Action = "log"
 	}
 
-	if done := s.applyRoutes(rw, r, e); done {
+	route, done := s.applyRoutes(rw, r, e)
+	if done {
 		return
 	}
 
 	up := selectUpstream(e, r, rw)
+	if route.Upstream != "" {
+		up = e.upstreamFor(route.Upstream)
+	}
 	if up == nil {
 		blocked = true
 		event.Stage, event.RuleMsg = "upstream", "no healthy upstream"
@@ -311,10 +317,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out = cap
 	}
 
+	timeout := e.timeout
+	if route.Timeout > 0 {
+		timeout = time.Duration(route.Timeout) * time.Second
+	}
 	ctx := r.Context()
-	if e.timeout > 0 {
+	if timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, e.timeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 	rv := &respVerdict{}
@@ -367,40 +377,78 @@ func (s *Server) blackhole(w http.ResponseWriter, r *http.Request, host string, 
 	w.WriteHeader(http.StatusMisdirectedRequest)
 }
 
-func (s *Server) applyRoutes(w http.ResponseWriter, r *http.Request, e *edge) bool {
-	rt, target, ok := RouteFor(e.routes, r.URL.Path)
+func (s *Server) applyRoutes(w http.ResponseWriter, r *http.Request, e *edge) (model.Route, bool) {
+	rt, target, ok := MatchRoute(r, e.routes)
 	if !ok {
-		return false
+		return model.Route{}, false
 	}
 	switch rt.Kind {
 	case model.RouteRedirect:
-		http.Redirect(w, r, strings.ReplaceAll(rt.Target, "$path", r.URL.Path), http.StatusFound)
-		return true
+		status := rt.Status
+		if status != http.StatusMovedPermanently && status != http.StatusTemporaryRedirect && status != http.StatusPermanentRedirect {
+			status = http.StatusFound
+		}
+		http.Redirect(w, r, target, status)
+		return rt, true
 	case model.RouteAlias:
 		r.URL.Path = target
 		r.URL.RawPath = ""
 	}
-	return false
+	return rt, false
 }
 
-// RouteFor returns the first route that would serve a path, with an alias
-// target resolved. It lets the request simulator name the same route the
-// request path would reach.
-func RouteFor(routes []model.Route, path string) (model.Route, string, bool) {
+// MatchRoute returns the first route whose matchers all agree, with the alias
+// or redirect target resolved. Routes arrive ordered by priority.
+func MatchRoute(r *http.Request, routes []model.Route) (model.Route, string, bool) {
 	for _, rt := range routes {
-		if !pathMatches(rt.Match, path) {
+		if rt.Method != "" && !strings.EqualFold(rt.Method, r.Method) {
+			continue
+		}
+		if rt.Header != "" {
+			name, want, ok := strings.Cut(rt.Header, ":")
+			if !ok || !strings.EqualFold(strings.TrimSpace(r.Header.Get(strings.TrimSpace(name))), strings.TrimSpace(want)) {
+				continue
+			}
+		}
+		if rt.Query != "" && !strings.Contains(r.URL.RawQuery, strings.TrimSpace(rt.Query)) {
+			continue
+		}
+		var re *regexp.Regexp
+		if rt.Regex {
+			var err error
+			if re, err = regexp.Compile(rt.Match); err != nil || !re.MatchString(r.URL.Path) {
+				continue
+			}
+		} else if !pathMatches(rt.Match, r.URL.Path) {
 			continue
 		}
 		switch rt.Kind {
 		case model.RouteRedirect:
-			return rt, path, true
+			return rt, routeTarget(rt, re, r.URL.Path), true
 		case model.RouteAlias:
-			rest := strings.TrimPrefix(path, rt.Match)
-			base := strings.TrimSuffix(rt.Target, "/")
-			return rt, base + "/" + strings.TrimPrefix(rest, "/"), true
+			return rt, routeTarget(rt, re, r.URL.Path), true
 		}
 	}
-	return model.Route{}, path, false
+	return model.Route{}, r.URL.Path, false
+}
+
+func routeTarget(rt model.Route, re *regexp.Regexp, path string) string {
+	if re != nil {
+		return re.ReplaceAllString(path, rt.Target)
+	}
+	if rt.Kind == model.RouteAlias {
+		rest := strings.TrimPrefix(path, rt.Match)
+		base := strings.TrimSuffix(rt.Target, "/")
+		return base + "/" + strings.TrimPrefix(rest, "/")
+	}
+	return strings.ReplaceAll(rt.Target, "$path", path)
+}
+
+// RouteFor resolves a path as a GET without headers, so the request simulator
+// can name the route a plain browser request would take.
+func RouteFor(routes []model.Route, path string) (model.Route, string, bool) {
+	u := &url.URL{Path: path}
+	return MatchRoute(&http.Request{Method: http.MethodGet, URL: u, Header: http.Header{}}, routes)
 }
 
 func pathMatches(match, path string) bool {

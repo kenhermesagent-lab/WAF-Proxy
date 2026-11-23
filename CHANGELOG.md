@@ -35,6 +35,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - `GET /api/audit/{id}` returns an entry with its stored state; `POST /api/audit/{id}/rollback`
   restores an edit after checking the entity's own write permission rather than the route's area.
 
+## [1.34.0] — 2026-11-22
+
+### Added
+
+- **Routing depth.** Routes now match method, a request header (`Name: value`), a query
+  fragment, or a regex path with capture-group rewrites, in priority order, and can name their
+  own upstream, timeout and redirect status (`301`/`307`/`308`).
+- **Custom TCP forwarder.** The streaming catalog gains a Custom TCP service, so an arbitrary
+  listen port can be forwarded to an arbitrary target with the existing allow lists, connection
+  caps and bans instead of keeping a second proxy for it.
+- **Published conformance table.** `docs/CONFORMANCE.md` lists the supported and deliberately
+  unsupported protocol behaviours with the test that covers each supported row.
+
 ## [1.33.0] — 2026-11-22
 
 ### Added

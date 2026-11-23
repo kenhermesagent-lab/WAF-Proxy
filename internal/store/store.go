@@ -445,7 +445,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(revoked_at);
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "17"
+const schemaVersion = "18"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -523,6 +523,15 @@ func (s *Store) migrateAddColumns() error {
 		{"proxies", "retries", `ALTER TABLE proxies ADD COLUMN retries INTEGER NOT NULL DEFAULT 0`},
 		{"proxies", "request_headers", `ALTER TABLE proxies ADD COLUMN request_headers TEXT NOT NULL DEFAULT '[]'`},
 		{"proxies", "response_headers", `ALTER TABLE proxies ADD COLUMN response_headers TEXT NOT NULL DEFAULT '[]'`},
+		// Routes can match more than a path and carry their own timeout,
+		// redirect status and upstream override.
+		{"routes", "method", `ALTER TABLE routes ADD COLUMN method TEXT NOT NULL DEFAULT ''`},
+		{"routes", "header", `ALTER TABLE routes ADD COLUMN header TEXT NOT NULL DEFAULT ''`},
+		{"routes", "query", `ALTER TABLE routes ADD COLUMN query TEXT NOT NULL DEFAULT ''`},
+		{"routes", "regex", `ALTER TABLE routes ADD COLUMN regex INTEGER NOT NULL DEFAULT 0`},
+		{"routes", "upstream", `ALTER TABLE routes ADD COLUMN upstream TEXT NOT NULL DEFAULT ''`},
+		{"routes", "timeout", `ALTER TABLE routes ADD COLUMN timeout INTEGER NOT NULL DEFAULT 0`},
+		{"routes", "status", `ALTER TABLE routes ADD COLUMN status INTEGER NOT NULL DEFAULT 0`},
 	}
 	for _, step := range steps {
 		has, err := s.hasColumn(step.table, step.column)

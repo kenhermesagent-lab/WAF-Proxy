@@ -49,6 +49,9 @@ type Service struct {
 var Catalog = []Service{
 	{ID: "plex", Label: "Plex", DefaultPort: 32400},
 	{ID: "jellyfin", Label: "Jellyfin", DefaultPort: 8096},
+	// Custom TCP forwards any port to any target, so services without a preset
+	// do not need HAProxy beside the gateway.
+	{ID: "custom", Label: "Custom TCP", DefaultPort: 0},
 }
 
 // Lookup returns the catalog entry for an id.

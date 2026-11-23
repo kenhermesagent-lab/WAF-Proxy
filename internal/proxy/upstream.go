@@ -242,6 +242,18 @@ func selectUpstream(e *edge, r *http.Request, w http.ResponseWriter) *upstream {
 	return up
 }
 
+// upstreamFor returns the upstream a route names, so one rule can target a
+// different backend without leaving the site's pool.
+func (e *edge) upstreamFor(raw string) *upstream {
+	want := strings.TrimRight(strings.TrimSpace(raw), "/")
+	for _, u := range e.ups {
+		if strings.TrimRight(u.url.String(), "/") == want {
+			return u
+		}
+	}
+	return nil
+}
+
 // noteFailure ejects an upstream after enough consecutive failures. A passive
 // failure (a real 5xx or a transport error) uses the same counter as a probe.
 func (u *upstream) noteFailure(cfg healthSettings) {
