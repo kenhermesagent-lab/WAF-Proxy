@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.48.3] — 2026-11-23
+
+### Fixed
+
+- **The fallback WAF engine is read under the set lock.** `For` returned `s.fallback` directly for a
+  site without a profile, while `SetBundles` replaces that engine on every install, so a request
+  could read it while the refresh path wrote it. `SetBundles` also compiled the fallback inside the
+  write lock, stalling every request for the length of a CRS compile; it now compiles first and
+  swaps under the lock.
+- Added race tests for the three concurrent paths: a pack install against live inspection, the
+  manager's refresh loop against console reads (including a cancelled `Start`), and a WAF reload
+  against per-profile bundle-mode lookups. `go test -race ./...` is clean.
+
 ## [1.48.2] — 2026-11-23
 
 ### Added
