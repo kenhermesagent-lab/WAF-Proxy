@@ -71,3 +71,48 @@ func TestIPSummariesAndExport(t *testing.T) {
 		t.Fatalf("callback abort = %d calls, %v", calls, err)
 	}
 }
+
+func TestEventTotals(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC()
+	events := []model.Event{
+		{TS: now.Add(-5 * time.Minute), SrcIP: "203.0.113.7", Host: "app.example.com", Action: "allow", Stage: "route"},
+		{TS: now.Add(-4 * time.Minute), SrcIP: "203.0.113.7", Host: "app.example.com", Action: "ban", Stage: "decoy"},
+		{TS: now.Add(-3 * time.Minute), SrcIP: "203.0.113.7", Host: "api.example.com", Action: "challenge", Stage: "waf"},
+		{TS: now.Add(-2 * time.Minute), SrcIP: "198.51.100.20", Host: "other.example.com", Action: "allow", Stage: "route"},
+		{TS: now.Add(-time.Minute), SrcIP: "198.51.100.20", Host: "app.example.com", Action: "block", Stage: "waf"},
+	}
+	if err := st.InsertEvents(events); err != nil {
+		t.Fatal(err)
+	}
+
+	from, to := now.Add(-time.Hour), now.Add(time.Minute)
+	host, err := st.EventTotals(EventFilter{From: from, To: to, Host: "app.example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (EventTotals{Total: 3, Blocked: 2, Sources: 2, Hosts: 1}); host != want {
+		t.Fatalf("host totals = %+v, want %+v", host, want)
+	}
+
+	blocked, err := st.EventTotals(EventFilter{From: from, To: to, BlockedOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (EventTotals{Total: 3, Blocked: 3, Sources: 2, Hosts: 2}); blocked != want {
+		t.Fatalf("blocked totals = %+v, want %+v", blocked, want)
+	}
+
+	empty, err := st.EventTotals(EventFilter{From: from, To: to, Host: "missing.example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty != (EventTotals{}) {
+		t.Fatalf("unmatched totals = %+v, want zero", empty)
+	}
+}

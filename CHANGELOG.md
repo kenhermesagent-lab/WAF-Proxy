@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.17] — 2026-11-23
+
+### Added
+
+- A store test covers `EventTotals` directly: a host filter checks the total, blocked count and
+  distinct sources and hosts, a blocked-only filter checks that challenges and bans count as
+  blocked, and an unmatched filter returns zeroes instead of a missing row.
+
 ## [1.47.16] — 2026-11-23
 
 ### Added
