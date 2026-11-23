@@ -966,6 +966,13 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 @media print {
   .sidebar, .topbar, .toast-stack, .skip-link, .nav-scrim, .palette-backdrop,
   .drawer-foot, .drawer-head .icon-btn { display: none !important; }
+  /* A printed report is the report: the page the drawer was opened over and
+     the drawer's own filename do not print with it. */
+  body:has(.report-preview) .shell > :not(.main):not(.drawer-backdrop),
+  body:has(.report-preview) .main:not(:has(.drawer-backdrop)),
+  body:has(.report-preview) .grid:has(> .drawer-backdrop) > :not(.drawer-backdrop),
+  body:has(.report-preview) .content:has(> .drawer-backdrop) > :not(.drawer-backdrop) { display: none !important; }
+  body:has(.report-preview) .drawer-head p { display: none !important; }
   html, body, #root { height: auto; background: #fff; color: #000; }
   .shell, .main, .content, .drawer-backdrop, .drawer, .drawer-body {
     display: block !important; position: static !important;
