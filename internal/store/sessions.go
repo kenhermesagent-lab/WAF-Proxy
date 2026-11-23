@@ -24,3 +24,43 @@ func (s *Store) CountUserSessions(userID int64) (int, error) {
 		userID, stamp(time.Now())).Scan(&n)
 	return n, err
 }
+
+// AdminSession is one live console session as the signed-in list shows it. The
+// digest that identifies the row stays in the store.
+type AdminSession struct {
+	Username  string    `json:"username"`
+	Role      string    `json:"role"`
+	IP        string    `json:"ip"`
+	UserAgent string    `json:"user_agent"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Current   bool      `json:"current"`
+}
+
+// ActiveAdminSessions lists the console sessions that have not expired, most
+// recently active first. Expiry is refreshed by activity, so it doubles as the
+// last-seen order. currentToken is the caller's own cookie, which marks their
+// row without handing out any digest.
+func (s *Store) ActiveAdminSessions(currentToken string) ([]AdminSession, error) {
+	rows, err := s.db.Query(`SELECT u.username, COALESCE(r.name, ''), s.ip, s.ua, s.created_at, s.expires_at, s.id
+		FROM sessions s JOIN users u ON u.id = s.user_id
+		LEFT JOIN roles r ON r.id = u.role_id
+		WHERE s.expires_at > ? ORDER BY s.expires_at DESC`, stamp(time.Now()))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	current := s.sessionID(currentToken)
+	out := []AdminSession{}
+	for rows.Next() {
+		var a AdminSession
+		var created, expires, id string
+		if err := rows.Scan(&a.Username, &a.Role, &a.IP, &a.UserAgent, &created, &expires, &id); err != nil {
+			return nil, err
+		}
+		a.CreatedAt, a.ExpiresAt = parseStamp(created), parseStamp(expires)
+		a.Current = id == current
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

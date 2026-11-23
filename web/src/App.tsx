@@ -6,6 +6,7 @@ import PageBoundary from "./components/PageBoundary";
 import CommandPalette from "./components/CommandPalette";
 import QuickActions, { COMMANDS, type CommandId } from "./components/QuickActions";
 import SourceDrawer from "./components/SourceDrawer";
+import AdminsOnline from "./components/AdminsOnline";
 import Icon from "./components/Icon";
 import { Me, SetupStatus, can } from "./types";
 import { NAV, NAV_GROUPS, NAV_UTILITY, pageFromHash, type NavItem } from "./nav";
@@ -37,6 +38,7 @@ type ToastTone = "ok" | "error" | "info" | "warn";
 type Toast = { id: number; tone: ToastTone; title: string; message: string };
 
 const DOCS_URL = "https://github.com/kenhermesagent-lab/WAF-Proxy-Docker/tree/main/docs";
+const COFFEE_URL = "https://buymeacoffee.com/kenhermesagent";
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("loading");
@@ -56,6 +58,7 @@ export default function App() {
   const [sourceIp, setSourceIp] = useState<string | null>(null);
   const [command, setCommand] = useState<CommandId | null>(null);
   const [userMenu, setUserMenu] = useState(false);
+  const [adminsOnline, setAdminsOnline] = useState(false);
   const toastSeq = useRef(0);
   const userWrap = useRef<HTMLDivElement>(null);
 
@@ -324,8 +327,16 @@ export default function App() {
                 <button className="menu-item" role="menuitem" onClick={() => { navigate("account"); setUserMenu(false); }}>
                   <span className="ico"><Icon name="user" size={15} /></span> Account
                 </button>
+                {can(me?.permissions, "settings.read") && (
+                  <button className="menu-item" role="menuitem" onClick={() => { setAdminsOnline(true); setUserMenu(false); }}>
+                    <span className="ico"><Icon name="users" size={15} /></span> Signed-in administrators
+                  </button>
+                )}
                 <a className="menu-item" role="menuitem" href={DOCS_URL} target="_blank" rel="noreferrer">
                   <span className="ico"><Icon name="help" size={15} /></span> Documentation
+                </a>
+                <a className="menu-item" role="menuitem" href={COFFEE_URL} target="_blank" rel="noreferrer">
+                  <span className="ico"><Icon name="coffee" size={15} /></span> Buy me a coffee
                 </a>
                 <div className="menu-sep" />
                 <button className="menu-item danger" role="menuitem" onClick={logout}>
@@ -393,6 +404,8 @@ export default function App() {
         permissions={me?.permissions ?? []}
         onCommand={setCommand}
       />
+
+      {adminsOnline && <AdminsOnline onClose={() => setAdminsOnline(false)} onError={onError} />}
 
       {command && (
         <QuickActions

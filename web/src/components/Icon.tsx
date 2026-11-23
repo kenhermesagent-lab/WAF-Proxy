@@ -7,7 +7,7 @@ export type IconName =
   | "globe" | "map" | "check" | "x" | "info" | "plus" | "trash" | "edit"
   | "refresh" | "external" | "download" | "menu" | "chevronDown" | "chevronLeft"
   | "chevronRight" | "collapse" | "expand" | "clock" | "server" | "activity"
-  | "arrowUp" | "arrowDown" | "filter" | "file" | "help" | "key";
+  | "arrowUp" | "arrowDown" | "filter" | "file" | "help" | "key" | "users" | "coffee";
 
 const PATHS: Record<IconName, string[]> = {
   dashboard: ["M3 3h7v7H3z", "M14 3h7v4h-7z", "M14 11h7v10h-7z", "M3 14h7v7H3z"],
@@ -56,6 +56,8 @@ const PATHS: Record<IconName, string[]> = {
   file: ["M6 3h8l4 4v14H6z", "M14 3v4h4"],
   help: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18", "M9.5 9a2.5 2.5 0 1 1 3.6 2.3c-.7.4-1.1 1-1.1 1.7", "M12 17h.01"],
   key: ["M14 10a4 4 0 1 0-3.4 4l1.4 1.4H14v2h2v2h3v-3l-5-5", "M7.5 7.5h.01"],
+  users: ["M9 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7", "M2.5 20a6.5 6.5 0 0 1 13 0", "M16 5.2a3.5 3.5 0 0 1 0 6.6", "M17.5 14.4A6.5 6.5 0 0 1 21.5 20"],
+  coffee: ["M4 8h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z", "M17 9.5h2a2.5 2.5 0 0 1 0 5h-2", "M4.5 21h12"],
 };
 
 export default function Icon({
