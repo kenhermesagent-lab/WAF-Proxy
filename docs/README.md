@@ -22,4 +22,5 @@
 
 The API reference is generated: run `go generate ./internal/api` after adding or
 changing a route, and commit both `internal/api/server.go` and
-`docs/openapi.yaml`.
+`docs/openapi.yaml`. `go test ./internal/openapi` fails when the committed file is
+stale, so drift is caught before it ships.

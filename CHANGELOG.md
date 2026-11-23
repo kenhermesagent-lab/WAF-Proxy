@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.45.1] — 2026-11-23
+
+### Changed
+
+- The OpenAPI generator lives in `internal/openapi`, and its test renders the document
+  from `internal/api/server.go` and fails when `docs/openapi.yaml` is stale, so the
+  reference cannot drift silently.
+
 ## [1.45.0] — 2026-11-23
 
 ### Added
