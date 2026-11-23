@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.20] — 2026-11-23
+
+### Changed
+
+- **A release tag now costs one CI run, not the whole suite.** A tag push runs only the
+  `release` job, so publishing a backlog of tags no longer rebuilds the backend, console,
+  updater, benchmarks and container image once per tag; branch pushes still run every job.
+
 ## [1.47.19] — 2026-11-23
 
 ### Added

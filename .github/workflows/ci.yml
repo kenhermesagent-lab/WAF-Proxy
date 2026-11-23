@@ -15,9 +15,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A tag push runs only the release checks, so publishing a batch of old tags
+  # does not rebuild the whole suite for each one; branches keep every job.
   backend:
     name: Go build, vet and race tests
     runs-on: ubuntu-latest
+    if: github.ref_type != 'tag'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -41,6 +44,7 @@ jobs:
   frontend:
     name: SPA typecheck and build
     runs-on: ubuntu-latest
+    if: github.ref_type != 'tag'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -72,6 +76,7 @@ jobs:
   updater:
     name: Self-update restore test
     runs-on: ubuntu-latest
+    if: github.ref_type != 'tag'
     steps:
       - uses: actions/checkout@v4
       - name: Shell syntax
@@ -105,6 +110,7 @@ jobs:
   perf:
     name: Performance gate
     runs-on: ubuntu-latest
+    if: github.ref_type != 'tag'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

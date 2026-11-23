@@ -378,9 +378,11 @@ a timeline.
 ## Release tags
 
 Every `CHANGELOG.md` section has an annotated tag `vX.Y.Z` on `main`. Pushing a
-tag runs CI at the tagged commit, and the `release` job fails when the tag name
+tag runs only the `release` job at the tagged commit — publishing a batch of old
+tags does not start a full build per tag — and that job fails when the tag name
 disagrees with `VERSION`, or when the newest `CHANGELOG.md` section or
-`internal/version/version.go` disagrees with it:
+`internal/version/version.go` disagrees with it. Branch pushes still run every
+job. To create a tag:
 
 ```sh
 git tag -a v1.47.19 -m 1.47.19            # the release commit, annotated
