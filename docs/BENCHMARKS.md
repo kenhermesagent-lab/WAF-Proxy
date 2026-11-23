@@ -190,6 +190,7 @@ size.
 | `WAFPROXY_MAX_INFLIGHT` | environment | Cap on concurrent buffered requests, default 256. |
 | `WAFPROXY_MAX_BUFFERED_BYTES` | environment | Cap on the request memory those requests hold, default 512 MiB (suffixes `KiB`/`MiB`/`GiB` accepted). |
 | `WAFPROXY_QUEUE_MS` | environment | How long a request waits for budget before a 503, default 250; 0 refuses at once. Per-site override: the `queue_ms` setting. |
+| `WAFPROXY_BODY_TIMEOUT` | environment | Seconds a client may take to send its body before a 408, default 30; 0 disables it. Per-site override: the `body_timeout_s` setting. |
 | `WAFPROXY_MEMORY_LIMIT` | environment | Soft heap limit; default 75 % of the cgroup limit. Startup refuses a buffer budget that cannot fit under it. |
 | `WAFPROXY_DB_CONNS` | environment | SQLite pool size; defaults to 2× CPU count (4–32). |
 | Max inspected body | Settings / WAF profile | Per-request memory ceiling; the dominant term above. |

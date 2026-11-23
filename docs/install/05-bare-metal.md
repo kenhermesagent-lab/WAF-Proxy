@@ -121,7 +121,9 @@ single decoy hit bans the tunnel.
 cap requests in flight and the request memory they hold; each may buffer a body up to the profile
 limit, so both are the ceiling for request bodies. A request that cannot fit waits
 `WAFPROXY_QUEUE_MS` (default `250`) and then receives `503`; **Dashboard → Request budget** shows
-the current count and how many were refused.
+the current count and how many were refused. `WAFPROXY_BODY_TIMEOUT` (default `30` seconds, per-site
+`body_timeout_s`) cuts a body that is sent too slowly with `408`, so a trickling upload cannot hold a
+slot; raise it or set `0` for endpoints that legitimately upload over a slow link.
 
 ### 11.3 Firewall and nftables
 

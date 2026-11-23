@@ -43,6 +43,9 @@ type Config struct {
 	// QueueMS is how long a request waits for capacity before it is shed; 0
 	// refuses at once.
 	QueueMS int
+	// BodyTimeout is how long a client may take to send its body, in seconds; 0
+	// disables the deadline.
+	BodyTimeout int
 	// MemoryLimit is the soft heap limit. Zero leaves Go's own default.
 	MemoryLimit int64
 	// TailscaleIP is the tailscale0 IPv4 address captured at boot. Settings
@@ -116,6 +119,7 @@ func Load() (*Config, error) {
 		MaxInflight:      envInt("WAFPROXY_MAX_INFLIGHT", 256),
 		MaxBufferedBytes: envBytes("WAFPROXY_MAX_BUFFERED_BYTES", 512<<20),
 		QueueMS:          envIntAllowZero("WAFPROXY_QUEUE_MS", 250),
+		BodyTimeout:      envIntAllowZero("WAFPROXY_BODY_TIMEOUT", 30),
 		MemoryLimit:      envBytes("WAFPROXY_MEMORY_LIMIT", cgroupMemoryLimit()*3/4),
 		TailscaleIP:      tailscaleIPv4(),
 		CrowdSecURL:      strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_URL")),
@@ -173,6 +177,9 @@ func Load() (*Config, error) {
 	}
 	if c.QueueMS > 5000 {
 		return nil, errors.New("WAFPROXY_QUEUE_MS must be 0-5000")
+	}
+	if c.BodyTimeout > 3600 {
+		return nil, errors.New("WAFPROXY_BODY_TIMEOUT must be 0-3600 seconds")
 	}
 	// 128 MiB is proxy.CacheBytes; config cannot import the proxy package.
 	if err := c.CheckMemory(128 << 20); err != nil {

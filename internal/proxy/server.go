@@ -83,20 +83,22 @@ type edge struct {
 	protection *model.ProtectionProfile
 	// waf is the selected WAF profile, kept for the limits it carries: the
 	// response ceiling. The policy engine reads the same row for the rest.
-	waf     *model.Profile
-	ups     []*upstream
-	routes  []model.Route
-	rr      uint64
-	rp      *httputil.ReverseProxy
-	cache   *responseCache
-	cancel  context.CancelFunc
-	queue   time.Duration
-	health  healthSettings
-	site    *capLimiter
-	clients *clientLimiter
-	timeout time.Duration
-	reqOps  []model.HeaderOp
-	respOps []model.HeaderOp
+	waf    *model.Profile
+	ups    []*upstream
+	routes []model.Route
+	rr     uint64
+	rp     *httputil.ReverseProxy
+	cache  *responseCache
+	cancel context.CancelFunc
+	queue  time.Duration
+	// bodyTimeout is how long this site's client may take to send its body.
+	bodyTimeout time.Duration
+	health      healthSettings
+	site        *capLimiter
+	clients     *clientLimiter
+	timeout     time.Duration
+	reqOps      []model.HeaderOp
+	respOps     []model.HeaderOp
 }
 
 type ctxKey int
@@ -125,8 +127,9 @@ type Server struct {
 	hardBody int64
 
 	// budget bounds the requests buffered at once, by count and by bytes.
-	budget       *budget
-	defaultQueue time.Duration
+	budget             *budget
+	defaultQueue       time.Duration
+	defaultBodyTimeout time.Duration
 
 	listenMu  sync.Mutex
 	listenErr map[string]string
@@ -139,12 +142,13 @@ func New(d Deps) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		d:            d,
-		edges:        map[string]*edge{},
-		self:         self,
-		events:       make(chan model.Event, 8192),
-		hardBody:     8 << 20,
-		defaultQueue: DefaultQueue,
+		d:                  d,
+		edges:              map[string]*edge{},
+		self:               self,
+		events:             make(chan model.Event, 8192),
+		hardBody:           8 << 20,
+		defaultQueue:       DefaultQueue,
+		defaultBodyTimeout: DefaultBodyTimeout,
 	}
 	s.budget = newBudget(DefaultMaxInflight, DefaultMaxBufferedBytes)
 	// One cache for the process: 128 MiB total, at most 32 MiB per hostname,
@@ -245,6 +249,10 @@ const DefaultQueue = 250 * time.Millisecond
 // the configured ceiling at startup.
 const CacheBytes = 128 << 20
 
+// DefaultBodyTimeout bounds how long a client may take to send its body, so a
+// trickling upload cannot hold a budget slot. Zero disables the deadline.
+const DefaultBodyTimeout = 30 * time.Second
+
 // SetMaxInflight bounds how many requests may be in flight or buffered at once.
 // It is called once at startup, before the listeners serve.
 func (s *Server) SetMaxInflight(n int) {
@@ -256,6 +264,12 @@ func (s *Server) SetMaxInflight(n int) {
 func (s *Server) SetBudget(maxBytes int64, queue time.Duration) {
 	s.defaultQueue = queue
 	s.budget.setLimits(maxBytes)
+}
+
+// SetBodyTimeout sets how long a client may take to send its body; zero
+// disables the deadline. Called once at startup, before the listeners serve.
+func (s *Server) SetBodyTimeout(d time.Duration) {
+	s.defaultBodyTimeout = d
 }
 
 // Capacity reports the current request budget: in flight, allowed, and how many
@@ -334,7 +348,8 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 	}
 	child, cancel := context.WithCancel(ctx)
 	e := &edge{proxy: p, ups: ups, routes: routes, cache: s.cache, cancel: cancel,
-		queue: s.queueFor(p.SiteID), waf: s.d.Policy.ProfileFor(&p), health: healthFor(p),
+		queue: s.queueFor(p.SiteID), bodyTimeout: s.bodyTimeoutFor(p.SiteID),
+		waf: s.d.Policy.ProfileFor(&p), health: healthFor(p),
 		site: newCapLimiter(p.MaxInflight), clients: newClientLimiter(p.MaxInflightPerClient),
 		timeout: time.Duration(p.UpstreamTimeout) * time.Second,
 		reqOps:  p.RequestHeaders, respOps: p.ResponseHeaders}
@@ -406,6 +421,24 @@ func (s *Server) queueFor(siteID int64) time.Duration {
 		return s.defaultQueue
 	}
 	return time.Duration(ms) * time.Millisecond
+}
+
+// bodyTimeoutFor is the site's body deadline: the process default unless the
+// site sets body_timeout_s, where 0 disables it.
+func (s *Server) bodyTimeoutFor(siteID int64) time.Duration {
+	kv, err := s.d.Store.SettingsFor(siteID)
+	if err != nil {
+		return s.defaultBodyTimeout
+	}
+	raw, ok := kv["body_timeout_s"]
+	if !ok {
+		return s.defaultBodyTimeout
+	}
+	sec, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || sec < 0 || sec > 3600 {
+		return s.defaultBodyTimeout
+	}
+	return time.Duration(sec) * time.Second
 }
 
 func (s *Server) lookup(host string) *edge {
@@ -505,9 +538,9 @@ func (s *Server) ListenWith(ctx context.Context, bind func(addr string) (net.Lis
 		out.servers = append(out.servers, &http.Server{
 			Handler:           s,
 			ReadHeaderTimeout: 10 * time.Second,
-			// Bound slow request bodies (slowloris) while leaving writes unbounded
-			// so SSE and large streamed downloads are not cut off.
-			ReadTimeout:    60 * time.Second,
+			// Headers and the handshake are bounded here; a request body is
+			// bounded by the site's own deadline in the handler, and writes stay
+			// unbounded so SSE and large streamed downloads are not cut off.
 			IdleTimeout:    90 * time.Second,
 			MaxHeaderBytes: 32 << 10,
 			ErrorLog:       nil,

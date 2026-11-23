@@ -62,6 +62,16 @@ func TestSettingsQueueMSRange(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("queue_ms=9000 = %d, want 400", rec.Code)
 	}
+	rec = sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"body_timeout_s": "0"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("body_timeout_s=0 = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"body_timeout_s": "7200"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("body_timeout_s=7200 = %d, want 400", rec.Code)
+	}
 }
 
 // A site created after setup has no settings rows, so its form reads empty

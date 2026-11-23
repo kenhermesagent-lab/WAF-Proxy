@@ -373,6 +373,12 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             >
               <input value={s.queue_ms ?? "250"} onChange={(e) => set("queue_ms", e.target.value)} />
             </Field>
+            <Field
+              label="Body deadline (s)"
+              hint="Per site: how long a client may take to send its body before the request is cut with a 408. 0 disables the deadline."
+            >
+              <input value={s.body_timeout_s ?? "30"} onChange={(e) => set("body_timeout_s", e.target.value)} />
+            </Field>
             <Field label="Sample allowed above (rps)" hint="Per-site sampling threshold for the request log."><input value={s.sample_above_rps ?? "500"} onChange={(e) => set("sample_above_rps", e.target.value)} /></Field>
           </div>
           <Field label="Request normalization" hint="Duplicate parameters and double encoding from the release checks.">

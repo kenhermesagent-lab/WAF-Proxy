@@ -108,6 +108,16 @@ func newHarness(t *testing.T) *harness {
 			_, _ = io.WriteString(gz, "<html><body>You have an error in your SQL syntax</body></html>")
 			_ = gz.Close()
 			return
+		case "/trickle":
+			// Flushed over several hundred milliseconds: longer than a body
+			// deadline, to prove the deadline is the client's alone.
+			w.Header().Set("Content-Type", "text/plain")
+			for i := 0; i < 5; i++ {
+				_, _ = fmt.Fprintf(w, "chunk-%d\n", i)
+				w.(http.Flusher).Flush()
+				time.Sleep(60 * time.Millisecond)
+			}
+			return
 		case "/stream":
 			// No length: the response is cut once it passes the ceiling.
 			w.Header().Set("Content-Type", "text/plain")

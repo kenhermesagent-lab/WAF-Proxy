@@ -23,6 +23,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   200 clients against a 128-request budget refused 162,630 of 345,571 requests with no queue and
   none with it, while completing 17 % more of them. `WAFPROXY_MEMORY_LIMIT` sets the soft heap
   limit and boot refuses a buffer budget that cannot fit under it.
+- **A slow client cannot hold a request slot.** A request body now has its own deadline
+  (`WAFPROXY_BODY_TIMEOUT`, default 30 s, per-site `body_timeout_s`, `0` disables it) that is cleared
+  before the forward: a trickled upload is cut with a 408 and logged as `body-timeout`, while an
+  upstream response streaming past the deadline is untouched. The listener's blanket 60-second
+  request read timeout is gone; the per-site deadline is now the one bound on a body.
 
 ### Added
 

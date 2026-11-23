@@ -1189,7 +1189,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 var publicSettingKeys = []string{
 	"base_domain", "wan_ip", "wan_port", "lan_ip", "gui_port", "wan_iface", "lan_iface",
 	"dos_rps", "dos_burst", "asn_block", "stealth_drop", "stealth_ping", "retention_days",
-	"sample_above_rps", "max_body", "queue_ms", "protection_enabled", "acme_staging", "acme_email",
+	"sample_above_rps", "max_body", "queue_ms", "body_timeout_s", "protection_enabled", "acme_staging", "acme_email",
 	"gate_ttl_hours", "home_lat", "home_lon", "decoy_hosts",
 	"admin_allow_cidrs", "bot_filter", "bot_filter_allow", "geoip_auto_update",
 	"normalization_mode", "ha_enabled",
@@ -1307,7 +1307,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		switch k {
-		case "dos_rps", "dos_burst", "retention_days", "sample_above_rps", "max_body", "queue_ms", "gate_ttl_hours":
+		case "dos_rps", "dos_burst", "retention_days", "sample_above_rps", "max_body", "queue_ms", "body_timeout_s", "gate_ttl_hours":
 			if v == "" {
 				break
 			}
@@ -1331,6 +1331,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				// 0 is a setting: shed at the door instead of waiting.
 				if n < 0 || n > 5000 {
 					writeError(w, http.StatusBadRequest, "queue_ms must be 0-5000")
+					return
+				}
+			case "body_timeout_s":
+				// 0 disables the deadline for large or genuinely slow uploads.
+				if n < 0 || n > 3600 {
+					writeError(w, http.StatusBadRequest, "body_timeout_s must be 0-3600")
 					return
 				}
 			case "gate_ttl_hours":

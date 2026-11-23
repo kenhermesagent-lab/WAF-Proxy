@@ -3,11 +3,13 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -232,7 +234,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		uniformError(rw, http.StatusServiceUnavailable)
 		return
 	}
+	// The body deadline is the client's: it starts once the request owns a
+	// budget slot and is cleared before the forward, so a slow upstream is
+	// governed by its own timeout instead.
+	rc := http.NewResponseController(rw)
+	if e.bodyTimeout > 0 {
+		_ = rc.SetReadDeadline(time.Now().Add(e.bodyTimeout))
+	}
 	read, tooLarge, err := readBody(r, s.hardBody)
+	_ = rc.SetReadDeadline(time.Time{})
 	body := read
 	defer release()
 	if tooLarge {
@@ -244,6 +254,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		blocked = true
 		event.Stage = "protocol"
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			event.RuleID, event.RuleMsg = "body-timeout", "request body deadline exceeded"
+			uniformError(rw, http.StatusRequestTimeout)
+			return
+		}
 		uniformError(rw, http.StatusBadRequest)
 		return
 	}

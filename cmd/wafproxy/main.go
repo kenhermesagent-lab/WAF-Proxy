@@ -731,6 +731,7 @@ func run() error {
 	}
 	px.SetMaxInflight(cfg.MaxInflight)
 	px.SetBudget(cfg.MaxBufferedBytes, time.Duration(cfg.QueueMS)*time.Millisecond)
+	px.SetBodyTimeout(time.Duration(cfg.BodyTimeout) * time.Second)
 	px.SetCertProvider(res)
 	// TLS-ALPN-01 validations are answered by the WAN listener itself; lego's
 	// own server would have to bind port 443 a second time.
