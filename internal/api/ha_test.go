@@ -212,6 +212,35 @@ func TestHAConfigSavesTheFlapBudget(t *testing.T) {
 	}
 }
 
+func TestHAEveryActionReachesTheBackend(t *testing.T) {
+	srv, _, ops, token, csrf := haServer(t)
+	pw := `"password":"` + haTestPassword + `"`
+	cases := []struct {
+		action string
+		body   string
+		calls  func() int
+	}{
+		{"pair", `{` + pw + `}`, func() int { return ops.pairs }},
+		{"join", `{"address":"10.0.0.10:9443","fingerprint":"fp","code":"WAF-X",` + pw + `}`, func() int { return ops.joins }},
+		{"sync", `{` + pw + `}`, func() int { return ops.syncs }},
+		{"failback", `{` + pw + `}`, func() int { return ops.failbacks }},
+		{"unpair", `{"cluster_id":"cluster-1",` + pw + `}`, func() int { return ops.unpairs }},
+		{"notify", `{"role":"BACKUP",` + pw + `}`, func() int { return ops.notifies }},
+	}
+	for _, tc := range cases {
+		rec := haCall(t, srv, token, csrf, http.MethodPost, "/api/ha/"+tc.action, tc.body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s = %d: %s", tc.action, rec.Code, rec.Body.String())
+		}
+		if tc.calls() != 1 {
+			t.Fatalf("%s never reached the backend", tc.action)
+		}
+	}
+	if rec := haCall(t, srv, token, csrf, http.MethodPost, "/api/ha/notify", `{"role":"nonsense",`+pw+`}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown notify role = %d, want 400", rec.Code)
+	}
+}
+
 func TestHAEventsRecordTheAction(t *testing.T) {
 	srv, _, _, token, csrf := haServer(t)
 	body := `{"cluster_id":"cluster-1","password":"` + haTestPassword + `"}`
