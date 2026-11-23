@@ -14,6 +14,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [1.57.1] — 2026-11-23
 
+### Added
+
+- **Every page explains itself in place.** A `?` beside the page title, or the `?` key, opens a side panel
+  with what the page is for, the concepts behind it and what to do first. The text is Markdown under
+  `web/src/help/`, compiled into the bundle, so it matches the running version and needs no internet; a
+  test fails when a page has no help or a help file outlives its page.
+- **Readiness starts with the first hour.** The page opens with a **Getting started** checklist driven by
+  real state — a hostname, a certificate, traffic, an alert target, a second factor, a second admin —
+  and switches to the hardening score once those settle. Completed rows fold away per administrator
+  (stored server-side in `admin_prefs`), and the empty Proxies, Logs and Notifications states now say
+  what would fill them.
+
 ### Fixed
 
 - **Invitations and password-reset mail use the console site's own SMTP server.** Both paths read

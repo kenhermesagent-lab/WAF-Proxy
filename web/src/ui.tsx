@@ -1,14 +1,49 @@
-import { ReactNode, useEffect, useRef } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import Icon, { type IconName } from "./components/Icon";
+import { NAV, routeFromHash } from "./nav";
+import { helpFor } from "./help";
+import { HelpBody } from "./help/render";
 
 // The page name already sits in the top bar as the h1, so the page header only
 // carries the description and the page-level actions.
 export function PageHead({ sub, actions }: { sub?: ReactNode; actions?: ReactNode }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const page = routeFromHash(window.location.hash).page;
+  const label = (id: string) => NAV.find((n) => n.id === id)?.label ?? "This page";
+
+  // "?" opens the help for the page on screen, except while typing, so a
+  // question mark in a search box stays a question mark.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      const current = routeFromHash(window.location.hash).page;
+      if (!helpFor(current)) return;
+      e.preventDefault();
+      setOpen(current);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="page-head">
       <div>{sub ? <p>{sub}</p> : null}</div>
-      {actions ? <div className="actions">{actions}</div> : null}
+      <div className="actions">
+        {actions}
+        {helpFor(page) ? (
+          <button className="icon-btn" aria-label={`About ${label(page)}`} title="About this page (?)" onClick={() => setOpen(page)}>
+            <Icon name="help" size={15} />
+          </button>
+        ) : null}
+      </div>
+      {open ? (
+        <Drawer title={`About ${label(open)}`} sub="Ships with this version; no internet needed" onClose={() => setOpen(null)}>
+          <HelpBody text={helpFor(open) ?? ""} />
+        </Drawer>
+      ) : null}
     </div>
   );
 }

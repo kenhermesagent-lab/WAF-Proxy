@@ -519,6 +519,13 @@ CREATE TABLE IF NOT EXISTS log_views (
   updated_by TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS admin_prefs (
+  user_id INTEGER NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
 `
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators

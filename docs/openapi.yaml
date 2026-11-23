@@ -1981,6 +1981,33 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+  /api/me/prefs:
+    get:
+      operationId: getApiMePrefs
+      tags: [me]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+    put:
+      operationId: putApiMePrefs
+      tags: [me]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/metrics:
     get:
       operationId: getApiMetrics

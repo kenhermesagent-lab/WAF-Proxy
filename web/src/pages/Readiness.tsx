@@ -8,6 +8,7 @@ import type { Cert, CrowdSecStatus, GeoIPStatus, Me } from "../types";
 type Backup = { config: { enabled: boolean }; status: { last_run?: string; last_error?: string } };
 type Chain = { ok: boolean; checked: number; problem?: string };
 type Notifications = { channels: Record<string, boolean> };
+type ProxyRow = { id: number; requests?: number };
 
 type Row = {
   id: string;
@@ -18,6 +19,10 @@ type Row = {
   link: string;
   optional?: boolean;
 };
+
+// The rows a first install meets, in the order they matter. The rest are the
+// hardening controls an install can live without for a while.
+const FIRST_RUN = new Set(["domain", "host", "tls", "traffic", "notify", "mfa", "admins"]);
 
 export default function Readiness({
   me,
@@ -30,11 +35,14 @@ export default function Readiness({
 }) {
   const [settings, setSettings] = useState<Record<string, string> | null>(null);
   const [certs, setCerts] = useState<Cert[] | null>(null);
+  const [proxies, setProxies] = useState<ProxyRow[] | null>(null);
+  const [users, setUsers] = useState<unknown[] | null>(null);
   const [geo, setGeo] = useState<GeoIPStatus | null>(null);
   const [backup, setBackup] = useState<Backup | null>(null);
   const [notifications, setNotifications] = useState<Notifications | null>(null);
   const [chain, setChain] = useState<Chain | null>(null);
   const [crowdsec, setCrowdsec] = useState<CrowdSecStatus | null>(null);
+  const [hideDone, setHideDone] = useState(false);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState<string[]>([]);
 
@@ -53,11 +61,17 @@ export default function Readiness({
           onError(errText(e));
         }),
       api.get<{ certs: Cert[] }>("/api/certs").then((v) => alive && setCerts(v.certs ?? [])).catch(() => fail("certs")),
+      api.get<{ proxies: ProxyRow[] }>("/api/proxies").then((v) => alive && setProxies(v.proxies ?? [])).catch(() => fail("proxies")),
+      api.get<{ users: unknown[] }>("/api/users").then((v) => alive && setUsers(v.users ?? [])).catch(() => fail("users")),
       api.get<GeoIPStatus>("/api/geoip").then((v) => alive && setGeo(v)).catch(() => fail("geoip")),
       api.get<Backup>("/api/backup/schedule").then((v) => alive && setBackup(v)).catch(() => fail("backup")),
       api.get<Notifications>("/api/notifications").then((v) => alive && setNotifications(v)).catch(() => fail("notifications")),
       api.get<Chain>("/api/audit/verify").then((v) => alive && setChain(v)).catch(() => fail("chain")),
       api.get<CrowdSecStatus>("/api/crowdsec/status").then((v) => alive && setCrowdsec(v)).catch(() => fail("crowdsec")),
+      api
+        .get<Record<string, string>>("/api/me/prefs")
+        .then((p) => alive && setHideDone(p["readiness.hide_done"] === "1"))
+        .catch(() => undefined),
     ]).finally(() => {
       if (alive) setLoading(false);
     });
@@ -69,6 +83,7 @@ export default function Readiness({
   const has = (name: string) => !failed.includes(name);
 
   const notifyTargets = Object.values(notifications?.channels ?? {}).filter(Boolean).length;
+  const served = proxies?.some((p) => (p.requests ?? 0) > 0) ?? false;
 
   const rows: Row[] = [
     {
@@ -80,12 +95,54 @@ export default function Readiness({
       link: "settings",
     },
     {
+      id: "host",
+      label: "A hostname is proxied",
+      detail: proxies?.length ? `${proxies.length} hostname${proxies.length === 1 ? "" : "s"} configured.` : "No hostname forwards to a backend yet, so nothing can be protected.",
+      ready: has("proxies") && proxies ? proxies.length > 0 : null,
+      fix: "Open Proxies",
+      link: "proxies/sites",
+    },
+    {
       id: "tls",
       label: "TLS certificate issued",
       detail: certs?.length ? `${certs.filter((c) => c.status === "issued").length} of ${certs.length} certificates issued.` : "No certificate is stored.",
       ready: has("certs") && certs ? certs.some((c) => c.status === "issued") : null,
       fix: "Open Certificates",
       link: "proxies/certs",
+    },
+    {
+      id: "traffic",
+      label: "Traffic has arrived",
+      detail: served ? "At least one request reached a proxied hostname." : "No request has reached a proxied hostname yet, so the log and counters are empty.",
+      ready: has("proxies") && proxies ? served : null,
+      fix: "Open Logs",
+      link: "logs",
+    },
+    {
+      id: "notify",
+      label: "Notification target configured",
+      detail: notifyTargets
+        ? `${notifyTargets} enabled target${notifyTargets === 1 ? "" : "s"}.`
+        : "No enabled notification target, so alerts go nowhere.",
+      ready: has("notifications") && notifications ? notifyTargets > 0 : null,
+      fix: "Open Notifications",
+      link: "notifications",
+    },
+    {
+      id: "mfa",
+      label: "Second factor enrolled",
+      detail: me?.totp_enabled ? "This account signs in with an authenticator." : "This account signs in with a password only.",
+      ready: me ? me.totp_enabled : null,
+      fix: "Open Account",
+      link: "account",
+    },
+    {
+      id: "admins",
+      label: "A second administrator exists",
+      detail: users && users.length > 1 ? `${users.length} administrators on this site.` : "One account only, so a lost authenticator means a lockout.",
+      ready: has("users") && users ? users.length > 1 : null,
+      fix: "Open Team",
+      link: "account",
     },
     {
       id: "geoip",
@@ -119,24 +176,6 @@ export default function Readiness({
       link: "settings",
     },
     {
-      id: "notify",
-      label: "Notification target configured",
-      detail: notifyTargets
-        ? `${notifyTargets} enabled target${notifyTargets === 1 ? "" : "s"}.`
-        : "No enabled notification target, so alerts go nowhere.",
-      ready: has("notifications") && notifications ? notifyTargets > 0 : null,
-      fix: "Open Notifications",
-      link: "notifications",
-    },
-    {
-      id: "mfa",
-      label: "Second factor enrolled",
-      detail: me?.totp_enabled ? "This account signs in with an authenticator." : "This account signs in with a password only.",
-      ready: me ? me.totp_enabled : null,
-      fix: "Open Account",
-      link: "account",
-    },
-    {
       id: "audit",
       label: "Audit chain verified",
       detail: chain ? (chain.ok ? `Intact across ${chain.checked} entries.` : chain.problem || "The chain does not match.") : "Verification unavailable.",
@@ -155,17 +194,60 @@ export default function Readiness({
     },
   ];
 
-  const scored = rows.filter((r) => !r.optional);
+  const first = rows.filter((r) => FIRST_RUN.has(r.id));
+  const hardened = rows.filter((r) => !FIRST_RUN.has(r.id));
+  const firstMet = first.filter((r) => r.ready).length;
+  const firstUnknown = first.filter((r) => r.ready === null).length;
+  const settled = firstMet === first.length && firstUnknown === 0;
+
+  const scored = hardened.filter((r) => !r.optional);
   const met = scored.filter((r) => r.ready).length;
   const unknown = scored.filter((r) => r.ready === null).length;
   const pct = scored.length ? Math.round((met / scored.length) * 100) : 0;
-  const tone = pct === 100 ? "ok" : pct >= 60 ? "warn" : "bad";
-  const verdict = pct === 100 ? "hardened" : pct >= 60 ? "partly hardened" : "not hardened";
+  const tone = settled ? (pct === 100 ? "ok" : pct >= 60 ? "warn" : "bad") : firstMet > 0 ? "warn" : "bad";
+  const headline = settled
+    ? `${met} of ${scored.length} ready`
+    : `${firstMet} of ${first.length} set up`;
+  const subline = settled
+    ? `${pct}% complete${unknown > 0 ? ` · ${unknown} could not be checked` : ""}`
+    : "Finish these and the page switches to the hardening checklist.";
+  const verdict = settled ? (pct === 100 ? "hardened" : pct >= 60 ? "partly hardened" : "not hardened") : "setting up";
+  const meter = settled ? pct : Math.round((firstMet / Math.max(first.length, 1)) * 100);
+
+  const toggleDone = () => {
+    const next = !hideDone;
+    setHideDone(next);
+    api.put("/api/me/prefs", { key: "readiness.hide_done", value: next ? "1" : "" }).catch(() => undefined);
+  };
+
+  const listOf = (list: Row[]) => (
+    <div className="grid" style={{ gap: 0 }}>
+      {list.map((r) => (
+        <div className="bar-row" key={r.id} style={{ gridTemplateColumns: "minmax(0, 1fr) auto" }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="row" style={{ gap: 8 }}>
+              <span>{r.label}</span>
+              {r.optional ? <Badge>optional</Badge> : null}
+              {r.ready === null ? <Badge tone="warn">unknown</Badge> : r.ready ? <Badge tone="ok">ready</Badge> : <Badge tone="bad">missing</Badge>}
+            </div>
+            <div className="faint small-text" style={{ marginTop: 2 }}>{r.detail}</div>
+          </div>
+          {r.ready === true ? (
+            <span className="faint small-text">—</span>
+          ) : (
+            <a className="link-button" href={`#/${r.link}`}>{r.fix}</a>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+
+  const firstShown = hideDone ? first.filter((r) => r.ready !== true) : first;
 
   return (
     <div className="grid" style={{ gap: 14 }}>
       {head && (
-        <PageHead sub="What a hardened install has that a working one may not. Every row links to the control that fixes it." />
+        <PageHead sub="What a working install needs next, then what a hardened one has. Every row links to the control that fixes it." />
       )}
 
       <Card>
@@ -175,44 +257,33 @@ export default function Readiness({
           <>
             <div className="row between" style={{ alignItems: "baseline" }}>
               <div>
-                <div className="kpi-value" style={{ fontSize: 26 }}>{met} of {scored.length} ready</div>
-                <div className="kpi-sub">
-                  {pct}% complete{unknown > 0 ? ` · ${unknown} could not be checked` : ""}
-                </div>
+                <div className="kpi-value" style={{ fontSize: 26 }}>{headline}</div>
+                <div className="kpi-sub">{subline}</div>
               </div>
               <Badge tone={tone}>{verdict}</Badge>
             </div>
             <div className="kpi-meter" aria-hidden="true" style={{ marginTop: 12 }}>
-              <span style={{ width: `${pct}%`, background: `var(--${tone === "bad" ? "danger" : tone})` }} />
+              <span style={{ width: `${meter}%`, background: `var(--${tone === "bad" ? "danger" : tone})` }} />
             </div>
           </>
         )}
       </Card>
 
-      <Card title="Checklist">
-        {loading ? (
-          <Skeleton kind="line" count={6} />
-        ) : (
-          <div className="grid" style={{ gap: 0 }}>
-            {rows.map((r) => (
-              <div className="bar-row" key={r.id} style={{ gridTemplateColumns: "minmax(0, 1fr) auto" }}>
-                <div style={{ minWidth: 0 }}>
-                  <div className="row" style={{ gap: 8 }}>
-                    <span>{r.label}</span>
-                    {r.optional ? <Badge>optional</Badge> : null}
-                    {r.ready === null ? <Badge tone="warn">unknown</Badge> : r.ready ? <Badge tone="ok">ready</Badge> : <Badge tone="bad">missing</Badge>}
-                  </div>
-                  <div className="faint small-text" style={{ marginTop: 2 }}>{r.detail}</div>
-                </div>
-                {r.ready === true ? (
-                  <span className="faint small-text">—</span>
-                ) : (
-                  <a className="link-button" href={`#/${r.link}`}>{r.fix}</a>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+      <Card
+        title="Getting started"
+        actions={
+          firstMet > 0 ? (
+            <button className="link-button" onClick={toggleDone}>
+              {hideDone ? `Show ${firstMet} done` : `Hide ${firstMet} done`}
+            </button>
+          ) : null
+        }
+      >
+        {loading ? <Skeleton kind="line" count={4} /> : listOf(firstShown)}
+      </Card>
+
+      <Card title="Hardened install">
+        {loading ? <Skeleton kind="line" count={6} /> : listOf(hardened)}
       </Card>
 
       <Card title="Support the project">

@@ -48,6 +48,12 @@ describe("Readiness", () => {
           return { channels: {} };
         case "/api/audit/verify":
           return { ok: true, checked: 42 };
+        case "/api/proxies":
+          return { proxies: [{ id: 1, hostname: "app.example.com", requests: 4 }] };
+        case "/api/users":
+          return { users: [{ id: 1 }, { id: 2 }] };
+        case "/api/me/prefs":
+          return {};
         default:
           return { configured: false, applied: 0 };
       }
@@ -55,10 +61,13 @@ describe("Readiness", () => {
 
     render(<Readiness me={me} onError={vi.fn()} />);
 
-    expect(await screen.findByText("6 of 8 ready")).toBeTruthy();
-    expect(screen.getByText(/^75% complete/)).toBeTruthy();
+    // Every first-run row but notifications is done, so the page is still in
+    // setup mode and does not claim a hardening score yet.
+    expect(await screen.findByText("6 of 7 set up")).toBeTruthy();
+    expect(screen.getByText(/switches to the hardening checklist/)).toBeTruthy();
+    expect(screen.queryByText(/% complete/)).toBeNull();
 
-    // Backups and notifications are the gaps; both link to the page that fixes them.
+    // The gaps link to the page that fixes them.
     const fixes = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
     expect(fixes).toContain("#/settings");
     expect(fixes).toContain("#/notifications");
@@ -82,6 +91,12 @@ describe("Readiness", () => {
           return { channels: { telegram: true } };
         case "/api/audit/verify":
           return { ok: true, checked: 1 };
+        case "/api/proxies":
+          return { proxies: [{ id: 1, hostname: "app.example.com", requests: 4 }] };
+        case "/api/users":
+          return { users: [{ id: 1 }, { id: 2 }] };
+        case "/api/me/prefs":
+          return {};
         default:
           return { configured: false, applied: 0 };
       }
@@ -90,8 +105,8 @@ describe("Readiness", () => {
     render(<Readiness me={me} onError={vi.fn()} />);
 
     expect(await screen.findByText("unknown")).toBeTruthy();
-    expect(screen.getByText(/could not be checked/)).toBeTruthy();
-    expect(screen.queryByText("8 of 8 ready")).toBeNull();
-    expect(screen.getByText("7 of 8 ready")).toBeTruthy();
+    expect(screen.getByText("6 of 7 set up")).toBeTruthy();
+    expect(screen.queryByText("7 of 7 set up")).toBeNull();
+    expect(screen.queryByText(/% complete/)).toBeNull();
   });
 });

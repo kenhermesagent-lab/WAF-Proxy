@@ -631,6 +631,14 @@ function Setup({ defaults, onDone }: { defaults: SetupStatus | null; onDone: (e:
         <BrandLockup />
         <h1 style={{ marginTop: 18 }}>Set up WAF-Proxy</h1>
         <p className="sub">Network binding is written to the database, not a config file. Only 443 needs to be forwarded.</p>
+        <details className="why">
+          <summary>Why the base domain matters</summary>
+          <p className="faint small-text">
+            Every hostname you proxy later is one label under this domain, so a certificate for it covers them all:
+            <code>app.example.com</code> works, <code>a.b.example.com</code> does not. The apex domain itself is reserve
+            for redirects and is never proxied.
+          </p>
+        </details>
         <div className="field-grid">
           <div className="field"><label>Admin username</label><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></div>
           <div className="field"><label>Password (12+ characters)</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
@@ -645,6 +653,14 @@ function Setup({ defaults, onDone }: { defaults: SetupStatus | null; onDone: (e:
         <p className="faint small-text" style={{ marginTop: -4 }}>
           Both addresses must exist on this host. On a single-NIC host enter the same address for WAN and LAN.
         </p>
+        <details className="why">
+          <summary>Why both addresses</summary>
+          <p className="faint small-text">
+            Visitor traffic arrives on the WAN address; the console stays bound to the LAN address so administration is
+            never reachable from the internet. The wizard refuses to continue without both, which is what keeps the
+            console off all interfaces.
+          </p>
+        </details>
         <div className="field"><label>DuckDNS token (optional, stored encrypted)</label><input type="password" value={form.duckdns_token} onChange={(e) => setForm({ ...form, duckdns_token: e.target.value })} /></div>
                   <div className="field"><label>Admin email (ACME and password resets)</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="admin@your-domain.tld" /></div>
         {err && <div className="err-text">{err}</div>}

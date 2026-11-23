@@ -203,7 +203,7 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
       )}
 
       <Card title="Recent deliveries">
-        {recent.length === 0 ? <Empty>No notifications sent yet.</Empty> : (
+        {recent.length === 0 ? <Empty title="Nothing sent yet">Enable a channel above and use Test: this list fills once an alert fires, and a channel nobody verified fails silently.</Empty> : (
           <div className="table-wrap"><table>
             <thead><tr><th>Time</th><th>Channel</th><th>Kind</th><th>Message</th><th>State</th></tr></thead>
             <tbody>

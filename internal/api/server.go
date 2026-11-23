@@ -210,6 +210,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/logout", s.authed(s.logout))
 	m.HandleFunc("POST /api/cache/purge", s.authed(s.purgeCache))
 	m.HandleFunc("GET /api/me", s.authed(s.me))
+	m.HandleFunc("GET /api/me/prefs", s.authed(s.mePrefs))
+	m.HandleFunc("PUT /api/me/prefs", s.authed(s.mePrefs))
 	m.HandleFunc("GET /api/sites", s.authed(s.listSites))
 	m.HandleFunc("POST /api/sites", s.authed(s.createSite))
 	m.HandleFunc("PUT /api/sites/{slug}", s.authed(s.updateSite))

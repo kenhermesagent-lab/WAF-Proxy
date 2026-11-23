@@ -404,7 +404,11 @@ export default function Logs({
             </span>
           </div>
         )}
-        {events.length === 0 ? <Empty>No events match these filters.</Empty> : (
+        {events.length === 0 ? (
+          <Empty title="No requests here yet">
+            Clear a filter, or send one request through a proxied hostname: rows appear once traffic reaches the proxy and within the retention window.
+          </Empty>
+        ) : (
           <div className="table-wrap"><table className="log-table">
               <thead>
                 <tr>

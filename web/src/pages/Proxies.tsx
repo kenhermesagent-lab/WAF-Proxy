@@ -258,7 +258,9 @@ export default function Proxies({
                 icon="server"
                 action={list.length === 0 ? <button className="primary" onClick={openNew}>Create the first proxy</button> : <button onClick={() => { setSearch(""); setStatus("all"); }}>Clear filters</button>}
               >
-                {list.length === 0 ? "Add a hostname and point it at a backend on the LAN." : "Try a different hostname or state."}
+                {list.length === 0
+                  ? "A hostname points a subdomain of your base domain at a backend on the LAN, and the WAF checks every request on the way through."
+                  : "Try a different hostname or state."}
               </Empty>
             ) : (
               <TableWrap>
