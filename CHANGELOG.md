@@ -11,7 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
-## [1.43.2] — 2026-11-23
+## [1.43.4] — 2026-11-23
 
 ### Fixed
 
@@ -22,6 +22,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   a real change still shows.
 - **A long kernel-status badge no longer widens the Policies page on a phone.** The badge wraps
   instead, and the tab strip wraps with it.
+
+## [1.43.3] — 2026-11-23
+
+### Fixed
+
+- `POST /api/notifications/test` returns `400` for a missing or unknown channel instead
+  of reporting it as a provider failure with `502`.
+
+## [1.43.2] — 2026-11-23
+
+### Fixed
+
+- The console HTTPS docs showed `WAFPROXY_LISTEN_GUI` with a URL scheme although the
+  setting is a `host:port` listen address; the TLS and host variables are now annotated
+  with what `config.Load` accepts.
 
 ## [1.43.1] — 2026-11-23
 

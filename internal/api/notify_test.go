@@ -49,10 +49,10 @@ func TestNotificationTestEndpointSends(t *testing.T) {
 	if atomic.LoadInt32(&hits) != 1 {
 		t.Fatal("the webhook was not called")
 	}
-	if rec := call(`{"channel":"nope"}`); rec.Code != http.StatusBadGateway {
+	if rec := call(`{"channel":"nope"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown channel = %d", rec.Code)
 	}
-	if rec := call(`{}`); rec.Code != http.StatusBadGateway {
+	if rec := call(`{}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty channel = %d", rec.Code)
 	}
 }
