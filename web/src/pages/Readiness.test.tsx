@@ -17,6 +17,7 @@ const me: Me = {
   version: "1.37.0",
   base_domain: "waf.example.com",
   totp_enabled: true,
+  email: "admin@example.com",
   role: "admin",
   permissions: ["settings.read"],
 };

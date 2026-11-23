@@ -215,6 +215,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/sessions", s.authed(s.activeSessions))
 	m.HandleFunc("GET /api/search", s.authed(s.globalSearch))
 	m.HandleFunc("POST /api/account/password", s.authed(s.changePassword))
+	m.HandleFunc("POST /api/account/email", s.authed(s.accountEmail))
+	m.HandleFunc("GET /api/account/devices", s.authed(s.accountDevices))
+	m.HandleFunc("DELETE /api/account/devices/{id}", s.authed(s.revokeAccountDevice))
 	m.HandleFunc("POST /api/account/totp", s.authed(s.beginTOTP))
 	m.HandleFunc("POST /api/account/totp/confirm", s.authed(s.confirmTOTP))
 	m.HandleFunc("POST /api/account/logout-all", s.authed(s.logoutAll))
@@ -795,13 +798,19 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "encryption error")
 		return
 	}
-	if _, err := s.db(r).CreateFirstUser(req.Username, hash, sealedSecret, sealedCodes, true); err != nil {
+	uid, err := s.db(r).CreateFirstUser(req.Username, hash, sealedSecret, sealedCodes, true)
+	if err != nil {
 		if errors.Is(err, store.ErrAlreadySetup) {
 			writeError(w, http.StatusConflict, "setup already completed")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "cannot create administrator")
 		return
+	}
+	// The same address is the ACME account contact and where password-reset
+	// links go; an account without one cannot use the email reset flow.
+	if email := strings.TrimSpace(req.Email); email != "" {
+		_ = s.db(r).SetUserEmail(uid, email)
 	}
 
 	settings := map[string]string{
@@ -988,11 +997,16 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	kv, _ := s.db(r).Settings()
 	user, _ := s.db(r).UserByID(sess.UserID)
+	email := ""
+	if user != nil {
+		email = user.Email
+	}
 	site, _ := s.st.SiteByID(s.consoleSite(r))
 	body := map[string]any{
 		"username": sess.Username, "csrf": sess.CSRF, "version": version.Version,
 		"base_domain": kv["base_domain"], "expires_at": sess.ExpiresAt,
 		"totp_enabled": user != nil && user.TOTPEnabled,
+		"email":        email,
 		"role":         sess.Role, "permissions": sess.Permissions,
 		"can_switch": sess.Can(rbac.Permission("sites", "read")),
 	}

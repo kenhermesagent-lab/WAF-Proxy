@@ -52,6 +52,16 @@ func (s *Server) verifyAdminSecret(r *http.Request, user *store.User, password, 
 	return s.consumeRecoveryCode(r, user, recovery)
 }
 
+// validEmail accepts the plain address form the console stores. A display
+// name or a second address is refused, so one field cannot become a list.
+func validEmail(email string) bool {
+	if len(email) < 3 || len(email) > 254 || strings.ContainsAny(email, " \t\r\n<>,;") {
+		return false
+	}
+	at := strings.LastIndex(email, "@")
+	return at > 0 && at < len(email)-1 && strings.Contains(email[at+1:], ".")
+}
+
 // clearPendingTOTP drops an unconfirmed rotation for a session. Credential
 // changes and sign-outs must not leave a usable pending secret behind.
 func (s *Server) clearPendingTOTP(sessionID string) {
@@ -239,6 +249,79 @@ func (s *Server) confirmTOTP(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "ok", "recovery_codes": codes, "other_sessions_revoked": revoked,
 	})
+}
+
+// accountEmail stores the address password resets are mailed to for the
+// signed-in administrator.
+func (s *Server) accountEmail(w http.ResponseWriter, r *http.Request) {
+	user, _, ok := s.accountUser(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Email string `json:"email"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	email := strings.TrimSpace(in.Email)
+	if email != "" && !validEmail(email) {
+		writeError(w, http.StatusBadRequest, "enter a valid email address")
+		return
+	}
+	if err := s.db(r).SetUserEmail(user.ID, email); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot save the address")
+		return
+	}
+	s.db(r).AddAudit(user.Username, "account.email", email, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"email": email})
+}
+
+// accountDevices lists the remembered browsers of the signed-in account, with
+// the one making this request marked as current.
+func (s *Server) accountDevices(w http.ResponseWriter, r *http.Request) {
+	user, _, ok := s.accountUser(w, r)
+	if !ok {
+		return
+	}
+	list, err := s.db(r).ListUserTrustedDevices(user.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	current := ""
+	if c, err := r.Cookie(deviceCookie); err == nil && c.Value != "" {
+		current = tokenDigest(c.Value)
+	}
+	for i := range list {
+		list[i].Current = list[i].TokenHash == current
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"devices": list})
+}
+
+// revokeAccountDevice forgets one remembered browser. The id is the stored
+// digest, which is useless as a cookie.
+func (s *Server) revokeAccountDevice(w http.ResponseWriter, r *http.Request) {
+	user, _, ok := s.accountUser(w, r)
+	if !ok {
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "a device id is required")
+		return
+	}
+	if err := s.db(r).DeleteUserTrustedDevice(user.ID, id); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot revoke the device")
+		return
+	}
+	if c, err := r.Cookie(deviceCookie); err == nil && tokenDigest(c.Value) == id {
+		http.SetCookie(w, &http.Cookie{Name: deviceCookie, Value: "", Path: "/", MaxAge: -1,
+			HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode})
+	}
+	s.db(r).AddAudit(user.Username, "account.device.revoke", "remembered browser revoked", clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) logoutAll(w http.ResponseWriter, r *http.Request) {

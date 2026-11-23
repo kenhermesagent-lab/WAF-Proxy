@@ -89,6 +89,7 @@ export interface Me {
   version: string;
   base_domain: string;
   totp_enabled: boolean;
+  email: string;
   role: string;
   permissions: string[];
   // The site this console was reached on, and the sites its role may switch
@@ -113,6 +114,16 @@ export interface Site {
   admins: number;
 }
 
+// One browser that skipped the authenticator because it was trusted.
+export interface TrustedDevice {
+  id: string;
+  ua: string;
+  ip: string;
+  created_at: string;
+  expires_at: string;
+  current: boolean;
+}
+
 export interface PermissionArea {
   key: string;
   label: string;
@@ -129,6 +140,7 @@ export interface Role {
 export interface AdminUser {
   id: number;
   username: string;
+  email: string;
   role_id: number;
   role: string;
   totp_enabled: boolean;

@@ -20,6 +20,7 @@ func (h *accountHarness) public(t *testing.T, path string, body any, cookies ...
 	req.Host = "gui.local"
 	req.RemoteAddr = "10.0.0.10:5000"
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "test browser")
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}

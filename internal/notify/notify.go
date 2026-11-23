@@ -82,8 +82,11 @@ func (m *Manager) Channels() map[string]bool {
 	}
 	return map[string]bool{
 		"telegram": kv["notify_telegram_enabled"] == "1" && kv["notify_telegram_token"] != "" && kv["notify_telegram_chat"] != "",
-		"email":    kv["notify_email_enabled"] == "1" && kv["smtp_host"] != "" && kv["smtp_from"] != "",
-		"webhook":  kv["notify_webhook_enabled"] == "1" && kv["notify_webhook_url"] != "",
+		// The SMTP username is also the envelope sender. There is no separate
+		// from/to field: alerts and reset links go to administrators' own
+		// addresses, resolved when the message is sent.
+		"email":   kv["notify_email_enabled"] == "1" && kv["smtp_host"] != "" && kv["smtp_user"] != "",
+		"webhook": kv["notify_webhook_enabled"] == "1" && kv["notify_webhook_url"] != "",
 	}
 }
 
@@ -368,7 +371,11 @@ func normalizeTelegramChat(raw string) string {
 }
 
 func (m *Manager) sendEmail(kv map[string]string, kind, text string) error {
-	return m.sendEmailMessage(kv, "[wafproxy] "+kind+" alert", text)
+	to, err := m.st.ListUserEmails()
+	if err != nil {
+		return err
+	}
+	return m.sendEmailMessage(kv, to, "[wafproxy] "+kind+" alert", text)
 }
 
 // EmailConfigured reports whether the email channel can deliver mail at all.
@@ -376,31 +383,39 @@ func (m *Manager) EmailConfigured() bool {
 	return m.Channels()["email"]
 }
 
-// SendMail delivers a plain-text message to the configured alert mailbox. It
-// is used for console mail like password resets, which is why the subject is
-// not tied to an event kind.
+// SendMail delivers a plain-text message to every administrator of this site
+// that has an address. It is used for console mail like password resets, which
+// is why the subject is not tied to an event kind.
 func (m *Manager) SendMail(subject, text string) error {
+	to, err := m.st.ListUserEmails()
+	if err != nil {
+		return err
+	}
+	return m.SendMailTo(to, subject, text)
+}
+
+// SendMailTo delivers a plain-text message to the given addresses. A password
+// reset uses it to reach only the account that asked for it.
+func (m *Manager) SendMailTo(to []string, subject, text string) error {
 	kv, err := m.st.Settings()
 	if err != nil {
 		return err
 	}
-	return m.sendEmailMessage(kv, subject, text)
+	return m.sendEmailMessage(kv, to, subject, text)
 }
 
-func (m *Manager) sendEmailMessage(kv map[string]string, subject, text string) error {
+func (m *Manager) sendEmailMessage(kv map[string]string, to []string, subject, text string) error {
 	host := kv["smtp_host"]
 	port := kv["smtp_port"]
 	if port == "" {
 		port = "587"
 	}
-	from := kv["smtp_from"]
-	to := kv["smtp_to"]
-	if to == "" {
-		to = from
-	}
+	// Gmail and most SMTP servers accept the login name as the sender, which
+	// is why the console no longer asks for a separate From address.
+	from := strings.TrimSpace(kv["smtp_user"])
 	pass := m.secret(kv, "smtp_password")
 	user := kv["smtp_user"]
-	if host == "" || from == "" {
+	if host == "" || from == "" || len(to) == 0 {
 		return fmt.Errorf("email is not configured")
 	}
 	var auth smtp.Auth
@@ -409,7 +424,7 @@ func (m *Manager) sendEmailMessage(kv map[string]string, subject, text string) e
 	}
 	msg := strings.Join([]string{
 		"From: " + from,
-		"To: " + to,
+		"To: " + strings.Join(to, ", "),
 		"Subject: " + subject,
 		"MIME-Version: 1.0",
 		"Content-Type: text/plain; charset=utf-8",
@@ -420,7 +435,7 @@ func (m *Manager) sendEmailMessage(kv map[string]string, subject, text string) e
 	if _, err := strconv.Atoi(port); err != nil {
 		return fmt.Errorf("invalid smtp port")
 	}
-	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+	return smtp.SendMail(addr, auth, from, to, []byte(msg))
 }
 
 func (m *Manager) sendWebhook(kv map[string]string, text string) error {
@@ -461,8 +476,6 @@ func (m *Manager) Settings() (map[string]string, error) {
 		"smtp_port":        kv["smtp_port"],
 		"smtp_user":        kv["smtp_user"],
 		"smtp_password":    mask(kv["smtp_password"]),
-		"smtp_from":        kv["smtp_from"],
-		"smtp_to":          kv["smtp_to"],
 		"webhook_enabled":  kv["notify_webhook_enabled"],
 		"webhook_url":      mask(kv["notify_webhook_url"]),
 		"events":           kv["notify_events"],
@@ -487,8 +500,6 @@ func (m *Manager) Update(in map[string]string) error {
 		"smtp_host":               strings.TrimSpace(in["smtp_host"]),
 		"smtp_port":               strings.TrimSpace(in["smtp_port"]),
 		"smtp_user":               strings.TrimSpace(in["smtp_user"]),
-		"smtp_from":               strings.TrimSpace(in["smtp_from"]),
-		"smtp_to":                 strings.TrimSpace(in["smtp_to"]),
 		"notify_webhook_enabled":  boolString(in["webhook_enabled"]),
 		"notify_events":           strings.TrimSpace(in["events"]),
 	}

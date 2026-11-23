@@ -44,7 +44,7 @@ func (s *Server) rememberDevice(w http.ResponseWriter, r *http.Request, userID i
 		return
 	}
 	expires := time.Now().Add(deviceTTL)
-	if err := s.db(r).CreateTrustedDevice(tokenDigest(token), userID, expires); err != nil {
+	if err := s.db(r).CreateTrustedDevice(tokenDigest(token), userID, r.UserAgent(), clientIP(r), expires); err != nil {
 		s.log.Warn("remember device", "err", err)
 		return
 	}
@@ -82,9 +82,9 @@ type forgotRequest struct {
 	Username string `json:"username"`
 }
 
-// forgotPassword sends a single-use reset link to the configured alert
-// mailbox. It answers the same way for an unknown name, so the endpoint cannot
-// be used to enumerate administrators.
+// forgotPassword sends a single-use reset link to the administrator's own
+// address. It answers the same way for an unknown name or an account with no
+// address, so the endpoint cannot be used to enumerate administrators.
 func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if !s.limiter.Allow("forgot:"+ip, 5, 15*time.Minute) {
@@ -101,14 +101,14 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, err := s.db(r).UserByUsername(strings.TrimSpace(in.Username))
-	if err == nil && user != nil {
+	if err == nil && user != nil && strings.TrimSpace(user.Email) != "" {
 		token, terr := wfcrypto.RandomToken(32)
 		if terr == nil && s.db(r).CreatePasswordReset(tokenDigest(token), user.ID, time.Now().Add(resetTTL)) == nil {
 			link := requestOrigin(r) + "/#/reset-password?token=" + url.QueryEscape(token)
 			text := fmt.Sprintf("Someone asked to reset the WAF-Proxy console password for %q.\n\n"+
 				"Open this link within 30 minutes to choose a new password:\n\n%s\n\n"+
 				"If you did not ask for this, ignore the message; the password is unchanged.\n", user.Username, link)
-			if serr := s.notify.SendMail("Reset your WAF-Proxy console password", text); serr != nil {
+			if serr := s.notify.SendMailTo([]string{user.Email}, "Reset your WAF-Proxy console password", text); serr != nil {
 				s.log.Warn("password reset email", "err", serr)
 			} else {
 				s.db(r).AddAudit(user.Username, "account.forgot", "reset email sent", ip)

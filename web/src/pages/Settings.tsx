@@ -223,7 +223,7 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
     <PageHead
       sub={
         hostWide
-          ? `Settings for ${me?.site_name ?? "this site"}. Host-wide fields are read-only here; protection, retention and backup apply to this site.`
+          ? `Settings for ${me?.site_name ?? "this site"}. Protection, retention and backup apply to this site. The inspected body cap and the host-wide sections are read-only here.`
           : "Node networking, protection defaults, retention, updates and the hardening checklist."
       }
       actions={<Badge tone="info">Site: {me?.site_name ?? "default"}</Badge>}
@@ -294,13 +294,22 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
         <section id="protection" className="settings-section card">
           <div className="section-head">
             <h2>Protection</h2>
-            <p>Global defaults applied before per-proxy profiles.</p>
+            <p>
+              {hostWide
+                ? `Rate limits and normalization apply to ${me?.site_name ?? "this site"}. The max inspected body is one process-wide buffer and is set on the default site's console.`
+                : "Global defaults applied before per-proxy profiles. Rate limits and normalization are per site."}
+            </p>
           </div>
           <div className="field-grid">
-            <Field label="Global rate limit (rps/IP)"><input value={s.dos_rps ?? "100"} onChange={(e) => set("dos_rps", e.target.value)} /></Field>
-            <Field label="Burst"><input value={s.dos_burst ?? "200"} onChange={(e) => set("dos_burst", e.target.value)} /></Field>
-            <Field label="Max inspected body (bytes)"><input value={s.max_body ?? "131072"} onChange={(e) => set("max_body", e.target.value)} /></Field>
-            <Field label="Sample allowed above (rps)"><input value={s.sample_above_rps ?? "500"} onChange={(e) => set("sample_above_rps", e.target.value)} /></Field>
+            <Field label="Global rate limit (rps/IP)" hint={hostWide ? "Applies to this site." : undefined}><input value={s.dos_rps ?? "100"} onChange={(e) => set("dos_rps", e.target.value)} /></Field>
+            <Field label="Burst" hint={hostWide ? "Applies to this site." : undefined}><input value={s.dos_burst ?? "200"} onChange={(e) => set("dos_burst", e.target.value)} /></Field>
+            <Field
+              label="Max inspected body (bytes)"
+              hint={hostWide ? "Host-wide: the proxy buffers every site's requests up to the default site's value, so this field is read-only here." : "Process-wide request buffer; per-profile body limits still apply."}
+            >
+              <input value={s.max_body ?? "131072"} onChange={(e) => set("max_body", e.target.value)} disabled={hostWide} />
+            </Field>
+            <Field label="Sample allowed above (rps)" hint="Per-site sampling threshold for the request log."><input value={s.sample_above_rps ?? "500"} onChange={(e) => set("sample_above_rps", e.target.value)} /></Field>
           </div>
           <Field label="Request normalization" hint="Duplicate parameters and double encoding from the release checks.">
             <select value={s.normalization_mode ?? "flag"} onChange={(e) => set("normalization_mode", e.target.value)}>
@@ -324,7 +333,7 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
             <p>Event storage and certificate issuance defaults.</p>
           </div>
           <div className="field-grid">
-            <Field label="Event retention (days, 1–30)"><input value={s.retention_days ?? "7"} onChange={(e) => set("retention_days", e.target.value)} /></Field>
+            <Field label="Event retention (days, 1–30)" hint="Deletes this site's events after this many days."><input value={s.retention_days ?? "7"} onChange={(e) => set("retention_days", e.target.value)} /></Field>
             <Field label="ACME account email"><input value={s.acme_email ?? ""} onChange={(e) => set("acme_email", e.target.value)} placeholder="admin@your-domain.tld" /></Field>
           </div>
           <Switch label="Use the Let's Encrypt staging directory" help="Issues untrusted certificates for testing; switch off before going live." checked={s.acme_staging === "1"} onChange={(v) => set("acme_staging", v ? "1" : "0")} />

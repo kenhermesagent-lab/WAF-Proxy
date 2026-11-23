@@ -173,6 +173,7 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 
 type userBody struct {
 	Username string `json:"username"`
+	Email    string `json:"email"`
 	Password string `json:"password"`
 	RoleID   int64  `json:"role_id"`
 }
@@ -188,6 +189,11 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	in.Username = strings.TrimSpace(in.Username)
 	if in.Username == "" || len(in.Username) > 64 {
 		writeError(w, http.StatusBadRequest, "a username of 1–64 characters is required")
+		return
+	}
+	email := strings.TrimSpace(in.Email)
+	if email != "" && !validEmail(email) {
+		writeError(w, http.StatusBadRequest, "enter a valid email address")
 		return
 	}
 	if _, err := s.db(r).RoleByID(in.RoleID); err != nil {
@@ -224,6 +230,12 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "username already exists")
 		return
 	}
+	if email != "" {
+		if err := s.db(r).SetUserEmail(id, email); err != nil {
+			writeError(w, http.StatusInternalServerError, "cannot save the email address")
+			return
+		}
+	}
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "user.create", in.Username, clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -234,8 +246,9 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 }
 
 type userUpdateBody struct {
-	RoleID   *int64 `json:"role_id"`
-	Password string `json:"password"`
+	RoleID   *int64  `json:"role_id"`
+	Email    *string `json:"email"`
+	Password string  `json:"password"`
 }
 
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +267,17 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
+	if in.Email != nil {
+		email := strings.TrimSpace(*in.Email)
+		if email != "" && !validEmail(email) {
+			writeError(w, http.StatusBadRequest, "enter a valid email address")
+			return
+		}
+		if err := s.db(r).SetUserEmail(id, email); err != nil {
+			writeError(w, http.StatusInternalServerError, "cannot save the email address")
+			return
+		}
+	}
 	if in.RoleID != nil {
 		role, err := s.db(r).RoleByID(*in.RoleID)
 		if err != nil {
@@ -293,6 +317,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = s.db(r).DeleteUserSessions(id)
+		_ = s.db(r).DeleteUserTrustedDevices(id)
 	}
 	s.db(r).AddAudit(sess.Username, "user.update", target.Username, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

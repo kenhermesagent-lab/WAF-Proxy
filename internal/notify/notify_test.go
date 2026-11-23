@@ -127,6 +127,57 @@ func (f notifyFixture) setEvents(t *testing.T, value string) {
 
 // TestMutedClassIsNeitherQueuedNorDelivered covers the first half of the bug: a
 // ban whose class is muted never enters the queue at all.
+// The email channel is system SMTP only: the login name is the sender and the
+// recipients are the administrators' own addresses, so no From/To pair is
+// stored or shown.
+func TestEmailChannelUsesAdminAddresses(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	box, err := wfcrypto.New(bytes.Repeat([]byte{0x31}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSettings(map[string]string{
+		"notify_email_enabled": "1",
+		"smtp_host":            "smtp.gmail.com",
+		"smtp_user":            "alerts@example.com",
+		"smtp_from":            "legacy@example.com",
+		"smtp_to":              "old@example.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mgr := New(st, box, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if !mgr.Channels()["email"] {
+		t.Fatal("email is not configured from the SMTP username")
+	}
+	kv, err := mgr.Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := kv["smtp_from"]; ok {
+		t.Fatal("the console still exposes a From field")
+	}
+	if _, ok := kv["smtp_to"]; ok {
+		t.Fatal("the console still exposes a To field")
+	}
+	if err := mgr.Update(map[string]string{
+		"email_enabled": "1", "smtp_host": "smtp.gmail.com", "smtp_user": "alerts@example.com",
+		"smtp_from": "ignored@example.com", "smtp_to": "ignored@example.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	all, err := st.Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all["smtp_from"] != "legacy@example.com" || all["smtp_to"] != "old@example.com" {
+		t.Fatalf("legacy fields were rewritten: from=%q to=%q", all["smtp_from"], all["smtp_to"])
+	}
+}
+
 func TestMutedClassIsNeitherQueuedNorDelivered(t *testing.T) {
 	f := newNotifyFixture(t)
 	f.setEvents(t, "ban")

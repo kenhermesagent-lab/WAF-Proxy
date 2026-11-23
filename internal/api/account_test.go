@@ -113,6 +113,89 @@ func totp(secret string) string {
 	return code
 }
 
+// get drives an authenticated GET as the harness administrator.
+func (h *accountHarness) get(t *testing.T, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "https://gui.local"+path, nil)
+	req.Host = "gui.local"
+	req.RemoteAddr = "10.0.0.10:5000"
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: h.token})
+	rec := httptest.NewRecorder()
+	h.srv.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
+// A trusted browser is no longer one-way: Account lists it, marks the current
+// one and can revoke it without changing the password.
+func TestRememberedDeviceCanBeRevoked(t *testing.T) {
+	h := newAccountHarness(t)
+	login := h.public(t, "/api/login", map[string]any{
+		"username": "admin", "password": "correct horse battery",
+		"totp": totp(h.secret), "remember": true,
+	})
+	device := deviceCookieFrom(t, login)
+	if device == nil {
+		t.Fatal("login did not return a device cookie")
+	}
+
+	dreq := httptest.NewRequest(http.MethodGet, "https://gui.local/api/account/devices", nil)
+	dreq.Host = "gui.local"
+	dreq.RemoteAddr = "10.0.0.10:5000"
+	dreq.AddCookie(&http.Cookie{Name: sessionCookie, Value: h.token})
+	dreq.AddCookie(device)
+	rec := httptest.NewRecorder()
+	h.srv.Handler().ServeHTTP(rec, dreq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("devices = %d: %s", rec.Code, rec.Body.String())
+	}
+	var listing struct {
+		Devices []store.TrustedDevice `json:"devices"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listing); err != nil {
+		t.Fatal(err)
+	}
+	if len(listing.Devices) != 1 || !listing.Devices[0].Current {
+		t.Fatalf("remembered devices = %+v", listing.Devices)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "https://gui.local/api/account/devices/"+listing.Devices[0].TokenHash, nil)
+	req.Host = "gui.local"
+	req.RemoteAddr = "10.0.0.10:5000"
+	req.Header.Set("X-CSRF-Token", h.csrf)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: h.token})
+	del := httptest.NewRecorder()
+	h.srv.Handler().ServeHTTP(del, req)
+	if del.Code != http.StatusOK {
+		t.Fatalf("revoke = %d: %s", del.Code, del.Body.String())
+	}
+
+	again := h.public(t, "/api/login", map[string]string{
+		"username": "admin", "password": "correct horse battery",
+	}, device)
+	if again.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked device still signed in: %d", again.Code)
+	}
+}
+
+// The account address is what password-reset mail reaches, and it is the
+// administrator's own, not a shared alert mailbox.
+func TestAccountEmailIsStored(t *testing.T) {
+	h := newAccountHarness(t)
+	if rec := h.post(t, "/api/account/email", map[string]string{"email": "not an address"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid email = %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := h.post(t, "/api/account/email", map[string]string{"email": "Admin@Example.com"}); rec.Code != http.StatusOK {
+		t.Fatalf("save email = %d: %s", rec.Code, rec.Body.String())
+	}
+	user, err := h.st.UserByID(h.userID)
+	if err != nil || user.Email != "Admin@Example.com" {
+		t.Fatalf("stored email = %q (%v)", user.Email, err)
+	}
+	if body := h.get(t, "/api/me").Body.String(); !strings.Contains(body, `"email":"Admin@Example.com"`) {
+		t.Fatalf("/api/me = %s", body)
+	}
+}
+
 func TestPasswordRotationRevokesOtherSessions(t *testing.T) {
 	h := newAccountHarness(t)
 	newPassword := "an even better passphrase"

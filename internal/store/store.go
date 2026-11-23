@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL DEFAULT '',
   password_hash TEXT NOT NULL,
   totp_secret TEXT NOT NULL DEFAULT '',
   totp_enabled INTEGER NOT NULL DEFAULT 0,
@@ -179,6 +180,8 @@ CREATE TABLE IF NOT EXISTS trusted_devices (
   token_hash TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   site_id INTEGER NOT NULL DEFAULT 0,
+  ua TEXT NOT NULL DEFAULT '',
+  ip TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
@@ -509,7 +512,7 @@ CREATE TABLE IF NOT EXISTS log_views (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "21"
+const schemaVersion = "22"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -540,6 +543,12 @@ func (s *Store) migrateAddColumns() error {
 	steps := []struct{ table, column, ddl string }{
 		{"users", "totp_last_step", `ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
 		{"users", "role_id", `ALTER TABLE users ADD COLUMN role_id INTEGER NOT NULL DEFAULT 0`},
+		// Password-reset mail goes to the administrator's own address.
+		{"users", "email", `ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''`},
+		// A remembered browser lists its user agent and address, so Account can
+		// show which device each row is before revoking it.
+		{"trusted_devices", "ua", `ALTER TABLE trusted_devices ADD COLUMN ua TEXT NOT NULL DEFAULT ''`},
+		{"trusted_devices", "ip", `ALTER TABLE trusted_devices ADD COLUMN ip TEXT NOT NULL DEFAULT ''`},
 		{"certificates", "renew_mode", `ALTER TABLE certificates ADD COLUMN renew_mode TEXT NOT NULL DEFAULT 'before_expiry'`},
 		{"certificates", "challenge", `ALTER TABLE certificates ADD COLUMN challenge TEXT NOT NULL DEFAULT 'dns-01'`},
 		{"gate_failures", "username", `ALTER TABLE gate_failures ADD COLUMN username TEXT NOT NULL DEFAULT ''`},
@@ -827,6 +836,7 @@ func (s *Store) SetSettings(kv map[string]string) error {
 type User struct {
 	ID           int64
 	Username     string
+	Email        string
 	PasswordHash string
 	TOTPSecret   string
 	TOTPEnabled  bool
@@ -884,7 +894,7 @@ func scanUser(row interface {
 	var u User
 	var created string
 	var enabled int
-	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.TOTPSecret, &enabled, &u.Recovery, &u.RoleID, &created)
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.TOTPSecret, &enabled, &u.Recovery, &u.RoleID, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -898,13 +908,13 @@ func scanUser(row interface {
 
 // UserByUsername loads an administrator by name.
 func (s *Store) UserByUsername(username string) (*User, error) {
-	return scanUser(s.db.QueryRow(`SELECT id, username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at
+	return scanUser(s.db.QueryRow(`SELECT id, username, email, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at
 		FROM users WHERE username = ? AND (? = 0 OR site_id = ?)`, username, s.site, s.site))
 }
 
 // UserByID loads an administrator by ID.
 func (s *Store) UserByID(id int64) (*User, error) {
-	return scanUser(s.db.QueryRow(`SELECT id, username, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at
+	return scanUser(s.db.QueryRow(`SELECT id, username, email, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at
 		FROM users WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
 }
 
@@ -912,6 +922,14 @@ func (s *Store) UserByID(id int64) (*User, error) {
 func (s *Store) UpdateUserTOTP(id int64, secret, recovery string, enabled bool) error {
 	_, err := s.db.Exec(`UPDATE users SET totp_secret = ?, recovery_codes = ?, totp_enabled = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
 		secret, recovery, b2i(enabled), id, s.site, s.site)
+	return err
+}
+
+// SetUserEmail stores the address password-reset mail is sent to. An empty
+// address is allowed; the reset link is simply not offered for that account.
+func (s *Store) SetUserEmail(id int64, email string) error {
+	_, err := s.db.Exec(`UPDATE users SET email = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
+		strings.TrimSpace(email), id, s.site, s.site)
 	return err
 }
 

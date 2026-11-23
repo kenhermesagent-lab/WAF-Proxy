@@ -338,24 +338,34 @@ func (s *Store) migrateSites() error {
 		return err
 	}
 	if keyed == 0 {
-		if _, err := s.db.Exec(`CREATE TABLE log_views_sites (
-			name TEXT NOT NULL,
-			query TEXT NOT NULL,
-			updated_by TEXT NOT NULL DEFAULT '',
-			updated_at TEXT NOT NULL,
-			site_id INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY(site_id, name)
-		)`); err != nil {
+		// The rebuild resumes after a crash instead of refusing to start: a
+		// leftover log_views_sites is merged into, not created again. Without
+		// this, a crash between the CREATE and the RENAME left every later
+		// start (and the recover command) failing on "table already exists".
+		tx, err := s.db.Begin()
+		if err != nil {
 			return err
 		}
-		if _, err := s.db.Exec(`INSERT OR IGNORE INTO log_views_sites(name, query, updated_by, updated_at, site_id)
-			SELECT name, query, updated_by, updated_at, site_id FROM log_views`); err != nil {
-			return err
+		defer func() { _ = tx.Rollback() }()
+		for _, stmt := range []string{
+			`CREATE TABLE IF NOT EXISTS log_views_sites (
+				name TEXT NOT NULL,
+				query TEXT NOT NULL,
+				updated_by TEXT NOT NULL DEFAULT '',
+				updated_at TEXT NOT NULL,
+				site_id INTEGER NOT NULL DEFAULT 0,
+				PRIMARY KEY(site_id, name)
+			)`,
+			`INSERT OR IGNORE INTO log_views_sites(name, query, updated_by, updated_at, site_id)
+				SELECT name, query, updated_by, updated_at, site_id FROM log_views`,
+			`DROP TABLE IF EXISTS log_views`,
+			`ALTER TABLE log_views_sites RENAME TO log_views`,
+		} {
+			if _, err := tx.Exec(stmt); err != nil {
+				return err
+			}
 		}
-		if _, err := s.db.Exec(`DROP TABLE log_views`); err != nil {
-			return err
-		}
-		if _, err := s.db.Exec(`ALTER TABLE log_views_sites RENAME TO log_views`); err != nil {
+		if err := tx.Commit(); err != nil {
 			return err
 		}
 	}

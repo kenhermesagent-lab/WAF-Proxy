@@ -118,10 +118,10 @@ export default function Notifications({ onError, onOK }: { onError: (m: string) 
               <Field label="Username"><input value={settings.smtp_user ?? ""} onChange={(e) => set("smtp_user", e.target.value)} /></Field>
             </div>
             <Field label="App password"><input type="password" value={settings.smtp_password ?? ""} onChange={(e) => set("smtp_password", e.target.value)} /></Field>
-            <div className="row grow">
-              <Field label="From"><input value={settings.smtp_from ?? ""} onChange={(e) => set("smtp_from", e.target.value)} /></Field>
-              <Field label="To"><input value={settings.smtp_to ?? ""} onChange={(e) => set("smtp_to", e.target.value)} /></Field>
-            </div>
+            <p className="muted" style={{ fontSize: 12, marginTop: -4 }}>
+              The username is also the From address. Alerts and password-reset links go to the
+              email address on each administrator&apos;s profile, so add one on Account.
+            </p>
             <label style={{ display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}>
               <input type="checkbox" style={{ width: "auto" }} checked={settings.email_enabled === "1"} onChange={(e) => set("email_enabled", e.target.checked ? "1" : "0")} /> enabled
             </label>

@@ -35,6 +35,7 @@ const users: AdminUser[] = [
   {
     id: 1,
     username: "admin",
+    email: "admin@example.com",
     role_id: 1,
     role: "Administrator",
     totp_enabled: true,
@@ -49,6 +50,7 @@ function me(permissions: string[], role = "Viewer"): Me {
     version: "1.20.0",
     base_domain: "demo.test",
     totp_enabled: true,
+    email: "admin@example.com",
     role,
     permissions,
   };
@@ -70,6 +72,9 @@ function renderAccount(account: Me, onError = vi.fn(), onOK = vi.fn()) {
 describe("Account administrators and roles", () => {
   beforeEach(() => {
     get.mockReset();
+    // Account always asks for the signed-in administrator's remembered
+    // browsers; a test that cares about another endpoint overrides this.
+    get.mockImplementation(async () => ({ devices: [] }));
     post.mockReset();
   });
 
@@ -85,7 +90,7 @@ describe("Account administrators and roles", () => {
     expect(screen.queryByText("Roles")).toBeNull();
     expect(screen.queryByRole("button", { name: "Add administrator" })).toBeNull();
     expect(screen.queryByRole("button", { name: "New role" })).toBeNull();
-    expect(get).not.toHaveBeenCalled();
+    expect(get.mock.calls.some(([path]) => path === "/api/users")).toBe(false);
   });
 
   it("shows accounts to a read-only account admin without any controls", async () => {

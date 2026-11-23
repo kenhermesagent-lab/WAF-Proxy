@@ -65,7 +65,8 @@ sudo env WAFPROXY_DATA_DIR=/var/lib/waf-proxy/data wafproxy recover \
   --user admin --password 'a-new-12-plus-passphrase' --reset-totp
 ```
 
-`recover` rewrites the password hash, signs that account out everywhere and, with `--reset-totp`,
+`recover` finds the account on any site, rewrites the password hash, signs it out everywhere
+(sessions, remembered browsers and outstanding password-reset links) and, with `--reset-totp`,
 disables its authenticator — sign in with the new password and add a new one from **Account →
 This account**. Only the account you name is touched.
 

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -182,6 +183,64 @@ func TestDeleteSiteRemovesOnlyItsRows(t *testing.T) {
 	}
 	if _, err := st.SiteBySlug("acme"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted site still resolves: %v", err)
+	}
+}
+
+// A crash in the middle of the log_views rebuild used to leave the temporary
+// table behind and every later start failed on "table log_views_sites already
+// exists" — including the break-glass recover command, which opens the store.
+// The rebuild now resumes, keeping both the rows already copied and the old
+// table's rows.
+func TestReopenResumesInterruptedLogViewRebuild(t *testing.T) {
+	dir := t.TempDir()
+	st, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveLogView("current", "status = 500", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "wafproxy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, stmt := range []string{
+		`DROP TABLE log_views`,
+		`CREATE TABLE log_views (name TEXT PRIMARY KEY, query TEXT NOT NULL,
+			updated_by TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL)`,
+		`INSERT INTO log_views(name, query, updated_by, updated_at)
+			VALUES('legacy', 'status = 500', 'admin', '2026-01-01T00:00:00Z')`,
+		`CREATE TABLE log_views_sites (name TEXT NOT NULL, query TEXT NOT NULL,
+			updated_by TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL,
+			site_id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(site_id, name))`,
+		`INSERT INTO log_views_sites(name, query, updated_by, updated_at, site_id)
+			VALUES('half', 'path = /x', 'admin', '2026-01-01T00:00:00Z', 1)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatalf("reopen after an interrupted view rebuild: %v", err)
+	}
+	defer reopened.Close()
+	views, err := reopened.ListLogViews()
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, v := range views {
+		names[v.Name] = true
+	}
+	if !names["legacy"] || !names["half"] {
+		t.Fatalf("views after resume = %+v, want legacy and half", views)
 	}
 }
 

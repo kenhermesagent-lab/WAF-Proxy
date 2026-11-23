@@ -12,6 +12,7 @@ import (
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/siteres"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
@@ -21,6 +22,14 @@ import (
 func TestConsoleHostSeesOnlyItsSite(t *testing.T) {
 	srv, st, alphaToken, alphaCSRF := newObservabilityServer(t)
 	srv.geo = geoip.Open(t.TempDir())
+	// The certificate and policy endpoints read the site's own instances.
+	res, err := siteres.New(siteres.Deps{
+		Store: st, Box: srv.box, Log: srv.log, Bans: srv.bans, Metrics: srv.metrics,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.res = res
 
 	alphaProxy, err := st.CreateProxy(&model.Proxy{Hostname: "alpha.example.com", Enabled: true, WAFMode: "inherit"})
 	if err != nil {
@@ -134,6 +143,76 @@ func TestConsoleHostSeesOnlyItsSite(t *testing.T) {
 		`{"wan_ip":"203.0.113.99"}`), http.StatusOK)
 	if got, _ := st.GetSetting("wan_ip"); got != "203.0.113.99" {
 		t.Fatalf("default could not set the host address: %q", got)
+	}
+
+	// Every other site-scoped domain the console exposes stays inside its
+	// site too. A leak in any of these fails here rather than being reasoned
+	// about.
+	mustJSON(call("console.bravo.test", http.MethodPost, "/api/feeds", bravoToken, bravoCSRF,
+		`{"name":"bravo-feed","url":"https://example.com/bravo.txt","action":"block"}`), http.StatusCreated)
+	body = mustJSON(call("console.bravo.test", http.MethodGet, "/api/feeds", bravoToken, "", ""), http.StatusOK)
+	if !strings.Contains(body, "bravo-feed") {
+		t.Fatalf("bravo feeds lost its own row: %s", body)
+	}
+	body = mustJSON(call("gui.local", http.MethodGet, "/api/feeds", alphaToken, "", ""), http.StatusOK)
+	if strings.Contains(body, "bravo-feed") {
+		t.Fatalf("bravo feed leaked to the default console: %s", body)
+	}
+
+	mustJSON(call("console.bravo.test", http.MethodPost, "/api/lists", bravoToken, bravoCSRF,
+		`{"name":"bravo-list","kind":"blocklist","ips":"198.51.100.0/24"}`), http.StatusCreated)
+	body = mustJSON(call("console.bravo.test", http.MethodGet, "/api/lists", bravoToken, "", ""), http.StatusOK)
+	if !strings.Contains(body, "bravo-list") {
+		t.Fatalf("bravo access lists lost its own row: %s", body)
+	}
+	body = mustJSON(call("gui.local", http.MethodGet, "/api/lists", alphaToken, "", ""), http.StatusOK)
+	if strings.Contains(body, "bravo-list") {
+		t.Fatalf("bravo access list leaked to the default console: %s", body)
+	}
+
+	mustJSON(call("console.bravo.test", http.MethodPost, "/api/profiles", bravoToken, bravoCSRF,
+		`{"name":"bravo-waf"}`), http.StatusCreated)
+	body = mustJSON(call("console.bravo.test", http.MethodGet, "/api/profiles", bravoToken, "", ""), http.StatusOK)
+	if !strings.Contains(body, "bravo-waf") {
+		t.Fatalf("bravo WAF profiles lost its own row: %s", body)
+	}
+	body = mustJSON(call("gui.local", http.MethodGet, "/api/profiles", alphaToken, "", ""), http.StatusOK)
+	if strings.Contains(body, "bravo-waf") {
+		t.Fatalf("bravo WAF profile leaked to the default console: %s", body)
+	}
+
+	mustJSON(call("console.bravo.test", http.MethodPost, "/api/protection-profiles", bravoToken, bravoCSRF,
+		`{"name":"bravo-protection"}`), http.StatusCreated)
+	body = mustJSON(call("console.bravo.test", http.MethodGet, "/api/protection-profiles", bravoToken, "", ""), http.StatusOK)
+	if !strings.Contains(body, "bravo-protection") {
+		t.Fatalf("bravo protection profiles lost its own row: %s", body)
+	}
+	body = mustJSON(call("gui.local", http.MethodGet, "/api/protection-profiles", alphaToken, "", ""), http.StatusOK)
+	if strings.Contains(body, "bravo-protection") {
+		t.Fatalf("bravo protection profile leaked to the default console: %s", body)
+	}
+
+	if _, err := bravo.SaveCert(&model.Cert{Domains: "bravo.example.com", Status: "issued", Source: model.CertSourceUploaded}); err != nil {
+		t.Fatal(err)
+	}
+	body = mustJSON(call("console.bravo.test", http.MethodGet, "/api/certs", bravoToken, "", ""), http.StatusOK)
+	if !strings.Contains(body, "bravo.example.com") {
+		t.Fatalf("bravo certificates lost its own row: %s", body)
+	}
+	body = mustJSON(call("gui.local", http.MethodGet, "/api/certs", alphaToken, "", ""), http.StatusOK)
+	if strings.Contains(body, "bravo.example.com") {
+		t.Fatalf("bravo certificate leaked to the default console: %s", body)
+	}
+
+	mustJSON(call("console.bravo.test", http.MethodPut, "/api/log-views/bravo-view", bravoToken, bravoCSRF,
+		`{"query":"host:bravo.example.com"}`), http.StatusOK)
+	body = mustJSON(call("console.bravo.test", http.MethodGet, "/api/log-views", bravoToken, "", ""), http.StatusOK)
+	if !strings.Contains(body, "bravo-view") {
+		t.Fatalf("bravo saved views lost its own row: %s", body)
+	}
+	body = mustJSON(call("gui.local", http.MethodGet, "/api/log-views", alphaToken, "", ""), http.StatusOK)
+	if strings.Contains(body, "bravo-view") {
+		t.Fatalf("bravo saved view leaked to the default console: %s", body)
 	}
 
 	// Writes cannot reach the other site, even by row id.

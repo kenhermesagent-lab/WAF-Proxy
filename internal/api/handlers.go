@@ -1232,8 +1232,15 @@ func (s *Server) listFeeds(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	status := s.feeds.Status()
-	writeJSON(w, http.StatusOK, map[string]any{"feeds": list, "status": status, "total": s.feeds.Total()})
+	// A server built without the feed manager (CLI paths and tests) still lists
+	// its rows; only the live fetch status is missing.
+	var status any = []intel.Status{}
+	total := 0
+	if s.feeds != nil {
+		status = s.feeds.Status()
+		total = s.feeds.Total()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"feeds": list, "status": status, "total": total})
 }
 
 func (s *Server) createFeed(w http.ResponseWriter, r *http.Request) {
@@ -1257,7 +1264,9 @@ func (s *Server) createFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "feed already exists")
 		return
 	}
-	go s.feeds.Refresh(context.Background(), id)
+	if s.feeds != nil {
+		go s.feeds.Refresh(context.Background(), id)
+	}
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "feed.create", in.Name, clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})

@@ -12,6 +12,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.56.0] — 2026-11-23
+
+### Added
+
+- **Every administrator can carry an email address.** The Team page shows an email column, the
+  invitation and edit forms accept one, and the Account page has a card for the signed-in
+  administrator. Alerts and password-reset links go to these addresses; the warning beside the
+  field says that an account without one cannot reset a forgotten password by email.
+- **Remembered browsers are listed and revocable.** The Account page shows each trusted device
+  with its browser, address, age and a **Current** marker, and a **Revoke** button per row. Trusting
+  a browser is no longer a one-way decision until the next password or authenticator change.
+- **Saved site isolation tests cover the rest of the console.** The API-level test now also proves
+  that feeds, access lists, WAF and protection profiles, certificates and saved log views written
+  on one site are invisible from another site's console.
+
+### Changed
+
+- **Email setup is the system sender only.** Notifications no longer ask for From and To: the
+  sender is the SMTP username and the recipients are the administrators' profile addresses, so a
+  Gmail or other SMTP account is all the setup needs. Existing installs keep working; the stored
+  From/To values are simply no longer read or shown.
+- **Which settings are per site is stated plainly.** `dos_rps`, `dos_burst`,
+  `sample_above_rps`, `retention_days`, normalization, protection switches, decoy hosts, WAF and
+  access profiles, notification channels, anomaly thresholds, canary and ACME email/staging are
+  read and applied per site by that site's own engines. `max_body` is one process-wide buffer
+  read from the default site, so its field is disabled with a note on any other site's console,
+  and the host-wide sections (network, admin source allowlist, CrowdSec, GeoIP, updates) stay
+  read-only there. The README lists both groups.
+
+### Fixed
+
+- **A crash during the per-site migration left the host unable to restart or recover.** If the
+  process died after the `log_views` rebuild created its staging table, every later start and
+  `wafproxy recover` stopped on `table log_views_sites already exists`, so the host stayed down
+  until the database was edited by hand. The rebuild now runs in one transaction, creates and
+  drops its table idempotently and ignores rows it has already copied, so an interrupted
+  migration resumes on the next start.
+- **`wafproxy recover` now finishes the job for any site.** It reads without a site scope instead
+  of only the default site, and clears sessions, remembered browsers and outstanding reset links
+  so a recovered host has no stale sign-in left behind.
+
 ## [1.55.2] — 2026-11-23
 
 ### Fixed

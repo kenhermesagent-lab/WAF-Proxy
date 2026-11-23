@@ -624,7 +624,7 @@ function Setup({ defaults, onDone }: { defaults: SetupStatus | null; onDone: (e:
           Both addresses must exist on this host. On a single-NIC host enter the same address for WAN and LAN.
         </p>
         <div className="field"><label>DuckDNS token (optional, stored encrypted)</label><input type="password" value={form.duckdns_token} onChange={(e) => setForm({ ...form, duckdns_token: e.target.value })} /></div>
-        <div className="field"><label>ACME email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="admin@your-domain.tld" /></div>
+                  <div className="field"><label>Admin email (ACME and password resets)</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="admin@your-domain.tld" /></div>
         {err && <div className="err-text">{err}</div>}
         <button className="primary mt" style={{ width: "100%" }} disabled={busy} onClick={submit}>
           {busy ? "Creating…" : "Create administrator"}
@@ -832,7 +832,7 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
 
           {view === "forgot" && (
             <>
-              <p className="sub">A single-use link is emailed to the console's configured alert mailbox. It expires in 30 minutes.</p>
+              <p className="sub">A single-use link is emailed to the address on your administrator profile. It expires in 30 minutes.</p>
               {sent ? (
                 <>
                   <div className="banner ok" role="status">

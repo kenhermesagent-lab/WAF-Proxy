@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.55.2.
+systemd service. Version 1.56.0.
 
 ## Contents
 
@@ -357,6 +357,15 @@ secrets are not part of the document.
   console reads those from `default`. A `host_admin` is confined to its own site's instances: a
   site header it sends is ignored, so it cannot read or write another tenant's channels,
   thresholds, policies, canary or certificates.
+- **Which settings are per site.** A non-default console writes and the engines read these per
+  site: `dos_rps`, `dos_burst`, `sample_above_rps`, `retention_days`, the normalization mode, the
+  protection, ASN and stealth switches, decoy hosts, proxies and their WAF/access profiles, feeds,
+  access lists, certificates, saved log views, notification channels, anomaly thresholds, canary
+  and the ACME email and staging switch. One setting is deliberately not per site: `max_body` is a
+  single process-wide inspection buffer read from the default site, so a non-default console shows
+  it disabled with a note instead of pretending the save changed traffic. The remaining host-wide
+  sections (network addressing, admin source allowlist, CrowdSec, GeoIP and updates) are read-only
+  on a non-default console for the same reason, and each says so.
 - **Upgrade behaviour.** Nothing migrates: every row and setting written before sites existed
   already lives on `default`, so the default-site instances read exactly the configuration an
   earlier release used, and the first new site starts from the shipped defaults.

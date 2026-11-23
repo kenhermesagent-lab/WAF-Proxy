@@ -154,6 +154,7 @@ func (s *Store) AdministratorCount() (int, error) {
 type UserSummary struct {
 	ID          int64     `json:"id"`
 	Username    string    `json:"username"`
+	Email       string    `json:"email"`
 	RoleID      int64     `json:"role_id"`
 	Role        string    `json:"role"`
 	TOTPEnabled bool      `json:"totp_enabled"`
@@ -162,7 +163,7 @@ type UserSummary struct {
 
 // ListUsers returns every administrator account with its role name.
 func (s *Store) ListUsers() ([]UserSummary, error) {
-	rows, err := s.db.Query(`SELECT u.id, u.username, u.role_id, COALESCE(r.name, ''),
+	rows, err := s.db.Query(`SELECT u.id, u.username, u.email, u.role_id, COALESCE(r.name, ''),
 		u.totp_enabled, u.created_at
 		FROM users u LEFT JOIN roles r ON r.id = u.role_id
 		WHERE (? = 0 OR u.site_id = ?) ORDER BY u.id`, s.site, s.site)
@@ -175,12 +176,32 @@ func (s *Store) ListUsers() ([]UserSummary, error) {
 		var u UserSummary
 		var totp int
 		var created string
-		if err := rows.Scan(&u.ID, &u.Username, &u.RoleID, &u.Role, &totp, &created); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.RoleID, &u.Role, &totp, &created); err != nil {
 			return nil, err
 		}
 		u.TOTPEnabled = i2b(totp)
 		u.CreatedAt = parseStamp(created)
 		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// ListUserEmails returns the distinct addresses alerts and reset notices can
+// reach for this site. An account without an address is skipped.
+func (s *Store) ListUserEmails() ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT email FROM users
+		WHERE email <> '' AND (? = 0 OR site_id = ?) ORDER BY email`, s.site, s.site)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		out = append(out, email)
 	}
 	return out, rows.Err()
 }

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
-import { confirmDialog, Card, Field, errText, PageHead } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, errText, fmtTime, PageHead } from "../ui";
 import Team from "../components/Team";
-import { Me, can } from "../types";
+import { Me, TrustedDevice, can } from "../types";
 
 export default function Account({
   me,
@@ -24,6 +24,42 @@ export default function Account({
   const [newCode, setNewCode] = useState("");
   const [codes, setCodes] = useState<string[]>([]);
   const [totpBusy, setTotpBusy] = useState(false);
+
+  const [email, setEmail] = useState(me?.email ?? "");
+  const [devices, setDevices] = useState<TrustedDevice[]>([]);
+
+  useEffect(() => setEmail(me?.email ?? ""), [me?.email]);
+
+  const loadDevices = () =>
+    api
+      .get<{ devices: TrustedDevice[] }>("/api/account/devices")
+      .then((r) => setDevices(r.devices || []))
+      .catch(() => undefined);
+
+  useEffect(() => {
+    loadDevices();
+  }, []);
+
+  const saveEmail = async () => {
+    try {
+      const r = await api.post<{ email: string }>("/api/account/email", { email });
+      setEmail(r.email);
+      onOK(r.email ? "Email address saved" : "Email address removed");
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
+
+  const revokeDevice = async (d: TrustedDevice) => {
+    if (!(await confirmDialog("Revoke this remembered browser? It will need the authenticator code next time."))) return;
+    try {
+      await api.del(`/api/account/devices/${d.id}`);
+      onOK("Remembered browser revoked");
+      loadDevices();
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
 
   const changePassword = async () => {
     if (pw.next !== pw.confirm) {
@@ -178,6 +214,47 @@ export default function Account({
               <p className="muted" style={{ fontSize: 12 }}>Store these offline; each one works once.</p>
             </>
           )}
+        </Card>
+      </div>
+
+      <div className="grid cols-2">
+        <Card title="Email for alerts and password resets">
+          <Field
+            label="Your email address"
+            hint="Password-reset links and security alerts are sent here. Without an address, the Forgot password link cannot reach you."
+          >
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" placeholder="admin@your-domain.tld" />
+          </Field>
+          {!email && <p className="err-text">Add an email address or password reset by email will not work for this account.</p>}
+          <button onClick={saveEmail} disabled={email === (me?.email ?? "")}>Save email</button>
+        </Card>
+
+        <Card title="Remembered devices">
+          {devices.length === 0 ? (
+            <Empty>No browser is trusted. Every sign-in asks for the authenticator code.</Empty>
+          ) : (
+            <div className="table-wrap"><table>
+              <thead><tr><th>Device</th><th>Address</th><th>Trusted</th><th>Expires</th><th /></tr></thead>
+              <tbody>
+                {devices.map((d) => (
+                  <tr key={d.id}>
+                    <td style={{ maxWidth: 240 }}>
+                      <span title={d.ua}>{d.ua || "Unknown browser"}</span>
+                      {d.current && <> <Badge tone="info">this device</Badge></>}
+                    </td>
+                    <td className="mono">{d.ip || "—"}</td>
+                    <td className="muted">{fmtTime(d.created_at)}</td>
+                    <td className="muted">{fmtTime(d.expires_at)}</td>
+                    <td className="right"><button className="small danger" onClick={() => revokeDevice(d)}>Revoke</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          )}
+          <p className="muted" style={{ fontSize: 12 }}>
+            A remembered browser skips the authenticator code for 30 days. Revoking one takes effect on its next request;
+            changing the password or authenticator forgets every device.
+          </p>
         </Card>
       </div>
 

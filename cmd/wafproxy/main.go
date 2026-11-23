@@ -307,7 +307,10 @@ func recoverCLI(args []string) error {
 		return err
 	}
 	defer st.Close()
-	account, err := st.UserByUsername(strings.TrimSpace(*user))
+	// The account may belong to any site; recovery is break-glass, so look
+	// across all of them rather than only the default site's console.
+	all := st.Unscoped()
+	account, err := all.UserByUsername(strings.TrimSpace(*user))
 	if err != nil {
 		return fmt.Errorf("user %q: %w", *user, err)
 	}
@@ -317,22 +320,27 @@ func recoverCLI(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := st.UpdateUserPassword(account.ID, hash); err != nil {
+		if err := all.UpdateUserPassword(account.ID, hash); err != nil {
 			return err
 		}
 		changed = append(changed, "password")
 	}
 	if *resetTOTP {
-		if err := st.UpdateUserTOTP(account.ID, "", "", false); err != nil {
+		if err := all.UpdateUserTOTP(account.ID, "", "", false); err != nil {
 			return err
 		}
 		changed = append(changed, "TOTP")
 	}
-	// Either change is a credential reset, so a stolen session must not survive it.
-	if err := st.DeleteUserSessions(account.ID); err != nil {
-		return err
+	// Either change is a credential reset, so a stolen session, a remembered
+	// browser or a pending reset link must not survive it.
+	for _, revoke := range []func(int64) error{
+		all.DeleteUserSessions, all.DeleteUserTrustedDevices, all.DeleteUserPasswordResets,
+	} {
+		if err := revoke(account.ID); err != nil {
+			return err
+		}
 	}
-	fmt.Printf("reset %s for %q; existing sessions were invalidated\n", strings.Join(changed, " and "), *user)
+	fmt.Printf("reset %s for %q; existing sessions and remembered browsers were invalidated\n", strings.Join(changed, " and "), *user)
 	return nil
 }
 

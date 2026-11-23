@@ -17,7 +17,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
   const [roles, setRoles] = useState<Role[]>([]);
   const [areas, setAreas] = useState<PermissionArea[]>([]);
   const [draft, setDraft] = useState<Role | null>(null);
-  const [invite, setInvite] = useState<{ username: string; password: string; role_id: number } | null>(null);
+  const [invite, setInvite] = useState<{ username: string; email: string; password: string; role_id: number } | null>(null);
   const [created, setCreated] = useState<{ username: string; totp_secret: string; otpauth_url: string; recovery_codes: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -41,6 +41,18 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
     try {
       await api.put(`/api/users/${user.id}`, { role_id: roleID });
       onOK(`${user.username} is now ${roles.find((r) => r.id === roleID)?.name ?? "in the new role"}`);
+      load();
+    } catch (e) {
+      onError(errText(e));
+    }
+  };
+
+  const setEmail = async (user: AdminUser) => {
+    const email = window.prompt(`Email address for ${user.username}. Password-reset links are sent here.`, user.email || "");
+    if (email === null) return;
+    try {
+      await api.put(`/api/users/${user.id}`, { email });
+      onOK(email ? `Email saved for ${user.username}` : `Email removed from ${user.username}`);
       load();
     } catch (e) {
       onError(errText(e));
@@ -133,7 +145,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
         title={`Administrators (${users.length})`}
         actions={
           canManage && (
-            <button className="small primary" onClick={() => setInvite({ username: "", password: "", role_id: roles[0]?.id ?? 0 })}>
+            <button className="small primary" onClick={() => setInvite({ username: "", email: "", password: "", role_id: roles[0]?.id ?? 0 })}>
               Add administrator
             </button>
           )
@@ -144,13 +156,23 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
         ) : (
           <div style={{ overflowX: "auto" }}>
             <div className="table-wrap"><table>
-              <thead><tr><th>Account</th><th>Role</th><th>Authenticator</th><th>Created</th><th /></tr></thead>
+              <thead><tr><th>Account</th><th>Email</th><th>Role</th><th>Authenticator</th><th className="hide-compact">Created</th><th /></tr></thead>
               <tbody>
                 {users.map((u) => (
                   <tr key={u.id}>
                     <td>
                       <span className="mono">{u.username}</span>
                       {u.username === me?.username && <span className="faint" style={{ fontSize: 11 }}> · you</span>}
+                    </td>
+                    <td>
+                      {u.email ? (
+                        <span className="mono">{u.email}</span>
+                      ) : (
+                        <Badge tone="warn">no email</Badge>
+                      )}
+                      {canManage && (
+                        <button className="small" style={{ marginLeft: 6 }} onClick={() => setEmail(u)}>Edit</button>
+                      )}
                     </td>
                     <td>
                       {canManage ? (
@@ -167,7 +189,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
                       )}
                     </td>
                     <td>{u.totp_enabled ? <Badge tone="ok">enrolled</Badge> : <Badge tone="warn">missing</Badge>}</td>
-                    <td className="muted">{fmtTime(u.created_at)}</td>
+                    <td className="muted hide-compact">{fmtTime(u.created_at)}</td>
                     <td className="right" style={{ whiteSpace: "nowrap" }}>
                       {canManage && (
                         <>
@@ -184,7 +206,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
         )}
         <p className="muted" style={{ fontSize: 12 }}>
           Each account signs in with its own password and authenticator. A new account's secret and recovery codes are
-          shown once, when it is created.
+          shown once, when it is created. An account without an email address cannot receive password-reset links.
         </p>
       </Card>
 
@@ -230,6 +252,12 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
         <Modal title="Add administrator" onClose={() => setInvite(null)}>
           <Field label="Username">
             <input value={invite.username} onChange={(e) => setInvite({ ...invite, username: e.target.value })} autoFocus />
+          </Field>
+          <Field
+            label="Email address"
+            hint="Used for password-reset links and alert mail. Without one, this administrator cannot recover a forgotten password by email."
+          >
+            <input value={invite.email} onChange={(e) => setInvite({ ...invite, email: e.target.value })} type="email" autoComplete="email" placeholder="admin@your-domain.tld" />
           </Field>
           <Field label="Initial password (12+ characters)">
             <input type="password" value={invite.password} onChange={(e) => setInvite({ ...invite, password: e.target.value })} autoComplete="new-password" />
