@@ -1978,7 +1978,14 @@ func (s *Server) testNotification(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if err := s.notify.Test(in.Channel); err != nil {
+	channel := strings.ToLower(strings.TrimSpace(in.Channel))
+	switch channel {
+	case "telegram", "email", "webhook":
+	default:
+		writeError(w, http.StatusBadRequest, "unknown channel")
+		return
+	}
+	if err := s.notify.Test(channel); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}

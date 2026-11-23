@@ -236,9 +236,10 @@ hours is dropped before it reaches the queue.
 
 `POST /api/notifications/test` with `{"channel":"telegram"|"email"|"webhook"}` sends a
 real message through the configured channel, bypassing the event toggles and the
-digest — the button in the console calls this endpoint. It returns `200` when the
-provider accepted the message and `502` with the provider's error when it did not, so a
-bad token or webhook URL fails visibly instead of silently. The test message is not
+digest — the button in the console calls this endpoint. A missing or unknown channel
+returns `400`. It returns `200` when the provider accepted the message and `502` with
+the provider's error when a configured channel failed, so a bad token or webhook URL
+fails visibly instead of silently. The test message is not
 deduplicated: every click sends one.
 
 
