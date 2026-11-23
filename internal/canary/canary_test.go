@@ -178,3 +178,15 @@ func TestRunPassesTLSAgainstAMatchingCertificate(t *testing.T) {
 		t.Fatalf("tls stage = %+v", tlsStage)
 	}
 }
+
+func TestProberReportsEmptyResolutionAsDNSStage(t *testing.T) {
+	p := Prober{Resolve: func(context.Context, string) ([]string, error) { return nil, nil }}
+	res := p.Run(context.Background(), "app.example.com")
+	if res.OK || res.Failed != "dns" {
+		t.Fatalf("empty resolution = %+v", res)
+	}
+	last := res.Stages[len(res.Stages)-1]
+	if last.Name != "dns" || !strings.Contains(last.Detail, "no addresses") {
+		t.Fatalf("dns stage = %+v", last)
+	}
+}

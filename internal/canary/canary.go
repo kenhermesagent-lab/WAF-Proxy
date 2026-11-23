@@ -51,6 +51,8 @@ type Prober struct {
 	Scheme string
 	// RootCAs overrides the system trust store for TLS verification.
 	RootCAs *x509.CertPool
+	// Resolve overrides DNS lookup; tests use it to return an empty answer.
+	Resolve func(ctx context.Context, host string) ([]string, error)
 }
 
 func (p Prober) client() *http.Client {
@@ -101,7 +103,11 @@ func (p Prober) Run(ctx context.Context, host string) Result {
 	if !add("config", name != "" && !strings.ContainsAny(name, " /"), "hostname") {
 		return res
 	}
-	ips, err := net.DefaultResolver.LookupHost(ctx, name)
+	resolve := p.Resolve
+	if resolve == nil {
+		resolve = net.DefaultResolver.LookupHost
+	}
+	ips, err := resolve(ctx, name)
 	if err != nil {
 		add("dns", false, err.Error())
 		return res

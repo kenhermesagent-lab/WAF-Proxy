@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, PageHead, Skeleton, errText, fmtAgo } from "../ui";
-import type { AgentLink, Cert, CrowdSecStatus, GeoIPStatus, Me } from "../types";
+import type { Cert, CrowdSecStatus, GeoIPStatus, Me } from "../types";
 
 type Backup = { config: { enabled: boolean }; status: { last_run?: string; last_error?: string } };
 type Chain = { ok: boolean; checked: number; problem?: string };
+type Notifications = { channels: Record<string, boolean> };
 
 type Row = {
   id: string;
@@ -21,7 +22,7 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
   const [certs, setCerts] = useState<Cert[] | null>(null);
   const [geo, setGeo] = useState<GeoIPStatus | null>(null);
   const [backup, setBackup] = useState<Backup | null>(null);
-  const [agents, setAgents] = useState<AgentLink[] | null>(null);
+  const [notifications, setNotifications] = useState<Notifications | null>(null);
   const [chain, setChain] = useState<Chain | null>(null);
   const [crowdsec, setCrowdsec] = useState<CrowdSecStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,7 +45,7 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
       api.get<{ certs: Cert[] }>("/api/certs").then((v) => alive && setCerts(v.certs ?? [])).catch(() => fail("certs")),
       api.get<GeoIPStatus>("/api/geoip").then((v) => alive && setGeo(v)).catch(() => fail("geoip")),
       api.get<Backup>("/api/backup/schedule").then((v) => alive && setBackup(v)).catch(() => fail("backup")),
-      api.get<AgentLink[]>("/api/agents").then((v) => alive && setAgents(v)).catch(() => fail("agents")),
+      api.get<Notifications>("/api/notifications").then((v) => alive && setNotifications(v)).catch(() => fail("notifications")),
       api.get<Chain>("/api/audit/verify").then((v) => alive && setChain(v)).catch(() => fail("chain")),
       api.get<CrowdSecStatus>("/api/crowdsec/status").then((v) => alive && setCrowdsec(v)).catch(() => fail("crowdsec")),
     ]).finally(() => {
@@ -57,7 +58,7 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
 
   const has = (name: string) => !failed.includes(name);
 
-  const notifyTargets = agents?.filter((a) => a.enabled).length ?? 0;
+  const notifyTargets = Object.values(notifications?.channels ?? {}).filter(Boolean).length;
 
   const rows: Row[] = [
     {
@@ -113,7 +114,7 @@ export default function Readiness({ me, onError }: { me: Me | null; onError: (m:
       detail: notifyTargets
         ? `${notifyTargets} enabled target${notifyTargets === 1 ? "" : "s"}.`
         : "No enabled notification target, so alerts go nowhere.",
-      ready: has("agents") && agents ? agents.some((a) => a.enabled) : null,
+      ready: has("notifications") && notifications ? notifyTargets > 0 : null,
       fix: "Open Notifications",
       link: "notifications",
     },

@@ -27,7 +27,6 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { id: "anomalies", label: "Anomaly events", icon: "alert", permission: "traffic.read", hint: "Behavioural detections" },
       { id: "activity", label: "Activity", icon: "clock", permission: "traffic.read", hint: "Audited changes with diffs and rollback" },
-      { id: "readiness", label: "Readiness", icon: "shield", permission: "settings.read", hint: "Hardening checklist with a fix for each gap" },
       { id: "access", label: "Access gate", icon: "lock", permission: "policies.read", hint: "Gate accounts and TOTP" },
       { id: "intel", label: "Threat intel", icon: "intel", permission: "sources.read", hint: "Feeds and lookups" },
       { id: "crowdsec", label: "CrowdSec", icon: "crowdsec", permission: "sources.read", hint: "Community decisions" },
@@ -41,6 +40,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { id: "notifications", label: "Notifications", icon: "mail", permission: "settings.read", hint: "Alert channels" },
       { id: "updates", label: "Updates", icon: "upload", permission: "system.read", hint: "Application and packages" },
       { id: "tailscale", label: "Tailscale", icon: "network", permission: "settings.read", hint: "Private network access" },
+      { id: "readiness", label: "Readiness", icon: "shield", permission: "settings.read", hint: "Hardening checklist with a fix for each gap" },
     ],
   },
 ];

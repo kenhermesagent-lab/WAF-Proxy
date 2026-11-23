@@ -11,6 +11,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.16] — 2026-11-23
+
+### Added
+
+- **Any investigation can be archived as a Markdown report.** `GET /api/events/incident.md`
+  takes the Logs page filters (`ip`, `host`, `country`, `stage`, `action`, `blocked`) and a
+  window, and answers the same write-up a runbook gets for a single source: summary, verdict
+  counts, the newest 50 events and the audit actions mentioning the subject. An empty window
+  says so. Both report routes now come from one renderer, documented in the API reference and
+  in `docs/OPERATIONS.md`.
+
+### Changed
+
+- **The console fetches its incident report instead of building one.** The Logs report and the
+  source drawer's report are rendered by the server, so the drawer, a cron job and a runbook
+  cannot drift apart; the preview, copy, download and print controls are unchanged.
+
+### Fixed
+
+- **A palette verb or search aimed at the page already open applies its filter.** Navigating to
+  the log with the query already in the address bar changed no hash, so nothing happened; the
+  page now re-reads the query on every navigation.
+
+## [1.47.15] — 2026-11-23
+
+### Added
+
+- Regression tests for the notification 500 on a failed recent-alert query and for the
+  canary reporting an empty DNS answer as a `dns` stage instead of panicking; the prober's
+  resolver is now injectable for the test.
+- A canary test ages the delivered outage row past 24 hours and asserts the dedupe lets a
+  fresh alert through, covering the window in both directions.
+
+### Fixed
+
+- **Readiness showed "Notification target configured — missing" for Telegram users.**
+  It counted MCP agent links from `/api/agents`; it now counts the enabled channels
+  `/api/notifications` reports.
+
+### Changed
+
+- Readiness moved to the bottom of the System group, directly above Settings.
+
 ## [1.47.14] — 2026-11-23
 
 ### Fixed
