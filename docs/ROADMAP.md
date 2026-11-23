@@ -17,6 +17,52 @@ config importers are **out of scope** for these five releases. The last section
 describes what a later HA product would require and which seams this roadmap
 puts in place for it.
 
+## Post-1.60 scale track (active, 2026-11-23)
+
+The 1.30–1.34 plan is delivered history. The active work is split into two plans
+that run in parallel on separate branches and separate files:
+
+| Plan | What it buys | Owner | Releases | Plan |
+| --- | --- | --- | --- | --- |
+| **A — fat node** | One box absorbs the rack without falling over: byte budget + bounded queue, memory ceiling, slow-client deadlines, brotli, precompressed cache variants, opt-in cache-first, per-upstream transports | agent 1 | 1.61.0, 1.62.0 | [Plan A](superpowers/plans/2026-11-23-scale-plan-a-fat-node.md) |
+| **C — game streaming** | UDP relay, port ranges, TCP+UDP pairing, game presets, per-session visibility, UDP safety limits, HA lifecycle; HTTP/3 as the follow-on release | agent 2 | 1.63.0 (relay), 1.64.0 (HTTP/3) | [Plan C](superpowers/plans/2026-11-23-scale-plan-c-game-streaming.md) |
+
+Decisions this track is built on:
+
+- **Positioning:** the middle of the self-hosted market — 5–50 sites on one or
+  two boxes. Not enterprise, not a homelab toy.
+- **The metric is not HAProxy's.** Inspected requests per second cannot match a
+  byte forwarder while Coraza runs on every request (~0.8 ms/request in
+  `perf/baseline.json`). The promise is "one box absorbs the whole rack without
+  falling over": no shedding with headroom left, bounded memory, and relay speed
+  on paths that do not need inspection.
+- **HA ceiling is the existing two-node pair.** Neither plan adds a table, a
+  replication path or a new daemon; both are settings-only. PostgreSQL/Redis and
+  N-node clustering stay deferred until a customer asks.
+- **Game support is relay-grade.** L4 TCP/UDP filtering and visibility, not a
+  game panel (Pterodactyl owns installs/mods), not protocol parsing, not
+  anti-cheat.
+- **HTTP/3 follows the relay.** It is a protocol project (QUIC, alt-svc,
+  conformance) and gets its own release gate rather than riding the relay.
+
+Rules both plans follow:
+
+- No schema migration in either plan. New state is `settings`/`site_settings`,
+  already `ClassReplicated`, so the HA snapshot and outbox are untouched.
+- One release per plan slice, each gated by `go test ./...`, `make perf-gate`
+  where relevant, `make verify-release`, CHANGELOG, version files and a rebuilt
+  bundle.
+- File ownership avoids collisions: Plan A owns `internal/proxy`, `internal/waf`,
+  `internal/config`, `cmd/perftool` and Dashboard/Settings UI; Plan C owns
+  `internal/streaming`, `internal/api/streaming.go`, `web/src/pages/Streaming.tsx`
+  and the streaming docs. Shared files are `VERSION`, `CHANGELOG.md`, this file
+  and one route block in `internal/api/server.go`.
+- A merges first (1.61.0, 1.62.0); C rebases and ships 1.63.0, then 1.64.0.
+
+Still deferred beyond this track: N-node clustering / PostgreSQL+Redis, config
+importers (NPM, Traefik, Caddyfile, HAProxy), dynamic upstream discovery, shared
+cache, mTLS, SSO/SAML, hosted docs site.
+
 ## How every phase is gated
 
 Each phase is one release (`1.30.0` … `1.34.0`) and ships only when all of the
