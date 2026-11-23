@@ -1,11 +1,16 @@
 package api
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"testing"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/bundle"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
 
@@ -67,5 +72,52 @@ func TestBundleEndpointsWithoutAChannel(t *testing.T) {
 	hits := authed(t, srv, token, csrf, http.MethodGet, "/api/bundles/hits?hours=24", "")
 	if hits.Code != http.StatusOK {
 		t.Fatalf("GET /api/bundles/hits = %d: %s", hits.Code, hits.Body.String())
+	}
+}
+
+// TestBundleSnapshotListsProviders covers the multi-provider console view: the
+// providers are reported separately, and an unknown name is a bad request
+// rather than a fetch attempt.
+func TestBundleSnapshotListsProviders(t *testing.T) {
+	srv, _, token, csrf := newObservabilityServer(t)
+	priv, err := bundle.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := priv.Public().(ed25519.PublicKey)
+	m, err := bundle.New(bundle.Config{
+		Dir: t.TempDir(),
+		Providers: []bundle.Provider{
+			{Name: "vendor-a", URL: "https://a.example/manifest.json", PublicKey: hex.EncodeToString(pub)},
+			{Name: "vendor-b"},
+		},
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.SetBundles(m)
+
+	rec := authed(t, srv, token, csrf, http.MethodGet, "/api/bundles", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/bundles = %d: %s", rec.Code, rec.Body.String())
+	}
+	var snap bundleSnapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	if !snap.Configured || len(snap.Providers) != 2 {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+	if a := snap.Providers[0]; a.Name != "vendor-a" || !a.Configured || a.URL == "" || a.KeyID == "" {
+		t.Fatalf("configured provider = %+v", a)
+	}
+	if b := snap.Providers[1]; b.Name != "vendor-b" || b.Configured {
+		t.Fatalf("provider without a channel = %+v", b)
+	}
+
+	bad := authed(t, srv, token, csrf, http.MethodPost, "/api/bundles/check?provider=nobody", "")
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("checking an unknown provider = %d, want 400: %s", bad.Code, bad.Body.String())
 	}
 }

@@ -439,12 +439,16 @@ func run() error {
 		return err
 	}
 	feeds := intel.New(st, log, 32<<20)
-	// Signed signature packs. A missing URL or key leaves the channel off, and
-	// the service still loads any pack already on disk.
+	// Signed signature packs. Each provider is one manifest plus the key it must
+	// be signed with; a provider missing either half stays off, and the service
+	// still loads any pack already on disk.
+	providers, err := bundle.ParseProviders(cfg.BundleProvidersJSON, cfg.BundleURL, cfg.BundlePublicKey)
+	if err != nil {
+		return fmt.Errorf("bundle channel: %w", err)
+	}
 	bundles, err := bundle.New(bundle.Config{
 		Dir:       filepath.Join(cfg.DataDir, "bundles"),
-		URL:       cfg.BundleURL,
-		PublicKey: cfg.BundlePublicKey,
+		Providers: providers,
 		Interval:  time.Duration(cfg.BundleIntervalSeconds) * time.Second,
 		Log:       log,
 	})

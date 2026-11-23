@@ -1021,3 +1021,47 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   background: var(--bg-elev-2); color: var(--text); font-size: 11.5px; font-weight: 550;
 }
 .link-button:hover { background: #1b222c; border-color: var(--border-strong); color: var(--text); }
+
+/* ---------- signature bundles ----------
+   A bundle name and a rule ID are identifiers, so they stay on one line at
+   every width. In the hit table the outcome is the last column and the one
+   that must remain visible: counts and timestamps drop out before it can be
+   pushed off the card. */
+.hit-message { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hit-bundle, .bundle-name, .bundle-version, .hit-rule { white-space: nowrap; overflow-wrap: normal; }
+.bundle-mode-select { width: 132px; flex: none; }
+.provider-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  padding: 8px 0; border-top: 1px solid var(--border-soft);
+}
+.provider-row .facts > span { min-width: 0; overflow-wrap: anywhere; }
+
+.phone-only { display: none; }
+
+@media (max-width: 1100px) { .hit-message { max-width: 220px; } }
+/* Between 760 and 900 the sidebar still takes 232px, so the card is narrower
+   than a phone's full-width one and needs the tighter cut. */
+@media (max-width: 900px) {
+  .hit-message { max-width: 140px; }
+  /* The sidebar still takes 232px here; the provider line makes the bundle
+     cell wider, so the timestamp is the next column to go. */
+  .hide-compact { display: none !important; }
+}
+@media (max-width: 760px) { .hit-message { max-width: 140px; } }
+
+@media (max-width: 480px) {
+  .hide-narrow { display: none !important; }
+  .phone-only { display: block; }
+  .hits-table { table-layout: fixed; }
+  .hits-table .hit-bundle { width: 38%; }
+  .hits-table .hit-message {
+    max-width: none; white-space: normal; overflow: visible;
+    text-overflow: clip; overflow-wrap: anywhere;
+  }
+  .hits-table th, .hits-table td { padding: 7px 4px; }
+  .bundle-table .bundle-name { max-width: 132px; overflow: hidden; text-overflow: ellipsis; }
+  .bundle-mode { gap: 6px; }
+  .bundle-mode-select { width: 100%; }
+  .provider-row { flex-wrap: wrap; }
+  .provider-row button { width: 100%; }
+}

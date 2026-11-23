@@ -88,7 +88,7 @@ func TestStartStopsOnCancel(t *testing.T) {
 	m.Start(ctx)
 
 	deadline := time.Now().Add(5 * time.Second)
-	for m.Status().LastCheck == nil {
+	for m.Status().Providers[0].LastCheck == nil {
 		if time.Now().After(deadline) {
 			cancel()
 			t.Fatal("the refresh loop never checked the channel")

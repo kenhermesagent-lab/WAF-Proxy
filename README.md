@@ -129,13 +129,17 @@ A refresh reads the manifest only (`If-None-Match` answers 304 in the steady sta
 downloaded only when its version changes. Configure the channel:
 
 ```
-WAFPROXY_BUNDLE_URL=https://bundles.example.com/stable/manifest.json
-WAFPROXY_BUNDLE_PUBKEY=<hex or base64 ed25519 public key>
+WAFPROXY_BUNDLE_PROVIDERS=[{"name":"vendor","url":"https://bundles.example.com/stable/manifest.json","public_key":"<hex or base64 ed25519 public key>"}]
 WAFPROXY_BUNDLE_INTERVAL=3600
 ```
 
-Without both the URL and the key the channel stays off and the service serves whatever packs are
-already installed. The manifest and pack shapes are documented in `internal/bundle`. To publish:
+Every entry is a separate provider with its own manifest, publisher key, refresh sequence and
+last-error state; they are checked and downloaded independently, so one unreachable publisher does
+not hold up the others. Bundle names must be unique across providers, because a profile switches
+them by name. The older single-channel pair `WAFPROXY_BUNDLE_URL` and `WAFPROXY_BUNDLE_PUBKEY`
+still works and becomes the provider named `default`. Without a URL and key the channel stays off
+and the service serves whatever packs are already installed. The manifest and pack shapes are
+documented in `internal/bundle`. To publish:
 
 ```
 go run ./cmd/bundletool keygen -out publisher.key
@@ -143,9 +147,10 @@ go run ./cmd/bundletool sign -dir packs -seq 42 -key publisher.key -base /stable
 ```
 
 The tool validates and compiles every rule before signing, so the channel cannot ship a pack the
-service will reject. In the console, **Threat intel → Signature bundles** shows the channel, the
-installed versions and the modes across profiles; **Bundle hits** counts the rules that matched in
-the last 24 hours from the request log. The switch itself lives in **Policies → WAF profiles →
+service will reject. In the console, **Threat intel → Signature bundles** lists each provider with
+its URL, publisher, sequence and last check (each has its own **Check** button, plus **Check all**),
+then the installed versions with the modes across profiles; **Bundle hits** counts the rules that
+matched in the last 24 hours from the request log and names the provider. The switch itself lives in **Policies → WAF profiles →
 Edit**, next to paranoia and rule exceptions.
 
 ## Requirements

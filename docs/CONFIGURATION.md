@@ -499,7 +499,9 @@ allow lists and no whitelist overrides them; the permanent-ban rollup writes one
 
 A bundle channel delivers attack-signature rule packs between releases from an ed25519-signed
 manifest. The bundled OWASP CRS only changes with a release; a bundle fills that gap without
-becoming a rule editor.
+becoming a rule editor. Any number of providers can be configured; each has its own manifest URL,
+publisher key, refresh sequence and error state, and each is checked and downloaded on its own, so
+one unreachable publisher cannot hold up the others.
 
 - Packs carry **rules only**. A bundle can add a signature, never ban an address; IP and CIDR
   lists stay in [Threat intel feeds](#sources-and-threat-intel).
@@ -512,19 +514,25 @@ becoming a rule editor.
 - A bundle is **off, log only or block per WAF profile**, never globally. A new pack starts in log
   only, and a site whose own WAF mode is `detect` keeps logging even when its profile allows block.
 
-The channel is off unless both the URL and the public key are set (see
-[Environment variables](#environment-variables)): `WAFPROXY_BUNDLE_URL`, `WAFPROXY_BUNDLE_PUBKEY`
-and optionally `WAFPROXY_BUNDLE_INTERVAL` (**3600** seconds, never less than five minutes).
+List providers in `WAFPROXY_BUNDLE_PROVIDERS` (see [Environment variables](#environment-variables)),
+a JSON array of `{"name", "url", "public_key"}`; `WAFPROXY_BUNDLE_INTERVAL` (**3600** seconds, never
+less than five minutes) applies to all of them. The original single-channel pair
+`WAFPROXY_BUNDLE_URL` and `WAFPROXY_BUNDLE_PUBKEY` still works and becomes the provider named
+`default`. A provider without both halves is listed in the console as **no channel** and never
+fetched, and with no providers at all whatever packs are already installed keep serving.
+
+A bundle name belongs to the provider that installed it: profiles switch a bundle by name, so a
+second publisher advertising the same name is refused with an error naming the owner.
 
 ### Threat intel → Signature bundles
 
 | Control | What it does |
 |---|---|
-| Status badge | **signed channel** when a URL and key are configured, otherwise **not configured**. |
-| Check now | Fetches the manifest immediately instead of waiting for the next interval. |
-| Channel / Publisher / Checked | Manifest URL, publisher key ID and the last and next check times. |
-| Bundle table | Name, version, rule count, install time and the modes in use across profiles. |
-| Error banner | The last channel error (signature, checksum, compile or fetch), when there is one. |
+| Status badge | **signed channel** when at least one provider has a URL and key, otherwise **not configured**. |
+| Check all | Fetches every provider's manifest immediately instead of waiting for the next interval. |
+| Provider row | Name, manifest URL, publisher key ID, sequence and the last and next check times, with its own **Check** button. |
+| Bundle table | Name with its provider, version, rule count, install time and the modes in use across profiles. |
+| Error banner | The last error for that provider (signature, checksum, compile or fetch), when there is one. |
 
 **Bundle hits** lists the rules that matched in the last 24 hours: rule ID, bundle and version,
 what it matched, hit count, distinct addresses, last seen, and whether today's matches were
@@ -892,8 +900,9 @@ addresses.
 | `WAFPROXY_METRICS_TOKEN` | empty | Bearer token for `GET /metrics` (32+ characters); empty keeps it at 403. |
 | `WAFPROXY_ACME_DIRECTORY` | Let's Encrypt | Alternate ACME directory (step-ca, Pebble). |
 | `WAFPROXY_ACME_CA_FILE` | empty | PEM bundle to trust for that directory. |
-| `WAFPROXY_BUNDLE_URL` | empty | Signed signature-bundle manifest URL. Empty disables the channel. |
-| `WAFPROXY_BUNDLE_PUBKEY` | empty | ed25519 publisher public key (hex or base64). Required with the URL. |
+| `WAFPROXY_BUNDLE_PROVIDERS` | empty | JSON list of signed bundle providers: `[{"name","url","public_key"}]`. Each is checked independently. |
+| `WAFPROXY_BUNDLE_URL` | empty | Single-channel manifest URL, kept for compatibility; becomes the provider `default`. |
+| `WAFPROXY_BUNDLE_PUBKEY` | empty | ed25519 publisher public key (hex or base64) for that single channel. |
 | `WAFPROXY_BUNDLE_INTERVAL` | `3600` | Manifest refresh in seconds; never more often than every five minutes. |
 | `WAFPROXY_BACKUP_PASSPHRASE` | empty | Passphrase for headless `wafproxy backup`. |
 | `PLEX_*`, `JELLYFIN_*` | — | Document the streaming settings in `deploy/.env`; the console stores the live values in the database. |

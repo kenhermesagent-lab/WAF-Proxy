@@ -62,30 +62,77 @@ type Pack struct {
 	Rules   []waf.BundleRule `json:"rules"`
 }
 
-// Config describes the channel. An empty URL or public key leaves the channel
-// disabled: the manager then serves whatever is already on disk.
-type Config struct {
-	Dir       string
+// Provider is one signed channel: the manifest URL and the publisher key it
+// must be signed with. Providers are checked and downloaded independently.
+// Bundle names must be unique across providers, because a profile switches
+// them by name.
+type Provider struct {
+	Name      string
 	URL       string
 	PublicKey string
+}
+
+// Config describes the channel. A provider without both a URL and a public
+// key leaves it disabled: the manager then serves whatever is already on disk.
+type Config struct {
+	Dir       string
+	Providers []Provider
 	Interval  time.Duration
 	Log       *slog.Logger
 }
 
-// Status is the channel as the console shows it.
+// ParseProviders builds the provider list from the console setting and from
+// the single channel the older environment variables configured. The JSON form
+// is [{"name":"vendor","url":"https://…/manifest.json","public_key":"…"}];
+// the legacy pair keeps working as the provider named "default".
+func ParseProviders(raw, legacyURL, legacyKey string) ([]Provider, error) {
+	var out []Provider
+	if raw = strings.TrimSpace(raw); raw != "" {
+		var entries []struct {
+			Name      string `json:"name"`
+			URL       string `json:"url"`
+			PublicKey string `json:"public_key"`
+		}
+		if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+			return nil, fmt.Errorf("WAFPROXY_BUNDLE_PROVIDERS is not a JSON list: %w", err)
+		}
+		for _, e := range entries {
+			name, u, key := strings.TrimSpace(e.Name), strings.TrimSpace(e.URL), strings.TrimSpace(e.PublicKey)
+			if name == "" || u == "" || key == "" {
+				return nil, errors.New("WAFPROXY_BUNDLE_PROVIDERS: every provider needs a name, url and public_key")
+			}
+			out = append(out, Provider{Name: name, URL: u, PublicKey: key})
+		}
+	}
+	legacyURL, legacyKey = strings.TrimSpace(legacyURL), strings.TrimSpace(legacyKey)
+	if legacyURL != "" || legacyKey != "" {
+		out = append(out, Provider{Name: "default", URL: legacyURL, PublicKey: legacyKey})
+	}
+	return out, nil
+}
+
+// Status is the channel as the console shows it: one entry per provider and
+// every installed pack across them.
 type Status struct {
-	Configured bool           `json:"configured"`
-	URL        string         `json:"url,omitempty"`
-	KeyID      string         `json:"key_id,omitempty"`
-	LastCheck  *time.Time     `json:"last_check,omitempty"`
-	NextCheck  *time.Time     `json:"next_check,omitempty"`
-	Sequence   int64          `json:"sequence"`
-	Error      string         `json:"error,omitempty"`
-	Bundles    []BundleStatus `json:"bundles"`
+	Providers []ProviderStatus `json:"providers"`
+	Bundles   []BundleStatus   `json:"bundles"`
+}
+
+// ProviderStatus is one publisher's channel state.
+type ProviderStatus struct {
+	Name       string     `json:"name"`
+	Configured bool       `json:"configured"`
+	URL        string     `json:"url,omitempty"`
+	KeyID      string     `json:"key_id,omitempty"`
+	LastCheck  *time.Time `json:"last_check,omitempty"`
+	NextCheck  *time.Time `json:"next_check,omitempty"`
+	Sequence   int64      `json:"sequence"`
+	Error      string     `json:"error,omitempty"`
 }
 
 // BundleStatus is one installed pack.
 type BundleStatus struct {
+	Provider    string     `json:"provider,omitempty"`
 	Name        string     `json:"name"`
 	Version     string     `json:"version"`
 	Rules       int        `json:"rules"`
@@ -97,12 +144,14 @@ type BundleStatus struct {
 // RuleInfo names the pack a rule ID belongs to, so the console can group hits
 // without storing the bundle name on every event.
 type RuleInfo struct {
-	Bundle  string
-	Version string
-	Message string
+	Provider string
+	Bundle   string
+	Version  string
+	Message  string
 }
 
 type bundleState struct {
+	Provider    string    `json:"provider,omitempty"`
 	Name        string    `json:"name"`
 	Version     string    `json:"version"`
 	Rules       int       `json:"rules"`
@@ -111,32 +160,55 @@ type bundleState struct {
 	InstalledAt time.Time `json:"installed_at"`
 }
 
-type state struct {
-	Sequence  int64         `json:"sequence"`
-	ETag      string        `json:"etag,omitempty"`
-	LastCheck *time.Time    `json:"last_check,omitempty"`
-	LastError string        `json:"last_error,omitempty"`
-	Bundles   []bundleState `json:"bundles"`
+// providerState is per publisher: its own sequence, ETag and last result. The
+// sequence is what stops one mirror from rolling a channel back.
+type providerState struct {
+	Sequence  int64      `json:"sequence"`
+	ETag      string     `json:"etag,omitempty"`
+	LastCheck *time.Time `json:"last_check,omitempty"`
+	LastError string     `json:"last_error,omitempty"`
 }
 
-// Manager owns the installed packs and the refresh loop.
-type Manager struct {
-	dir      string
+type state struct {
+	Providers map[string]*providerState `json:"providers"`
+	Bundles   []bundleState             `json:"bundles"`
+	// Legacy single-channel fields. They are read once on Load and then
+	// cleared, so an install from before providers keeps its sequence.
+	Sequence  int64      `json:"sequence,omitempty"`
+	ETag      string     `json:"etag,omitempty"`
+	LastCheck *time.Time `json:"last_check,omitempty"`
+	LastError string     `json:"last_error,omitempty"`
+}
+
+// provider is one configured channel with its own publisher and state.
+type provider struct {
+	name     string
 	url      string
 	pub      ed25519.PublicKey
 	keyID    string
-	interval time.Duration
-	log      *slog.Logger
-	client   *http.Client
-	now      func() time.Time
+	st       providerState
+	checking atomic.Bool
+}
+
+// configured reports whether both halves of the channel are present.
+func (p *provider) configured() bool {
+	return p.url != "" && len(p.pub) == ed25519.PublicKeySize
+}
+
+// Manager owns the installed packs, the providers and the refresh loop.
+type Manager struct {
+	dir       string
+	interval  time.Duration
+	log       *slog.Logger
+	client    *http.Client
+	now       func() time.Time
+	providers []*provider
 
 	mu       sync.RWMutex
 	st       state
 	packs    []waf.Bundle
 	index    map[int]RuleInfo
 	onChange func()
-
-	checking atomic.Bool
 }
 
 // New validates the configuration and prepares the on-disk layout.
@@ -147,7 +219,6 @@ func New(cfg Config) (*Manager, error) {
 	}
 	m := &Manager{
 		dir:      cfg.Dir,
-		url:      strings.TrimSpace(cfg.URL),
 		interval: cfg.Interval,
 		log:      log,
 		client:   &http.Client{Timeout: 45 * time.Second},
@@ -160,13 +231,32 @@ func New(cfg Config) (*Manager, error) {
 	if m.interval < 5*time.Minute {
 		m.interval = 5 * time.Minute
 	}
-	if raw := strings.TrimSpace(cfg.PublicKey); raw != "" {
-		pub, err := ParsePublicKey(raw)
-		if err != nil {
-			return nil, err
+	seen := map[string]bool{}
+	for _, in := range cfg.Providers {
+		name := strings.TrimSpace(in.Name)
+		if name == "" || len(name) > 32 || !safeName(name) {
+			return nil, fmt.Errorf("bundle provider %q needs a 1–32 character name of letters, digits, dot, dash or underscore", in.Name)
 		}
-		m.pub = pub
-		m.keyID = KeyID(pub)
+		if seen[name] {
+			return nil, fmt.Errorf("bundle provider %q is listed twice", name)
+		}
+		seen[name] = true
+		p := &provider{name: name, url: strings.TrimSpace(in.URL)}
+		if raw := strings.TrimSpace(in.PublicKey); raw != "" {
+			pub, err := ParsePublicKey(raw)
+			if err != nil {
+				return nil, fmt.Errorf("bundle provider %s: %w", name, err)
+			}
+			p.pub = pub
+			p.keyID = KeyID(pub)
+		}
+		if p.url != "" {
+			u, err := url.Parse(p.url)
+			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+				return nil, fmt.Errorf("bundle provider %s: URL must be an absolute http or https URL", name)
+			}
+		}
+		m.providers = append(m.providers, p)
 	}
 	if m.dir != "" {
 		if err := os.MkdirAll(m.dir, 0o750); err != nil {
@@ -176,10 +266,32 @@ func New(cfg Config) (*Manager, error) {
 	return m, nil
 }
 
-// Enabled reports whether the channel can fetch. Without a signed URL and a
+// Enabled reports whether any provider can fetch. Without a signed URL and a
 // publisher key the manager only serves packs already installed.
 func (m *Manager) Enabled() bool {
-	return m != nil && m.url != "" && len(m.pub) == ed25519.PublicKeySize
+	if m == nil {
+		return false
+	}
+	for _, p := range m.providers {
+		if p.configured() {
+			return true
+		}
+	}
+	return false
+}
+
+// HasProvider reports whether name is one of the configured providers, so the
+// API can tell an unknown name from a channel that is merely switched off.
+func (m *Manager) HasProvider(name string) bool {
+	if m == nil {
+		return false
+	}
+	for _, p := range m.providers {
+		if p.name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // OnChange registers the callback that recompiles the WAF engines. It is
@@ -205,8 +317,16 @@ func (m *Manager) Load() error {
 	if err := json.Unmarshal(raw, &st); err != nil {
 		return fmt.Errorf("decode bundle state: %w", err)
 	}
-	kept := make([]bundleState, 0, len(st.Bundles))
-	for _, b := range st.Bundles {
+	m.mu.Lock()
+	m.st = st
+	m.migrateLocked()
+	for _, p := range m.providers {
+		if ps, ok := m.st.Providers[p.name]; ok && ps != nil {
+			p.st = *ps
+		}
+	}
+	kept := make([]bundleState, 0, len(m.st.Bundles))
+	for _, b := range m.st.Bundles {
 		pack, err := m.readPack(b.Name, b.Version)
 		if err != nil {
 			m.log.Warn("installed bundle unreadable; dropping it from state", "bundle", b.Name, "err", err)
@@ -218,12 +338,37 @@ func (m *Manager) Load() error {
 		}
 		kept = append(kept, b)
 	}
-	st.Bundles = kept
-	m.mu.Lock()
-	m.st = st
+	m.st.Bundles = kept
 	m.rebuildLocked()
 	m.mu.Unlock()
 	return nil
+}
+
+// migrateLocked folds a state file written before providers existed into the
+// first configured provider, and names the legacy packs, so an upgrade keeps
+// the installed bundle and its anti-rollback sequence.
+func (m *Manager) migrateLocked() {
+	if m.st.Providers == nil {
+		m.st.Providers = map[string]*providerState{}
+	}
+	legacy := m.st.Sequence > 0 || m.st.ETag != "" || m.st.LastCheck != nil || m.st.LastError != ""
+	if legacy && len(m.providers) > 0 {
+		first := m.providers[0]
+		if _, ok := m.st.Providers[first.name]; !ok {
+			m.st.Providers[first.name] = &providerState{
+				Sequence: m.st.Sequence, ETag: m.st.ETag,
+				LastCheck: m.st.LastCheck, LastError: m.st.LastError,
+			}
+		}
+	}
+	m.st.Sequence, m.st.ETag, m.st.LastCheck, m.st.LastError = 0, "", nil, ""
+	if len(m.providers) > 0 {
+		for i := range m.st.Bundles {
+			if m.st.Bundles[i].Provider == "" {
+				m.st.Bundles[i].Provider = m.providers[0].name
+			}
+		}
+	}
 }
 
 // Start refreshes once and then on the configured interval. A failure is
@@ -251,24 +396,58 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 }
 
-// Check fetches the manifest and installs any bundle whose version changed.
-// It is safe to call from the API and the ticker at the same time.
+// Check refreshes every configured provider. Each one is fetched, verified
+// and installed on its own, so an unreachable publisher is reported for that
+// provider and the others still update.
 func (m *Manager) Check(ctx context.Context) error {
-	if !m.Enabled() {
+	if m == nil || !m.Enabled() {
 		return errors.New("no bundle channel is configured")
 	}
-	if !m.checking.CompareAndSwap(false, true) {
+	errs := make([]error, 0, len(m.providers))
+	for _, p := range m.providers {
+		if !p.configured() {
+			continue
+		}
+		if err := m.checkProvider(ctx, p); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", p.name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// CheckProvider refreshes one named provider, which is what the console's
+// per-provider button asks for.
+func (m *Manager) CheckProvider(ctx context.Context, name string) error {
+	if m == nil {
+		return errors.New("no bundle channel is configured")
+	}
+	for _, p := range m.providers {
+		if p.name != name {
+			continue
+		}
+		if !p.configured() {
+			return fmt.Errorf("bundle provider %s is not configured", name)
+		}
+		return m.checkProvider(ctx, p)
+	}
+	return fmt.Errorf("bundle provider %s is not configured", name)
+}
+
+// checkProvider fetches one manifest and installs any bundle whose version
+// changed. It is safe to call from the API and the ticker at the same time.
+func (m *Manager) checkProvider(ctx context.Context, p *provider) error {
+	if !p.checking.CompareAndSwap(false, true) {
 		return errors.New("a bundle check is already running")
 	}
-	defer m.checking.Store(false)
+	defer p.checking.Store(false)
 
-	manifest, notModified, err := m.fetchManifest(ctx)
+	manifest, notModified, err := m.fetchManifest(ctx, p)
 	now := m.now().UTC()
 	m.mu.Lock()
-	m.st.LastCheck = &now
+	p.st.LastCheck = &now
 	m.mu.Unlock()
 	if err != nil {
-		m.recordError(err)
+		m.recordError(p, err)
 		return err
 	}
 	// 304 means the sequence and the installed packs are already current.
@@ -276,33 +455,35 @@ func (m *Manager) Check(ctx context.Context) error {
 	// mirror roll the channel back afterwards.
 	if notModified {
 		m.mu.Lock()
-		m.st.LastError = ""
+		p.st.LastError = ""
 		err := m.saveLocked()
 		m.mu.Unlock()
 		return err
 	}
-	changed := manifest.Sequence > m.currentSequence()
+	m.mu.RLock()
+	changed := manifest.Sequence > p.st.Sequence
+	m.mu.RUnlock()
 
 	var firstErr error
 	for _, ref := range manifest.Bundles {
-		if err := m.install(ctx, ref); err != nil {
+		if err := m.install(ctx, p, ref); err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
-			m.log.Warn("bundle install failed; keeping the installed version", "bundle", ref.Name, "err", err)
+			m.log.Warn("bundle install failed; keeping the installed version", "provider", p.name, "bundle", ref.Name, "err", err)
 			continue
 		}
-		if m.installedVersion(ref.Name) != ref.Version {
+		if m.installedVersion(p, ref.Name) != ref.Version {
 			changed = true
 		}
 	}
 
 	m.mu.Lock()
-	m.st.Sequence = manifest.Sequence
+	p.st.Sequence = manifest.Sequence
 	if firstErr != nil {
-		m.st.LastError = firstErr.Error()
+		p.st.LastError = firstErr.Error()
 	} else {
-		m.st.LastError = ""
+		p.st.LastError = ""
 	}
 	m.rebuildLocked()
 	fn := m.onChange
@@ -343,48 +524,56 @@ func (m *Manager) RuleIndex() map[int]RuleInfo {
 	return out
 }
 
-// Status reports the channel and every installed pack.
+// Status reports every provider and every installed pack.
 func (m *Manager) Status() Status {
 	if m == nil {
-		return Status{Configured: false, Bundles: []BundleStatus{}}
+		return Status{Providers: []ProviderStatus{}, Bundles: []BundleStatus{}}
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	st := Status{
-		Configured: m.Enabled(),
-		URL:        m.url,
-		KeyID:      m.keyID,
-		Sequence:   m.st.Sequence,
-		Error:      m.st.LastError,
-		Bundles:    make([]BundleStatus, 0, len(m.st.Bundles)),
+		Providers: make([]ProviderStatus, 0, len(m.providers)),
+		Bundles:   make([]BundleStatus, 0, len(m.st.Bundles)),
 	}
-	if m.st.LastCheck != nil {
-		last := *m.st.LastCheck
-		next := last.Add(m.interval)
-		st.LastCheck = &last
-		st.NextCheck = &next
+	for _, p := range m.providers {
+		ps := ProviderStatus{
+			Name: p.name, Configured: p.configured(), URL: p.url, KeyID: p.keyID,
+			Sequence: p.st.Sequence, Error: p.st.LastError,
+		}
+		if p.st.LastCheck != nil {
+			last := *p.st.LastCheck
+			next := last.Add(m.interval)
+			ps.LastCheck = &last
+			ps.NextCheck = &next
+		}
+		st.Providers = append(st.Providers, ps)
 	}
 	for _, b := range m.st.Bundles {
 		at := b.InstalledAt
 		st.Bundles = append(st.Bundles, BundleStatus{
-			Name: b.Name, Version: b.Version, Rules: b.Rules, Size: b.Size,
+			Provider: b.Provider, Name: b.Name, Version: b.Version, Rules: b.Rules, Size: b.Size,
 			SHA256: b.SHA256, InstalledAt: &at,
 		})
 	}
-	sort.Slice(st.Bundles, func(i, j int) bool { return st.Bundles[i].Name < st.Bundles[j].Name })
+	sort.Slice(st.Bundles, func(i, j int) bool {
+		if st.Bundles[i].Provider != st.Bundles[j].Provider {
+			return st.Bundles[i].Provider < st.Bundles[j].Provider
+		}
+		return st.Bundles[i].Name < st.Bundles[j].Name
+	})
 	return st
 }
 
 // fetchManifest returns the decoded manifest and whether the server answered
 // 304, which is the steady state of an hourly check.
-func (m *Manager) fetchManifest(ctx context.Context) (Manifest, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.url, nil)
+func (m *Manager) fetchManifest(ctx context.Context, p *provider) (Manifest, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
 	if err != nil {
 		return Manifest{}, false, err
 	}
 	req.Header.Set("User-Agent", "wafproxy-bundles/1.0")
 	m.mu.RLock()
-	etag := m.st.ETag
+	etag, seq := p.st.ETag, p.st.Sequence
 	m.mu.RUnlock()
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
@@ -407,19 +596,19 @@ func (m *Manager) fetchManifest(ctx context.Context) (Manifest, bool, error) {
 	if len(body) > maxManifestBytes {
 		return Manifest{}, false, errors.New("manifest is larger than the size cap")
 	}
-	manifest, err := ParseManifest(body, m.pub)
+	manifest, err := ParseManifest(body, p.pub)
 	if err != nil {
 		return Manifest{}, false, err
 	}
 	if err := validateManifest(manifest); err != nil {
 		return Manifest{}, false, err
 	}
-	if manifest.Sequence < m.currentSequence() {
-		return Manifest{}, false, fmt.Errorf("manifest sequence %d is older than the installed %d", manifest.Sequence, m.currentSequence())
+	if manifest.Sequence < seq {
+		return Manifest{}, false, fmt.Errorf("manifest sequence %d is older than the installed %d", manifest.Sequence, seq)
 	}
 	if et := resp.Header.Get("ETag"); et != "" {
 		m.mu.Lock()
-		m.st.ETag = et
+		p.st.ETag = et
 		m.mu.Unlock()
 	}
 	return manifest, false, nil
@@ -427,11 +616,11 @@ func (m *Manager) fetchManifest(ctx context.Context) (Manifest, bool, error) {
 
 // install downloads one advertised version unless it is already on disk with
 // the advertised checksum.
-func (m *Manager) install(ctx context.Context, ref Ref) error {
-	if m.installedVersion(ref.Name) == ref.Version && m.installedSHA(ref.Name) == ref.SHA256 {
+func (m *Manager) install(ctx context.Context, p *provider, ref Ref) error {
+	if m.installedVersion(p, ref.Name) == ref.Version && m.installedSHA(p, ref.Name) == ref.SHA256 {
 		return nil
 	}
-	base, err := url.Parse(m.url)
+	base, err := url.Parse(p.url)
 	if err != nil {
 		return err
 	}
@@ -510,9 +699,16 @@ func (m *Manager) install(ctx context.Context, ref Ref) error {
 	m.mu.Lock()
 	replaced := false
 	for i := range m.st.Bundles {
+		// A name belongs to one provider: profiles switch a bundle by name,
+		// so two publishers may not install the same one.
+		if m.st.Bundles[i].Name == ref.Name && m.st.Bundles[i].Provider != p.name {
+			owner := m.st.Bundles[i].Provider
+			m.mu.Unlock()
+			return fmt.Errorf("bundle %s is already provided by %s", ref.Name, owner)
+		}
 		if m.st.Bundles[i].Name == ref.Name {
 			m.st.Bundles[i] = bundleState{
-				Name: ref.Name, Version: ref.Version, Rules: ref.Rules, Size: int64(len(body)),
+				Provider: p.name, Name: ref.Name, Version: ref.Version, Rules: ref.Rules, Size: int64(len(body)),
 				SHA256: ref.SHA256, InstalledAt: m.now().UTC(),
 			}
 			replaced = true
@@ -521,7 +717,7 @@ func (m *Manager) install(ctx context.Context, ref Ref) error {
 	}
 	if !replaced {
 		m.st.Bundles = append(m.st.Bundles, bundleState{
-			Name: ref.Name, Version: ref.Version, Rules: ref.Rules, Size: int64(len(body)),
+			Provider: p.name, Name: ref.Name, Version: ref.Version, Rules: ref.Rules, Size: int64(len(body)),
 			SHA256: ref.SHA256, InstalledAt: m.now().UTC(),
 		})
 	}
@@ -532,9 +728,9 @@ func (m *Manager) install(ctx context.Context, ref Ref) error {
 	return nil
 }
 
-func (m *Manager) recordError(err error) {
+func (m *Manager) recordError(p *provider, err error) {
 	m.mu.Lock()
-	m.st.LastError = err.Error()
+	p.st.LastError = err.Error()
 	_ = m.saveLocked()
 	m.mu.Unlock()
 }
@@ -554,7 +750,7 @@ func (m *Manager) rebuildLocked() {
 		}
 		packs = append(packs, waf.Bundle{Name: pack.Bundle, Version: pack.Version, Rules: pack.Rules})
 		for _, r := range pack.Rules {
-			index[r.ID] = RuleInfo{Bundle: pack.Bundle, Version: pack.Version, Message: r.Message}
+			index[r.ID] = RuleInfo{Provider: b.Provider, Bundle: pack.Bundle, Version: pack.Version, Message: r.Message}
 		}
 	}
 	m.packs = packs
@@ -565,6 +761,7 @@ func (m *Manager) saveLocked() error {
 	if m.dir == "" {
 		return nil
 	}
+	m.syncProvidersLocked()
 	raw, err := json.MarshalIndent(m.st, "", "  ")
 	if err != nil {
 		return err
@@ -588,6 +785,18 @@ func (m *Manager) saveLocked() error {
 		return err
 	}
 	return nil
+}
+
+// syncProvidersLocked copies each provider's live state into the document
+// about to be written, so a save never drops a sequence.
+func (m *Manager) syncProvidersLocked() {
+	if m.st.Providers == nil {
+		m.st.Providers = map[string]*providerState{}
+	}
+	for _, p := range m.providers {
+		ps := p.st
+		m.st.Providers[p.name] = &ps
+	}
 }
 
 func (m *Manager) readPack(name, version string) (Pack, error) {
@@ -631,28 +840,22 @@ func (m *Manager) prune(name, keep string) {
 	}
 }
 
-func (m *Manager) currentSequence() int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.st.Sequence
-}
-
-func (m *Manager) installedVersion(name string) string {
+func (m *Manager) installedVersion(p *provider, name string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, b := range m.st.Bundles {
-		if b.Name == name {
+		if b.Name == name && b.Provider == p.name {
 			return b.Version
 		}
 	}
 	return ""
 }
 
-func (m *Manager) installedSHA(name string) string {
+func (m *Manager) installedSHA(p *provider, name string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, b := range m.st.Bundles {
-		if b.Name == name {
+		if b.Name == name && b.Provider == p.name {
 			return b.SHA256
 		}
 	}
