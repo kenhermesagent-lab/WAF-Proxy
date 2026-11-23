@@ -11,7 +11,8 @@ deployment, but each one stands alone once the stack is running.
 | Add CrowdSec or streaming (Plex, Jellyfin) | [Optional integrations](install/04-crowdsec-and-streaming.md) |
 | Run it on a host without Docker | [Bare metal with systemd](install/05-bare-metal.md) |
 | Reach the console over Tailscale | [Native Tailscale access](install/06-tailscale.md) |
-| Upgrade, uninstall or keep the host updated | [Upgrades and removal](install/07-upgrades-and-removal.md) |
+| Publish the console through Cloudflare | [Cloudflare Tunnel and Access](install/07-cloudflare-tunnel.md) |
+| Upgrade, uninstall or keep the host updated | [Upgrades and removal](install/08-upgrades-and-removal.md) |
 
 Running the container needs only the first page; everything after it is
 configuration in the console. The bare-metal page is an alternative to Docker,

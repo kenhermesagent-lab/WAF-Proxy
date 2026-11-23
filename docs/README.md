@@ -7,7 +7,8 @@
 - [Optional integrations](install/04-crowdsec-and-streaming.md)
 - [Bare metal with systemd](install/05-bare-metal.md)
 - [Native Tailscale access](install/06-tailscale.md)
-- [Upgrades and removal](install/07-upgrades-and-removal.md)
+- [Cloudflare Tunnel and Access](install/07-cloudflare-tunnel.md)
+- [Upgrades and removal](install/08-upgrades-and-removal.md)
 
 **Configure**
 - [Admin configuration reference](CONFIGURATION.md) — every page, field, option, default and

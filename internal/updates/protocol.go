@@ -39,6 +39,9 @@ const (
 	// CrowdSecRestart restarts the engine, which is how an accepted console
 	// enrollment takes effect.
 	HelperActionCrowdSecRestart = "crowdsec-restart"
+	// HelperActionCloudflaredInstall installs the Cloudflare Tunnel connector
+	// from Cloudflare's package repository, so the console can offer one button.
+	HelperActionCloudflaredInstall = "cloudflared-install"
 )
 
 // The self-update scripts are installed root-owned by deploy/install.sh. They
@@ -51,6 +54,9 @@ var (
 	// CrowdSecInstallScript installs and configures the Security Engine. It
 	// takes no argument: the browser never supplies a command, URL or package.
 	CrowdSecInstallScript = firstScript("/var/lib/waf-proxy/lib/crowdsec-install", "/usr/local/waf-proxy/lib/crowdsec-install")
+	// CloudflaredInstallScript installs the tunnel connector. It likewise takes
+	// no argument from the browser.
+	CloudflaredInstallScript = firstScript("/var/lib/waf-proxy/lib/cloudflared-install", "/usr/local/waf-proxy/lib/cloudflared-install")
 )
 
 // UpdateScript is one fixed script install.sh installs on the host.

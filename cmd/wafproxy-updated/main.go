@@ -125,6 +125,9 @@ func serve(conn net.Conn, gid, uid int) {
 	if req.Action == updates.HelperActionCrowdSecInstall {
 		_ = conn.SetDeadline(time.Now().Add(16 * time.Minute))
 	}
+	if req.Action == updates.HelperActionCloudflaredInstall {
+		_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
+	}
 	if req.Action == updates.HelperActionCrowdSecStatus || req.Action == updates.HelperActionCrowdSecDecisions {
 		_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 	}
@@ -180,6 +183,11 @@ func serve(conn net.Conn, gid, uid int) {
 		}
 		aptMu.Lock()
 		resp := runFixedScriptEnv(updates.CrowdSecInstallScript, 15*time.Minute, env)
+		aptMu.Unlock()
+		writeResponse(conn, resp)
+	case updates.HelperActionCloudflaredInstall:
+		aptMu.Lock()
+		resp := runFixedScript(updates.CloudflaredInstallScript, 9*time.Minute)
 		aptMu.Unlock()
 		writeResponse(conn, resp)
 	case updates.HelperActionCrowdSecRestart:

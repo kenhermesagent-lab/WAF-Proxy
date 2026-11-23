@@ -74,6 +74,27 @@ func TestBadInputRejected(t *testing.T) {
 	}
 }
 
+func TestCloudflareHeaderOnlyFromTrustedPeer(t *testing.T) {
+	r, _ := New([]string{"127.0.0.1"})
+	req, _ := http.NewRequest(http.MethodGet, "http://example.test/", nil)
+	req.RemoteAddr = "127.0.0.1:5555"
+	req.Header.Set("CF-Connecting-IP", "203.0.113.7")
+
+	if got, _ := r.FromRequest(req); got.String() != "127.0.0.1" {
+		t.Fatalf("resolved to %s before the tunnel was enabled", got)
+	}
+	r.SetCDN(true)
+	if got, _ := r.FromRequest(req); got.String() != "203.0.113.7" {
+		t.Fatalf("resolved to %s, want the Cloudflare address", got)
+	}
+
+	// A peer outside the allowlist keeps its socket address whatever it sends.
+	req.RemoteAddr = "198.51.100.7:5555"
+	if got, _ := r.FromRequest(req); got.String() != "198.51.100.7" {
+		t.Fatalf("untrusted peer resolved to %s", got)
+	}
+}
+
 func TestFromRequest(t *testing.T) {
 	r, _ := New([]string{"10.0.0.0/8"})
 	req, _ := http.NewRequest(http.MethodGet, "http://example.test/", nil)

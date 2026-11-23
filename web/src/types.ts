@@ -83,6 +83,41 @@ export interface TailscaleStatus {
   wan_port: number;
 }
 
+export interface CloudflareCheck {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface CloudflareStatus {
+  enabled: boolean;
+  installed: boolean;
+  version: string;
+  state: "stopped" | "starting" | "running" | "error";
+  connections: number;
+  error?: string;
+  token_set: boolean;
+  token_tail?: string;
+  tunnel_id: string;
+  strict_origin: boolean;
+  metrics_addr: string;
+  container: boolean;
+  helper_ready: boolean;
+  install_supported: boolean;
+  install_reason?: string;
+  install_running: boolean;
+  install_output?: string;
+  install_error?: string;
+  console_host: string;
+  gui_port: number;
+  gui_tls: boolean;
+  restart_required: boolean;
+  log: string[];
+  checks: CloudflareCheck[] | null;
+  checks_at?: string;
+}
+
 export interface Me {
   username: string;
   csrf: string;

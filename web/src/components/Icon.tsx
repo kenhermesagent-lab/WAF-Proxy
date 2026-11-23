@@ -4,7 +4,7 @@ export type IconName =
   | "dashboard" | "chart" | "proxies" | "play" | "shield" | "radio" | "logs"
   | "alert" | "lock" | "intel" | "crowdsec" | "certificate" | "terminal"
   | "mail" | "upload" | "network" | "settings" | "user" | "power" | "search"
-  | "globe" | "map" | "check" | "x" | "info" | "plus" | "trash" | "edit"
+  | "globe" | "map" | "cloud" | "check" | "x" | "info" | "plus" | "trash" | "edit"
   | "refresh" | "external" | "download" | "menu" | "chevronDown" | "chevronLeft"
   | "chevronRight" | "collapse" | "expand" | "clock" | "server" | "activity"
   | "arrowUp" | "arrowDown" | "filter" | "file" | "help" | "key" | "users" | "coffee";
@@ -32,6 +32,7 @@ const PATHS: Record<IconName, string[]> = {
   search: ["M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13", "M15.5 15.5 21 21"],
   globe: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18", "M3.5 12h17", "M12 3c3 2.5 4.5 5.5 4.5 9s-1.5 6.5-4.5 9c-3-2.5-4.5-5.5-4.5-9S9 5.5 12 3"],
   map: ["M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z", "M9 4v13.5", "M15 6.5V20"],
+  cloud: ["M7.5 18h9.5a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6 1.2A3.4 3.4 0 0 0 7.5 18z"],
   check: ["M4 12.5l5 5L20 6.5"],
   x: ["M6 6l12 12", "M18 6 6 18"],
   info: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18", "M12 11v5", "M12 8h.01"],

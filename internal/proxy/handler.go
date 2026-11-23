@@ -465,6 +465,9 @@ func pathMatches(match, path string) bool {
 func cleanInboundHeaders(r *http.Request) {
 	drop := []string{
 		"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-Ip",
+		// Read by the client resolver from a trusted connector, then removed so a
+		// request carried past the tunnel cannot name its own address upstream.
+		"CF-Connecting-IP", "CF-Connecting-IPv4",
 		"Forwarded", "X-Original-Url", "X-Rewrite-Url", "X-Http-Method-Override",
 		"X-Forwarded-Server", "X-Forwarded-Port", "Proxy", "Proxy-Connection",
 	}

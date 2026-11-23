@@ -925,7 +925,7 @@ addresses.
 
 The update helper scripts under `deploy/` use their own `WAFPROXY_UPDATE_*` and
 `WAFPROXY_SELF_UPDATE_CONF` variables; see the comments in those scripts and
-[docs/install/07-upgrades-and-removal.md](install/07-upgrades-and-removal.md).
+[docs/install/08-upgrades-and-removal.md](install/08-upgrades-and-removal.md).
 
 ## Data directory and headless commands
 

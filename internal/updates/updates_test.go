@@ -17,12 +17,13 @@ import (
 
 func TestCatalogIsFixedAndValid(t *testing.T) {
 	names := CatalogNames()
-	if len(names) != 8 {
-		t.Fatalf("catalog names = %v, want 8 entries", names)
+	if len(names) != 9 {
+		t.Fatalf("catalog names = %v, want 9 entries", names)
 	}
 	want := map[string]bool{
 		"ca-certificates": true, "nftables": true, "tzdata": true,
 		"curl": true, "openssl": true, "git": true, "crowdsec": true, "tailscale": true,
+		"cloudflared": true,
 	}
 	for _, name := range names {
 		if !want[name] {

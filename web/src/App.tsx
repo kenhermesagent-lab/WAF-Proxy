@@ -16,6 +16,7 @@ import Statistics from "./pages/Statistics";
 import Proxies from "./pages/Proxies";
 import AgentPage from "./pages/Agent";
 import TailscalePage from "./pages/Tailscale";
+import CloudflarePage from "./pages/Cloudflare";
 import Policies from "./pages/Policies";
 import Intel from "./pages/Intel";
 import Anomalies from "./pages/Anomalies";
@@ -446,6 +447,7 @@ export default function App() {
               {page === "proxies" && <Proxies onError={onError} onOK={onOK} base={me?.base_domain ?? ""} {...tabProps("proxies")} />}
               {page === "agent" && <AgentPage onError={onError} onOK={onOK} />}
               {page === "tailscale" && <TailscalePage onError={onError} onOK={onOK} />}
+              {page === "cloudflare" && <CloudflarePage onError={onError} onOK={onOK} />}
               {page === "policies" && <Policies onError={onError} onOK={onOK} {...tabProps("policies")} />}
               {page === "intel" && (
                 <Intel

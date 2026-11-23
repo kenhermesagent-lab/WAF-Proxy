@@ -29,6 +29,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/bundle"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/cloudflared"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crowdsec"
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
@@ -758,7 +759,22 @@ func run() error {
 		}
 	}()
 	api.SetTrustedProxies(trusted)
+	cloudflareConnector := cloudflared.New(log)
+	cloudflareConnector.RefreshVersion(true)
 	apiServer := api.New(st, box, cfg, px, res.Default().Policy, bans, feeds, certs, cs, met, notifier, geo, res, log)
+	apiServer.SetCloudflared(cloudflareConnector)
+	// The connector is started here rather than by systemd, because the console
+	// owns its lifecycle: the Enable switch and the token decide whether it runs.
+	defer cloudflareConnector.Stop()
+	if hostKV, err := st.Settings(); err == nil {
+		connectorCfg := cloudflared.Load(hostKV, box)
+		trusted.SetCDN(connectorCfg.Enabled && connectorCfg.StrictOrigin)
+		if connectorCfg.Enabled && connectorCfg.Token != "" {
+			if err := cloudflareConnector.Start(connectorCfg.Token); err != nil {
+				log.Warn("cloudflared connector not started", "err", err)
+			}
+		}
+	}
 	apiServer.SetBundles(bundles)
 	apiServer.StartBackup(ctx)
 	apiServer.StartAutoUpdate(ctx)

@@ -14,11 +14,22 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 )
 
 // Resolver holds the proxy prefixes that may set the client address.
 type Resolver struct {
 	trusted []netip.Prefix
+	// cdn trusts Cloudflare's CF-Connecting-IP from a trusted peer. It is off
+	// until a tunnel is enabled, so a loopback proxy cannot spoof it otherwise.
+	cdn atomic.Bool
+}
+
+// SetCDN enables or disables trusting CF-Connecting-IP from a trusted peer.
+func (r *Resolver) SetCDN(on bool) {
+	if r != nil {
+		r.cdn.Store(on)
+	}
 }
 
 // New parses CIDR prefixes or single addresses. An empty list trusts nothing.
@@ -84,6 +95,14 @@ func (r *Resolver) FromRequest(req *http.Request) (netip.Addr, bool) {
 	peer, err := peerAddr(req.RemoteAddr)
 	if err != nil {
 		return netip.Addr{}, false
+	}
+	// Cloudflare's edge overwrites this header, and only the connector can
+	// reach this listener from loopback, so it is the address the WAF must
+	// filter, log and ban on while a tunnel is enabled.
+	if r.cdn.Load() && r.Trusts(peer) {
+		if a, err := netip.ParseAddr(strings.TrimSpace(req.Header.Get("CF-Connecting-IP"))); err == nil {
+			return a.Unmap(), true
+		}
 	}
 	return r.Resolve(peer, req.Header.Values("X-Forwarded-For")), true
 }

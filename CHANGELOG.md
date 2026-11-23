@@ -12,6 +12,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.58.0] — 2026-11-23
+
+### Added
+
+- **Cloudflare Tunnel, managed from the console.** The Cloudflare page installs `cloudflared` from
+  Cloudflare's package repository through the root helper, seals the tunnel token in the database
+  and runs the connector itself, so publishing the console needs no port forward, public IP or
+  certificate on the GUI listener. The page walks through the dashboard steps (create the tunnel,
+  paste the token, add the public hostname, put Access in front) and runs eight checks: binary,
+  token, connector registration, DNS answers, direct-origin record, edge `CF-Ray`, the origin
+  marker and the Access redirect.
+- **Cloudflare client addresses.** With the tunnel enabled and the strict-origin switch on, the WAF
+  trusts `CF-Connecting-IP` from the connector for policies, logs and bans, and strips the header
+  before a request reaches an upstream.
+- **`cloudflared` in the host package catalog.** Updates notices a connector that is older than
+  the installed package; restarting it stays a click rather than an interruption mid-traffic.
+- [Cloudflare Tunnel and Access guide](docs/install/07-cloudflare-tunnel.md) and the
+  [design](docs/superpowers/specs/2026-11-23-cloudflare-tunnel-design.md) behind it.
+
+### Changed
+
+- `deploy/install.sh` installs `deploy/cloudflared-install.sh` next to the CrowdSec installer, and
+  the Upgrades page documents the new package.
+
+### Notes
+
+- This release is the Admin tab in token mode on a native install. App hostnames, API mode
+  (creating tunnels and DNS records from the console) and a Docker sidecar are later slices; a
+  container console stays read-only and points at the host install.
+
 ## [1.57.2] — 2026-11-23
 
 ### Fixed
@@ -36,9 +66,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   real state — a hostname, a certificate, traffic, an alert target, a second factor, a second admin —
   and switches to the hardening score once those settle. Completed rows fold away per administrator
   (stored server-side in `admin_prefs`), and the empty Proxies, Logs and Notifications states now say
-  what would fill them. Its rows stack their action under the text on phone-width screens.
-- **Page help prints.** `#/<page>/help` renders the same Markdown through the same renderer on a route of
-  its own, with print styles that drop the console chrome; the drawer links to it as **Printable page**.
+  what would fill them.
 
 ### Fixed
 

@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.57.2.
+systemd service. Version 1.58.0.
 
 ## Contents
 
@@ -69,7 +69,8 @@ systemd service. Version 1.57.2.
 - Tamper-evident audit log (SHA-256 chain with an anchored head), full CSV export, and notifications
   through webhooks.
 - MCP gateway for AI agents with per-tool token scopes; a metrics endpoint guarded by a bearer
-  token; Tailscale-aware listeners; one-click self-update with rollback.
+  token; Tailscale-aware listeners; Cloudflare Tunnel with a guided setup and an Access
+  checklist; one-click self-update with rollback.
 
 **Console**
 

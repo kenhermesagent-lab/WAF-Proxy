@@ -348,6 +348,12 @@ else
   echo "warning: deploy/crowdsec-install.sh missing; the CrowdSec page cannot install the engine" >&2
 fi
 
+if [[ -f deploy/cloudflared-install.sh ]]; then
+  install -m 0755 deploy/cloudflared-install.sh "$app_dir/lib/cloudflared-install"
+else
+  echo "warning: deploy/cloudflared-install.sh missing; the Cloudflare page cannot install the connector" >&2
+fi
+
 if [[ ! -e /etc/wafproxy/wafproxy.env ]]; then
   install -m 0640 -o root -g wafproxy deploy/wafproxy.env.example /etc/wafproxy/wafproxy.env
   echo "installed /etc/wafproxy/wafproxy.env"

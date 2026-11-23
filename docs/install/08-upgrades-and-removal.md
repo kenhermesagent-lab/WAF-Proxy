@@ -41,6 +41,7 @@ The page uses a fixed catalog of the host packages the native service needs:
 | `ca-certificates` | ACME and upstream TLS trust roots |
 | `nftables` | Kernel-mode ban enforcement (`nft`) |
 | `tzdata` | Host time-zone data used by the console |
+| `cloudflared` | Cloudflare Tunnel connector, when the Cloudflare page installed it |
 
 It shows the installed version, the candidate version from the apt index, and whether the
 candidate comes from a distribution security repository. High and critical advisories are

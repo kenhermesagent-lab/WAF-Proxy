@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/bundle"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/canary"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
+	cf "github.com/kenhermesagent-lab/waf-proxy-docker/internal/cloudflared"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crowdsec"
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
@@ -71,24 +73,35 @@ type Server struct {
 	certs   *acme.Manager
 	// res holds one instance of policy, notify, anomaly, canary and ACME per
 	// site. It is nil in tests and CLI paths, which set the single fields above.
-	res        *siteres.Set
-	cs         *crowdsec.Manager
-	metrics    *metrics.Collector
-	notify     *notify.Manager
-	geo        *geoip.Geo
-	log        *slog.Logger
-	limiter    *auth.Limiter
-	mux        *http.ServeMux
-	started    time.Time
-	streams    *streaming.Manager
-	backup     *backup.Manager
-	anomaly    *anomaly.Manager
-	canary     *canary.Monitor
-	agentLinks *agentlink.Dispatcher
-	updates    *updatepkg.Manager
-	uptime     *uptime.Manager
-	restartFn  func()
-	tailscale  TailscaleState
+	res         *siteres.Set
+	cs          *crowdsec.Manager
+	metrics     *metrics.Collector
+	notify      *notify.Manager
+	geo         *geoip.Geo
+	log         *slog.Logger
+	limiter     *auth.Limiter
+	mux         *http.ServeMux
+	started     time.Time
+	streams     *streaming.Manager
+	backup      *backup.Manager
+	anomaly     *anomaly.Manager
+	canary      *canary.Monitor
+	agentLinks  *agentlink.Dispatcher
+	updates     *updatepkg.Manager
+	uptime      *uptime.Manager
+	restartFn   func()
+	tailscale   TailscaleState
+	cloudflared *cf.Supervisor
+
+	// Cloudflare install progress and the last check result, both polled by the
+	// page. cfNonce marks responses the connector delivered.
+	cfMu      sync.Mutex
+	cfRunning bool
+	cfErr     string
+	cfOutput  string
+	cfChecks  []cloudflareCheck
+	cfChecked string
+	cfNonce   atomic.Value
 
 	// CrowdSec one-click install progress, polled by the CrowdSec page.
 	csMu      sync.Mutex
@@ -132,6 +145,9 @@ func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Serve
 	s.backup = backup.New(st.Unscoped(), box, log, s.backupDocument)
 	if err := s.loadAdminAllowlist(); err != nil {
 		log.Warn("admin allowlist not loaded", "err", err)
+	}
+	if kv, err := st.Settings(); err == nil {
+		s.setCloudflareNonce(cf.Load(kv, box).Nonce)
 	}
 	s.routes()
 	return s
@@ -386,6 +402,13 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/tailscale", s.authed(s.getTailscale))
 	m.HandleFunc("PUT /api/tailscale", s.authed(s.putTailscale))
 
+	m.HandleFunc("GET /api/cloudflare", s.authed(s.getCloudflare))
+	m.HandleFunc("PUT /api/cloudflare", s.authed(s.putCloudflare))
+	m.HandleFunc("GET /api/cloudflare/install", s.authed(s.getCloudflareInstall))
+	m.HandleFunc("POST /api/cloudflare/install", s.authed(s.startCloudflareInstall))
+	m.HandleFunc("POST /api/cloudflare/connector", s.authed(s.cloudflareConnector))
+	m.HandleFunc("POST /api/cloudflare/check", s.authed(s.cloudflareCheck))
+
 	m.HandleFunc("GET /api/updates", s.authed(s.getUpdates))
 	m.HandleFunc("POST /api/updates/check", s.authed(s.checkUpdates))
 	m.HandleFunc("POST /api/updates/apply", s.authed(s.applyUpdate))
@@ -625,6 +648,12 @@ func clientIP(r *http.Request) string {
 // ---------- public endpoints ----------
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	// The tunnel check compares this marker with the nonce it saved, so a cached
+	// or unrelated response cannot pass as this console. Only the connector's
+	// loopback peer gets it, so a direct visitor cannot read the marker.
+	if nonce, _ := s.cfNonce.Load().(string); nonce != "" && loopbackPeer(r) {
+		w.Header().Set("X-WAF-Origin", nonce)
+	}
 	ready := s.proxy == nil || s.proxy.Ready()
 	status := http.StatusOK
 	if r.URL.Query().Get("ready") == "1" && !ready {
@@ -638,6 +667,17 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		body["canary"] = m.Snapshot()
 	}
 	writeJSON(w, status, body)
+}
+
+// loopbackPeer reports whether the request arrived through a local connector
+// rather than from the network.
+func loopbackPeer(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	addr, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	return err == nil && addr.IsLoopback()
 }
 
 // SetCanary attaches the scheduled probe whose last result health reports.

@@ -9,3 +9,4 @@ openssl
 git
 crowdsec
 tailscale
+cloudflared
