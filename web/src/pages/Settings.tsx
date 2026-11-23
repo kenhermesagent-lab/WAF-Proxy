@@ -206,12 +206,28 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
     }
   };
 
+  // Network, updates and GeoIP bind the whole process, so their controls are
+  // host-wide. A non-default site's console can read them and is refused on
+  // save, so the form says so and turns them off instead of failing late.
+  const hostWide = !!me?.site && me.site !== "default";
+  const hostWideNote = (
+    <p className="faint small-text" style={{ marginTop: -2 }}>
+      Host-wide setting: it belongs to the default site's console and is read-only here.
+    </p>
+  );
   const ifaceHint = (name: string, auto: boolean) =>
     name ? `${name} (${auto ? "auto-detected" : "configured"})` : "— (none detected)";
 
   return (
     <>
-    <PageHead sub="Node networking, protection defaults, retention, updates and the hardening checklist." />
+    <PageHead
+      sub={
+        hostWide
+          ? `Settings for ${me?.site_name ?? "this site"}. Host-wide fields are read-only here; protection, retention and backup apply to this site.`
+          : "Node networking, protection defaults, retention, updates and the hardening checklist."
+      }
+      actions={<Badge tone="info">Site: {me?.site_name ?? "default"}</Badge>}
+    />
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
         {SECTIONS.map((sec) => (
@@ -232,6 +248,8 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
             <h2>Network</h2>
             <p>Listener addresses are read from the database at boot. Only 443 needs to be forwarded from the WAN.</p>
           </div>
+          {hostWide && hostWideNote}
+          <fieldset disabled={hostWide} style={{ border: 0, padding: 0, margin: 0 }}>
           <div className="field-grid">
             <Field label="WAN address (443 listener)"><input value={s.wan_ip ?? ""} onChange={(e) => set("wan_ip", e.target.value)} placeholder="192.168.191.2" /></Field>
             <Field label="WAN port"><input value={s.wan_port ?? "443"} onChange={(e) => set("wan_port", e.target.value)} /></Field>
@@ -259,6 +277,7 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
             Both addresses must exist on this host. A single-NIC host uses the same address for WAN and LAN; firewall the GUI port from the WAN.
             Restart the service after changing bind addresses.
           </p>
+          </fieldset>
         </section>
 
         <section id="updates" className="settings-section">
@@ -266,7 +285,10 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
             <h2>Updates</h2>
             <p>Console and host package versions, with the restart that applies a rebuild.</p>
           </div>
-          <UpdatesPage onError={onError} onOK={onOK} head={false} />
+          {hostWide && hostWideNote}
+          <fieldset disabled={hostWide} style={{ border: 0, padding: 0, margin: 0 }}>
+            <UpdatesPage onError={onError} onOK={onOK} head={false} />
+          </fieldset>
         </section>
 
         <section id="protection" className="settings-section card">
@@ -377,6 +399,8 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
         </section>
 
         <section id="geoip" className="settings-section card">
+          {hostWide && hostWideNote}
+          <fieldset disabled={hostWide} style={{ border: 0, padding: 0, margin: 0 }}>
           <div className="card-head">
             <h2>GeoIP database</h2>
             <div className="actions">
@@ -415,6 +439,7 @@ export default function SettingsPage({ onError, onOK, version = "", me }: {
           <p className="faint small-text">
             Free DB-IP Lite databases are licensed under CC BY 4.0. <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a>.
           </p>
+          </fieldset>
         </section>
 
         <section id="activity" className="settings-section card">

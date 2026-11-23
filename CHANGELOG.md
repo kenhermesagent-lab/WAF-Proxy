@@ -12,6 +12,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.52.0] — 2026-11-23
+
+### Added
+
+- **Sites page and site switcher.** The console lists every site with its console host, hostnames,
+  retention and admin count, and creates, edits and removes them, reporting the server's own
+  message for a duplicate slug, an invalid console host or a refused delete. The topbar switcher
+  scopes every API call to the chosen site (`X-WAF-Site`), remembers it in `localStorage`, and
+  remounts the views on a switch so the previous site's data never stays on screen.
+- **`host_admin` built-in role** for a tenant administrator: hostnames, policies, certificates,
+  feeds, settings and accounts of its own site, but not the `sites` area. The console hides the
+  Sites page, the switcher and the host-level Tailscale and MCP pages from it, and the API ignores
+  a site header from a session that may not read sites.
+- **`sites` permission area** (`sites.read`/`sites.write`) in the role editor, with
+  `GET/POST /api/sites` and `PUT/DELETE /api/sites/{slug}`.
+
+### Changed
+
+- **Settings carry the site they apply to**, and the host-wide sections (network, updates, GeoIP)
+  are disabled with an explanation on a non-default site's console instead of failing on save.
+- **The Proxies page's "Sites" tab is now "Hostnames"**, which is what it lists.
+- **`console_host` is validated** on create and update, so a pasted URL or a path is refused with a
+  message rather than stored as a site nobody can reach.
 ## [1.51.1] — 2026-11-23
 
 ### Fixed

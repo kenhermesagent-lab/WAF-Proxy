@@ -91,6 +91,26 @@ export interface Me {
   totp_enabled: boolean;
   role: string;
   permissions: string[];
+  // The site this console was reached on, and the sites its role may switch
+  // between. A host_admin has no list and no switcher.
+  site?: string;
+  site_name?: string;
+  can_switch?: boolean;
+  sites?: { slug: string; name: string; console_host: string }[];
+}
+
+// One tenant as the Sites page reads it: identity, console host and the rows
+// that belong to it.
+export interface Site {
+  slug: string;
+  name: string;
+  console_host: string;
+  enabled: boolean;
+  created_at: string;
+  current: boolean;
+  hostnames: string[];
+  retention_days: string;
+  admins: number;
 }
 
 export interface PermissionArea {

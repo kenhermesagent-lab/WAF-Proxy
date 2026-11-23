@@ -43,6 +43,25 @@ var hostSettingKeys = map[string]bool{
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,31}$`)
 
+// consoleHostPattern matches a bare DNS name, so a pasted URL or a path is
+// refused with a message instead of becoming a site nobody can reach.
+var consoleHostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
+
+func checkConsoleHost(raw string) error {
+	h := strings.TrimSpace(raw)
+	if h == "" {
+		return nil
+	}
+	if strings.Contains(h, "://") || strings.ContainsAny(h, "/ \t?#") {
+		return fmt.Errorf("console host %q is not a hostname (enter a name such as console.example.com)", raw)
+	}
+	n := NormalizeHost(h)
+	if !consoleHostPattern.MatchString(n) || strings.Contains(n, "..") {
+		return fmt.Errorf("console host %q is not a hostname (enter a name such as console.example.com)", raw)
+	}
+	return nil
+}
+
 // NormalizeHost lowercases a host and drops any port and trailing dot, so a
 // request's Host header and a configured console host compare equal.
 func NormalizeHost(host string) string {
@@ -64,6 +83,9 @@ func (s *Store) CreateSite(slug, name, consoleHost string) (*model.Site, error) 
 	}
 	if name == "" {
 		name = slug
+	}
+	if err := checkConsoleHost(consoleHost); err != nil {
+		return nil, err
 	}
 	res, err := s.db.Exec(`INSERT INTO sites(slug, name, console_host, enabled, created_at)
 		VALUES(?, ?, ?, 1, ?)`, slug, name, host, stamp(time.Now()))
@@ -137,6 +159,9 @@ func (s *Store) UpdateSite(id int64, name, consoleHost string, enabled bool) (*m
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("a site needs a name")
+	}
+	if err := checkConsoleHost(consoleHost); err != nil {
+		return nil, err
 	}
 	_, err := s.db.Exec(`UPDATE sites SET name = ?, console_host = ?, enabled = ? WHERE id = ?`,
 		name, NormalizeHost(consoleHost), b2i(enabled), id)

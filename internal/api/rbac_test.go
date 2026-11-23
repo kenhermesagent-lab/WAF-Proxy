@@ -100,7 +100,7 @@ func TestAdministratorManagesAccounts(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &listing); err != nil {
 		t.Fatal(err)
 	}
-	if len(listing.Users) != 1 || len(listing.Roles) != 4 || len(listing.Areas) == 0 {
+	if len(listing.Users) != 1 || len(listing.Roles) != 5 || len(listing.Areas) == 0 {
 		t.Fatalf("unexpected listing: %+v", listing)
 	}
 

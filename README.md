@@ -230,7 +230,7 @@ page.*
 |---|---|
 | Dashboard | Needs-attention queue, live requests and byte rates, attack globe with country drill-down, top sources, upstream health |
 | Statistics | Request/block totals, per-site series, countries, stages, uptime |
-| Proxies | **Sites** (hostnames, upstreams, routes, health checks, maintenance, presets, per-site **360** view), **Certificates** (issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01) and **Streaming** (byte-relay forwarders for Plex, Jellyfin and similar) |
+| Proxies | **Hostnames** (upstreams, routes, health checks, maintenance, presets, per-hostname **360** view), **Certificates** (issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01) and **Streaming** (byte-relay forwarders for Plex, Jellyfin and similar) |
 | Policies | **Bans**, **Profiles** (global profile with policy **Preflight**, WAF and protection profiles), **Access profiles**, **Lists** (blocklists/whitelists) and **Bot filter** |
 | Logs | Event search, filters, saved views, live tail, bulk source actions, incident report, the **Why?** request simulator |
 | Threat intel | **Feeds** (health and rollup), **Lookup**, **Sources** (per-address investigation), **Bundles** and **CrowdSec** (engine, bouncer and the console blocklists it is enforcing) |
@@ -240,6 +240,7 @@ page.*
 | Agent access | MCP endpoint, tokens and their per-tool scopes |
 | Notifications | Webhook routing |
 | Tailscale | Listener on the tailnet address |
+| Sites | Every site this install serves: create, edit and remove one, its console host, the hostnames and retention it owns, and the admins in it (`sites.read`/`sites.write`) |
 | Settings | One page of sections: **Network**, **Updates** (version, release check, one-click update), **Protection**, **Retention & ACME**, **Backup**, **Runtime status**, **GeoIP database**, **Administrator activity** (audit, YAML/JSON transport) and **Readiness** (a scored hardening checklist, each gap linking to the control that fixes it) |
 | Account | Password, authenticator rotation, recovery codes, administrators and roles |
 
@@ -310,7 +311,17 @@ secrets are not part of the document.
   action without exposing the Docker socket to the console.
 - **Agent gateway.** The MCP endpoint is documented in [docs/MCP.md](docs/MCP.md); tokens are
   limited per tool and can be revoked from **Agent access**.
-- **Sites.** Every configurable row belongs to a site. An upgrade adopts the existing install as
+- **Sites.** The **Sites** page lists every tenant with its console host, its hostnames, its
+  retention and its administrator count, and creates, edits and removes them. The console topbar
+  carries a **site switcher**: the choice rides on every request (`X-WAF-Site`) and is kept in
+  `localStorage`, so reloading returns to the same site, and switching remounts the views so no
+  page keeps the previous site's data on screen. Settings are per site and carry a badge naming
+  the site they apply to; the host-wide sections (network, updates, GeoIP) are read-only on a
+  non-default console with a note saying why. The built-in `host_admin` role administers one site
+  (its hostnames, policies, certificates, feeds, settings and accounts) without the `sites` area:
+  it sees no switcher and no Sites page, and a `X-WAF-Site` header from it is ignored, so it
+  cannot read another tenant's rows.
+- **Sites and row ownership.** Every configurable row belongs to a site. An upgrade adopts the existing install as
   `default`, with its current `base_domain` as the console host, and `wafproxy sites` manages the
   rest. Each site has its own console host: a request arriving on that hostname is served from that
   site's rows only, signs in only that site's administrators, and shows that site's proxies, bans,

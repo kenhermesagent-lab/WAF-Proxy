@@ -38,6 +38,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/rbac"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 	updatepkg "github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates"
@@ -52,6 +53,8 @@ type ctxKey int
 const (
 	sessionKey ctxKey = 1
 	siteKey    ctxKey = 2
+	// siteOverrideKey marks a request that asked for another site by header.
+	siteOverrideKey ctxKey = 3
 )
 
 // Server is the admin API.
@@ -144,6 +147,10 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/logout", s.authed(s.logout))
 	m.HandleFunc("POST /api/cache/purge", s.authed(s.purgeCache))
 	m.HandleFunc("GET /api/me", s.authed(s.me))
+	m.HandleFunc("GET /api/sites", s.authed(s.listSites))
+	m.HandleFunc("POST /api/sites", s.authed(s.createSite))
+	m.HandleFunc("PUT /api/sites/{slug}", s.authed(s.updateSite))
+	m.HandleFunc("DELETE /api/sites/{slug}", s.authed(s.deleteSite))
 	m.HandleFunc("GET /api/sessions", s.authed(s.activeSessions))
 	m.HandleFunc("GET /api/search", s.authed(s.globalSearch))
 	m.HandleFunc("POST /api/account/password", s.authed(s.changePassword))
@@ -360,8 +367,36 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) withSite(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := s.st.SiteForHost(r.Host)
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), siteKey, id)))
+		ctx := context.WithValue(r.Context(), siteKey, id)
+		// The console's site switcher asks for another site by slug. authed
+		// drops the request back to the console's own site unless the session
+		// may read every site, so a tenant cannot reach past its own rows.
+		if slug := strings.TrimSpace(r.Header.Get("X-WAF-Site")); slug != "" {
+			if site, err := s.st.SiteBySlug(slug); err == nil && site.Enabled {
+				ctx = context.WithValue(ctx, siteKey, site.ID)
+				ctx = context.WithValue(ctx, siteOverrideKey, true)
+			}
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// consoleSite is the site whose console this request arrived on, which is the
+// site the session was issued for regardless of any switch request.
+func (s *Server) consoleSite(r *http.Request) int64 {
+	id := s.st.SiteForHost(r.Host)
+	if id == 0 {
+		return s.st.SiteID()
+	}
+	return id
+}
+
+// storeFor is the handle a given site id reads through.
+func (s *Server) storeFor(siteID int64) *store.Store {
+	if siteID == 0 || siteID == s.st.SiteID() {
+		return s.st
+	}
+	return s.st.InSite(siteID)
 }
 
 // db is the only store a handler may touch: it is bound to the site of the
@@ -417,7 +452,8 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusForbidden, "this address is not allowed to use the admin console")
 			return
 		}
-		sess, err := s.db(r).LookupSession(c.Value)
+		home := s.storeFor(s.consoleSite(r))
+		sess, err := home.LookupSession(c.Value)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "session expired")
 			return
@@ -436,7 +472,7 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 				next = abs
 			}
 			if next.After(sess.ExpiresAt) {
-				if err := s.db(r).TouchSession(sess.ID, next); err == nil {
+				if err := home.TouchSession(sess.ID, next); err == nil {
 					sess.ExpiresAt = next
 				}
 			}
@@ -448,6 +484,10 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		ctx := context.WithValue(r.Context(), sessionKey, sess)
+		if requested, _ := r.Context().Value(siteOverrideKey).(bool); requested && !sess.Can(rbac.Permission("sites", "read")) {
+			ctx = context.WithValue(ctx, siteKey, s.consoleSite(r))
+			ctx = context.WithValue(ctx, siteOverrideKey, false)
+		}
 		fn(w, r.WithContext(ctx))
 	}
 }
@@ -820,12 +860,22 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	kv, _ := s.db(r).Settings()
 	user, _ := s.db(r).UserByID(sess.UserID)
-	writeJSON(w, http.StatusOK, map[string]any{
+	site, _ := s.st.SiteByID(s.consoleSite(r))
+	body := map[string]any{
 		"username": sess.Username, "csrf": sess.CSRF, "version": version.Version,
 		"base_domain": kv["base_domain"], "expires_at": sess.ExpiresAt,
 		"totp_enabled": user != nil && user.TOTPEnabled,
 		"role":         sess.Role, "permissions": sess.Permissions,
-	})
+		"can_switch": sess.Can(rbac.Permission("sites", "read")),
+	}
+	if site != nil {
+		body["site"] = site.Slug
+		body["site_name"] = site.Name
+	}
+	if canSwitch, _ := body["can_switch"].(bool); canSwitch {
+		body["sites"] = s.switchable()
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // ---------- settings ----------

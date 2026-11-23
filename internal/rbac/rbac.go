@@ -30,6 +30,7 @@ var Areas = []Area{
 	{"sources", "Threat feeds, CrowdSec and agents"},
 	{"settings", "Settings, GeoIP, notifications and backup"},
 	{"accounts", "Administrator accounts and roles"},
+	{"sites", "Sites: create, edit and remove tenants"},
 	{"system", "Updates and system restart"},
 }
 
@@ -117,8 +118,25 @@ func Builtins() []model.Role {
 		{Name: "Read-only", Description: "Sees every page and setting but cannot change anything.", Builtin: true, Permissions: allRead()},
 		{Name: "Viewer", Description: "Sees the dashboard and traffic logs only.", Builtin: true,
 			Permissions: []string{Permission("dashboard", "read"), Permission("traffic", "read")}},
+		{Name: HostAdmin, Description: "Administers one site only: its hostnames, policies, certificates, feeds, settings and accounts. Cannot create sites, switch to another site or change host-wide settings.", Builtin: true,
+			Permissions: []string{
+				Permission("dashboard", "read"), Permission("traffic", "read"), Permission("traffic", "write"),
+				Permission("policies", "read"), Permission("policies", "write"),
+				Permission("proxies", "read"), Permission("proxies", "write"),
+				Permission("streaming", "read"), Permission("streaming", "write"),
+				Permission("certificates", "read"), Permission("certificates", "write"),
+				Permission("sources", "read"), Permission("sources", "write"),
+				Permission("accounts", "read"), Permission("accounts", "write"),
+				Permission("settings", "read"), Permission("settings", "write"),
+			}},
 	}
 }
 
 // Administrator is the role name every existing account keeps after upgrade.
 const Administrator = "Administrator"
+
+// HostAdmin administers a single site's console: its hostnames, policies,
+// certificates, feeds and accounts, but not the set of sites itself. It cannot
+// switch consoles and it cannot change host-wide settings, so the console hides
+// both for it.
+const HostAdmin = "host_admin"

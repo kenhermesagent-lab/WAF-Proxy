@@ -6,6 +6,9 @@ export type NavItem = {
   label: string;
   icon: IconName;
   permission?: string;
+  // Roles that must not see the item even when it holds the permission,
+  // because the page would act on the host rather than on its own site.
+  hideFor?: string[];
   hint?: string;
   tabs?: NavTab[];
   defaultTab?: string;
@@ -31,10 +34,10 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
         label: "Proxies",
         icon: "proxies",
         permission: "proxies.read",
-        hint: "Sites, certificates and streaming forwards",
+        hint: "Hostnames, certificates and streaming forwards",
         defaultTab: "sites",
         tabs: [
-          { id: "sites", label: "Sites" },
+          { id: "sites", label: "Hostnames" },
           { id: "certs", label: "Certificates", permission: "certificates.read" },
           { id: "streaming", label: "Streaming", permission: "streaming.read" },
         ],
@@ -99,9 +102,10 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "System",
     items: [
-      { id: "agent", label: "Agent access", icon: "terminal", permission: "settings.read", hint: "MCP endpoint and tokens" },
+      { id: "agent", label: "Agent access", icon: "terminal", permission: "settings.read", hideFor: ["host_admin"], hint: "MCP endpoint and tokens" },
       { id: "notifications", label: "Notifications", icon: "mail", permission: "settings.read", hint: "Alert channels" },
-      { id: "tailscale", label: "Tailscale", icon: "network", permission: "settings.read", hint: "Private network access" },
+      { id: "tailscale", label: "Tailscale", icon: "network", permission: "settings.read", hideFor: ["host_admin"], hint: "Private network access" },
+      { id: "sites", label: "Sites", icon: "shield", permission: "sites.read", hint: "Tenants, console hosts and their hostnames" },
     ],
   },
 ];
