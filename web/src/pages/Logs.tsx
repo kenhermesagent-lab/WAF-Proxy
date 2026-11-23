@@ -67,12 +67,14 @@ export default function Logs({
   query,
   onOpenSource,
   canWrite,
+  canShareViews,
 }: {
   onError: (m: string) => void;
   onOK: (m: string) => void;
   query?: string;
   onOpenSource: (ip: string) => void;
   canWrite: boolean;
+  canShareViews: boolean;
 }) {
   const [events, setEvents] = useState<Event[]>([]);
   const [total, setTotal] = useState(0);
@@ -198,7 +200,7 @@ export default function Logs({
 
   const saveView = async () => {
     const name = viewName.trim();
-    if (!name) return;
+    if (!name || !canShareViews) return;
     const next = [...views.filter((v) => v.name !== name), { name, query: queryOf(filters).toString() }];
     setViews(next);
     writeViews(next);
@@ -213,7 +215,7 @@ export default function Logs({
   };
 
   const removeView = async () => {
-    if (!viewSel) return;
+    if (!viewSel || !canShareViews) return;
     const name = viewSel;
     const next = views.filter((v) => v.name !== viewSel);
     setViews(next);
@@ -321,9 +323,13 @@ export default function Logs({
               placeholder="Port scans"
             />
           </Field>
-          <button style={{ marginTop: 18 }} onClick={saveView} disabled={!viewName.trim()}>Save view</button>
+          <button style={{ marginTop: 18 }} onClick={saveView} disabled={!canShareViews || !viewName.trim()}>
+            Save view
+          </button>
           <button style={{ marginTop: 18 }} onClick={copyLink} disabled={!viewSel}>Copy link</button>
-          <button style={{ marginTop: 18 }} onClick={removeView} disabled={!viewSel}>Delete view</button>
+          <button style={{ marginTop: 18 }} onClick={removeView} disabled={!canShareViews || !viewSel}>
+            Delete view
+          </button>
         </div>
         <div className="row grow">
           <div className="field"><label>Source IP</label><input value={filters.ip} onChange={(e) => setFilters({ ...filters, ip: e.target.value })} placeholder="203.0.113.7" /></div>

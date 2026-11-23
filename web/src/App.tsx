@@ -360,6 +360,7 @@ export default function App() {
                   query={pageQuery}
                   onOpenSource={setSourceIp}
                   canWrite={can(me?.permissions, "policies.write")}
+                  canShareViews={can(me?.permissions, "traffic.write")}
                 />
               )}
               {page === "settings" && <SettingsPage onError={onError} onOK={onOK} />}

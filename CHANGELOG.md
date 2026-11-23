@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.47.7] — 2026-11-23
+
+### Fixed
+
+- **Read-only roles no longer get dead Save view / Delete view buttons.** The Logs page now takes
+  `traffic.write` (the permission the shared-view API checks, not `policies.write`) and disables
+  those two controls without it, so a reader can still pick and copy a shared view but cannot
+  trigger a save that would fail or a delete that would only reappear on reload.
+
 ## [1.47.6] — 2026-11-23
 
 ### Added

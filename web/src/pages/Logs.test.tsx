@@ -70,7 +70,7 @@ describe("Logs request simulator", () => {
   });
 
   it("opens the simulator for a blocked row and renders the returned stages and verdict", async () => {
-    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite canShareViews />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Why?" }));
     expect(await screen.findByText(/Why was this request handled this way\? · app.lab.local/)).toBeTruthy();
@@ -91,14 +91,14 @@ describe("Logs request simulator", () => {
 
   it("opens the source drawer from a source cell", async () => {
     const onOpenSource = vi.fn();
-    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={onOpenSource} canWrite />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={onOpenSource} canWrite canShareViews />);
 
     fireEvent.click(await screen.findByRole("button", { name: "203.0.113.7" }));
     expect(onOpenSource).toHaveBeenCalledWith("203.0.113.7");
   });
 
   it("polls the newest page while the live tail is on", async () => {
-    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite canShareViews />);
     await screen.findByText("GET /.env");
     const before = get.mock.calls.filter(([path]) => path.startsWith("/api/events")).length;
 
@@ -120,7 +120,7 @@ describe("Logs request simulator", () => {
       clear: () => { for (const k of Object.keys(store)) delete store[k]; },
     });
     const onOK = vi.fn();
-    render(<Logs onError={vi.fn()} onOK={onOK} onOpenSource={vi.fn()} canWrite />);
+    render(<Logs onError={vi.fn()} onOK={onOK} onOpenSource={vi.fn()} canWrite canShareViews />);
     await screen.findByText("GET /.env");
 
     fireEvent.change(screen.getByPlaceholderText("203.0.113.7"), { target: { value: "203.0.113.7" } });
@@ -133,7 +133,7 @@ describe("Logs request simulator", () => {
 
     // A fresh mount reads the saved view back from storage.
     cleanup();
-    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite canShareViews />);
     expect(await screen.findByRole("option", { name: "Port scans" })).toBeTruthy();
   });
 
@@ -145,7 +145,7 @@ describe("Logs request simulator", () => {
       if (path.startsWith("/api/events")) return { events: [blockedEvent], total: 1 };
       return [];
     });
-    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite canShareViews />);
 
     expect(await screen.findByRole("option", { name: "Team scans" })).toBeTruthy();
     await waitFor(() =>
@@ -160,7 +160,7 @@ describe("Logs request simulator", () => {
       if (path.startsWith("/api/events")) return { events: [blockedEvent], total: 1 };
       return [];
     });
-    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite canShareViews />);
 
     expect(await screen.findByRole("option", { name: "Offline scans" })).toBeTruthy();
   });
@@ -168,7 +168,7 @@ describe("Logs request simulator", () => {
   it("keeps a view in this browser when the server refuses the save", async () => {
     put.mockRejectedValue(new Error("forbidden"));
     const onError = vi.fn();
-    render(<Logs onError={onError} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+    render(<Logs onError={onError} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite canShareViews />);
     await screen.findByText("GET /.env");
 
     fireEvent.change(screen.getByPlaceholderText("203.0.113.7"), { target: { value: "203.0.113.7" } });
@@ -179,6 +179,34 @@ describe("Logs request simulator", () => {
     expect(await screen.findByRole("option", { name: "Mine" })).toBeTruthy();
   });
 
+  it("disables the shared-view controls for a read-only role", async () => {
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/log-views") {
+        return { views: [{ name: "Team scans", query: "stage=waf", updated_by: "admin", updated_at: "2026-11-23T10:00:00Z" }] };
+      }
+      if (path.startsWith("/api/events")) return { events: [blockedEvent], total: 1 };
+      return [];
+    });
+    const onOK = vi.fn();
+    render(<Logs onError={vi.fn()} onOK={onOK} onOpenSource={vi.fn()} canWrite={false} canShareViews={false} />);
+
+    // The shared list still loads for a reader.
+    expect(await screen.findByRole("option", { name: "Team scans" })).toBeTruthy();
+
+    const save = screen.getByRole("button", { name: "Save view" }) as HTMLButtonElement;
+    const remove = screen.getByRole("button", { name: "Delete view" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(remove.disabled).toBe(true);
+
+    // Typing a name and pressing Enter must not save either.
+    const name = screen.getByPlaceholderText("Port scans");
+    fireEvent.change(name, { target: { value: "Mine" } });
+    fireEvent.keyDown(name, { key: "Enter" });
+    expect(save.disabled).toBe(true);
+    expect(put).not.toHaveBeenCalled();
+    expect(onOK).not.toHaveBeenCalled();
+  });
+
   it("ignores a corrupt saved-view list", async () => {
     vi.stubGlobal("localStorage", {
       getItem: () => "{not json",
@@ -186,14 +214,14 @@ describe("Logs request simulator", () => {
       removeItem: () => {},
       clear: () => {},
     });
-    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite canShareViews />);
     expect(await screen.findByText("GET /.env")).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Port scans" })).toBeNull();
   });
 
   it("bans the selected sources after confirmation", async () => {
     const onOK = vi.fn();
-    render(<Logs onError={vi.fn()} onOK={onOK} onOpenSource={vi.fn()} canWrite />);
+    render(<Logs onError={vi.fn()} onOK={onOK} onOpenSource={vi.fn()} canWrite canShareViews />);
     await screen.findByText("GET /.env");
 
     fireEvent.click(screen.getByLabelText("Select 203.0.113.7"));
@@ -216,7 +244,7 @@ describe("Logs request simulator", () => {
   });
 
   it("hides the bulk ban from a read-only role", async () => {
-    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite={false} />);
+    render(<Logs onError={vi.fn()} onOK={vi.fn()} onOpenSource={vi.fn()} canWrite={false} canShareViews />);
     await screen.findByText("GET /.env");
     fireEvent.click(screen.getByLabelText("Select 203.0.113.7"));
     expect(screen.getByRole("button", { name: "Copy IPs" })).toBeTruthy();
