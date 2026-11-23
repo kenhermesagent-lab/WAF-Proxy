@@ -34,6 +34,11 @@ type Result struct {
 	Stages []Stage `json:"stages"`
 }
 
+// Probe runs one check against a host.
+type Probe interface {
+	Run(ctx context.Context, host string) Result
+}
+
 // Prober carries the dialers and client so tests can replace the network.
 type Prober struct {
 	Client *http.Client

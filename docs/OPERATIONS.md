@@ -313,3 +313,36 @@ go test ./internal/acme -run Pebble -v
 The test issues a real certificate through the exported `proxy.PlainHTTPHandler`, then
 asserts a second, unresolvable name fails and is stored as `error`, and that ordinary
 traffic on the listener redirects to HTTPS.
+
+
+### Scheduled canary
+
+The gateway probes one site on a timer, so a broken path is noticed without an
+operator clicking the button. Settings:
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| `canary_enabled` | run the schedule | on (`0` disables) |
+| `canary_host` | site to probe; empty uses the first configured site | empty |
+| `canary_interval_s` | seconds between probes, 30–86400 | `300` |
+| `canary_retries` | extra attempts after a failed probe, 0–10 | `2` |
+
+Each cycle runs the probe, retries a failure up to `canary_retries` times, and records
+the last result: host, ok, failing stage, detail, connect latency in milliseconds,
+consecutive failed cycles and the check time. Failures notify the **Backend up/down**
+class once per outage (dedupe key `canary:<host>`, no alert on every retry); a
+recovery sends one message and resets the counter. Ordinary probe results are not
+notified.
+
+The last result is part of `GET /api/health`:
+
+```
+"canary": {"enabled": true, "host": "app.example.com", "ok": false,
+           "failed_stage": "upstream", "detail": "upstream: upstream answered 502",
+           "latency_ms": 18, "checked_at": "...", "consecutive_failures": 2}
+```
+
+Health still returns `200` while the canary is failing; the field is diagnostic, and
+`?ready=1` keeps answering only for proxy readiness. The probe runs from the gateway
+over the public hostname, so it needs the same DNS/hairpin setup as the manual
+`POST /api/canary`.

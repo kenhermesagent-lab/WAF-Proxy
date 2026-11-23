@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixes and add-ons inside a shipped phase bump **PATCH**: `0.4.1`, `0.4.2`.
 - Every push to `main` has a matching section here and an annotated tag `vX.Y.Z`.
 
+## [1.45.0] — 2026-11-23
+
+### Added
+
+- **Scheduled canary.** A timer probes one site through the proxy, retries failures,
+  reports whether it answered (`POST /api/canary`), and exposes the last result under
+  `canary` in `GET /api/health` with latency, failing stage and consecutive failures.
+  Failures notify once per outage after retries and recovery notifies once.
+- Settings `canary_enabled`, `canary_host`, `canary_interval_s` and `canary_retries`.
+
 ## [1.44.0] — 2026-11-23
 
 ### Added

@@ -28,6 +28,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/canary"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crowdsec"
@@ -645,6 +646,9 @@ func run() error {
 	anomalyMon.SetSink(agentLinks.Publish)
 	apiServer.SetAnomaly(anomalyMon)
 	go anomalyMon.Start(ctx)
+	canaryMon := canary.NewMonitor(st, canary.Prober{}, notifier, log)
+	apiServer.SetCanary(canaryMon)
+	go canaryMon.Start(ctx)
 	apiServer.SetStreaming(streams)
 	apiServer.SetUpdates(updateManager)
 	apiServer.SetUptime(uptimeMon)

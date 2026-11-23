@@ -25,6 +25,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/backup"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/canary"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/clientip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crowdsec"
@@ -70,6 +71,7 @@ type Server struct {
 	streams    *streaming.Manager
 	backup     *backup.Manager
 	anomaly    *anomaly.Manager
+	canary     *canary.Monitor
 	agentLinks *agentlink.Dispatcher
 	updates    *updatepkg.Manager
 	uptime     *uptime.Manager
@@ -432,11 +434,18 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("ready") == "1" && !ready {
 		status = http.StatusServiceUnavailable
 	}
-	writeJSON(w, status, map[string]any{
+	body := map[string]any{
 		"status": "ok", "version": version.Version, "uptime_s": int(time.Since(s.started).Seconds()),
 		"ready": ready,
-	})
+	}
+	if s.canary != nil {
+		body["canary"] = s.canary.Snapshot()
+	}
+	writeJSON(w, status, body)
 }
+
+// SetCanary attaches the scheduled probe whose last result health reports.
+func (s *Server) SetCanary(m *canary.Monitor) { s.canary = m }
 
 // purgeCache drops the response cache for one host, or all hosts when the body
 // names none. Operators reach for it after a backend redeploy.
