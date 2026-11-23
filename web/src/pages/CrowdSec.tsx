@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Field, errText, fmtAgo } from "../ui";
+import { Badge, Card, Field, errText, fmtAgo, PageHead } from "../ui";
 import type { CrowdSecInstall, CrowdSecStatus } from "../types";
 
 // ConsoleConnection shows the rows `cscli console status` reports, so the plan
@@ -171,6 +171,7 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="The bouncer that applies community decisions to proxy and stream traffic." />
       <Card
         title="Security engine and bouncer"
         actions={<button className="small" onClick={load}>Refresh</button>}
@@ -367,7 +368,19 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
         </Card>
       )}
 
-      <Card title="Bouncer configuration">
+      <Card
+        title="Bouncer configuration"
+        actions={
+          <>
+            <button className="small" onClick={test} disabled={testing || (!url && !status?.lapi)}>
+              {testing ? "Testing…" : "Test connection"}
+            </button>
+            <button className="small primary" onClick={save} disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </>
+        }
+      >
         <div className="row grow">
           <Field label="LAPI URL">
             <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://127.0.0.1:8081" />
@@ -392,12 +405,6 @@ export default function CrowdSecPage({ onError, onOK }: { onError: (m: string) =
             Remove the saved key
           </label>
         )}
-        <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-          <button className="small" onClick={test} disabled={testing || (!url && !status?.lapi)}>
-            {testing ? "Testing…" : "Test connection"}
-          </button>
-          <button className="primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save and apply"}</button>
-        </div>
         <p className="muted" style={{ fontSize: 12 }}>
           The key is encrypted with the installation master key and never returned to the browser. Changing
           the configuration takes effect within 30 seconds without restarting WAF-Proxy.

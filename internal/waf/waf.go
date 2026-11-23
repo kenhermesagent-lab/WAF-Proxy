@@ -106,13 +106,21 @@ func NewSet(profiles []model.Profile, log *slog.Logger) *Set {
 	for _, p := range profiles {
 		s.configs[p.ID] = p
 	}
-	fallback := model.Profile{ID: 0, Name: "Default", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072}
-	if eng, err := compile(fallback, nil); err == nil {
-		s.fallback = eng
-	} else {
-		log.Error("compile fallback WAF", "err", err)
-	}
+	s.fallback = compileFallback(log, nil)
 	return s
+}
+
+// compileFallback builds the engine a site without a profile falls back to. It
+// compiles outside the set lock so an install does not stall every request for
+// the length of a CRS compile.
+func compileFallback(log *slog.Logger, bundles []Bundle) *Engine {
+	profile := model.Profile{ID: 0, Name: "Default", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072}
+	eng, err := compile(profile, bundles)
+	if err != nil {
+		log.Error("compile fallback WAF", "err", err)
+		return nil
+	}
+	return eng
 }
 
 // Reload replaces the profile configuration and drops compiled engines.
@@ -130,24 +138,30 @@ func (s *Set) Reload(profiles []model.Profile) {
 // dropped because a bundle's rules and its off/log/block mode are baked in at
 // compile time, which is what makes "off" cost nothing at request time.
 func (s *Set) SetBundles(bundles []Bundle) {
+	// A site without a profile gets the fallback engine, so it has to see the
+	// packs too. Build it before taking the lock.
+	fallback := compileFallback(s.log, bundles)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.bundles = bundles
 	s.engines = map[int64]*Engine{}
-	// The fallback profile is what a site without a profile gets. Recompile it
-	// too, or those sites would silently see no bundle rules at all.
-	fallback := model.Profile{ID: 0, Name: "Default", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072}
-	if eng, err := compile(fallback, bundles); err == nil {
-		s.fallback = eng
-	} else {
-		s.log.Error("compile fallback WAF", "err", err)
+	if fallback != nil {
+		s.fallback = fallback
 	}
+}
+
+// fallbackEngine reads the default engine under the read lock: SetBundles
+// replaces it on every install, so the field is not safe to read directly.
+func (s *Set) fallbackEngine() *Engine {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.fallback
 }
 
 // For returns the engine for a profile, compiling it on first use.
 func (s *Set) For(profileID *int64) *Engine {
 	if profileID == nil {
-		return s.fallback
+		return s.fallbackEngine()
 	}
 	id := *profileID
 	s.mu.RLock()
@@ -159,12 +173,12 @@ func (s *Set) For(profileID *int64) *Engine {
 	bundles := s.bundles
 	s.mu.RUnlock()
 	if !ok {
-		return s.fallback
+		return s.fallbackEngine()
 	}
 	eng, err := compile(cfg, bundles)
 	if err != nil {
 		s.log.Error("compile WAF profile", "profile", cfg.Name, "err", err)
-		return s.fallback
+		return s.fallbackEngine()
 	}
 	s.mu.Lock()
 	s.engines[id] = eng

@@ -201,7 +201,7 @@ export default function Activity({
                   <tr key={e.id}>
                     <td className="muted" style={{ whiteSpace: "nowrap" }} title={fmtTime(e.ts)}>{fmtAgo(e.ts)}</td>
                     <td>{e.user || "system"}</td>
-                    <td><Badge tone={e.action.endsWith(".rollback") ? "warn" : e.entity ? "info" : ""}>{e.action}</Badge></td>
+                    <td><Badge>{e.action}</Badge></td>
                     <td className="muted hide-tablet" style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.detail}>{e.detail || "—"}</td>
                     <td className="mono hide-tablet" style={{ fontSize: 11.5 }}>{e.ip || "—"}</td>
                     <td className="right" style={{ whiteSpace: "nowrap" }}>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import { COFFEE_URL, DOCS_URL } from "../links";
-import { Badge, Field, PageHead, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
+import { Badge, Field, PageHead, SaveBar, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
 import type { AuditEntry, CrowdSecStatus, GeoIPStatus } from "../types";
 import BackupCard from "../components/BackupCard";
 
@@ -451,19 +451,12 @@ export default function SettingsPage({ onError, onOK, version = "" }: { onError:
 
         {/* Only present while something is unsaved, so it never hovers over fields. */}
         {(dirty > 0 || saving) && (
-          <div className="save-bar">
-            <span className="dirty">
-              <b>{dirty} unsaved change{dirty === 1 ? "" : "s"}</b> · changes apply after saving
-            </span>
-            <span className="actions">
-              <button disabled={saving} onClick={() => { setS({ ...saved }); onOK("Unsaved changes discarded"); }}>
-                Discard
-              </button>
-              <button className="primary" onClick={save} disabled={saving}>
-                {saving ? "Saving…" : "Save settings"}
-              </button>
-            </span>
-          </div>
+          <SaveBar
+            note={<><b>{dirty} unsaved change{dirty === 1 ? "" : "s"}</b> · changes apply after saving</>}
+            saving={saving}
+            onDiscard={() => { setS({ ...saved }); onOK("Unsaved changes discarded"); }}
+            onSave={save}
+          />
         )}
       </div>
     </div>

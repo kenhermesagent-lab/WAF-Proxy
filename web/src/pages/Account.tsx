@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { confirmDialog, Card, Field, errText } from "../ui";
+import { confirmDialog, Card, Field, errText, PageHead } from "../ui";
 import Team from "../components/Team";
 import { Me, can } from "../types";
 
@@ -102,6 +102,7 @@ export default function Account({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="Your password, authenticator and the administrators allowed to sign in." />
       <div className="grid cols-2">
         <Card title="Change password">
           <Field label="Current password">

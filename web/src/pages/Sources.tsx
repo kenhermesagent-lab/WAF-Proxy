@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, Empty, Field, errText, fmtAgo } from "../ui";
+import { Badge, Card, Empty, Field, errText, fmtAgo, fmtTime, PageHead } from "../ui";
 import type { IPSummary } from "../types";
 
 export default function Sources({
@@ -37,6 +37,7 @@ export default function Sources({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="Source addresses ranked by request volume, with block counts and a link to their events." />
       <Card title="Source IP explorer">
         <div className="row grow">
           <Field label="IP prefix">
@@ -75,7 +76,7 @@ export default function Sources({
                     <td className="num">{r.requests.toLocaleString()}</td>
                     <td className="num">{r.blocked.toLocaleString()}</td>
                     <td className="num">{r.hosts}</td>
-                    <td className="muted" style={{ whiteSpace: "nowrap" }}>{fmtAgo(r.last_seen)}</td>
+                    <td className="muted" style={{ whiteSpace: "nowrap" }} title={fmtTime(r.last_seen)}>{fmtAgo(r.last_seen)}</td>
                     <td>
                       {r.banned
                         ? <Badge tone="bad">{r.permanent ? "permanent ban" : "banned"}</Badge>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { confirmDialog, Badge, Card, errText } from "../ui";
+import { confirmDialog, Badge, Card, SaveBar, errText, PageHead } from "../ui";
 import type { TailscaleStatus } from "../types";
 
 export default function TailscalePage({
@@ -65,6 +65,7 @@ export default function TailscalePage({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="Private tailnet listeners for the console and for proxied applications." />
       <Card title="Native Tailscale access">
         <div className="bar-row">
           <div>Interface</div>
@@ -76,21 +77,21 @@ export default function TailscalePage({
         <div className="bar-row">
           <div>Admin listener</div>
           <div>
-            {ts.admin_active ? <Badge tone="ok">listening</Badge> : <Badge tone="warn">{ts.admin_enabled ? "not listening" : "off"}</Badge>}
+            {ts.admin_active ? <Badge tone="ok">listening</Badge> : ts.admin_enabled ? <Badge tone="warn">not listening</Badge> : <Badge>off</Badge>}
             {ts.admin_url && <span className="mono" style={{ marginLeft: 8 }}>{ts.admin_url}</span>}
           </div>
         </div>
         <div className="bar-row">
           <div>Proxy listener</div>
           <div>
-            {ts.proxy_active ? <Badge tone="ok">listening</Badge> : <Badge tone="warn">{ts.proxy_enabled ? "not listening" : "off"}</Badge>}
+            {ts.proxy_active ? <Badge tone="ok">listening</Badge> : ts.proxy_enabled ? <Badge tone="warn">not listening</Badge> : <Badge>off</Badge>}
             {ts.proxy_addr && <span className="mono" style={{ marginLeft: 8 }}>{ts.proxy_addr}</span>}
           </div>
         </div>
         <div className="bar-row" style={{ borderBottom: 0 }}>
           <div>Split DNS</div>
           <div>
-            {ts.dns_active ? <Badge tone="ok">answering</Badge> : <Badge tone="warn">{ts.dns_enabled ? "not answering" : "off"}</Badge>}
+            {ts.dns_active ? <Badge tone="ok">answering</Badge> : ts.dns_enabled ? <Badge tone="warn">not answering</Badge> : <Badge>off</Badge>}
             {ts.dns_addr && <span className="mono" style={{ marginLeft: 8 }}>{ts.dns_addr}</span>}
           </div>
         </div>
@@ -190,11 +191,12 @@ export default function TailscalePage({
         </div>
       )}
 
-      <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="primary" onClick={save} disabled={saving}>
-          {saving ? "Saving…" : "Save Tailscale settings"}
-        </button>
-      </div>
+      <SaveBar
+        note="Listener changes take effect after saving; some need a restart."
+        saveLabel="Save Tailscale settings"
+        saving={saving}
+        onSave={save}
+      />
     </div>
   );
 }

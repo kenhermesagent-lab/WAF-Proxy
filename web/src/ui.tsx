@@ -28,6 +28,37 @@ export function Card({ title, actions, children, sub }: { title?: string; action
   );
 }
 
+export function SaveBar({
+  note,
+  saveLabel = "Save settings",
+  saving,
+  disabled,
+  extra,
+  onSave,
+  onDiscard,
+}: {
+  note?: ReactNode;
+  saveLabel?: string;
+  saving?: boolean;
+  disabled?: boolean;
+  extra?: ReactNode;
+  onSave: () => void;
+  onDiscard?: () => void;
+}) {
+  return (
+    <div className="save-bar">
+      <span className="dirty">{note}</span>
+      <span className="actions">
+        {extra}
+        {onDiscard ? <button disabled={saving} onClick={onDiscard}>Discard</button> : null}
+        <button className="primary" onClick={onSave} disabled={saving || disabled}>
+          {saving ? "Saving…" : saveLabel}
+        </button>
+      </span>
+    </div>
+  );
+}
+
 export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
     <div className="field">
@@ -293,11 +324,13 @@ export function fmtBps(n: number): string {
   return `${fmtBytes(n)}/s`;
 }
 
+// One absolute format everywhere, regardless of the browser locale.
 export function fmtTime(iso?: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export function fmtAgo(iso?: string | null): string {

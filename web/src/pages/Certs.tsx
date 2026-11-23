@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { confirmDialog, Badge, Card, Empty, Field, Modal, errText, fmtTime } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Field, Modal, errText, fmtTime, PageHead } from "../ui";
 import { Cert } from "../types";
 
 const RENEW_OPTIONS = [
@@ -161,6 +161,7 @@ export default function Certs({ onError, onOK, base }: { onError: (m: string) =>
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="ACME certificates for this node's hostnames, with DNS providers and renewal policy." />
       <Card actions={<button className="primary" onClick={() => setOpen(true)}>Request certificate</button>}>
         {certs.length === 0 ? (
           <Empty>No certificates yet. A wildcard certificate for your base domain covers every proxy subdomain.</Empty>

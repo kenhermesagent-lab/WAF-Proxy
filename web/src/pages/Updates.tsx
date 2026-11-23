@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { confirmDialog, Badge, Card, Empty, Info, errText, fmtAgo } from "../ui";
+import { confirmDialog, Badge, Card, Empty, Info, errText, fmtAgo, fmtTime, PageHead } from "../ui";
 import type { UpdatePackage, UpdatesSnapshot } from "../types";
 import AutoUpdateCard from "../components/AutoUpdateCard";
 
@@ -186,6 +186,7 @@ export default function UpdatesPage({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="Console and host package versions, with the restart that applies a rebuild." />
       <Card
         title="WAF-Proxy application"
         actions={
@@ -234,9 +235,7 @@ export default function UpdatesPage({
               </Badge>{" "}
               <span className="muted" style={{ fontSize: 12 }}>
                 {snap.app_last_update.message}
-                {snap.app_last_update.at
-                  ? ` · ${new Date(snap.app_last_update.at).toLocaleString()}`
-                  : ""}
+                {snap.app_last_update.at ? ` · ${fmtTime(snap.app_last_update.at)}` : ""}
               </span>
             </div>
           </div>

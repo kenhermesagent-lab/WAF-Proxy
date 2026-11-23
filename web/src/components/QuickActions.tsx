@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Field, Modal, confirmDialog, errText } from "../ui";
+import { Badge, Field, Modal, confirmDialog, errText, fmtTime } from "../ui";
 import type { Ban, PolicyPreflight, Proxy } from "../types";
 
 export type CommandId = "ban" | "unban" | "disable-proxy" | "preflight";
@@ -226,7 +226,7 @@ export default function QuickActions({
               <option value="">Choose a ban…</option>
               {bans.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.cidr} · {b.permanent ? "permanent" : b.expires_at ? `until ${new Date(b.expires_at).toLocaleDateString()}` : "temporary"} · {b.reason || b.source}
+                  {b.cidr} · {b.permanent ? "permanent" : b.expires_at ? `until ${fmtTime(b.expires_at)}` : "temporary"} · {b.reason || b.source}
                 </option>
               ))}
             </select>

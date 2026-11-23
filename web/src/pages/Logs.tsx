@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import Simulator from "../components/Simulator";
 import IncidentReport, { reportFilename } from "../components/IncidentReport";
-import { Badge, Card, Empty, Field, confirmDialog, errText, fmtTime } from "../ui";
+import { Badge, Card, Empty, Field, confirmDialog, errText, fmtTime, PageHead } from "../ui";
 import { Event } from "../types";
 
 const PAGE = 50;
@@ -298,6 +298,7 @@ export default function Logs({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <PageHead sub="Every proxied request with its policy stage, matching rule and outcome." />
       <div className="sr-only" aria-live="polite">{announce}</div>
       <Card title="Filters">
         <div className="row grow" style={{ marginBottom: 6 }}>
@@ -454,7 +455,8 @@ export default function Logs({
             </table></div>
         )}
         <p className="faint small-text" style={{ marginBottom: 0 }}>
-          Selection covers this page only and clears on a new search or page.
+          Selection covers this page only and clears on a new search or page. Stage badges follow the outcome:
+          red blocked, blue logged, plain allowed.
         </p>
       </Card>
 
