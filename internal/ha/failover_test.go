@@ -3,6 +3,7 @@ package ha
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ type moveLog struct {
 	resume    int
 	served    bool
 	demoted   bool
+	rollback  int
 	startRepl int
 	stopRepl  int
 }
@@ -45,6 +47,7 @@ func testHooks(log *moveLog, input func() PreflightInput) Hooks {
 			record("demote-plane")
 			log.demoted = true
 		},
+		OnRollback:       func() { log.rollback++ },
 		StopReplication:  func() { log.stopRepl++ },
 		StartReplication: func() { log.startRepl++ },
 	}
@@ -256,6 +259,48 @@ func TestBeginPromotionSurvivesACrash(t *testing.T) {
 	}
 	if restarted.Epoch != 6 {
 		t.Fatalf("persisted epoch = %d, want 6", restarted.Epoch)
+	}
+}
+
+func TestPromoteFailsClosedWhenActivationCannotBeSaved(t *testing.T) {
+	dir := t.TempDir()
+	roleFor(t, dir, RoleStandby, 4)
+	log := &moveLog{}
+	hooks := testHooks(log, goodPreflight)
+	hooks.Serve = func(context.Context) error {
+		log.steps = append(log.steps, "serve")
+		log.served = true
+		// Make the next role write fail after listeners have accepted.
+		roleDir := RoleDir(dir)
+		if err := os.RemoveAll(roleDir); err != nil {
+			return err
+		}
+		return os.WriteFile(roleDir, []byte("not a directory"), 0o600)
+	}
+	res, err := Promote(context.Background(), dir, hooks, false, false)
+	if err == nil || !strings.Contains(err.Error(), "role file could not record") {
+		t.Fatalf("promotion error = %v, want the activation failure", err)
+	}
+	if !log.served {
+		t.Fatal("the test never reached the data plane")
+	}
+	if !log.demoted {
+		t.Fatal("a failed activation left the data plane serving")
+	}
+	if log.resume != 1 {
+		t.Fatalf("peer resumed %d times, want 1", log.resume)
+	}
+	if log.rollback != 1 {
+		t.Fatalf("replication resumed %d times, want 1", log.rollback)
+	}
+	var activate *Step
+	for i := range res.Steps {
+		if res.Steps[i].Name == "activate" {
+			activate = &res.Steps[i]
+		}
+	}
+	if activate == nil || activate.OK {
+		t.Fatalf("activation step = %+v, want a recorded failure", activate)
 	}
 }
 

@@ -185,6 +185,13 @@ export default function HAPage({
         {role.toUpperCase()} — {state}. {st?.reason ?? ""}
       </div>
 
+      {st.runtime_error && (
+        <div className="card" role="alert" style={{ borderLeft: "4px solid var(--bad, #c0392b)" }}>
+          <strong>HA IS ENABLED BUT NOT RUNNING.</strong> The loops did not start, so moves are unavailable.
+          <p className="small-text" style={{ marginBottom: 0 }}>{st.runtime_error}</p>
+        </div>
+      )}
+
       {standby && (
         <div className="card" style={{ borderLeft: "4px solid var(--warn, #d08b2e)" }}>
           <strong>STANDBY — READ ONLY.</strong> This node follows the active; configuration changes are refused

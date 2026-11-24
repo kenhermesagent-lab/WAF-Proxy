@@ -45,6 +45,9 @@ func (s *Server) SetBundles(m *bundle.Manager) { s.bundles = m }
 // across profiles, because a bundle mode is a profile setting, never a global
 // switch.
 func (s *Server) listBundles(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the signature bundle channel") {
+		return
+	}
 	writeJSON(w, http.StatusOK, s.bundleSnapshot(r))
 }
 
@@ -197,6 +200,9 @@ func (s *Server) deleteBundleProvider(w http.ResponseWriter, r *http.Request) {
 // bundleHits groups the rule IDs the event log already recorded. Nothing extra
 // is written per request; this is a query over the WAF stage rows.
 func (s *Server) bundleHits(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the signature bundle channel") {
+		return
+	}
 	hours := 24
 	if raw := r.URL.Query().Get("hours"); raw != "" {
 		n, err := strconv.Atoi(raw)

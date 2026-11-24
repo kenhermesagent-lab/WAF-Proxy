@@ -761,6 +761,9 @@ type HAStatus struct {
 	// UpdatedAt is when the role file last changed, so the page can show how
 	// long this node has been in its current role.
 	UpdatedAt string `json:"updated_at,omitempty"`
+	// RuntimeError explains why the HA loops are not running even though the
+	// stored switch is on. Without it the console only showed the role file.
+	RuntimeError string `json:"runtime_error,omitempty"`
 }
 
 // SetHAStatus installs the role source used by health and the standby guard.

@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -859,6 +860,10 @@ func run() error {
 		}
 	}
 	apiServer.SetBundles(bundles)
+	// The runtime is created after the data plane, so the status closure needs
+	// a holder it can read once boot reaches that point. The GUI listeners may
+	// already be accepting, so publish it atomically.
+	var haRT atomic.Pointer[haRuntime]
 	apiServer.SetHAStatus(func() api.HAStatus {
 		n, _ := ha.Load(cfg.DataDir)
 		state := n.EffectiveState()
@@ -875,6 +880,11 @@ func run() error {
 			status.Paired = true
 			status.ClusterID = pair.ClusterID
 			status.PeerFingerprint = pair.PeerFingerprint
+		}
+		if rt := haRT.Load(); rt != nil {
+			if err := rt.runtimeFailure(); err != nil {
+				status.RuntimeError = err.Error()
+			}
 		}
 		return status
 	})
@@ -1067,6 +1077,7 @@ func run() error {
 		flap:         ha.NewFlapGuard(flapBudget(st, cfg.HAMaxFailovers)),
 		autoFailover: cfg.HAAutoFailover, log: log,
 	}
+	haRT.Store(rt)
 	if haOn {
 		if err := rt.Start(); err != nil {
 			log.Error("high availability did not start", "err", err)

@@ -12,6 +12,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.61.3] — 2026-11-23
+
+### Fixed
+
+- **A failed HA activation no longer leaves the data plane serving.** If the active role file
+  cannot be written after listeners have accepted, the node now drains the plane and its loops,
+  records standby, and resumes the peer's write gate and replication instead of serving under a
+  promoting role.
+- **A control socket that cannot be bound no longer reports HA as running.** The socket is bound
+  before replication, audit capture or the witness lease starts, so a live socket owned by another
+  process fails the start and leaves the runtime stopped; only a refused connection is treated as
+  stale, cleanup only unlinks the socket this process created, and stopping closes the listener so
+  an immediate re-enable does not collide with the old one.
+- **A boot-time HA start failure is visible in the console.** The status carries the startup reason,
+  moves include it in their refusal, and the HA page shows it instead of only the role file.
+- **The restart banner sits beside the HA switch** and leaves after the toast confirms reconnection.
+- **Tenant consoles can no longer read the host-wide bundle or CrowdSec pages.** Their listing,
+  hit, install and blocklist routes now require the host console, matching their mutating routes.
+
 ## [1.61.2] — 2026-11-23
 
 ### Fixed

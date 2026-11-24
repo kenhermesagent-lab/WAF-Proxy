@@ -17,6 +17,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/rbac"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/siteres"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/uptime"
 )
 
 // recordingProbe remembers which host each canary probe asked for, so a test
@@ -323,6 +324,95 @@ func TestTenantAdministratorStaysOnItsConsole(t *testing.T) {
 	}
 	if me.CanSwitch || len(me.Sites) != 0 || me.Site != "bravo" {
 		t.Fatalf("tenant me advertised the switcher: %+v", me)
+	}
+}
+
+// TestTenantAdministratorCannotReachHostWideFeatures proves each host-only
+// area refuses a tenant session before reading or mutating any host state.
+func TestTenantAdministratorCannotReachHostWideFeatures(t *testing.T) {
+	f := newSiteFixtures(t)
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{"mcp status", http.MethodGet, "/api/mcp", nil},
+		{"mcp tokens", http.MethodPost, "/api/mcp/tokens", map[string]any{"name": "bravo-agent"}},
+		{"agent links", http.MethodGet, "/api/agents", nil},
+		{"agent link create", http.MethodPost, "/api/agents", map[string]any{"name": "bravo", "endpoint": "https://example.com/hook"}},
+		{"backup schedule", http.MethodGet, "/api/backup/schedule", nil},
+		{"backup run", http.MethodPost, "/api/backup/schedule/run", nil},
+		{"bundle list", http.MethodGet, "/api/bundles", nil},
+		{"bundle hits", http.MethodGet, "/api/bundles/hits", nil},
+		{"bundle check", http.MethodPost, "/api/bundles/check", nil},
+		{"bundle enable", http.MethodPost, "/api/bundles/enable", map[string]any{"name": "secret-probes", "enabled": true}},
+		{"bundle provider", http.MethodPut, "/api/bundles/providers", map[string]any{"name": "bravo", "url": "https://example.com/manifest.json", "public_key": "00"}},
+		{"crowdsec status", http.MethodGet, "/api/crowdsec", nil},
+		{"crowdsec install", http.MethodGet, "/api/crowdsec/install", nil},
+		{"crowdsec blocklists", http.MethodGet, "/api/crowdsec/blocklists", nil},
+		{"crowdsec save", http.MethodPut, "/api/crowdsec", map[string]any{"enabled": false}},
+		{"crowdsec test", http.MethodPost, "/api/crowdsec/test", nil},
+		{"streaming list", http.MethodGet, "/api/streaming", nil},
+		{"streaming save", http.MethodPut, "/api/streaming/plex", map[string]any{"enabled": false}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := f.call("console.bravo.test", tc.method, tc.path, f.bravoToken, f.bravoCSRF, "", tc.body)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("%s %s = %d, want 403: %s", tc.method, tc.path, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestTenantUptimeReportsOnlyItsTargets seeds the monitor with proxies from two
+// sites and checks that the tenant console filters both target rows and the
+// per-proxy summary, while the host console still sees the whole node.
+func TestTenantUptimeReportsOnlyItsTargets(t *testing.T) {
+	f := newSiteFixtures(t)
+	if _, err := f.st.CreateProxy(&model.Proxy{Hostname: "alpha.example.com", Enabled: true, WAFMode: "inherit"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.InSite(f.bravo.ID).CreateProxy(&model.Proxy{Hostname: "bravo.example.com", Enabled: true, WAFMode: "inherit"}); err != nil {
+		t.Fatal(err)
+	}
+	monitor := uptime.New(f.st.Unscoped(), nil, f.srv.log)
+	monitor.Check(context.Background())
+	f.srv.SetUptime(monitor)
+
+	read := func(host, token string) uptime.Snapshot {
+		t.Helper()
+		rec := f.call(host, http.MethodGet, "/api/uptime", token, "", "", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s /api/uptime = %d: %s", host, rec.Code, rec.Body.String())
+		}
+		var snap uptime.Snapshot
+		if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+			t.Fatal(err)
+		}
+		return snap
+	}
+
+	host := read("gui.local", f.adminToken)
+	if len(host.Targets) != 2 || len(host.Proxies) != 2 {
+		t.Fatalf("host uptime = %d targets, %d proxies; want both sites", len(host.Targets), len(host.Proxies))
+	}
+	hosts := map[string]bool{}
+	for _, target := range host.Targets {
+		hosts[target.ProxyHost] = true
+	}
+	if !hosts["alpha.example.com"] || !hosts["bravo.example.com"] {
+		t.Fatalf("host targets = %+v, want both alpha and bravo", host.Targets)
+	}
+	// Removing the tenant filter returns both rows here, so the length and host
+	// checks below fail on the unfiltered snapshot.
+	tenant := read("console.bravo.test", f.bravoToken)
+	if len(tenant.Targets) != 1 || tenant.Targets[0].ProxyHost != "bravo.example.com" {
+		t.Fatalf("tenant targets = %+v, want only bravo.example.com", tenant.Targets)
+	}
+	if len(tenant.Proxies) != 1 || tenant.Proxies[0].Host != "bravo.example.com" {
+		t.Fatalf("tenant proxy summaries = %+v, want only bravo.example.com", tenant.Proxies)
 	}
 }
 

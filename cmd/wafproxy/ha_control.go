@@ -92,7 +92,13 @@ type haControl struct {
 }
 
 func (c haControl) manager() (*ha.Manager, error) {
-	if c.rt == nil || !c.rt.usable() {
+	if c.rt == nil {
+		return nil, errors.New("high availability is not running on this node")
+	}
+	if !c.rt.usable() {
+		if err := c.rt.runtimeFailure(); err != nil {
+			return nil, fmt.Errorf("high availability is not running on this node: %w", err)
+		}
 		return nil, errors.New("high availability is not running on this node")
 	}
 	return c.rt.manager(), nil

@@ -39,6 +39,14 @@ if [[ $npm != "$version" ]]; then
   exit 1
 fi
 
+# npm records the root version twice: at the top and under packages[""].
+lock_root=$(sed -nE 's/^  "version": "([^"]+)".*/\1/p' "$root/web/package-lock.json" | head -1)
+lock_pkg=$(awk '/^  "packages": \{/{packages=1} packages && /^    "": \{/{root=1} root && /^      "version": /{gsub(/.*"version": "|".*/, ""); print; exit}' "$root/web/package-lock.json")
+if [[ $lock_root != "$version" || $lock_pkg != "$version" ]]; then
+  echo "web/package-lock.json versions are '${lock_root:-none}' and '${lock_pkg:-none}', VERSION is ${version}" >&2
+  exit 1
+fi
+
 pins=$(grep -oE 'VERSION:-[0-9]+\.[0-9]+\.[0-9]+' "$root/deploy/docker-compose.yml" || true)
 if [[ -z $pins ]]; then
   echo "deploy/docker-compose.yml does not pin a VERSION" >&2

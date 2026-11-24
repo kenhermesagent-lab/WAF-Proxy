@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -57,7 +58,20 @@ func ServeControl(ctx context.Context, path string, m *Manager, log *slog.Logger
 		if info.Mode()&os.ModeSocket == 0 {
 			return nil, fmt.Errorf("ha: %s exists and is not a socket", path)
 		}
-		// Removing a stale socket is safe: only this process binds the path.
+		// A socket that answers belongs to a live process. Removing it would
+		// steal every move from that process and leave its cleanup to unlink
+		// this listener instead. Only a refused connection proves it is stale.
+		conn, dialErr := net.DialTimeout("unix", path, 500*time.Millisecond)
+		if dialErr == nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("ha: control socket %s is already in use", path)
+		}
+		// A refused connection is the only error that proves nobody is
+		// listening. A permission or timeout error must not lead to deleting a
+		// live socket this process cannot reach.
+		if !errors.Is(dialErr, syscall.ECONNREFUSED) {
+			return nil, fmt.Errorf("ha: control socket %s: %w", path, dialErr)
+		}
 		if err := os.Remove(path); err != nil {
 			return nil, err
 		}
@@ -68,12 +82,21 @@ func ServeControl(ctx context.Context, path string, m *Manager, log *slog.Logger
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		_ = ln.Close()
+		_ = os.Remove(path)
 		return nil, err
 	}
+	bound, statErr := os.Lstat(path)
 	go func() {
 		<-ctx.Done()
+		// Unlink before closing so another process may bind as soon as this
+		// listener stops. Only remove the inode this listener created: a
+		// replacement owner may already be listening at the same path.
+		if statErr == nil {
+			if cur, err := os.Lstat(path); err == nil && os.SameFile(bound, cur) {
+				_ = os.Remove(path)
+			}
+		}
 		_ = ln.Close()
-		_ = os.Remove(path)
 	}()
 	go func() {
 		for {

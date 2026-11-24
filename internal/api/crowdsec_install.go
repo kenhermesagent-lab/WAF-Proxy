@@ -278,6 +278,9 @@ func csServiceActive() bool {
 }
 
 func (s *Server) getCrowdSecInstall(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the CrowdSec engine") {
+		return
+	}
 	writeJSON(w, http.StatusOK, s.crowdsecInstallStatus())
 }
 

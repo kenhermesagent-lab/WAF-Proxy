@@ -199,9 +199,13 @@ describe("Settings configuration transport", () => {
     fireEvent.click(toggle);
     fireEvent.click(screen.getByText("Save settings"));
 
-    expect(await screen.findByText(/restarts WAF-Proxy/)).toBeTruthy();
-    expect(await screen.findByText(/WAF-Proxy is back/, {}, { timeout: 5000 })).toBeTruthy();
-    expect(onOK).toHaveBeenCalledWith("WAF-Proxy is back; high availability is on");
+    const banner = await screen.findByText(/restarts WAF-Proxy/);
+    expect(banner.closest("#ha")).toBeTruthy();
+    await waitFor(
+      () => expect(onOK).toHaveBeenCalledWith("WAF-Proxy is back; high availability is on"),
+      { timeout: 5000 },
+    );
+    expect(screen.queryByText(/restarts WAF-Proxy/)).toBeNull();
   });
 
   it("asks for the cluster id and sends it only with the save that turns HA off", async () => {

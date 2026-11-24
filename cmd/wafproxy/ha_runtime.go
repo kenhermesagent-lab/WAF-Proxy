@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,9 +57,14 @@ type haRuntime struct {
 	// The HA loops start and stop with the stored switch, so a running node
 	// can be turned off and on without a restart. stopLife owns the control
 	// socket and the watcher; the lease and replication have their own stops.
-	mu       sync.Mutex
-	stopLife context.CancelFunc
-	started  bool
+	mu        sync.Mutex
+	stopLife  context.CancelFunc
+	controlLn net.Listener
+	started   bool
+	// startErr is the last failed Start. The stored switch can stay on while
+	// the loops never came up, so status and moves report this instead of only
+	// saying HA is not running.
+	startErr error
 }
 
 // usable reports whether the loops are up, so a move is refused instead of
@@ -74,11 +81,25 @@ func (h *haRuntime) manager() *ha.Manager {
 	return h.mgr
 }
 
-// Start brings up the HA loops this role needs. It is idempotent, and it does
-// not touch the data plane: turning HA on does not start or stop traffic.
-func (h *haRuntime) Start() error {
+// runtimeFailure returns why the last start failed, or nil once a start has
+// succeeded. It is read by the console status and its move errors.
+func (h *haRuntime) runtimeFailure() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.startErr
+}
+
+// Start brings up the HA loops this role needs. It is idempotent, and it does
+// not touch the data plane: turning HA on does not start or stop traffic.
+func (h *haRuntime) Start() (err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.startErr = nil
+	defer func() {
+		if err != nil {
+			h.startErr = err
+		}
+	}()
 	if h.started {
 		return nil
 	}
@@ -98,6 +119,16 @@ func (h *haRuntime) Start() error {
 	if h.mgr == nil {
 		h.mgr = ha.NewManager(h.dir, h.hooks())
 	}
+	// Bind the control socket before starting replication, capture or the
+	// lease. A node without its move socket is not a running HA node, and the
+	// settings save must see that failure instead of a success that leaves
+	// keepalived and the CLI unable to reach it.
+	if err := h.serveControl(life); err != nil {
+		stop()
+		h.stopLife = nil
+		h.started = false
+		return fmt.Errorf("ha: control socket: %w", err)
+	}
 	if h.witness == nil && h.witnessURL != "" {
 		if pair, err := ha.LoadPair(h.dir); err == nil && pair != nil {
 			h.witness = &ha.WitnessClient{URL: h.witnessURL, Token: h.witnessToken,
@@ -110,9 +141,6 @@ func (h *haRuntime) Start() error {
 		h.st.SetNodeID(h.ident.Node)
 	} else {
 		h.repl.Start()
-	}
-	if err := h.serveControl(life); err != nil {
-		h.log.Error("ha control socket failed", "err", err)
 	}
 	if node.Active() {
 		h.startLease(node.Epoch)
@@ -138,6 +166,13 @@ func (h *haRuntime) Stop() {
 	if h.stopLife != nil {
 		h.stopLife()
 		h.stopLife = nil
+	}
+	// Close the listener before returning. Its cleanup goroutine removes the
+	// path; an immediate re-enable then sees a refused stale socket instead of
+	// a live listener it must not steal.
+	if h.controlLn != nil {
+		_ = h.controlLn.Close()
+		h.controlLn = nil
 	}
 	h.repl.Stop()
 	h.st.SetNodeID("")
@@ -176,9 +211,11 @@ func (h *haRuntime) serveControl(ctx context.Context) error {
 	if h.mgr == nil {
 		h.mgr = ha.NewManager(h.dir, h.hooks())
 	}
-	if _, err := ha.ServeControl(ctx, path, h.mgr, h.log); err != nil {
+	ln, err := ha.ServeControl(ctx, path, h.mgr, h.log)
+	if err != nil {
 		return err
 	}
+	h.controlLn = ln
 	h.log.Info("ha control socket listening", "path", path)
 	return nil
 }

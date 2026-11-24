@@ -12,6 +12,7 @@ export interface HAStatus {
   peer_fingerprint?: string;
   reason?: string;
   updated_at?: string;
+  runtime_error?: string;
   can_write?: boolean;
   max_failovers_per_hour?: number;
 }
@@ -31,6 +32,7 @@ export interface HADiagnostics {
   state: string;
   serving: boolean;
   epoch: number;
+  runtime_error?: string;
   peer?: string;
   outbox?: { depth: number; bytes: number; pending_by_kind?: Record<string, number>; oldest?: string };
   ack?: { seq: number; at?: string };

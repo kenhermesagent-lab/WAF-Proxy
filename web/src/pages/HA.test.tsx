@@ -89,6 +89,16 @@ describe("High availability page", () => {
     expect((screen.getByRole("button", { name: "Sync now" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("shows a startup failure with its reason while HA is enabled", async () => {
+    renderPage(status({
+      paired: true, cluster_id: "cluster-abc", role: "active", state: "active",
+      runtime_error: "ha: control socket: listen unix /var/lib/wafproxy/ha/control.sock: address already in use",
+    }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/HA IS ENABLED BUT NOT RUNNING/);
+    expect(alert.textContent).toMatch(/control socket: listen unix .*address already in use/);
+  });
+
   it("explains why HA is off and links to Settings", async () => {
     renderPage(status({ enabled: false, paired: true, serving: false, reason: "this node is a paired standby; it stays out of service while high availability is off" }));
     expect(await screen.findByText("High availability is turned off")).toBeTruthy();

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +78,61 @@ func TestHABootRoleKeepsAPairedStandbyOutOfService(t *testing.T) {
 	if !unpaired.Active() || unpaired.Role != ha.RoleStandalone {
 		t.Fatalf("an unpaired standby became %+v with HA off", unpaired)
 	}
+}
+
+func TestHARuntimeDoesNotStartWithoutTheControlSocket(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := ha.Save(dir, &ha.Node{NodeID: "node-a", Role: ha.RoleStandalone, Epoch: 3}); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ctx := context.Background()
+	rt := &haRuntime{
+		root: ctx, dir: dir, st: st, quiesce: ha.NewQuiesce(), log: log,
+		repl: newReplicator(ctx, dir, st, log),
+	}
+	sock := ha.ControlSocketPath(dir)
+	if err := os.MkdirAll(filepath.Dir(sock), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rt.Start(); err == nil || !strings.Contains(err.Error(), "control socket") {
+		t.Fatalf("Start with a live control socket = %v, want a bind error", err)
+	}
+	if rt.started || rt.usable() {
+		fatal := "started"
+		if !rt.started {
+			fatal = "usable"
+		}
+		t.Fatalf("a failed start left the runtime %s", fatal)
+	}
+	failure := rt.runtimeFailure()
+	if failure == nil || !strings.Contains(failure.Error(), "control socket") {
+		t.Fatalf("runtime failure = %v, want the control-socket reason", failure)
+	}
+	if _, err := (haControl{rt: rt}).manager(); err == nil || !strings.Contains(err.Error(), failure.Error()) {
+		t.Fatalf("move refusal = %v, want it to carry %q", err, failure)
+	}
+
+	// Releasing the path lets the same runtime start normally.
+	_ = live.Close()
+	_ = os.Remove(sock)
+	if err := rt.Start(); err != nil {
+		t.Fatalf("Start after the socket was released: %v", err)
+	}
+	if rt.runtimeFailure() != nil {
+		t.Fatalf("a successful start still reports %v", rt.runtimeFailure())
+	}
+	rt.Stop()
 }
 
 func TestHADisableRefusalFollowsTheRoleAndTypedID(t *testing.T) {

@@ -72,7 +72,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   const [haConfirm, setHaConfirm] = useState("");
   // Set while the supervisor restarts the process for the first HA enable, so
   // the page waits for the service instead of firing requests at it.
-  const [restart, setRestart] = useState<"idle" | "restarting" | "back" | "lost">("idle");
+  const [restart, setRestart] = useState<"idle" | "restarting" | "lost">("idle");
   const [activeSection, setActiveSection] = useState("network");
   const [iface, setIface] = useState<{ wan: string; lan: string; wanAuto: boolean; lanAuto: boolean; available: string[] }>({
     wan: "", lan: "", wanAuto: false, lanAuto: false, available: [],
@@ -122,12 +122,6 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
     const t = setInterval(loadGeo, 2000);
     return () => clearInterval(t);
   }, [geo?.installing]);
-
-  useEffect(() => {
-    if (restart !== "back") return;
-    const t = setTimeout(() => setRestart("idle"), 8000);
-    return () => clearTimeout(t);
-  }, [restart]);
 
   useEffect(() => {
     // Nearest section head to the top of the viewport, so the last short
@@ -271,15 +265,17 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
       if ("ha_enabled" in posted) setHaConfirm("");
       if (res?.restart_required) {
         setRestart("restarting");
+        document.getElementById("ha")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
         onOK("High availability is enabled; the service is restarting");
         if (!(await waitForRestart())) {
           setRestart("lost");
           onError("The console did not reconnect. Check WAF-Proxy on the host, then reload this page.");
           return;
         }
-        setRestart("back");
+        setRestart("idle");
         onOK("WAF-Proxy is back; high availability is on");
       } else {
+        setRestart("idle");
         onOK("Settings saved");
       }
       load();
@@ -322,19 +318,6 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
       }
       actions={<Badge tone="info">Site: {siteName}</Badge>}
     />
-    {restart !== "idle" && (
-      <div
-        className={`banner ${restart === "restarting" ? "warn" : restart === "lost" ? "bad" : ""}`}
-        role="status"
-        aria-live="polite"
-      >
-        {restart === "restarting"
-          ? "Enabling high availability restarts WAF-Proxy. The console reconnects when the service is back…"
-          : restart === "lost"
-            ? "WAF-Proxy has not reconnected. Check the service on the host, then reload this page."
-            : "WAF-Proxy is back. High availability is on."}
-      </div>
-    )}
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
         {SECTIONS.map((sec) => (
@@ -458,6 +441,18 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             onChange={(v) => set("ha_enabled", v ? "1" : "0")}
             disabled={!mayToggleHA}
           />
+          {restart !== "idle" && (
+            <div
+              className={`banner ${restart === "restarting" ? "warn" : "bad"}`}
+              role="status"
+              aria-live="polite"
+              style={{ marginTop: 8 }}
+            >
+              {restart === "restarting"
+                ? "Enabling high availability restarts WAF-Proxy. The console reconnects when the service is back…"
+                : "WAF-Proxy has not reconnected. Check the service on the host, then reload this page."}
+            </div>
+          )}
           {haInfo?.paired && s.ha_enabled === "0" && !hostWide && (
             <Field
               label="Type the cluster id to confirm"

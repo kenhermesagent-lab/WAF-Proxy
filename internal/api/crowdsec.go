@@ -50,6 +50,9 @@ func (s *Server) storedCrowdSec() (enabled bool, lapi, key string) {
 }
 
 func (s *Server) getCrowdSec(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "CrowdSec") {
+		return
+	}
 	enabled, lapi, key := s.storedCrowdSec()
 	status := s.cs.Status()
 	status["config"] = map[string]any{

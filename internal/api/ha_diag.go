@@ -18,6 +18,9 @@ func (s *Server) haDiagnostics(w http.ResponseWriter, r *http.Request) {
 		"epoch":   status.Epoch,
 		"peer":    status.Peer,
 	}
+	if status.RuntimeError != "" {
+		body["runtime_error"] = status.RuntimeError
+	}
 	st := s.db(r).Unscoped()
 	stats, err := st.OutboxStats()
 	if err != nil {

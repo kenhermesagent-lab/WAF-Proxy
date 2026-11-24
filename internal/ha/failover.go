@@ -215,7 +215,21 @@ func PromoteWith(ctx context.Context, dataDir string, hooks Hooks, opts PromoteO
 		}
 	}
 	if _, err := Activate(dataDir, role, epoch); err != nil {
-		return res, err
+		addStep(&res, "activate", false, err.Error(), 0)
+		// Listeners already accept, but the role file still says promoting.
+		// Fail closed: stop the plane and its loops rather than serve traffic
+		// under a role no peer or restart would agree with. The compensating
+		// write is best-effort: if the disk is what failed, promoting is still
+		// a non-serving state after a restart.
+		if hooks.DemotePlane != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			hooks.DemotePlane(cleanupCtx)
+			cancel()
+		}
+		_, _ = ReturnToStandby(dataDir, role)
+		resumeAfter(hooks, opts.Auto)
+		res.DurationMS = time.Since(started).Milliseconds()
+		return res, fmt.Errorf("ha: role file could not record the activation: %w", err)
 	}
 	addStep(&res, "activate", true, fmt.Sprintf("epoch %d active", epoch), 0)
 	res.DurationMS = time.Since(started).Milliseconds()

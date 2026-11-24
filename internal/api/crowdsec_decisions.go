@@ -39,6 +39,9 @@ var consoleManagedOrigins = map[string]bool{"lists": true, "capi": true, "consol
 // enforcing, including console-subscribed blocklists. It is deliberately
 // read-only: there is no edit endpoint behind it.
 func (s *Server) getCrowdSecBlocklists(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "CrowdSec") {
+		return
+	}
 	out := crowdsecBlocklists{Rows: []crowdsecBlocklistRow{}}
 	if _, err := csLookPath("cscli"); err != nil {
 		out.Reason = "CrowdSec is not installed on this host."
