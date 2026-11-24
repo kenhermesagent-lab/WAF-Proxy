@@ -94,7 +94,11 @@ jobs:
     name: Release metadata and SBOM
     runs-on: ubuntu-latest
     steps:
+      # Full history: the tag check proves each release tag is on main, which a
+      # depth-1 checkout cannot answer.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
@@ -103,6 +107,10 @@ jobs:
         run: bash deploy/check-version.sh
       - name: The release check still rejects every mismatch
         run: bash deploy/check-version_test.sh
+      - name: Every released section has its annotated tag on origin
+        run: bash deploy/check-tags.sh --remote
+      - name: The tag check rejects missing, lightweight and misplaced tags
+        run: bash deploy/check-tags_test.sh
       - name: Workflow actions are pinned to commits
         run: bash deploy/check-workflow-pins.sh
       - name: The pin check rejects tags, branches and short SHAs
