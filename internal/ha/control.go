@@ -66,14 +66,17 @@ func ServeControl(ctx context.Context, path string, m *Manager, log *slog.Logger
 			_ = conn.Close()
 			return nil, fmt.Errorf("ha: control socket %s is already in use", path)
 		}
-		// A refused connection is the only error that proves nobody is
-		// listening. A permission or timeout error must not lead to deleting a
-		// live socket this process cannot reach.
-		if !errors.Is(dialErr, syscall.ECONNREFUSED) {
+		// A refused connection proves nobody is listening. A vanished path is
+		// also safe to bind. A permission or timeout error must not lead to
+		// deleting a live socket this process cannot reach.
+		switch {
+		case errors.Is(dialErr, os.ErrNotExist):
+		case errors.Is(dialErr, syscall.ECONNREFUSED):
+			if err := os.Remove(path); err != nil {
+				return nil, err
+			}
+		default:
 			return nil, fmt.Errorf("ha: control socket %s: %w", path, dialErr)
-		}
-		if err := os.Remove(path); err != nil {
-			return nil, err
 		}
 	}
 	ln, err := net.Listen("unix", path)
