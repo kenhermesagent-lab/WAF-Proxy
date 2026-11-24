@@ -302,7 +302,7 @@ captures were taken on **v1.62.2**, so the sidebar and the pages match this rele
 </tr>
 <tr>
 <td width="50%"><img src="docs/screenshots/certs.png" alt="Certificates: issuance, renewal policy and expiry" width="100%"><br><sub><b>Certificates</b> — issuance, renewal policy and expiry.</sub></td>
-<td width="50%"><img src="docs/screenshots/agent.png" alt="AI Agent Access: MCP endpoint and per-tool tokens" width="100%"><br><sub><b>Agent access</b> — the MCP endpoint and per-tool token scopes.</sub></td>
+<td width="50%"><img src="docs/screenshots/agent.png" alt="AI Agent Access: MCP endpoint, per-tool tokens and the tool catalog" width="100%"><br><sub><b>Agent access</b> — the MCP endpoint, per-tool token scopes and the tool catalog.</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/screenshots/notifications.png" alt="Notifications: channels and per-event routing" width="100%"><br><sub><b>Notifications</b> — channels and per-event routing.</sub></td>

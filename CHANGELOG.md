@@ -57,6 +57,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   written without a site and stayed invisible in the console. The gateway now uses the default
   site's store, the same rows the console that mints tokens shows; `list_sites` still names
   every tenant.
+- **The AI Agent Access page wraps instead of running off the card.** Every tool's description and
+  the token scope list wrap inside their cells, so the 21-tool catalog reads in full at 1440 px
+  without a sideways scroll.
 - **A fresh single-node install serves again.** With high availability off the boot normalises a
   leftover standby to `standalone`, but a data directory that never held a role file has no node id
   and the save was refused. The node stayed a standby, bound the WAN address and never accepted a
@@ -73,6 +76,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Documentation
 
+- `docs/screenshots/agent.png` is retaken on a 1.64.0 build, now showing the tool catalog the
+  page reads from `GET /api/mcp`, and the screenshot index says which capture is newer than the
+  v1.62.2 set.
 - `docs/CONFORMANCE.md` moves HTTP/3 from unsupported to supported with the cases that prove it,
   the configuration reference lists `WAFPROXY_HTTP3`, the install guides open the UDP port, and
   the Cloudflare Tunnel page states that the connector reaches the origin over HTTP/2, so h3 is a

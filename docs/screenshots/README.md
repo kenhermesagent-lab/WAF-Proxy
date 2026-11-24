@@ -7,7 +7,9 @@ page looks like before you open it.
 
 They were captured from the **v1.62.2** console (the version in the About card of each
 capture), with two tenant sites, nine proxies, certificates, bans, threat feeds and a week of
-traffic shaped by a daily curve. Everybody sees the full gallery in the
+traffic shaped by a daily curve. `agent.png` is the exception: it was retaken on a **1.64.0**
+build, the first version whose AI Agent Access page renders the gateway's tool catalog from
+`GET /api/mcp`. Everybody sees the full gallery in the
 [README console tour](../../README.md#console-tour); the guides below reuse the same files.
 
 | Image | Page | Also used in |
@@ -23,7 +25,7 @@ traffic shaped by a daily curve. Everybody sees the full gallery in the
 | [activity.png](activity.png) | Activity: audit log with before/after diffs | [Configuration reference](../CONFIGURATION.md) |
 | [access.png](access.png) | Access gate: site accounts, TOTP, lockouts | [Configuration reference](../CONFIGURATION.md) |
 | [certs.png](certs.png) | Certificates: issuance, renewal policy, expiry | [Configuration reference](../CONFIGURATION.md) |
-| [agent.png](agent.png) | AI Agent Access: MCP endpoint and per-tool tokens | [Configuration reference](../CONFIGURATION.md) |
+| [agent.png](agent.png) | AI Agent Access: MCP endpoint, per-tool token scopes and the 21-tool catalog (1.64.0) | [Configuration reference](../CONFIGURATION.md) |
 | [notifications.png](notifications.png) | Notifications: channels and per-event routing | [Configuration reference](../CONFIGURATION.md) |
 | [streaming.png](streaming.png) | Streaming: byte-relay forwarders for media and game servers (taken before the 1.63.0 grouping) | [Configuration reference](../CONFIGURATION.md) |
 | [settings.png](settings.png) | Settings: network, protection, retention, backup, GeoIP | [Configuration reference](../CONFIGURATION.md) |

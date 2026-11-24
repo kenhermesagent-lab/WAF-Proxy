@@ -126,7 +126,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
                   <tr key={t.id}>
                     <td>{t.name}</td>
                     <td className="mono">{t.prefix}…</td>
-                    <td className="muted">{t.scopes?.length ? t.scopes.join(", ") : "all"}</td>
+                    <td className="muted" style={{ whiteSpace: "normal" }}>{t.scopes?.length ? t.scopes.join(", ") : "all"}</td>
                     <td className="muted">{fmtTime(t.created_at)}</td>
                     <td className="muted">{t.last_used_at ? fmtAgo(t.last_used_at) : "never"}</td>
                     <td>{t.revoked_at ? <Badge tone="bad">revoked</Badge> : <Badge tone="ok">active</Badge>}</td>
@@ -153,8 +153,8 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
             <tbody>
               {tools.map((t) => (
                 <tr key={t.name}>
-                  <td className="mono" style={{ whiteSpace: "nowrap" }}>{t.name}</td>
-                  <td className="muted">{t.description}</td>
+                  <td className="mono" style={{ whiteSpace: "nowrap", verticalAlign: "top" }}>{t.name}</td>
+                  <td className="muted" style={{ whiteSpace: "normal" }}>{t.description}</td>
                 </tr>
               ))}
             </tbody>
