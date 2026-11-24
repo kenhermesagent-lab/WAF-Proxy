@@ -333,7 +333,8 @@ not lock its values. The tab strip under the page tabs lists every service in th
 enabled ones with a dot, and shows only the selected card with its status and connecting guide.
 
 Saving an enabled forwarder also opens its listen range on the host firewall when the tools are
-reachable: firewalld gets `--permanent --add-port=<range>/<proto>` followed by `--reload`, ufw gets
+reachable. A card whose listener did not start opens nothing, so a failed bind never leaves a hole
+with no service behind it. When the tools are reachable: firewalld gets `--permanent --add-port=<range>/<proto>` followed by `--reload`, ufw gets
 `allow <range>/<proto>` (its ranges use a colon). The console records the ports it opened, so
 moving the card to another port or switching it off closes exactly those rules and leaves an
 operator's own rules alone. A container with `network_mode: host` shares the host's rules. When

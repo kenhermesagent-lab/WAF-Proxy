@@ -85,7 +85,7 @@ func TestParse(t *testing.T) {
 func TestFirewalldOpensAndClosesTheRange(t *testing.T) {
 	f := newFake(map[string]string{"firewall-cmd --state": "running\n"})
 	rep := f.opener().Sync(context.Background(), ForConfig(32400, 1, "tcp"), nil)
-	if rep.Backend != "firewalld" || rep.Error != "" {
+	if rep.Error != "" {
 		t.Fatalf("report = %+v", rep)
 	}
 	if len(rep.Opened) != 1 || rep.Opened[0] != "32400/tcp" {
@@ -121,7 +121,7 @@ func TestFirewalldOpensAndClosesTheRange(t *testing.T) {
 func TestUFWUsesItsRangeSyntax(t *testing.T) {
 	f := newFake(map[string]string{"ufw status": "Status: active\n"})
 	rep := f.opener().Sync(context.Background(), ForConfig(2456, 3, "udp"), nil)
-	if rep.Backend != "ufw" || rep.Error != "" {
+	if rep.Error != "" || !strings.Contains(rep.Detail, "ufw") {
 		t.Fatalf("report = %+v", rep)
 	}
 	if !f.called("ufw allow 2456:2458/udp") {
@@ -131,10 +131,8 @@ func TestUFWUsesItsRangeSyntax(t *testing.T) {
 
 func TestNoFirewallLeavesNothingToDo(t *testing.T) {
 	f := newFake(nil)
-	o := f.opener()
-	o.stat = func(string) error { return nil }
-	rep := o.Sync(context.Background(), ForConfig(32400, 1, "tcp"), nil)
-	if rep.Backend != "" || len(rep.Opened) != 0 || rep.Detail == "" {
+	rep := f.opener().Sync(context.Background(), ForConfig(32400, 1, "tcp"), nil)
+	if len(rep.Opened) != 0 || rep.Detail == "" {
 		t.Fatalf("report = %+v", rep)
 	}
 	for _, c := range f.calls {

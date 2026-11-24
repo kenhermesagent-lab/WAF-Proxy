@@ -183,10 +183,9 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 			applied, applyErr = false, err.Error()
 		}
 	}
-	// The listener is up; now let the packets through. A native install needs
-	// the host firewall opened, and a container with host networking shares
-	// those rules, so the same call covers both when the tools are reachable.
-	firewall := s.openStreamPorts(r, def, normalized, kv)
+	// Now let the packets through, but only for a listener that came up: opening
+	// a port nothing answers on is a hole with no service behind it.
+	firewall := s.openStreamPorts(r, def, normalized, kv, applied)
 	envPath, envErr := s.streamingEnvFile(def, normalized)
 
 	sess := sessionFrom(r)
@@ -208,7 +207,10 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 // save opened is closed when it is turned off or moved. The specs it recorded
 // are stored beside the settings, so a later save closes exactly what this one
 // opened and nothing the operator added by hand.
-func (s *Server) openStreamPorts(r *http.Request, def streaming.Service, cfg streaming.Config, kv map[string]string) hostfw.Report {
+func (s *Server) openStreamPorts(r *http.Request, def streaming.Service, cfg streaming.Config, kv map[string]string, applied bool) hostfw.Report {
+	if cfg.Enabled && (!applied || s.streams == nil) {
+		return hostfw.Report{Detail: "the listener did not start, so the firewall was left unchanged"}
+	}
 	key := "stream_" + def.ID + "_firewall"
 	want := []hostfw.Spec{}
 	if cfg.Enabled {

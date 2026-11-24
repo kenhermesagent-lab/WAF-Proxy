@@ -96,21 +96,19 @@ func Parse(raw string) (Spec, error) {
 // Report is what the console shows after a save: which ports this call changed
 // and why nothing could be changed.
 type Report struct {
-	Backend string   `json:"backend"`
-	Opened  []string `json:"opened,omitempty"`
-	Closed  []string `json:"closed,omitempty"`
+	Opened []string `json:"opened,omitempty"`
+	Closed []string `json:"closed,omitempty"`
 	// Detail explains the outcome in one line the page can print.
 	Detail string `json:"detail"`
 	// Error names a command that failed; the save still succeeded.
 	Error string `json:"error,omitempty"`
 }
 
-// Opener runs the host tools. exec and readFile are fields so a test can drive
+// Opener runs the host tools. run and readFile are fields so a test can drive
 // both paths without a firewall.
 type Opener struct {
 	run      func(ctx context.Context, name string, args ...string) (string, error)
 	readFile func(string) ([]byte, error)
-	stat     func(string) error
 }
 
 // New returns an opener that runs the real tools.
@@ -120,20 +118,22 @@ func New() *Opener {
 			ctx, cancel := context.WithTimeout(ctx, specTimeout)
 			defer cancel()
 			out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+			if msg := strings.TrimSpace(string(out)); err != nil && msg != "" {
+				// Keep the tool's own words: "NOT_ENABLED: ..." says what to do,
+				// "exit status 1" does not.
+				return string(out), errors.New(msg)
+			}
 			return string(out), err
 		},
 		readFile: os.ReadFile,
-		stat: func(path string) error {
-			_, err := os.Stat(path)
-			return err
-		},
 	}
 }
 
 // backend detects which host firewall is running. An empty backend means there
 // is nothing to open, which is normal in a container without the host's tools.
 func (o *Opener) backend(ctx context.Context) string {
-	if out, err := o.run(ctx, "firewall-cmd", "--state"); err == nil && strings.Contains(out, "running") {
+	// firewalld answers "running" exactly; "not running" must not match.
+	if out, err := o.run(ctx, "firewall-cmd", "--state"); err == nil && strings.TrimSpace(out) == "running" {
 		return "firewalld"
 	}
 	if out, err := o.run(ctx, "ufw", "status"); err == nil && strings.Contains(out, "Status: active") {
@@ -148,9 +148,8 @@ func (o *Opener) backend(ctx context.Context) string {
 func (o *Opener) Sync(ctx context.Context, want []Spec, have []string) Report {
 	rep := Report{Opened: []string{}, Closed: []string{}}
 	backend := o.backend(ctx)
-	rep.Backend = backend
 	if backend == "" {
-		rep.Detail = o.describe(ctx, backend)
+		rep.Detail = o.unavailable()
 		return rep
 	}
 
@@ -213,11 +212,11 @@ func (o *Opener) add(ctx context.Context, backend string, s Spec) error {
 	switch backend {
 	case "firewalld":
 		if _, err := o.run(ctx, "firewall-cmd", "--permanent", "--add-port="+s.firewalldArg()); err != nil {
-			return errors.New("firewall-cmd --add-port=" + s.firewalldArg() + ": " + errText(err))
+			return fmt.Errorf("firewall-cmd --add-port=%s: %w", s.firewalldArg(), err)
 		}
 	case "ufw":
 		if _, err := o.run(ctx, "ufw", "allow", s.ufwArg()); err != nil {
-			return errors.New("ufw allow " + s.ufwArg() + ": " + errText(err))
+			return fmt.Errorf("ufw allow %s: %w", s.ufwArg(), err)
 		}
 	}
 	return nil
@@ -227,31 +226,25 @@ func (o *Opener) remove(ctx context.Context, backend string, s Spec) error {
 	switch backend {
 	case "firewalld":
 		if _, err := o.run(ctx, "firewall-cmd", "--permanent", "--remove-port="+s.firewalldArg()); err != nil {
-			return errors.New("firewall-cmd --remove-port=" + s.firewalldArg() + ": " + errText(err))
+			return fmt.Errorf("firewall-cmd --remove-port=%s: %w", s.firewalldArg(), err)
 		}
 	case "ufw":
 		if _, err := o.run(ctx, "ufw", "delete", "allow", s.ufwArg()); err != nil {
-			return errors.New("ufw delete allow " + s.ufwArg() + ": " + errText(err))
+			return fmt.Errorf("ufw delete allow %s: %w", s.ufwArg(), err)
 		}
 	}
 	return nil
 }
 
-// describe says what a save will do, before anything is changed.
-func (o *Opener) describe(ctx context.Context, backend string) string {
-	switch backend {
-	case "firewalld":
-		return "Ports are added with firewall-cmd --permanent and reloaded."
-	case "ufw":
-		return "Ports are allowed with ufw."
-	}
+// unavailable explains the one case where nothing could be opened. A confined
+// service needs a port label as well, so say so instead of only naming the
+// firewall; an unconfined one, which is what the shipped unit and image run,
+// binds any port the firewall lets through.
+func (o *Opener) unavailable() string {
 	if o.confined() {
-		return "No firewalld or ufw is running; with a confined service, label the port with semanage yourself."
+		return "No firewalld or ufw is running, so nothing was opened; a confined service also needs the range labelled with semanage."
 	}
-	if o.stat("/sys/fs/selinux/enforce") == nil {
-		return "No firewalld or ufw is running, so nothing was opened; open the range on the router or host firewall that filters this host."
-	}
-	return "No host firewall found; open the range on the router or firewall in front of this host."
+	return "No firewalld or ufw is running, so nothing was opened; open the range on the router or host firewall that filters this host."
 }
 
 // summary states the outcome of a sync in one line.
@@ -285,15 +278,4 @@ func (o *Opener) confined() bool {
 		return true
 	}
 	return false
-}
-
-func errText(err error) string {
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		msg := strings.TrimSpace(string(exit.Stderr))
-		if msg != "" {
-			return msg
-		}
-	}
-	return err.Error()
 }
