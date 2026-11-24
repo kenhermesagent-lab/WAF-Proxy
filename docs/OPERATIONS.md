@@ -605,8 +605,24 @@ of publishing an empty release. The same push builds the container image, boots 
 and checks `/api/health` reports the same version, then pushes
 `ghcr.io/<owner>/wafproxy:<version>` for `linux/amd64` and `linux/arm64`; an image
 that fails the boot is never published, a manifest missing either architecture
-fails the job, and `:latest` moves only when the tag is the newest on origin. Dispatching the workflow for an existing tag builds its image the same
+fails the job, and `:latest` moves only when the tag is the newest on origin.
+After the push the job pulls the tag back from the registry and boots that copy,
+so a truncated upload or a package the workflow can write but not read fails the
+release instead of a user's first `docker pull`. Dispatching the workflow for an existing tag builds its image the same
 way, so a release cut before this rule can still get one.
+
+The release GitHub marks **Latest** is the one that asked for it: the API marks
+every newly published release latest unless the call says `--latest=false`, so a
+batch of old tags would otherwise leave whichever job finished last on the badge.
+The job asks for `--latest` only when the tag is the newest on `origin` and asks
+for `--latest=false` otherwise, which also repairs the badge when an old tag is
+dispatched again. Runs started by pushing a tag use the workflow as it stood at
+that tag, so after publishing a backlog set the badge by hand:
+
+```sh
+gh release edit v1.64.0 --latest                 # the release operators should land on
+gh api repos/<owner>/<repo>/releases/latest --jq .tag_name   # prove it
+```
 
 GitHub reads the workflow from the tagged commit, so a tag pushed before a job
 existed never runs that job: its release keeps generated notes and it never

@@ -37,6 +37,7 @@ test-release:
 	bash deploy/create-release-tags_test.sh
 	bash deploy/check-workflow-pins_test.sh
 	bash deploy/check-image-pins_test.sh
+	bash deploy/redispatch-tags_test.sh
 
 vet:
 	go vet ./...
