@@ -214,6 +214,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Cache-first answers a cached GET here, before the CRS. The site opts in
+	// (cache_pre_waf), a gated site never gets it, and a request that carries a
+	// body is not answered from a stored response.
+	if e.cachePreWAF && r.ContentLength == 0 && cacheableRequest(r) {
+		key := cacheKey(r)
+		if entry, ok := e.cache.get(key); ok {
+			enc, acceptable := negotiateEncoding(r.Header.Get("Accept-Encoding"))
+			if !acceptable {
+				blocked = true
+				notAcceptable(rw, &event)
+				return
+			}
+			e.serveCached(rw, key, entry, enc)
+			event.Stage, event.RuleID = "cache", "cache-hit"
+			return
+		}
+	}
+
 	// A body that cannot fit in the buffer is refused now rather than queued
 	// behind a full budget: the answer is 413 either way, and the client should
 	// hear it without a wait.
@@ -322,26 +340,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		enc, acceptable := negotiateEncoding(r.Header.Get("Accept-Encoding"))
 		if !acceptable {
 			blocked = true
-			event.Stage, event.RuleID = "cache", "not-acceptable"
-			rw.Header().Set("Vary", "Accept-Encoding")
-			uniformError(rw, http.StatusNotAcceptable)
+			notAcceptable(rw, &event)
 			return
 		}
+		// The cache stores identity and encodes per client, so ask the origin for
+		// plain bytes: an encoded reply it sent on our own request would leave
+		// the URL uncacheable for as long as the origin keeps compressing.
+		r.Header.Set("Accept-Encoding", encIdentity)
 		if entry, ok := e.cache.get(key); ok {
-			hdr := entry.header
-			body := entry.body
-			if enc != encIdentity && shouldCompress(entry.status, entry.header) {
-				// The stored header is shared, so the encoded hit writes a copy.
-				hdr = entry.header.Clone()
-				body = e.cache.variant(key, entry, enc)
-				hdr.Set("Content-Encoding", enc)
-				hdr.Set("Vary", "Accept-Encoding")
-			}
-			for k, vals := range hdr {
-				rw.Header()[k] = append([]string(nil), vals...)
-			}
-			rw.WriteHeader(entry.status)
-			_, _ = rw.Write(body)
+			e.serveCached(rw, key, entry, enc)
 			return
 		}
 		cw = &cacheWriter{ResponseWriter: gz, key: key, cache: e.cache}
@@ -391,6 +398,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		blocked = rv.blocked
 	}
+}
+
+// notAcceptable answers a client that accepts none of the body encodings the
+// proxy can send.
+func notAcceptable(w http.ResponseWriter, event *model.Event) {
+	event.Stage, event.RuleID = "cache", "not-acceptable"
+	w.Header().Set("Vary", "Accept-Encoding")
+	uniformError(w, http.StatusNotAcceptable)
 }
 
 func respondVerdict(w http.ResponseWriter, v model.Verdict) {

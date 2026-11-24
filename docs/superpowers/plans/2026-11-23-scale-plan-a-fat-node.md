@@ -15,8 +15,9 @@ Companion plan: [Plan C — game-server streaming](2026-11-23-scale-plan-c-game-
 | A2 — byte budget, bounded queue, memory ceiling | **done** 2026-11-23: `budget.go`, `queue_ms`, measured in `docs/BENCHMARKS.md` |
 | A3 — deadlines | **done** 2026-11-23: body deadline, `body_timeout_s`, 408 on a trickle |
 | A4 — cache and brotli | **done** 2026-11-23: normalized key, per-encoding variants, 406, measured in `docs/BENCHMARKS.md` |
-| A5 — cache-first | next |
-| A5 — cache-first, A6 — transports, A7 — observability, A8 — docs and releases | not started |
+| A5 — cache-first | **done** 2026-11-23: `cache_pre_waf` per site, API guard, measured in `docs/BENCHMARKS.md` |
+| A6 — transports | next |
+| A7 — observability, A8 — docs and releases | not started |
 
 ## Why this plan exists
 

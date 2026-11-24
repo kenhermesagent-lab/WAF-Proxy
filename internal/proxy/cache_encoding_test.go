@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/andybalholm/brotli"
@@ -114,6 +115,83 @@ func TestCacheRefusesAnUnacceptableEncoding(t *testing.T) {
 	}
 	if h.hits.Load() != 0 {
 		t.Fatalf("upstream was asked for a body nobody can read")
+	}
+}
+
+// An origin that compresses when asked must still fill the cache: the proxy
+// asks it for plain bytes, so the entry it stores is identity.
+func TestCompressingOriginStillFillsTheCache(t *testing.T) {
+	h := newHarness(t)
+	hdr := map[string]string{"Accept-Encoding": "gzip, deflate, br"}
+	first := h.request(http.MethodGet, testHost, "/gzip-if-asked", "", hdr)
+	second := h.request(http.MethodGet, testHost, "/gzip-if-asked", "", hdr)
+	if first.Code != http.StatusOK || second.Code != http.StatusOK {
+		t.Fatalf("statuses = %d, %d", first.Code, second.Code)
+	}
+	if got := decode(t, second.Header().Get("Content-Encoding"), second.Body.Bytes()); got != "compressed-page-payload" {
+		t.Fatalf("second response decodes to %q", got)
+	}
+	if h.hits.Load() != 1 {
+		t.Fatalf("upstream hits = %d after two cacheable GETs of a compressing page, want 1", h.hits.Load())
+	}
+}
+
+// An origin that encodes no matter what it is asked for cannot be stored as
+// identity, so it is passed through uncached rather than corrupted.
+func TestAlwaysEncodedOriginIsServedButNotStored(t *testing.T) {
+	h := newHarness(t)
+	hdr := map[string]string{"Accept-Encoding": "gzip, deflate, br"}
+	first := h.request(http.MethodGet, testHost, "/always-gzip", "", hdr)
+	second := h.request(http.MethodGet, testHost, "/always-gzip", "", hdr)
+	for _, rec := range []*httptest.ResponseRecorder{first, second} {
+		if got := rec.Header().Get("Content-Encoding"); got != encGzip {
+			t.Fatalf("Content-Encoding = %q", got)
+		}
+		if got := decode(t, encGzip, rec.Body.Bytes()); got != "always-encoded-payload" {
+			t.Fatalf("body decodes to %q", got)
+		}
+	}
+	if h.hits.Load() != 2 {
+		t.Fatalf("upstream hits = %d; an encoded body was stored as identity", h.hits.Load())
+	}
+}
+
+func TestVariantOverTheHostQuotaIsServedButNotKept(t *testing.T) {
+	// Incompressible bytes: the encoded copy cannot sit beside the identity one
+	// inside this host's 600-byte quota.
+	body := make([]byte, 500)
+	x := uint32(1)
+	for i := range body {
+		x = x*1664525 + 1013904223
+		body[i] = byte(x >> 24)
+	}
+	c := newResponseCache(1<<20, 600)
+	c.put("site.test|/", http.StatusOK, cacheableHeader("60"), body)
+	e, ok := c.get("site.test|/")
+	if !ok {
+		t.Fatal("entry was not cached")
+	}
+	v := c.variant("site.test|/", e, encBrotli)
+	if len(v) < 100 {
+		t.Fatalf("the test body compressed to %d bytes and cannot exceed the quota", len(v))
+	}
+	if decode(t, encBrotli, v) != string(body) {
+		t.Fatal("the served variant does not decode to the body")
+	}
+	c.mu.Lock()
+	charged := c.bytes
+	c.mu.Unlock()
+	if charged != int64(len(body)) {
+		t.Fatalf("a refused variant was charged: cache holds %d, want %d", charged, len(body))
+	}
+	e.mu.Lock()
+	kept := len(e.encoded)
+	e.mu.Unlock()
+	if kept != 0 {
+		t.Fatalf("a variant over the host quota was stored: %d kept", kept)
+	}
+	if again := c.variant("site.test|/", e, encBrotli); !bytes.Equal(again, v) {
+		t.Fatal("the unkept variant changed between hits")
 	}
 }
 

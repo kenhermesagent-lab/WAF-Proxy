@@ -28,7 +28,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   inside the entry. Clients whose `Accept-Encoding` differed only in order or weights used to keep
   duplicate entries and none of them received a compressed cached body. Negotiation honours
   q-values (`br` wins a tie), a client that refuses every encoding gets a 406, and a body the
-  upstream already encoded is no longer stored as if it were plain. On the test host a hit on a
+  upstream already encoded is no longer stored as if it were plain. A cacheable request is now
+  forwarded with `Accept-Encoding: identity` so an origin that compresses for its clients still
+  fills the cache; an origin that encodes regardless is passed through uncached. Variant bytes are
+  charged to the host's quota as well as the total. On the test host a hit on a
   64 KiB asset served 39,817 rps against 3,667 rps for the same request through the pipeline, with
   6,366 bytes on the wire instead of 65,536. Brotli is quality 4, chosen from the table in
   `docs/BENCHMARKS.md`.
@@ -40,6 +43,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **A cached hit can be answered before the WAF, per site.** With `cache_pre_waf=1` a cacheable GET
+  that has a fresh entry is served after screening but before the CRS: bans, the allow-list, the
+  rate limit and the bot filter still apply, while the CRS request rules, per-IP WAF rules, bot
+  challenge and access gate do not see it. Off by default; the API refuses the setting on a site
+  with an access gate or a WAF mode other than block/detect, so it cannot quietly disable a
+  control the operator asked for. On the test host a cached 1 KiB asset served 38,459 rps against
+  8,720 rps when every hit was inspected.
 - **A capacity number instead of a guess.** `cmd/perftool -proxy` runs the real proxy — TLS
   listener, routing, cache and event writer — against stub upstreams with a keep-alive client
   fan-out, and records requests, rps, p50/p95/p99, shed count and peak RSS per mode in

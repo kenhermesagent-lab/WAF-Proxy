@@ -65,6 +65,7 @@ func main() {
 	body := flag.Int("body", 1024, "-proxy: upstream response size in bytes")
 	cache := flag.String("cache", "off", "-proxy: off or on (let the upstream response be cacheable)")
 	encoding := flag.String("encoding", "off", "-proxy: request Accept-Encoding: off, br or gzip")
+	cacheFirst := flag.Bool("cache-first", false, "-proxy: answer cache hits before the WAF (per-site cache_pre_waf)")
 	h2 := flag.Bool("h2", false, "-proxy: speak HTTP/2 between client and proxy")
 	wafMode := flag.String("waf", "off", "-proxy: off or block (the Generic Web profile)")
 	inflight := flag.Int("inflight", 0, "-proxy: request budget (default twice the client count)")
@@ -88,7 +89,8 @@ func main() {
 			os.Exit(1)
 		}
 		os.Exit(runProxy(proxyConfig{Root: *dir, Duration: *duration, Clients: *clients, Encoding: *encoding,
-			Hosts: *sites, Body: *body, Cache: cacheOn, HTTP2: *h2, WAF: wafOn, Record: *record,
+			CacheFirst: *cacheFirst,
+			Hosts:      *sites, Body: *body, Cache: cacheOn, HTTP2: *h2, WAF: wafOn, Record: *record,
 			Inflight: *inflight, Queue: *queue}))
 	}
 	if *loadFor > 0 {

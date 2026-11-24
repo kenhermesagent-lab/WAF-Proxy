@@ -46,6 +46,9 @@ type proxyConfig struct {
 	Hosts    int
 	Body     int
 	Cache    bool
+	// CacheFirst sets the per-site cache_pre_waf setting, so a hit is answered
+	// before the CRS.
+	CacheFirst bool
 	// Encoding asks the proxy for a compressed body, which is what a cached
 	// hit serves.
 	Encoding string
@@ -91,6 +94,9 @@ func (c proxyConfig) mode() string {
 	}
 	if c.Encoding != "" && c.Encoding != "off" {
 		m += "-" + c.Encoding
+	}
+	if c.CacheFirst {
+		m += "-cachefirst"
 	}
 	if c.HTTP2 {
 		m += "-h2"
@@ -209,7 +215,11 @@ func proxyRun(c proxyConfig) (proxyResult, error) {
 	geo := geoip.Open(dir)
 	// Every client shares one loopback source, so the policy engine's default
 	// 100 rps per source would measure the rate limiter instead of the pipeline.
-	if err := st.SetSettings(map[string]string{"dos_rps": "1000000", "dos_burst": "1000000"}); err != nil {
+	settings := map[string]string{"dos_rps": "1000000", "dos_burst": "1000000"}
+	if c.CacheFirst {
+		settings["cache_pre_waf"] = "1"
+	}
+	if err := st.SetSettings(settings); err != nil {
 		return proxyResult{}, err
 	}
 	profiles, err := st.ListProfiles()

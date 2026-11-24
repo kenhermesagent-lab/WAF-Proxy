@@ -5,12 +5,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/gate"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
@@ -71,6 +73,47 @@ func TestSettingsQueueMSRange(t *testing.T) {
 		map[string]string{"body_timeout_s": "7200"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("body_timeout_s=7200 = %d, want 400", rec.Code)
+	}
+}
+
+// Cache-first skips the CRS, so the API refuses it where it would also skip a
+// control the operator asked for: an access gate, or a site with the WAF off.
+func TestSettingsRefuseCacheFirstWhereItSkipsControls(t *testing.T) {
+	srv, token, csrf := newSettingsServer(t)
+	site, err := srv.st.CreateSite("cached", "Cached", "console.cached.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := srv.st.InSite(site.ID)
+	p := &model.Proxy{Hostname: "cached.test", SiteID: site.ID, Enabled: true, GateMode: "off", WAFMode: "off"}
+	id, err := st.CreateProxy(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.ID = id
+	put := func(v string) *httptest.ResponseRecorder {
+		return sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "cached",
+			map[string]string{"cache_pre_waf": v})
+	}
+	if rec := put("1"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("cache_pre_waf with the WAF off = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	p.WAFMode = "block"
+	if err := st.UpdateProxy(p); err != nil {
+		t.Fatal(err)
+	}
+	if rec := put("1"); rec.Code != http.StatusOK {
+		t.Fatalf("cache_pre_waf with the WAF blocking = %d: %s", rec.Code, rec.Body.String())
+	}
+	p.GateMode = "basic"
+	if err := st.UpdateProxy(p); err != nil {
+		t.Fatal(err)
+	}
+	if rec := put("0"); rec.Code != http.StatusOK {
+		t.Fatalf("turning cache_pre_waf off = %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := put("1"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("cache_pre_waf behind a gate = %d, want 400: %s", rec.Code, rec.Body.String())
 	}
 }
 

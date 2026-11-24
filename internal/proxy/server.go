@@ -93,6 +93,9 @@ type edge struct {
 	queue  time.Duration
 	// bodyTimeout is how long this site's client may take to send its body.
 	bodyTimeout time.Duration
+	// cachePreWAF answers a cached GET before the CRS. Off unless the site asks
+	// for it, and never behind an access gate.
+	cachePreWAF bool
 	health      healthSettings
 	site        *capLimiter
 	clients     *clientLimiter
@@ -349,7 +352,8 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 	child, cancel := context.WithCancel(ctx)
 	e := &edge{proxy: p, ups: ups, routes: routes, cache: s.cache, cancel: cancel,
 		queue: s.queueFor(p.SiteID), bodyTimeout: s.bodyTimeoutFor(p.SiteID),
-		waf: s.d.Policy.ProfileFor(&p), health: healthFor(p),
+		cachePreWAF: s.cacheFirstFor(p),
+		waf:         s.d.Policy.ProfileFor(&p), health: healthFor(p),
 		site: newCapLimiter(p.MaxInflight), clients: newClientLimiter(p.MaxInflightPerClient),
 		timeout: time.Duration(p.UpstreamTimeout) * time.Second,
 		reqOps:  p.RequestHeaders, respOps: p.ResponseHeaders}
@@ -421,6 +425,20 @@ func (s *Server) queueFor(siteID int64) time.Duration {
 		return s.defaultQueue
 	}
 	return time.Duration(ms) * time.Millisecond
+}
+
+// cacheFirstFor reports whether this site answers a cached GET before the WAF.
+// The fast path skips the CRS and the access gate, so a gated site never gets
+// it whatever the setting says.
+func (s *Server) cacheFirstFor(p model.Proxy) bool {
+	if gate.Enabled(&p) {
+		return false
+	}
+	kv, err := s.d.Store.SettingsFor(p.SiteID)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(kv["cache_pre_waf"]) == "1"
 }
 
 // bodyTimeoutFor is the site's body deadline: the process default unless the

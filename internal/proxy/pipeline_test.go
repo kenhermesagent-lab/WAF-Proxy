@@ -108,6 +108,28 @@ func newHarness(t *testing.T) *harness {
 			_, _ = io.WriteString(gz, "<html><body>You have an error in your SQL syntax</body></html>")
 			_ = gz.Close()
 			return
+		case "/gzip-if-asked":
+			// Compresses only when asked, the way an ordinary origin behaves.
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "max-age=60")
+			if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+				_, _ = io.WriteString(w, "compressed-page-payload")
+				return
+			}
+			w.Header().Set("Content-Encoding", "gzip")
+			gz := gzip.NewWriter(w)
+			_, _ = io.WriteString(gz, "compressed-page-payload")
+			_ = gz.Close()
+			return
+		case "/always-gzip":
+			// Ignores what it was asked for, so its body is never identity.
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "max-age=60")
+			w.Header().Set("Content-Encoding", "gzip")
+			gz := gzip.NewWriter(w)
+			_, _ = io.WriteString(gz, "always-encoded-payload")
+			_ = gz.Close()
+			return
 		case "/trickle":
 			// Flushed over several hundred milliseconds: longer than a body
 			// deadline, to prove the deadline is the client's alone.

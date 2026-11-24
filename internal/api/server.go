@@ -1189,10 +1189,30 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 var publicSettingKeys = []string{
 	"base_domain", "wan_ip", "wan_port", "lan_ip", "gui_port", "wan_iface", "lan_iface",
 	"dos_rps", "dos_burst", "asn_block", "stealth_drop", "stealth_ping", "retention_days",
-	"sample_above_rps", "max_body", "queue_ms", "body_timeout_s", "protection_enabled", "acme_staging", "acme_email",
+	"sample_above_rps", "max_body", "queue_ms", "body_timeout_s", "cache_pre_waf",
+	"protection_enabled", "acme_staging", "acme_email",
 	"gate_ttl_hours", "home_lat", "home_lon", "decoy_hosts",
 	"admin_allow_cidrs", "bot_filter", "bot_filter_allow", "geoip_auto_update",
 	"normalization_mode", "ha_enabled",
+}
+
+// cacheFirstRefusal names why this site cannot answer a cache hit before the
+// CRS: that path skips the access gate and every WAF request rule, so it is
+// only offered where the gate is off and the site wants its traffic inspected.
+func (s *Server) cacheFirstRefusal(st *store.Store) string {
+	proxies, err := st.ListProxies()
+	if err != nil {
+		return "database error"
+	}
+	for _, p := range proxies {
+		if p.GateMode != "" && p.GateMode != "off" {
+			return "cache_pre_waf cannot be enabled on a site with an access gate"
+		}
+		if p.WAFMode != "block" && p.WAFMode != "detect" {
+			return "cache_pre_waf needs the site's WAF mode to be block or detect"
+		}
+	}
+	return ""
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -1304,6 +1324,17 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			if v != "0" && v != "1" {
 				writeError(w, http.StatusBadRequest, "ha_enabled must be 0 or 1")
 				return
+			}
+		case "cache_pre_waf":
+			if v != "0" && v != "1" {
+				writeError(w, http.StatusBadRequest, "cache_pre_waf must be 0 or 1")
+				return
+			}
+			if v == "1" {
+				if msg := s.cacheFirstRefusal(s.db(r)); msg != "" {
+					writeError(w, http.StatusBadRequest, msg)
+					return
+				}
 			}
 		}
 		switch k {

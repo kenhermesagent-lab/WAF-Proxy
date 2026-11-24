@@ -162,7 +162,7 @@ func encodeBody(enc string, body []byte) []byte {
 }
 
 // variant returns the body encoded as enc, built at most once per encoding and
-// counted against the same budget as the identity bytes.
+// charged to the cache after the first hit that asks for it.
 func (c *responseCache) variant(key string, e *cacheEntry, enc string) []byte {
 	e.mu.Lock()
 	if b, ok := e.encoded[enc]; ok {
@@ -177,31 +177,44 @@ func (c *responseCache) variant(key string, e *cacheEntry, enc string) []byte {
 	e.mu.Unlock()
 	once.Do(func() {
 		b := encodeBody(enc, e.body)
+		if !c.countVariant(key, e, int64(len(b))) {
+			return
+		}
 		e.mu.Lock()
 		e.encoded[enc] = b
 		e.mu.Unlock()
-		c.countVariant(key, e, int64(len(b)))
 	})
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.encoded[enc]
+	b := e.encoded[enc]
+	e.mu.Unlock()
+	if b == nil {
+		// The host quota refused to keep it, so this hit compresses its own copy.
+		b = encodeBody(enc, e.body)
+	}
+	return b
 }
 
-// countVariant charges an encoded copy to the cache and drops entries until it
-// fits again. An entry evicted while its variant was built is not charged.
-func (c *responseCache) countVariant(key string, e *cacheEntry, size int64) {
+// countVariant charges an encoded copy to the cache and drops entries until the
+// total fits again. It reports whether the variant was kept: one that does not
+// fit the host's quota is served once without being stored. An entry evicted
+// while its variant was built is not charged.
+func (c *responseCache) countVariant(key string, e *cacheEntry, size int64) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries[key] != e {
-		return
+		return false
 	}
 	host := cacheHost(key)
+	if c.hostBytes[host]+size > c.perHost {
+		return false
+	}
 	e.variantBytes.Add(size)
 	c.bytes += size
 	c.hostBytes[host] += size
 	for c.bytes > c.maxSize && len(c.entries) > 0 {
 		c.evictOldestLocked()
 	}
+	return true
 }
 
 // variesBeyondEncoding reports whether a Vary header names a request field
@@ -348,6 +361,24 @@ func (c *responseCache) purge(host string) int {
 		}
 	}
 	return removed
+}
+
+// serveCached writes a stored entry in the encoding the client accepts.
+func (e *edge) serveCached(rw http.ResponseWriter, key string, entry *cacheEntry, enc string) {
+	hdr := entry.header
+	body := entry.body
+	if enc != encIdentity && shouldCompress(entry.status, entry.header) {
+		// The stored header is shared, so the encoded hit writes a copy.
+		hdr = entry.header.Clone()
+		body = e.cache.variant(key, entry, enc)
+		hdr.Set("Content-Encoding", enc)
+		hdr.Set("Vary", "Accept-Encoding")
+	}
+	for k, vals := range hdr {
+		rw.Header()[k] = append([]string(nil), vals...)
+	}
+	rw.WriteHeader(entry.status)
+	_, _ = rw.Write(body)
 }
 
 // cacheWriter tees a response into the cache while streaming it to the client.

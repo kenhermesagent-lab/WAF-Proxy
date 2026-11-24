@@ -158,6 +158,32 @@ go test ./internal/proxy -run '^$' -bench BenchmarkBrotliQuality -benchtime 2s
 Quality 4 is the knee: 16 % smaller than quality 1 for 0.94 ms once per entry, while quality 9
 costs three times the CPU and ends up larger on this body.
 
+### Cache-first: a hit answered before the CRS
+
+A site can opt in to answering a cached GET before the WAF (`cache_pre_waf`, off by default,
+refused by the API for a site with an access gate or a WAF mode other than block/detect). These
+three rows are the same 1 KiB cached asset, budget 256, 10 s each: every hit inspected, the same
+hit answered before the CRS, and finally with the WAF off for reference.
+
+| Run | Requests | rps | p95 | p99 | Peak RSS |
+|---|---:|---:|---:|---:|---:|
+| `-cache=on -waf=block` (each hit inspected) | 87,312 | 8,720 | 59.7 ms | 93.0 ms | 252 MiB |
+| `-cache=on -waf=block -cache-first` | 384,963 | **38,459** | 12.6 ms | 23.4 ms | 352 MiB |
+| `-cache=on -cache-first` (WAF off) | 435,355 | 43,485 | 11.6 ms | 22.9 ms | 172 MiB |
+
+```bash
+go run ./cmd/perftool -proxy -duration 10s -clients 200 -sites 4 -body 1024 -inflight 256 -queue 250ms -cache=on -waf=block -cache-first -record
+```
+
+- **Cache-first is 4.4× the inspected hit path** (38,459 vs 8,720 rps) and 5.5× the uncached path.
+  That gap is Coraza running on a request the cache already answered: what the setting trades away.
+- The setting is per site and off by default because the fast path skips the CRS, the per-IP WAF
+  rules, the bot challenge and the access gate. Bans, the allow-list, the rate limit and the bot
+  filter still run before it, and the API refuses the setting on a gated site.
+- Only the cache-first row has a recorded `perf/proxy-cache-on-cachefirst-waf-budget256.json`; the
+  other two are from the same session and are not recorded, so a later `-record` cannot silently
+  replace the inspected-path baseline with a different body.
+
 ## Not measured
 
 The plan's Phase 9 list also asked for:

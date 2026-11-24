@@ -388,6 +388,12 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
               <option value="block">Block</option>
             </select>
           </Field>
+          <Switch
+            label="Serve cache hits before the WAF"
+            help="Per site: a cached GET is answered before the CRS and the per-IP WAF rules, so those rules never see a repeat visitor. Only for sites with no access gate whose WAF mode is block or detect."
+            checked={s.cache_pre_waf === "1"}
+            onChange={(v) => set("cache_pre_waf", v ? "1" : "0")}
+          />
           <Switch label="Protection pipeline enabled" checked={s.protection_enabled !== "0"} onChange={(v) => set("protection_enabled", v ? "1" : "0")} />
           <Switch label="Block hosting / VPS / cloud ASNs by default" help="Requires an ASN database; skipped and reported when unavailable." checked={s.asn_block !== "0"} onChange={(v) => set("asn_block", v ? "1" : "0")} />
           <Switch label="Stealth mode (DROP, no reset)" checked={s.stealth_drop !== "0"} onChange={(v) => set("stealth_drop", v ? "1" : "0")} />
