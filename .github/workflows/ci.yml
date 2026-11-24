@@ -103,6 +103,10 @@ jobs:
         run: bash deploy/check-version.sh
       - name: The release check still rejects every mismatch
         run: bash deploy/check-version_test.sh
+      - name: Every release section has its annotated tag on origin
+        run: bash deploy/check-tags.sh --remote
+      - name: The tag check rejects a missing, lightweight or misplaced tag
+        run: bash deploy/check-tags_test.sh
       - name: Workflow actions are pinned to commits
         run: bash deploy/check-workflow-pins.sh
       - name: The pin check rejects tags, branches and short SHAs

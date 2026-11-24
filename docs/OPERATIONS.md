@@ -548,6 +548,21 @@ git push origin HEAD:main --follow-tags   # branch plus its annotated tags
 git push origin v1.47.19                  # or one tag on its own
 ```
 
+`make verify-release` runs `deploy/check-tags.sh`, which fails when a
+`CHANGELOG.md` section from **1.61.0** on has no annotated tag, when the tag is
+lightweight, or when it sits on a commit that does not carry that section.
+Sections below 1.61.0 predate the rule and are not checked. Run it with the tags
+in your clone before you push, and with `--remote` after, which asks `origin`
+instead and so proves the tag was published rather than just created here:
+
+```sh
+make verify-release                     # before the push: local tags
+bash deploy/check-tags.sh --remote      # after it: what origin holds
+```
+
+CI runs `bash deploy/check-tags.sh --remote` on every push to `main`, because a
+checkout does not fetch tags; the release job fails if a section is untagged.
+
 Check what the remote really holds:
 
 ```sh
