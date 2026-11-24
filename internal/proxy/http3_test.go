@@ -300,6 +300,38 @@ func TestHTTP3DrainReleasesTheUDPPort(t *testing.T) {
 	t.Fatalf("UDP port %d still held after drain: %v", port, err)
 }
 
+// A drain can land while Serve is still binding the QUIC socket, which is a real
+// interleaving on a demotion: the drain finds nothing to close, and the port has
+// to be free afterwards all the same. Rounds cover both orders.
+func TestHTTP3DrainDuringStartReleasesTheUDPPort(t *testing.T) {
+	for i := 0; i < 8; i++ {
+		h := newHarness(t)
+		port := freeUDPPort(t)
+		h.px.EnableHTTP3(port)
+		lns, err := h.px.Listen(context.Background(), freeAddr(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// No waitHTTP3: the drain races the bind on purpose.
+		go func() { _ = lns.Serve() }()
+		lns.DrainTimeout(time.Second)
+
+		deadline := time.Now().Add(3 * time.Second)
+		for {
+			pc, err := net.ListenPacket("udp", "127.0.0.1:"+strconv.Itoa(port))
+			if err == nil {
+				_ = pc.Close()
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("round %d: UDP port %d held after a drain that raced the bind: %v", i, port, err)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		lns.Close()
+	}
+}
+
 // The QUIC config is where the replay and flooding guarantees live: 0-RTT off,
 // a bounded stream budget and a per-source handshake window.
 func TestHTTP3RefusesZeroRTTAndBoundsStreams(t *testing.T) {

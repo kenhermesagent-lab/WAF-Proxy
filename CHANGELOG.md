@@ -54,6 +54,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   annotation instead of a bare git exit code, and the wider token goes in as an authorization header
   with the checkout's own credential stripped from the remote first, because one request carries one
   credential and sending both is what made the first attempt die on a `git ls-remote`.
+- **A drain that races the HTTP/3 bind no longer loses the socket.** `Serve` installed the QUIC
+  listener while a demotion could be reading it, which the race detector reported in
+  `TestHTTP3DrainReleasesTheUDPPort`; the pointer is now loaded and stored atomically, and a bind that
+  lands after the drain has started releases its socket instead of holding the UDP port.
 - **The Latest badge is put back, not just asked to stay.** Publishing `v1.62.3`'s release took the
   badge off `v1.65.0` even though the job asked for it to be left alone, so an older release now ends
   by marking the newest tag, and the tag job does the same whenever a version lands.

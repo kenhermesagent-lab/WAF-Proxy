@@ -191,8 +191,17 @@ func (l *Listeners) listenHTTP3(port int) error {
 		MaxHeaderBytes: 32 << 10,
 		Logger:         l.s.d.Log,
 	}
-	l.h3 = &h3Listener{srv: srv, conn: pc}
+	h := &h3Listener{srv: srv, conn: pc}
+	l.h3.Store(h)
 	l.s.h3Live.Store(int64(port))
+	// This runs on Serve's goroutine, so a drain may have started while the
+	// socket was being bound: it found nothing to close, and the port would stay
+	// held until the process exited. Release the socket here instead.
+	if l.s.draining.Load() {
+		h.close()
+		l.s.h3Live.Store(0)
+		return nil
+	}
 	go func() {
 		l.s.d.Log.Info("http/3 listening", "addr", addr)
 		if err := srv.Serve(pc); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -205,7 +214,9 @@ func (l *Listeners) listenHTTP3(port int) error {
 	if l.ctx != nil {
 		go func() {
 			<-l.ctx.Done()
-			l.h3.close()
+			if h := l.h3.Load(); h != nil {
+				h.close()
+			}
 		}()
 	}
 	return nil

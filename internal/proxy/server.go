@@ -588,8 +588,10 @@ type Listeners struct {
 	servers []*http.Server
 	bound   []string
 	events  sync.Once
-	// h3 is the optional QUIC listener that shares the first address.
-	h3 *h3Listener
+	// h3 is the optional QUIC listener that shares the first address. Serve
+	// installs it on its own goroutine while Drain and Close run on the caller's,
+	// so it is loaded and stored atomically rather than as a plain field.
+	h3 atomic.Pointer[h3Listener]
 }
 
 // Listen binds the addresses but serves nothing yet. The first address is
@@ -688,9 +690,9 @@ func (l *Listeners) Drain(ctx context.Context) {
 	l.s.draining.Store(true)
 	// h3 first: its handlers get the same budget as a TCP request, then the
 	// socket is released so a promoted peer can bind the UDP port immediately.
-	l.h3.shutdown(ctx)
-	l.h3.close()
-	if l.h3 != nil {
+	if h := l.h3.Load(); h != nil {
+		h.shutdown(ctx)
+		h.close()
 		l.s.h3Live.Store(0)
 	}
 	for _, srv := range l.servers {
@@ -711,8 +713,8 @@ func (l *Listeners) DrainTimeout(d time.Duration) {
 // Close releases the sockets immediately. It is safe on a partially bound set
 // and on a listener that never served.
 func (l *Listeners) Close() {
-	if l.h3 != nil {
-		l.h3.close()
+	if h := l.h3.Load(); h != nil {
+		h.close()
 		l.s.h3Live.Store(0)
 	}
 	for _, srv := range l.servers {
