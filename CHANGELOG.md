@@ -43,6 +43,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   would otherwise look green. `ghcr.io/<owner>/wafproxy:latest` moves only when the tag is the
   newest on `origin`, so dispatching an older tag republishes its own version and leaves the alias
   where it is.
+- **The token is checked before it replaces the working one.** `TAG_PUSH_TOKEN` is offered to the
+  GitHub API first; only an accepted token takes the place of the checkout's credential in the remote
+  and the authorization header, so a typo or an expired token cannot lock the job out of the repository
+  it could read a moment earlier.
 - **The tag step says why it failed.** An unreadable remote is now reported as an Actions error
   annotation instead of a bare git exit code, and the wider token goes in as an authorization header
   with the checkout's own credential stripped from the remote first, because one request carries one
