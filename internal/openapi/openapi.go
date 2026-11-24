@@ -221,6 +221,7 @@ const schemaBlock = `    Proxy:
       type: object
       properties:
         proxy_id: {type: integer}
+        kind: {type: string, enum: [destination, source]}
         address: {type: string}
         at: {type: string, format: date-time}
     AnomalyDestination:
@@ -232,7 +233,12 @@ const schemaBlock = `    Proxy:
         resolved:
           type: array
           items: {type: string}
-        whitelist: {type: string}
+        muted: {type: boolean}
+    AnomalySource:
+      type: object
+      properties:
+        address: {type: string}
+        label: {type: string}
         muted: {type: boolean}
     AnomalyEventDetail:
       type: object
@@ -241,6 +247,9 @@ const schemaBlock = `    Proxy:
         destinations:
           type: array
           items: {$ref: '#/components/schemas/AnomalyDestination'}
+        sources:
+          type: array
+          items: {$ref: '#/components/schemas/AnomalySource'}
     AnomalyMutes:
       type: object
       properties:
@@ -251,6 +260,7 @@ const schemaBlock = `    Proxy:
       type: object
       required: [address]
       properties:
+        kind: {type: string, enum: [destination, source]}
         address: {type: string}
     NotificationReport:
       type: object

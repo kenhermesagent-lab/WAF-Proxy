@@ -115,6 +115,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			b = 1
 		}
 		s.d.Metrics.Count(e.proxy.ID, 1, b, event.BytesIn, event.BytesOut)
+		s.d.Metrics.CountSource(e.proxy.ID, event.SrcIP, event.BytesOut)
 	}()
 
 	if !e.proxy.Enabled {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Card, Drawer, Empty, Field, confirmDialog, errText, fmtAgo, PageHead } from "../ui";
-import type { AnomalyConfig, AnomalyDestination, AnomalyEvent, AnomalyMute } from "../types";
+import type { AnomalyConfig, AnomalyDestination, AnomalyEvent, AnomalyMute, AnomalySource } from "../types";
 
 const LABELS: Record<string, string> = {
   egress_spike: "Outbound spike",
@@ -37,6 +37,7 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<AnomalyEvent | null>(null);
   const [dests, setDests] = useState<AnomalyDestination[] | null>(null);
+  const [srcs, setSrcs] = useState<AnomalySource[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = () =>
@@ -83,28 +84,35 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
   const inspect = async (e: AnomalyEvent) => {
     setSelected(e);
     setDests(null);
+    setSrcs(null);
     try {
-      const r = await api.get<{ event: AnomalyEvent; destinations: AnomalyDestination[] }>(`/api/anomaly/events/${e.id}`);
+      const r = await api.get<{ event: AnomalyEvent; destinations: AnomalyDestination[]; sources: AnomalySource[] }>(
+        `/api/anomaly/events/${e.id}`,
+      );
       setSelected(r.event);
       setDests(r.destinations || []);
+      setSrcs(r.sources || []);
     } catch (err) {
       onError(errText(err));
       setDests([]);
+      setSrcs([]);
     }
   };
 
-  const mute = async (d: AnomalyDestination) => {
+  const mute = async (kind: "destination" | "source", address: string) => {
     if (!selected) return;
+    const site = selected.proxy_host || `#${selected.proxy_id}`;
+    const subject = kind === "source" ? `Traffic from ${address} to ${site}` : `Traffic from ${site} to ${address}`;
     const ok = await confirmDialog(
-      `Traffic from ${selected.proxy_host || `#${selected.proxy_id}`} to ${d.address} is expected. ` +
-        "Muting stops outbound-spike detections for this site while its upstreams are muted, and acknowledges the open ones.",
-      { title: "Mute destination", confirmLabel: "Mute" },
+      `${subject} is expected. Muting records it as expected and acknowledges the open outbound spikes for this site; ` +
+        "traffic from an unmuted source, or to an unmuted upstream, still raises one.",
+      { title: kind === "source" ? "Mute source" : "Mute destination", confirmLabel: "Mute" },
     );
     if (!ok) return;
     setBusy(true);
     try {
-      await api.post(`/api/anomaly/events/${selected.id}/mute`, { address: d.address });
-      onOK(`Muted outbound traffic to ${d.address}`);
+      await api.post(`/api/anomaly/events/${selected.id}/mute`, { kind, address });
+      onOK(kind === "source" ? `Muted traffic from ${address}` : `Muted outbound traffic to ${address}`);
       await inspect(selected);
       load();
     } catch (err) {
@@ -114,11 +122,11 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
     }
   };
 
-  const unmute = async (proxyID: number, address: string) => {
+  const unmute = async (proxyID: number, kind: "destination" | "source", address: string) => {
     setBusy(true);
     try {
-      await api.del(`/api/anomaly/mutes?proxy_id=${proxyID}&address=${encodeURIComponent(address)}`);
-      onOK(`Detecting outbound spikes to ${address} again`);
+      await api.del(`/api/anomaly/mutes?proxy_id=${proxyID}&kind=${kind}&address=${encodeURIComponent(address)}`);
+      onOK(kind === "source" ? `Detecting traffic from ${address} again` : `Detecting outbound spikes to ${address} again`);
       if (selected) await inspect(selected);
       load();
     } catch (err) {
@@ -227,17 +235,22 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
       </Card>
 
       {mutes.length > 0 && (
-        <Card title={`Muted destinations (${mutes.length})`}>
+        <Card title={`Muted traffic (${mutes.length})`}>
           <p className="faint small-text" style={{ marginTop: 0 }}>
-            Outbound spikes toward these addresses are expected and raise no event. Unmute to detect them again.
+            A site raises no outbound spike while every upstream is muted, or when a window's bytes all came from
+            muted sources. Unmute a row to detect its traffic again.
           </p>
           {mutes.map((m) => (
-            <div className="bar-row" key={`${m.proxy_id}-${m.address}`}>
+            <div className="bar-row" key={`${m.proxy_id}-${m.kind}-${m.address}`}>
               <div>
                 <span className="mono">{m.address}</span>
-                <div className="faint small-text">{hostOf(m.proxy_id)} · muted {fmtAgo(m.at)}</div>
+                <div className="faint small-text">
+                  {m.kind === "source" ? "source" : "destination"} · {hostOf(m.proxy_id)} · muted {fmtAgo(m.at)}
+                </div>
               </div>
-              <button className="small" onClick={() => unmute(m.proxy_id, m.address)} disabled={busy}>Unmute</button>
+              <button className="small" onClick={() => unmute(m.proxy_id, m.kind, m.address)} disabled={busy}>
+                Unmute
+              </button>
             </div>
           ))}
         </Card>
@@ -295,31 +308,61 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
                   <div className="faint small-text">
                     {d.resolved && d.resolved.length > 0 ? d.resolved.join(", ") : "the name did not resolve"} · {d.url}
                   </div>
-                  <div style={{ marginTop: 4 }}>
-                    {d.whitelist ? (
-                      <Badge tone="ok">whitelisted · {d.whitelist}</Badge>
-                    ) : (
-                      <span className="faint small-text">not covered by an IP whitelist</span>
-                    )}
-                    {d.muted && <span style={{ marginLeft: 8 }}><Badge tone="info">muted</Badge></span>}
-                  </div>
+                  {d.muted && (
+                    <div style={{ marginTop: 4 }}>
+                      <Badge tone="info">muted</Badge>
+                    </div>
+                  )}
                 </div>
                 {d.muted ? (
-                  <button className="small" onClick={() => unmute(selected.proxy_id, d.address)} disabled={busy}>
+                  <button className="small" onClick={() => unmute(selected.proxy_id, "destination", d.address)} disabled={busy}>
                     Unmute
                   </button>
                 ) : (
-                  <button className="small" onClick={() => mute(d)} disabled={busy}>
+                  <button className="small" onClick={() => mute("destination", d.address)} disabled={busy}>
                     Mute destination
                   </button>
                 )}
               </div>
             ))
           )}
+
+          <h3 style={{ margin: "18px 0 4px", fontSize: 13 }}>Where it comes from</h3>
+          <p className="faint small-text" style={{ marginTop: 0 }}>
+            The sources this site's IP whitelists allow. Muting one is how an upload from a trusted client stops
+            looking like a spike; traffic from any other client still raises one.
+          </p>
+          {srcs === null ? (
+            <p className="muted">Loading…</p>
+          ) : srcs.length === 0 ? (
+            <Empty>No IP whitelist applies to this site, so there is no whitelisted source to mute.</Empty>
+          ) : (
+            srcs.map((s) => (
+              <div className="bar-row" key={s.address}>
+                <div>
+                  <span className="mono">{s.address}</span>
+                  <div className="faint small-text">whitelisted · {s.label}</div>
+                  {s.muted && (
+                    <div style={{ marginTop: 4 }}>
+                      <Badge tone="info">muted</Badge>
+                    </div>
+                  )}
+                </div>
+                {s.muted ? (
+                  <button className="small" onClick={() => unmute(selected.proxy_id, "source", s.address)} disabled={busy}>
+                    Unmute
+                  </button>
+                ) : (
+                  <button className="small" onClick={() => mute("source", s.address)} disabled={busy}>
+                    Mute source
+                  </button>
+                )}
+              </div>
+            ))
+          )}
           <p className="faint small-text">
-            A site whose every upstream is muted raises no outbound spikes. Requests, rate spikes and login failures
-            are detected as before, and the notification class can still be muted separately under{" "}
-            <strong>Notifications</strong>.
+            Muting covers outbound spikes. Requests, rate spikes and login failures are detected as before, and the
+            notification class can still be muted separately under <strong>Notifications</strong>.
           </p>
         </Drawer>
       )}

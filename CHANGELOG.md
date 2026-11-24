@@ -12,7 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.70.1] — 2026-11-24
+## [1.71.1] — 2026-11-24
 
 ### Fixed
 
@@ -24,6 +24,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   skip path has none, so they are now removed for that request only. The profile's method allowlist
   is still enforced before the exemption applies, a buffered path keeps both policies, and every
   other rule still runs on the skip path.
+
+## [1.71.0] — 2026-11-24
+
+### Added
+
+- **An anomaly's whitelisted source can be muted, not only the backend it uploads to.** The detail panel now lists
+  the entries of the `ip_whitelist` policies that apply to the site, each with **Mute source**, and a source mute is
+  attributed byte for byte: the proxy counts outbound bytes per client, so an outbound spike is suppressed only when
+  the whole window came from muted sources, while traffic from any other client still raises one. A subnet entry
+  covers the clients inside it. Muting either kind acknowledges the site's open outbound spikes, and both are listed
+  together under **Muted traffic**.
+
+### Fixed
+
+- **A destination claimed an IP whitelist covered it.** `ip_whitelist` policies describe client sources, so the *not
+  covered by an IP whitelist* line on an upstream described the wrong end of the connection. Whitelist labels now
+  appear on the sources they name, and mutes written before this release load as destination mutes.
 
 ## [1.70.0] — 2026-11-24
 

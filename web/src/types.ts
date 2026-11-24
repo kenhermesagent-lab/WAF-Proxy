@@ -350,12 +350,22 @@ export interface AnomalyDestination {
   address: string;
   port?: string;
   resolved?: string[];
-  whitelist?: string;
+  muted: boolean;
+}
+
+// One address a site's IP whitelists allow, which can be muted like a
+// destination once two clicks have shown the traffic is expected.
+export interface AnomalySource {
+  address: string;
+  label: string;
   muted: boolean;
 }
 
 export interface AnomalyMute {
   proxy_id: number;
+  // destination is an upstream the site sends to; source is a whitelisted
+  // client it accepts from.
+  kind: "destination" | "source";
   address: string;
   at: string;
 }
