@@ -591,8 +591,9 @@ way, so a release cut before this rule can still get one.
 `make verify-release` runs `deploy/check-tags.sh`, which fails when a
 `CHANGELOG.md` section from **1.61.0** on has no annotated tag, when the tag is
 lightweight, when it sits on a commit that does not carry that section, when
-`VERSION` at that commit is not the version the tag names, when the tag's
-commit is not on `main` — a release nobody can pull — when a tag names a version
+`VERSION` at that commit is missing or is not the version the tag names, when
+the tag is not reachable from the branch you are on, when its commit is not on
+`main` — a release nobody can pull — when a tag names a version
 the `CHANGELOG.md` does not date (a stray tag, even when its commit did reach
 `main`), or when a version's release commit is newer than the newest release, so
 it was cut after one that had already shipped. Sections below 1.61.0 predate

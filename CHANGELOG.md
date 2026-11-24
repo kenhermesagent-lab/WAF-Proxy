@@ -16,6 +16,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **The release-tag rules cannot drift from the runbook.** `deploy/check-tags-docs_test.sh` maps every
+  failure `deploy/check-tags.sh` can print to the sentence `docs/OPERATIONS.md` uses for it, and runs
+  in `make verify-release` and the `release` job, so a rule that lands in the check without a runbook
+  line fails the gate instead of being found later.
 - **A release tag publishes the container image too.** The `image` job builds `wafproxy:<version>`,
   boots it and asks `/api/health` for its own version before it pushes
   `ghcr.io/<owner>/wafproxy:<version>`, so a tag delivers the binaries and the image that matches
