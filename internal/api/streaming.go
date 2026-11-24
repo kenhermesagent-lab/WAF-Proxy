@@ -97,11 +97,24 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
+	kv, _ := s.db(r).Settings()
 	cfg := streaming.Config{
 		Enabled: in.Enabled, ListenIP: in.ListenIP, Protocol: in.Protocol, Port: in.Port,
 		PortCount: in.PortCount, Upstream: in.Upstream, UpstreamPort: in.UpstreamPort,
 		MaxConns: in.MaxConns, MaxPerSource: in.MaxPerSource,
 		IdleSeconds: in.IdleSeconds, MaxDatagram: in.MaxDatagram, ListIDs: in.ListIDs,
+	}
+	// A page or a cached bundle from before the protocol fields sends neither,
+	// so an omitted value keeps what is saved (or the preset on a first save)
+	// instead of turning a UDP or both card into one TCP port.
+	if strings.TrimSpace(in.Protocol) == "" || in.PortCount == 0 {
+		saved := streaming.ConfigFromSettings(def, kv)
+		if strings.TrimSpace(in.Protocol) == "" {
+			cfg.Protocol = saved.Protocol
+		}
+		if in.PortCount == 0 {
+			cfg.PortCount = saved.PortCount
+		}
 	}
 	if strings.TrimSpace(in.Allow) != "" {
 		cfg.Allow = strings.Split(in.Allow, ",")
@@ -126,7 +139,6 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	kv, _ := s.db(r).Settings()
 	if normalized.Enabled {
 		// An empty bind address means "all interfaces", which would publish the
 		// forwarder on every network the host is on.

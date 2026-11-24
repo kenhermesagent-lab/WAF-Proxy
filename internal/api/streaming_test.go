@@ -251,6 +251,54 @@ func TestStreamingDefaultsComeFromThePreset(t *testing.T) {
 	}
 }
 
+// A page or cached bundle that predates the protocol fields sends neither, so
+// the handler keeps what is saved instead of turning the card into one TCP port.
+// With nothing saved yet, the preset seeds it.
+func TestStreamingLegacyPayloadKeepsSavedProtocol(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	if err := st.SetSettings(map[string]string{
+		"stream_plex_protocol":   "both",
+		"stream_plex_port_count": "2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	legacy := `{"enabled":false,"listen_ip":"192.168.191.2","port":27015,` +
+		`"upstream":"10.0.0.10:27015","allow":"","max_conns":64}`
+	if rec := authed(t, srv, token, csrf, http.MethodPut, "/api/streaming/plex", legacy); rec.Code != http.StatusOK {
+		t.Fatalf("PUT legacy payload = %d: %s", rec.Code, rec.Body.String())
+	}
+	kv, err := st.Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kv["stream_plex_protocol"] != "both" || kv["stream_plex_port_count"] != "2" {
+		t.Fatalf("saved protocol/range = %q/%q, want both/2",
+			kv["stream_plex_protocol"], kv["stream_plex_port_count"])
+	}
+
+	// A payload that does carry them still wins.
+	explicit := `{"enabled":false,"listen_ip":"192.168.191.2","protocol":"tcp",` +
+		`"port":27015,"port_count":1,"upstream":"10.0.0.10:27015","allow":"","max_conns":64}`
+	if rec := authed(t, srv, token, csrf, http.MethodPut, "/api/streaming/plex", explicit); rec.Code != http.StatusOK {
+		t.Fatalf("PUT explicit payload = %d: %s", rec.Code, rec.Body.String())
+	}
+	if kv, _ = st.Settings(); kv["stream_plex_protocol"] != "tcp" || kv["stream_plex_port_count"] != "1" {
+		t.Fatalf("saved protocol/range = %q/%q, want tcp/1",
+			kv["stream_plex_protocol"], kv["stream_plex_port_count"])
+	}
+
+	// Nothing saved for Valheim, so its preset (UDP over three ports) seeds it.
+	if rec := authed(t, srv, token, csrf, http.MethodPut, "/api/streaming/valheim", legacy); rec.Code != http.StatusOK {
+		t.Fatalf("PUT first save = %d: %s", rec.Code, rec.Body.String())
+	}
+	kv, _ = st.Settings()
+	if kv["stream_valheim_protocol"] != "udp" || kv["stream_valheim_port_count"] != "3" {
+		t.Fatalf("first save protocol/range = %q/%q, want udp/3",
+			kv["stream_valheim_protocol"], kv["stream_valheim_port_count"])
+	}
+}
+
 // Every key a save writes must load back into the configuration it came from.
 func TestStreamingSettingsRoundTrip(t *testing.T) {
 	def, _ := streaming.Lookup("custom")
