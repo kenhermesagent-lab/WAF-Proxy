@@ -33,11 +33,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   the push commands, so a release made through the script cannot ship untagged. It refuses a
   version older than the newest tag, and removes its own tag again when that check fails.
 
-### Fixed
-
-- **`make test-release` is green again.** The lockfile guard added to `deploy/check-version.sh` had
-  no fixture in `deploy/check-version_test.sh`, so the suite failed its first assertion.
-
 ## [1.62.3] — 2026-11-24
 
 ### Changed
