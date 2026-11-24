@@ -39,6 +39,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   Palworld, FiveM, Factorio, ARK, Rust and 7 Days to Die with a default protocol, port range and
   a one-line note; ARK's query port and Rust's RCON are separate cards. Every value stays
   editable, and a test compares the install guide's table with the catalog so the two cannot drift.
+- **The Streaming page groups the catalog and shows it live.** Media, game and custom sections each get
+  a card with its protocol, port range, upstream and — for UDP — the per-source and idle limits; a UDP
+  card with no allow list says plainly that it answers any source. The status side shows what is
+  bound, bytes each way, refusals, oversize drops and the busiest source.
 
 ### Changed
 

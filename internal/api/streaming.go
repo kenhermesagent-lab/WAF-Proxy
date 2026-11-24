@@ -76,13 +76,16 @@ func (s *Server) streamingDefaults(def streaming.Service, kv map[string]string) 
 		}
 	}
 	return map[string]any{
-		"listen_ip":     strings.TrimSpace(kv["wan_ip"]),
-		"protocol":      def.Protocol,
-		"port":          def.DefaultPort,
-		"port_count":    def.PortCount,
-		"upstream":      upstream,
-		"upstream_port": def.DefaultPort,
-		"max_conns":     streaming.DefaultMaxConns,
+		"listen_ip":      strings.TrimSpace(kv["wan_ip"]),
+		"protocol":       def.Protocol,
+		"port":           def.DefaultPort,
+		"port_count":     def.PortCount,
+		"upstream":       upstream,
+		"upstream_port":  def.DefaultPort,
+		"max_conns":      streaming.DefaultMaxConns,
+		"max_per_source": streaming.DefaultMaxPerSource,
+		"idle_seconds":   streaming.DefaultUDPIdleSeconds,
+		"max_datagram":   streaming.DefaultMaxDatagram,
 	}
 }
 

@@ -825,6 +825,9 @@ export interface StreamingService {
     upstream: string;
     upstream_port: number;
     max_conns: number;
+    max_per_source: number;
+    idle_seconds: number;
+    max_datagram: number;
   };
 }
 
