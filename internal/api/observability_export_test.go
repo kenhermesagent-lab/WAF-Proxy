@@ -80,6 +80,7 @@ func TestPrometheusMetricsExportsForwarders(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv.SetStreaming(m)
+	srv.SetStreamEventDrops(func() int64 { return 5 })
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	req.Header.Set("Authorization", "Bearer "+srv.cfg.MetricsToken)
@@ -94,6 +95,7 @@ func TestPrometheusMetricsExportsForwarders(t *testing.T) {
 		`wafproxy_stream_bytes_total{service="plex",direction="out"} 0`,
 		`# TYPE wafproxy_stream_packets_total counter`,
 		`wafproxy_stream_cap_hits_total{service="plex"} 0`,
+		`wafproxy_stream_events_dropped_total 5`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metrics missing %q:\n%s", want, body)

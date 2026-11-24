@@ -1992,6 +1992,13 @@ func (s *Server) prometheusMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 		metrics.Streams(&b, streams)
 	}
+	// A dropping queue means the events table cannot keep up with a refusal
+	// spray, which is exactly what an operator needs to see before the rows
+	// they are looking for go missing.
+	if s.streamDrops != nil {
+		fmt.Fprintf(&b, "# HELP wafproxy_stream_events_dropped_total Relay event rows dropped because the writer queue was full.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_stream_events_dropped_total counter\nwafproxy_stream_events_dropped_total %d\n", s.streamDrops())
+	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, _ = io.WriteString(w, b.String())
 }

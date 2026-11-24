@@ -775,9 +775,19 @@ func run() error {
 	streams.SetCountryLookup(func(addr netip.Addr) string {
 		return strings.ToUpper(geo.Lookup(addr).Country)
 	})
-	cfgs := make(map[string]streaming.Config, len(streaming.Catalog))
-	for _, def := range streaming.Catalog {
-		cfgs[def.ID] = streaming.ConfigFromSettings(def, kv)
+	// Every promotion reads the settings again: a card saved while this node
+	// was active, or replicated from the peer while it was a standby, must be
+	// what the forwarders bind, not the map read at boot.
+	streamCfgs := func() (map[string]streaming.Config, error) {
+		kv, err := st.Settings()
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[string]streaming.Config, len(streaming.Catalog))
+		for _, def := range streaming.Catalog {
+			out[def.ID] = streaming.ConfigFromSettings(def, kv)
+		}
+		return out, nil
 	}
 	// Forwarders start with the data plane, not at boot: a standby must not
 	// hold a media port, and a promoted node rebinds them.
@@ -877,6 +887,7 @@ func run() error {
 	active.Add(func(ctx context.Context) { agentLinks.Start(ctx) })
 	res.Each(func(b *siteres.Bundle) { b.Anomaly.SetSink(agentLinks.Publish) })
 	apiServer.SetStreaming(streams)
+	apiServer.SetStreamEventDrops(streamWriter.Dropped)
 	apiServer.SetUpdates(updateManager)
 	apiServer.SetUptime(uptimeMon)
 	restartCh := make(chan struct{}, 1)
@@ -1028,7 +1039,7 @@ func run() error {
 		}(gl)
 	}
 
-	plane := newDataPlane(ctx, px, streams, cfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
+	plane := newDataPlane(ctx, px, streams, streamCfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
 	defer plane.Close()
 	if !node.Active() {
 		// Hold the service address without accepting. A paired standby stays

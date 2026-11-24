@@ -48,7 +48,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   every three seconds — only while the tab is visible.
 - **Prometheus covers the forwarders.** `wafproxy_stream_sessions`, `_stream_bytes_total`,
   `_stream_packets_total`, `_stream_refused_total{reason}` and `_stream_cap_hits_total` report per
-  service on the existing authenticated `/metrics` endpoint, for listening services only.
+  service on the existing authenticated `/metrics` endpoint, for listening services only, and
+  `_stream_events_dropped_total` reports rows the event writer had to drop.
 
 ### Changed
 
@@ -62,6 +63,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   stream.
 - A UDP port below `1024` names the switch that unlocks it: the error says
   **Refuse sources that are not on an allow list**, which is the control on the card.
+- **An HA move binds the forwarders the store holds now.** Every promotion reads the streaming
+  settings again, so a card saved while this node was active — or replicated from the peer while it
+  was a standby — is what binds, instead of the map read at boot. A demotion closes the UDP sessions
+  and releases the game ports before the HTTP listener's drain budget is spent, so the node taking
+  over binds immediately. A failover still drops live game sessions, which [docs/HA.md](docs/HA.md)
+  now states in the failover checklist.
 
 ### Security
 

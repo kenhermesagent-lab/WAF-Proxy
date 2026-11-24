@@ -585,6 +585,51 @@ func TestUDPRequireAllowRefusesWithoutAList(t *testing.T) {
 	expectReply(t, viaAllow, "hi")
 }
 
+// One node at a time holds the game port: a promotion binds it, a demotion
+// releases it, and the node taking over then binds it in the same process.
+func TestPromotionCycleKeepsOneUDPListener(t *testing.T) {
+	port := freeUDPPort(t)
+	cfgs := map[string]Config{"plex": {Enabled: true, Protocol: "udp", ListenIP: "127.0.0.1",
+		Port: port, Upstream: "127.0.0.1:27015"}}
+	free := func() bool {
+		pc, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+		if err != nil {
+			return false
+		}
+		_ = pc.Close()
+		return true
+	}
+
+	first, second := New(discardLogger()), New(discardLogger())
+	defer first.Close()
+	defer second.Close()
+
+	if !free() {
+		t.Fatal("a node that was never promoted held the game port")
+	}
+	if err := first.ApplyAll(cfgs); err != nil {
+		t.Fatal(err)
+	}
+	if free() {
+		t.Fatal("the promoted node did not bind the game port")
+	}
+	// Two actives would mean two nodes answering for one game server.
+	if err := second.ApplyAll(cfgs); err == nil {
+		t.Fatal("a second node bound the port the active was serving")
+	}
+
+	first.Close()
+	if !free() {
+		t.Fatal("demotion did not release the game port")
+	}
+	if err := second.ApplyAll(cfgs); err != nil {
+		t.Fatalf("the node taking over could not bind: %v", err)
+	}
+	if err := first.ApplyAll(cfgs); err == nil {
+		t.Fatal("the demoted node took the port back while the active served it")
+	}
+}
+
 // One address may open newSessionBurst sessions at once and newSessionRate per
 // second after that; an existing session keeps flowing either way.
 func TestUDPNewSessionRateLimit(t *testing.T) {
