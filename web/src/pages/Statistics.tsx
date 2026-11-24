@@ -8,7 +8,6 @@ import { Badge, Card, Empty, PageHead, PageTabs, errText, fmtAgo, fmtBytes, fmtT
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "traffic", label: "Traffic" },
-  { id: "uptime", label: "Uptime" },
   { id: "gate", label: "Access gate logins" },
 ];
 
@@ -135,7 +134,6 @@ export default function Statistics({
   const topCountries = useMemo(() => (stats?.countries ?? []).slice(0, 24), [stats]);
   const countryTotal = Math.max(1, ...(stats?.countries ?? []).map((c) => c.count));
   const down = (uptime?.targets ?? []).filter((t) => t.state === "down").length;
-  const live = tab === "uptime";
 
   const labels = series.map((b) => {
     const d = new Date(b.bucket);
@@ -146,6 +144,52 @@ export default function Statistics({
   });
   const compact = (n: number) =>
     n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n % 1e3 === 0 ? 0 : 1)}k` : `${Math.round(n)}`;
+
+  // Backend uptime is independent of the selected dates, so it sits above the
+  // strip and stays on screen whichever tab is open.
+  const uptimeCard = (
+    <Card
+      title="Uptime monitor"
+      actions={
+        <span className="row" style={{ gap: 8 }}>
+          {down > 0
+            ? <Badge tone="bad">{down} backend down</Badge>
+            : <Badge tone="ok">all probes healthy</Badge>}
+          <span className="muted" style={{ fontSize: 11 }}>
+            {uptime?.checked_at ? `checked ${fmtTime(uptime.checked_at)}` : "waiting for the first probe"}
+          </span>
+        </span>
+      }
+    >
+      <div className="grid cols-3" style={{ marginBottom: 12 }}>
+        {(uptime?.proxies ?? []).map((p) => (
+          <div className="bar-row" key={p.proxy_id}>
+            <div>
+              <div>{p.host}</div>
+              <div className="faint" style={{ fontSize: 11 }}>{p.up}/{p.targets} upstreams up</div>
+            </div>
+            <div>{stateBadge(p.state)}</div>
+          </div>
+        ))}
+        {(uptime?.proxies ?? []).length === 0 && <Empty>No proxies configured.</Empty>}
+      </div>
+      {(uptime?.targets ?? []).length > 0 && (
+        <div className="table-wrap"><table>
+          <thead>
+            <tr><th>Proxy / backend</th><th>State</th><th className="num">24h uptime</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">HTTP</th><th className="hide-tablet">Last check</th><th className="hide-tablet">Detail</th></tr>
+          </thead>
+          <tbody>
+            {uptime?.targets.map((t) => <UptimeRow key={t.id} t={t} />)}
+          </tbody>
+        </table></div>
+      )}
+      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+        Every enabled upstream is checked with an HTTP HEAD request every 30 seconds. A backend returning 5xx or
+        timing out is marked down, and the transition is sent to the notification channels that have
+        <code> Backend up/down</code> enabled.
+      </p>
+    </Card>
+  );
 
   const rangeStrip = (
     <>
@@ -182,27 +226,26 @@ export default function Statistics({
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <PageHead sub="Request outcomes, policy stages and backend uptime for the selected period." />
-      {!live && rangeStrip}
+      <PageHead sub="Live backend uptime, plus request outcomes and policy stages for the selected period." />
+      {uptimeCard}
+      {rangeStrip}
 
-      {!live && (
-        <Card title="Requests over time" sub="Hourly buckets; blocked traffic is overlaid on total requests.">
-          {series.length === 0 ? (
-            <Empty title="No events in this range" icon="chart">Choose a different date range to see traffic.</Empty>
-          ) : (
-            <Chart
-              series={[
-                { label: "Requests", color: "#4f8cff", values: series.map((b) => b.requests), area: true },
-                { label: "Blocked", color: "#f0616d", values: series.map((b) => b.errors) },
-              ]}
-              labels={labels}
-              height={240}
-              format={compact}
-              tooltipTitle={(l) => l}
-            />
-          )}
-        </Card>
-      )}
+      <Card title="Requests over time" sub="Hourly buckets; blocked traffic is overlaid on total requests.">
+        {series.length === 0 ? (
+          <Empty title="No events in this range" icon="chart">Choose a different date range to see traffic.</Empty>
+        ) : (
+          <Chart
+            series={[
+              { label: "Requests", color: "#4f8cff", values: series.map((b) => b.requests), area: true },
+              { label: "Blocked", color: "#f0616d", values: series.map((b) => b.errors) },
+            ]}
+            labels={labels}
+            height={240}
+            format={compact}
+            tooltipTitle={(l) => l}
+          />
+        )}
+      </Card>
 
       <PageTabs tabs={tabs} active={tab} onSelect={(id) => onTab?.(id)} />
 
@@ -289,50 +332,6 @@ export default function Statistics({
             )}
           </Card>
         </div>
-      )}
-
-      {tab === "uptime" && (
-        <Card
-          title="Uptime monitor"
-          actions={
-            <span className="row" style={{ gap: 8 }}>
-              {down > 0
-                ? <Badge tone="bad">{down} backend down</Badge>
-                : <Badge tone="ok">all probes healthy</Badge>}
-              <span className="muted" style={{ fontSize: 11 }}>
-                {uptime?.checked_at ? `checked ${fmtTime(uptime.checked_at)}` : "waiting for the first probe"}
-              </span>
-            </span>
-          }
-        >
-          <div className="grid cols-3" style={{ marginBottom: 12 }}>
-            {(uptime?.proxies ?? []).map((p) => (
-              <div className="bar-row" key={p.proxy_id}>
-                <div>
-                  <div>{p.host}</div>
-                  <div className="faint" style={{ fontSize: 11 }}>{p.up}/{p.targets} upstreams up</div>
-                </div>
-                <div>{stateBadge(p.state)}</div>
-              </div>
-            ))}
-            {(uptime?.proxies ?? []).length === 0 && <Empty>No proxies configured.</Empty>}
-          </div>
-          {(uptime?.targets ?? []).length > 0 && (
-            <div className="table-wrap"><table>
-              <thead>
-                <tr><th>Proxy / backend</th><th>State</th><th className="num">24h uptime</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">HTTP</th><th className="hide-tablet">Last check</th><th className="hide-tablet">Detail</th></tr>
-              </thead>
-              <tbody>
-                {uptime?.targets.map((t) => <UptimeRow key={t.id} t={t} />)}
-              </tbody>
-            </table></div>
-          )}
-          <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-            Every enabled upstream is checked with an HTTP HEAD request every 30 seconds. A backend returning 5xx or
-            timing out is marked down, and the transition is sent to the notification channels that have
-            <code> Backend up/down</code> enabled.
-          </p>
-        </Card>
       )}
 
       {tab === "gate" && (

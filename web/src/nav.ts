@@ -40,7 +40,6 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
         tabs: [
           { id: "overview", label: "Overview" },
           { id: "traffic", label: "Traffic" },
-          { id: "uptime", label: "Uptime" },
           { id: "gate", label: "Access gate logins" },
         ],
       },

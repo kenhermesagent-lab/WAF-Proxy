@@ -368,7 +368,7 @@ export default function App() {
               <span className="site-switch-label">Site</span>
               <select value={activeSite} onChange={(e) => switchSite(e.target.value)} aria-label="Active site">
                 {(me.sites ?? []).map((s) => (
-                  <option key={s.slug} value={s.slug}>{s.name}</option>
+                  <option key={s.slug} value={s.slug}>{s.console_host || s.name}</option>
                 ))}
               </select>
             </label>
@@ -378,7 +378,7 @@ export default function App() {
               title={me.can_switch ? "The only site configured" : "You administer this site only; switching needs the Sites permission"}
             >
               <span className="env-dot" />
-              <b className="env-domain">{me.site_name}</b>
+              <b className="env-domain">{me.site_host || me.site_name}</b>
             </span>
           ) : me?.base_domain ? (
             <span className="env-chip" title="Self-hosted deployment">
@@ -415,7 +415,7 @@ export default function App() {
                         onClick={() => { switchSite(s.slug); setUserMenu(false); }}
                       >
                         <span className="ico">{s.slug === activeSite ? <Icon name="check" size={15} /> : null}</span>
-                        {s.name}
+                        {s.console_host || s.name}
                       </button>
                     ))}
                     <div className="menu-sep" />

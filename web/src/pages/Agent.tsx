@@ -4,33 +4,26 @@ import { confirmDialog, Badge, Card, Empty, Field, Modal, errText, fmtAgo, fmtTi
 import type { MCPStatus, MCPToken } from "../types";
 import AgentLinks from "../components/AgentLinks";
 
-const TOOLS = [
-  ["get_security_overview", "Bans, kernel status, traffic totals, top sources and live sessions."],
-  ["query_logs", "Read events by IP, host, action or stage."],
-  ["get_ip_activity", "24h totals, ban state, recent events and sessions for one address."],
-  ["list_anomalies", "Anomaly detections with the measured value and its baseline."],
-  ["list_proxies", "Hostnames, gate modes and WAF modes."],
-  ["block_ip", "Add an IP or CIDR ban with a required reason."],
-  ["unblock_ip", "Lift an exact IP or CIDR ban."],
-  ["list_blocks", "Active IP and username blocks."],
-  ["list_gate_users", "Gate accounts and whether they are blocked."],
-  ["block_username", "Block a gate account and revoke its sessions."],
-  ["unblock_username", "Lift a gate username block."],
-  ["list_sessions", "Live gate sessions with non-secret refs."],
-  ["revoke_session", "Kill one session by ref."],
-  ["revoke_sessions_for_ip", "Kill every session from one address."],
-];
-
 export default function AgentPage({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
   const [status, setStatus] = useState<MCPStatus | null>(null);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("hermes-agent");
-  const [scopes, setScopes] = useState<string[]>(TOOLS.map(([tool]) => tool));
+  const [scopes, setScopes] = useState<string[]>([]);
+  const [site, setSite] = useState("");
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ name: string; token: string } | null>(null);
 
+  const tools = status?.tools ?? [];
+
   const load = () =>
-    api.get<MCPStatus>("/api/mcp").then(setStatus).catch((e) => onError(errText(e)));
+    api
+      .get<MCPStatus>("/api/mcp")
+      .then((s) => {
+        setStatus(s);
+        setScopes((cur) => (cur.length ? cur : s.tools.map((t) => t.name)));
+        setSite((cur) => cur || s.site);
+      })
+      .catch((e) => onError(errText(e)));
 
   useEffect(() => {
     load();
@@ -42,11 +35,11 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
   const create = async () => {
     setBusy(true);
     try {
-      const r = await api.post<{ name: string; token: string }>("/api/mcp/tokens", { name, scopes });
+      const r = await api.post<{ name: string; token: string }>("/api/mcp/tokens", { name, scopes, site });
       setCreated({ name: r.name, token: r.token });
       setOpen(false);
       setName("hermes-agent");
-      setScopes(TOOLS.map(([tool]) => tool));
+      setScopes(tools.map((t) => t.name));
       onOK("Agent token created");
       load();
     } catch (e) {
@@ -129,13 +122,14 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
         ) : (
           <div style={{ overflowX: "auto" }}>
             <div className="table-wrap"><table>
-              <thead><tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Created</th><th>Last used</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Name</th><th>Prefix</th><th>Site</th><th>Scopes</th><th>Created</th><th>Last used</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {status.tokens.map((t) => (
                   <tr key={t.id}>
                     <td>{t.name}</td>
                     <td className="mono">{t.prefix}…</td>
-                    <td className="muted">{t.scopes?.length ? t.scopes.join(", ") : "all"}</td>
+                    <td className="mono">{t.site || "default"}</td>
+                    <td className="muted" style={{ whiteSpace: "normal" }}>{t.scopes?.length ? t.scopes.join(", ") : "all"}</td>
                     <td className="muted">{fmtTime(t.created_at)}</td>
                     <td className="muted">{t.last_used_at ? fmtAgo(t.last_used_at) : "never"}</td>
                     <td>{t.revoked_at ? <Badge tone="bad">revoked</Badge> : <Badge tone="ok">active</Badge>}</td>
@@ -160,10 +154,10 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
           <div className="table-wrap"><table>
             <thead><tr><th>Tool</th><th>What the agent can do</th></tr></thead>
             <tbody>
-              {TOOLS.map(([tool, description]) => (
-                <tr key={tool}>
-                  <td className="mono" style={{ whiteSpace: "nowrap" }}>{tool}</td>
-                  <td className="muted">{description}</td>
+              {tools.map((t) => (
+                <tr key={t.name}>
+                  <td className="mono" style={{ whiteSpace: "nowrap", verticalAlign: "top" }}>{t.name}</td>
+                  <td className="muted" style={{ whiteSpace: "normal" }}>{t.description}</td>
                 </tr>
               ))}
             </tbody>
@@ -183,19 +177,30 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
           <p className="muted" style={{ fontSize: 12 }}>
             Use a name that identifies the agent or host. Keep the token out of logs and shell history.
           </p>
+          <Field label="Site">
+            <select value={site} onChange={(e) => setSite(e.target.value)}>
+              {(status?.sites ?? []).map((s) => (
+                <option key={s.slug} value={s.slug}>{s.name} ({s.slug})</option>
+              ))}
+            </select>
+          </Field>
+          <p className="muted" style={{ fontSize: 12 }}>
+            A token reads and writes only the site it is issued for, and <span className="mono">list_sites</span> still names every
+            tenant on the install.
+          </p>
                     <div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
             <span className="muted" style={{ fontSize: 12 }}>Tools this token may call</span>
             <span className="actions">
-              <button className="small" onClick={() => setScopes(TOOLS.map(([tool]) => tool))}>All</button>
+              <button className="small" onClick={() => setScopes(tools.map((t) => t.name))}>All</button>
               <button className="small" onClick={() => setScopes([])}>None</button>
             </span>
           </div>
           <div className="grid" style={{ gap: 6 }}>
-            {TOOLS.map(([tool, description]) => (
-              <label key={tool} className="row" style={{ gap: 8, alignItems: "flex-start" }}>
-                <input type="checkbox" checked={scopes.includes(tool)} onChange={() => toggleScope(tool)} />
-                <span className="mono">{tool}</span>
-                <span className="muted" style={{ fontSize: 12 }}>{description}</span>
+            {tools.map((t) => (
+              <label key={t.name} className="row" style={{ gap: 8, alignItems: "flex-start" }}>
+                <input type="checkbox" checked={scopes.includes(t.name)} onChange={() => toggleScope(t.name)} />
+                <span className="mono">{t.name}</span>
+                <span className="muted" style={{ fontSize: 12 }}>{t.description}</span>
               </label>
             ))}
           </div>

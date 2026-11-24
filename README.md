@@ -258,7 +258,7 @@ page.*
 | Page | What it covers |
 |---|---|
 | Dashboard | Needs-attention queue, live requests and byte rates, attack globe with country drill-down, top sources, upstream health |
-| Statistics | **Overview** (totals, trend, stages), **Traffic** (per-site requests, countries), **Uptime** (live probes) and **Access gate logins** (failed sign-ins with a block action); the date range and trend stay above the tabs |
+| Statistics | **Uptime monitor** (live probes, shown above the date range on every tab), **Overview** (totals, trend, stages), **Traffic** (per-site requests, countries) and **Access gate logins** (failed sign-ins with a block action); the date range and trend stay above the tabs |
 | Proxies | **Hostnames** (upstreams, routes, health checks, maintenance, presets, per-hostname **360** view), **Certificates** (issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01) and **Streaming** (TCP/UDP byte relay for Plex, Jellyfin and game servers) |
 | Policies | **Bans**, **Profiles** (global profile with policy **Preflight**, WAF and protection profiles), **Access profiles**, **Lists** (blocklists/whitelists) and **Bot filter** |
 | Logs | Event search, filters, saved views, live tail, bulk source actions, incident report, the **Why?** request simulator |
@@ -302,7 +302,7 @@ captures were taken on **v1.62.2**, so the sidebar and the pages match this rele
 </tr>
 <tr>
 <td width="50%"><img src="docs/screenshots/certs.png" alt="Certificates: issuance, renewal policy and expiry" width="100%"><br><sub><b>Certificates</b> — issuance, renewal policy and expiry.</sub></td>
-<td width="50%"><img src="docs/screenshots/agent.png" alt="AI Agent Access: MCP endpoint and per-tool tokens" width="100%"><br><sub><b>Agent access</b> — the MCP endpoint and per-tool token scopes.</sub></td>
+<td width="50%"><img src="docs/screenshots/agent.png" alt="AI Agent Access: MCP endpoint, per-tool tokens and the tool catalog" width="100%"><br><sub><b>Agent access</b> — the MCP endpoint, per-tool token scopes and the tool catalog.</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/screenshots/notifications.png" alt="Notifications: channels and per-event routing" width="100%"><br><sub><b>Notifications</b> — channels and per-event routing.</sub></td>
@@ -425,7 +425,9 @@ state machine and the lab checklist are in [docs/HA.md](docs/HA.md).
   roll back on failure. A Docker host can install `deploy/install-docker-updater.sh` for the same
   action without exposing the Docker socket to the console.
 - **Agent gateway.** The MCP endpoint is documented in [docs/MCP.md](docs/MCP.md); tokens are
-  limited per tool and can be revoked from **Agent access**.
+  limited per tool and can be revoked from **Agent access**. An agent can read the tenant list,
+  a host's posture, certificate expiry, WAF profiles, the media relay and the audit log, block
+  or revoke visitors, and cut a relay stream; it still cannot change configuration.
 - **Sites.** The **Sites** page lists every tenant with its console host, its hostnames, its
   retention and its administrator count, and creates, edits and removes them. The console topbar
   carries a **site switcher**: the choice rides on every request (`X-WAF-Site`) and is kept in

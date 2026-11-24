@@ -31,13 +31,25 @@ type tool struct {
 // test keeps it equal to the catalog.
 var catalogNames = []string{
 	"get_security_overview", "query_logs", "list_anomalies", "get_ip_activity",
-	"list_proxies", "block_ip", "unblock_ip", "list_blocks", "list_gate_users",
+	"list_proxies", "get_proxy", "list_sites", "list_certificates", "list_waf_profiles",
+	"get_stream_status", "block_ip", "unblock_ip", "list_blocks", "list_gate_users",
 	"block_username", "unblock_username", "list_sessions", "revoke_session",
-	"revoke_sessions_for_ip",
+	"revoke_sessions_for_ip", "cut_stream_ip", "query_audit",
 }
 
 // ToolNames lists the tools an agent token can be limited to.
 func ToolNames() []string { return append([]string(nil), catalogNames...) }
+
+// Catalog lists each tool with its description for the console's token dialog
+// and for API clients, so a new tool needs no frontend edit.
+func Catalog() []map[string]string {
+	tools := toolCatalog(&Gateway{})
+	out := make([]map[string]string, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, map[string]string{"name": t.Name, "description": t.Description})
+	}
+	return out
+}
 
 // legacyScopes is what 1.24.0 wrote for its three groups. Those names are still
 // in the database, so they are expanded instead of silently matching nothing.
@@ -137,6 +149,50 @@ func toolCatalog(g *Gateway) []tool {
 			},
 		},
 		{
+			Name: "get_proxy",
+			Description: "Inspect one proxy host: gate and WAF modes, TLS certificate, WAF and access profiles, balancing and " +
+				"health-check settings, in-flight limits and the upstream pool. Name it by hostname or by the id from list_proxies.",
+			Schema: schema(map[string]any{
+				"hostname": prop("string", "Exact proxy hostname."),
+				"id":       prop("integer", "Proxy id from list_proxies."),
+			}),
+			Handler: g.getProxy,
+		},
+		{
+			Name:        "list_sites",
+			Description: "List the sites (tenants) this install serves, each with its console host and whether it is enabled, so a host or an event can be attributed to the site that owns it.",
+			Schema:      schema(nil),
+			Handler: func(_ callInfo, _ map[string]any) (map[string]any, error) {
+				return g.listSites()
+			},
+		},
+		{
+			Name:        "list_certificates",
+			Description: "List TLS certificates with issuer, status, renewal mode and days until expiry. Use it before calling a TLS failure an attack, and to spot a certificate that renewal has not replaced.",
+			Schema:      schema(nil),
+			Handler: func(_ callInfo, _ map[string]any) (map[string]any, error) {
+				return g.listCertificates()
+			},
+		},
+		{
+			Name:        "list_waf_profiles",
+			Description: "List WAF profiles with their mode, paranoia level, anomaly threshold, response inspection and body caps, so a blocked event can be read in the context of the rule set that produced it.",
+			Schema:      schema(nil),
+			Handler: func(_ callInfo, _ map[string]any) (map[string]any, error) {
+				return g.listWAFProfiles()
+			},
+		},
+		{
+			Name: "get_stream_status",
+			Description: "Read the media relay: each service's bind state, listen address, active streams and sessions, totals and refusals, " +
+				"with its busiest live sessions. An install with no relay attached reports attached=false.",
+			Schema: schema(map[string]any{
+				"id":    prop("string", "Only this service id, for example minecraft-java."),
+				"limit": prop("integer", "Live sessions listed per service, 1-200. Default 20."),
+			}),
+			Handler: g.getStreamStatus,
+		},
+		{
 			Name: "block_ip",
 			Description: "Add an IP or CIDR to the kernel/proxy blacklist. reason is required for the audit trail. Defaults to a 24 hour " +
 				"temporary ban; set permanent=true only for confirmed hostile infrastructure. Refuses loopback, unspecified, multicast, " +
@@ -224,6 +280,27 @@ func toolCatalog(g *Gateway) []tool {
 				"reason": prop("string", "Why every session from this address is being killed."),
 			}, "ip", "reason"),
 			Handler: g.revokeSessionsForIP,
+		},
+		{
+			Name: "cut_stream_ip",
+			Description: "Cut every live media-relay stream from one address. Use it for a listed session that is abusive or moving data; " +
+				"block_ip remains the durable ban, this ends the connection now. reason is required for the audit trail.",
+			Schema: schema(map[string]any{
+				"ip":     prop("string", "IPv4 or IPv6 address whose relay streams should be cut."),
+				"reason": prop("string", "Why the streams are being cut."),
+			}, "ip", "reason"),
+			Handler: g.cutStreamIP,
+		},
+		{
+			Name: "query_audit",
+			Description: "Read the administrator audit log newest first, including the mcp.* rows agents write. Filter by actor or by " +
+				"action text to see what changed recently before attributing a change to traffic.",
+			Schema: schema(map[string]any{
+				"actor":  prop("string", "Only entries whose actor matches exactly."),
+				"action": prop("string", "Only entries whose action contains this text, for example mcp.block."),
+				"limit":  prop("integer", "Maximum entries to return, 1-200. Default 50."),
+			}),
+			Handler: g.queryAudit,
 		},
 	}
 }
@@ -620,6 +697,208 @@ func (g *Gateway) revokeSessionsForIP(info callInfo, args map[string]any) (map[s
 	}
 	g.audit(info.Actor, "mcp.revoke_sessions_for_ip", addr.String()+" "+reason, info.IP)
 	return map[string]any{"status": "revoked", "ip": addr.String(), "revoked_sessions": n, "reason": reason}, nil
+}
+
+func (g *Gateway) listSites() (map[string]any, error) {
+	sites, err := g.st.ListSites()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(sites))
+	for _, s := range sites {
+		out = append(out, map[string]any{
+			"slug": s.Slug, "name": s.Name, "console_host": s.ConsoleHost,
+			"enabled": s.Enabled, "created_at": s.CreatedAt,
+		})
+	}
+	return map[string]any{"sites": out, "current_site_id": g.st.SiteID()}, nil
+}
+
+func (g *Gateway) getProxy(_ callInfo, args map[string]any) (map[string]any, error) {
+	hostname, err := stringArg(args, "hostname", false)
+	if err != nil {
+		return nil, err
+	}
+	id, err := intArg(args, "id", 0, 0, 1<<40)
+	if err != nil {
+		return nil, err
+	}
+	if (hostname == "") == (id == 0) {
+		return nil, errors.New("name the proxy by exactly one of hostname or id")
+	}
+	proxies, err := g.st.ListProxies()
+	if err != nil {
+		return nil, err
+	}
+	var p *model.Proxy
+	for i := range proxies {
+		if (hostname != "" && proxies[i].Hostname == hostname) || (id != 0 && proxies[i].ID == int64(id)) {
+			p = &proxies[i]
+			break
+		}
+	}
+	if p == nil {
+		return nil, errors.New("proxy not found on this site")
+	}
+	upstreams, err := g.st.ListUpstreams(p.ID)
+	if err != nil {
+		return nil, err
+	}
+	profileNames := map[int64]string{}
+	if profiles, err := g.st.ListProfiles(); err == nil {
+		for _, pr := range profiles {
+			profileNames[pr.ID] = pr.Name
+		}
+	}
+	row := map[string]any{
+		"id": p.ID, "hostname": p.Hostname, "enabled": p.Enabled,
+		"gate_mode": p.GateMode, "waf_mode": p.WAFMode, "bot_level": p.BotLevel,
+		"fingerprint": p.Fingerprint, "maintenance": p.Maintenance,
+		"lb_policy": p.LBPolicy, "health_path": p.HealthPath, "health_interval": p.HealthInterval,
+		"max_inflight": p.MaxInflight, "max_inflight_per_client": p.MaxInflightPerClient,
+		"upstream_timeout": p.UpstreamTimeout, "retries": p.Retries, "tls_min_version": p.TLSMinVersion,
+		"upstreams": upstreams,
+	}
+	if p.ProfileID != nil {
+		row["waf_profile"] = profileNames[*p.ProfileID]
+	}
+	if p.CertID != nil {
+		if certs, err := g.st.ListCerts(); err == nil {
+			for _, c := range certs {
+				if c.ID == *p.CertID {
+					row["certificate"] = map[string]any{
+						"id": c.ID, "domains": c.Domains, "status": c.Status,
+						"source": c.Source, "expires_at": c.ExpiresAt,
+					}
+					break
+				}
+			}
+		}
+	}
+	return row, nil
+}
+
+func (g *Gateway) listCertificates() (map[string]any, error) {
+	certs, err := g.st.ListCerts()
+	if err != nil {
+		return nil, err
+	}
+	now := g.now()
+	out := make([]map[string]any, 0, len(certs))
+	for _, c := range certs {
+		row := map[string]any{
+			"id": c.ID, "domains": c.Domains, "provider": c.Provider, "source": c.Source,
+			"status": c.Status, "renew_mode": c.RenewMode, "challenge": c.Challenge,
+			"issued_at": c.IssuedAt, "expires_at": c.ExpiresAt, "last_error": c.LastError,
+		}
+		if c.ExpiresAt != nil {
+			row["days_left"] = int(c.ExpiresAt.Sub(now).Hours() / 24)
+		}
+		out = append(out, row)
+	}
+	return map[string]any{"certificates": out, "count": len(out)}, nil
+}
+
+func (g *Gateway) listWAFProfiles() (map[string]any, error) {
+	profiles, err := g.st.ListProfiles()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(profiles))
+	for _, p := range profiles {
+		out = append(out, map[string]any{
+			"id": p.ID, "name": p.Name, "builtin": p.Builtin, "mode": p.Mode,
+			"paranoia": p.Paranoia, "anomaly": p.Anomaly, "responses": p.Responses,
+			"max_body": p.MaxBody, "max_response": p.MaxResponse,
+			"allowed_methods": p.AllowedMethods, "login_paths": p.LoginPaths, "login_rps": p.LoginRPS,
+		})
+	}
+	return map[string]any{"profiles": out, "count": len(out)}, nil
+}
+
+func (g *Gateway) getStreamStatus(_ callInfo, args map[string]any) (map[string]any, error) {
+	id, err := stringArg(args, "id", false)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := intArg(args, "limit", 20, 1, 200)
+	if err != nil {
+		return nil, err
+	}
+	if g.streams == nil {
+		return map[string]any{"attached": false, "services": []any{}}, nil
+	}
+	out := make([]map[string]any, 0)
+	for _, st := range g.streams.Statuses() {
+		if id != "" && st.ID != id {
+			continue
+		}
+		listed := st.Sessions
+		if len(listed) > limit {
+			listed = listed[:limit]
+		}
+		out = append(out, map[string]any{
+			"id": st.ID, "label": st.Label, "enabled": st.Enabled, "bound": st.Bound,
+			"listen_addr": st.ListenAddr, "protocol": st.Protocol, "port": st.Port,
+			"upstream_base": st.UpstreamBase,
+			"active":        st.Active, "active_sessions": st.ActiveSessions, "total": st.Total,
+			"blocked": st.Blocked, "banned": st.Banned, "refused": st.Refused, "dropped": st.Dropped,
+			"bytes_in": st.BytesIn, "bytes_out": st.BytesOut, "last_error": st.LastError,
+			"session_count": len(st.Sessions), "sessions": listed,
+		})
+	}
+	return map[string]any{"attached": true, "services": out, "count": len(out)}, nil
+}
+
+func (g *Gateway) cutStreamIP(info callInfo, args map[string]any) (map[string]any, error) {
+	raw, err := stringArg(args, "ip", true)
+	if err != nil {
+		return nil, err
+	}
+	reason, err := reasonArg(args)
+	if err != nil {
+		return nil, err
+	}
+	addr, err := parseAddr(raw)
+	if err != nil {
+		return nil, err
+	}
+	if g.streams == nil {
+		return nil, errors.New("no media relay is attached on this node")
+	}
+	cut := g.streams.DropBanned(func(a netip.Addr) bool { return a == addr }, "mcp: "+reason)
+	g.audit(info.Actor, "mcp.cut_stream_ip", addr.String()+" "+reason, info.IP)
+	return map[string]any{"status": "cut", "ip": addr.String(), "streams_cut": cut, "reason": reason}, nil
+}
+
+func (g *Gateway) queryAudit(_ callInfo, args map[string]any) (map[string]any, error) {
+	limit, err := intArg(args, "limit", 50, 1, 200)
+	if err != nil {
+		return nil, err
+	}
+	actor, err := stringArg(args, "actor", false)
+	if err != nil {
+		return nil, err
+	}
+	action, err := stringArg(args, "action", false)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := g.st.ListAudit(limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]model.AuditEntry, 0, len(entries))
+	for _, e := range entries {
+		if actor != "" && e.User != actor {
+			continue
+		}
+		if action != "" && !strings.Contains(e.Action, action) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return map[string]any{"entries": out, "returned": len(out), "scanned": len(entries)}, nil
 }
 
 func parseAddr(raw string) (netip.Addr, error) {

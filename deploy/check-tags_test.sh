@@ -56,26 +56,6 @@ if ! check; then
   exit 1
 fi
 
-# A section marked unreleased has not been cut and cannot have a tag yet; the
-# dated sections below it are still enforced.
-unreleased_top() {
-  changelog 1.61.2 1.61.1 1.61.0 1.60.1
-  sed -i 's/^## \[1\.61\.2\] - 2026-01-01$/## [1.61.2] - unreleased/' "$root/CHANGELOG.md"
-  commit "1.61.2 unreleased"
-}
-
-seed
-unreleased_top
-if ! check; then
-  echo "an unreleased section failed the tag check" >&2
-  exit 1
-fi
-git -C "$root" tag -d v1.61.1 >/dev/null
-if check; then
-  echo "an untagged dated section passed because the section above it was unreleased" >&2
-  exit 1
-fi
-
 # A release branch adds its section before the tag can exist, so the rule only
 # runs on main; --branch main enforces it from anywhere.
 seed
@@ -118,6 +98,23 @@ misplaced_tag() {
   add_section
   git -C "$root" tag -a v1.61.2 -m "Release 1.61.2" "$(git -C "$root" rev-list --max-parents=0 HEAD)"
 }
+
+# An `unreleased` header is a section without a release behind it, so it must
+# not be required to have a tag; the dated sections around it still are.
+seed
+printf '# Changelog\n\n## [1.61.2] — unreleased\n\n- test\n\n## [1.61.1] - 2026-01-01\n\n- test\n\n## [1.61.0] - 2026-01-01\n\n- test\n\n## [1.60.1] - 2026-01-01\n\n- test\n' >"$root/CHANGELOG.md"
+commit "1.61.2 unreleased"
+if ! check --branch main; then
+  echo "an unreleased section was required to have a tag" >&2
+  exit 1
+fi
+# A dated header at the same version is a release and does need one.
+printf '# Changelog\n\n## [1.61.2] — 2026-01-02\n\n- test\n\n## [1.61.1] - 2026-01-01\n\n- test\n\n## [1.61.0] - 2026-01-01\n\n- test\n' >"$root/CHANGELOG.md"
+commit "1.61.2 released"
+if check --branch main; then
+  echo "a dated section without a tag passed the tag check" >&2
+  exit 1
+fi
 
 mismatched_version() {
   add_section

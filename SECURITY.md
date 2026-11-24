@@ -6,14 +6,15 @@ seriously even when the project is small.
 
 ## Supported versions
 
-Only the newest minor release receives security fixes. Fixes are shipped as a patch release of
-that minor; older minors are not back-patched, because the fixes so far have touched the database
-schema and the unit files.
+The newest minor receives security fixes, and the minor before it stays supported until the next
+release ships, so there is always a supported version to upgrade to. Fixes ship as a patch release
+of the newest minor; older minors are not back-patched, because the fixes so far have touched the
+database schema and the unit files.
 
 | Version | Supported |
 |---|---|
 | 1.64.x | Yes |
-| 1.63.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
+| 1.63.x | Yes — until 1.64.0 ships |
 | 1.62.x and older | No — upgrade first (`deploy/install.sh`, or the Update button) |
 
 The version you run is shown on **Updates** and in `GET /api/health`. If a report only

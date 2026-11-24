@@ -1,9 +1,13 @@
 # MCP gateway for security agents
 
 WAF-Proxy exposes a Model Context Protocol endpoint at `/mcp`. It lets a standalone agent
-(Hermes, or any MCP Streamable HTTP client) review traffic, block an address or access-gate
-username, and revoke visitor sessions. It is intentionally a fixed security API, not a remote
-shell, package manager or proxy-configuration tool.
+(Hermes, or any MCP Streamable HTTP client) review traffic and posture, block an address or
+access-gate username, revoke visitor sessions, and cut a live media-relay stream. It is
+intentionally a fixed operations API, not a remote shell, package manager or configuration
+tool: reads cover the console's state, writes stay in the containment family.
+
+`GET /api/mcp` returns the live catalog in `tools`, so the console and API clients list the
+tools the running build actually has instead of a hardcoded copy.
 
 ## Enable and authenticate
 
@@ -11,13 +15,19 @@ shell, package manager or proxy-configuration tool.
 
 1. Sign in to the admin console.
 2. Open **AI Agent Access**.
-3. Choose **New agent token**, name it for the agent or host, and copy the value shown once.
+3. Choose **New agent token**, name it for the agent or host, pick the site it acts on, and copy
+   the value shown once.
 4. Give the agent that token. Store it in the agent's secret store, not in a command line or a
    committed file.
 
 The token is stored as a SHA-256 hash. Revoking it takes effect on the next request. The
-**AI Agent Access** page lists the prefix, creation time and last use, but cannot recover the
-plaintext.
+**AI Agent Access** page lists the prefix, site, creation time and last use, but cannot recover
+the plaintext.
+
+A token reads and writes only the site it was issued for: its logs, proxies, bans, gate accounts
+and settings are that site's. `list_sites` still names every tenant on the install, so an agent
+can see what else exists without reaching into it. Issue one token per site an agent needs; the
+host console mints and revokes all of them.
 
 ### Environment token (headless installs)
 
@@ -27,6 +37,9 @@ Set in `/etc/wafproxy/wafproxy.env` and restart `wafproxy`:
 WAFPROXY_MCP_TOKEN=<at-least-32-random-characters>
 WAFPROXY_MCP_ACTOR=hermes-agent
 ```
+
+The environment token has no site of its own, so it acts on the default site. `list_sites` names
+every tenant on the install, but a tenant's rows are not readable through this token.
 
 Console-issued tokens choose their tools individually: the create dialog lists the catalog and a
 token can be limited to, for example, `query_logs` and `get_ip_activity`. `tools/list` hides the
@@ -127,6 +140,12 @@ for bans and username blocks, in the block record.
 | `list_anomalies` | `limit` (1–200, default 50) | Recent outbound-spike, request-rate and login-burst detections with the proxy, the measured value and its baseline |
 | `get_ip_activity` | `ip` | 24h request/block/byte totals, covering ban, recent events, live gate sessions |
 | `list_proxies` | none | Proxy id, hostname, enabled, gate mode, WAF mode, maintenance |
+| `get_proxy` | `hostname` or `id` | One host's gate/WAF modes, TLS certificate, WAF profile, balancing and health-check settings, in-flight limits and upstream pool |
+| `list_sites` | none | Every site (tenant) with its console host, enabled state and the current site id, so a hostname or event can be attributed to its owner |
+| `list_certificates` | none | TLS certificates with issuer, source, status, renewal mode, expiry and days left |
+| `list_waf_profiles` | none | WAF profiles with mode, paranoia level, anomaly threshold, response inspection and body caps |
+| `get_stream_status` | `id` (service), `limit` (1–200, default 20) | Media-relay services with bind state, listen address, active streams and sessions, totals, refusals and the busiest live sessions |
+| `query_audit` | `actor`, `action` (substring), `limit` (1–200, default 50) | Administrator audit entries newest first, including the `mcp.*` rows agents write |
 | `list_blocks` | none | Active IP/CIDR bans and username blocks |
 | `list_gate_users` | none | Gate usernames, TOTP state, blocked state and block reason |
 | `list_sessions` | `limit` (1–1000, default 200) | Live gate sessions with non-secret `ref`, username, IP, proxy hostname, user agent, timestamps |
@@ -141,16 +160,22 @@ for bans and username blocks, in the block record.
 | `unblock_username` | `username`, optional `reason` | Lifts the username block; existing sessions stay revoked |
 | `revoke_session` | `session_ref`, `reason` | Deletes one gate session by its 32-character ref |
 | `revoke_sessions_for_ip` | `ip`, `reason` | Deletes every live gate session opened from that address |
+| `cut_stream_ip` | `ip`, `reason` | Cuts every live media-relay stream from that address and audits the cut; `block_ip` is the durable ban |
 
 `block_ip` refuses loopback, unspecified, multicast, link-local and prefixes broader than `/8`
 for IPv4 or `/16` for IPv6. A temporary ban is enforced in the proxy immediately and in
 nftables when kernel enforcement is available. Existing streaming connections are cut by the
 ban engine, matching a console-created ban.
 
+`get_stream_status` and `cut_stream_ip` report `attached: false` or a clear error when the
+running process has no media relay, so a token's catalog does not change between hosts with
+and without the relay configured.
+
 ## What the agent still cannot do
 
 - Read or write arbitrary files, run shell commands, install packages, restart the service or
-  change proxy, certificate, WAF or settings configuration.
+  change proxy, certificate, WAF, site or settings configuration. The read tools report that
+  state; they do not edit it.
 - Read a session cookie, password hash, TOTP secret, API token or TLS private key.
 - Manage host packages or update the binary. Those remain separate, audited console features.
 - Act on the administrator's password or 2FA.

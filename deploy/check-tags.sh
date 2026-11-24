@@ -57,15 +57,14 @@ if [[ $branch != main ]]; then
   exit 0
 fi
 
-# Every section at or above the floor; older ones predate the rule. A section
-# marked unreleased has not been cut yet and cannot have a tag, so it is skipped.
+# Every released section at or above the floor. Older ones predate the rule,
+# and a `— unreleased` header is not a release yet, so only a dated header counts.
 versions=()
 while IFS= read -r v; do
   if [[ $(printf '%s\n%s\n' "$floor" "$v" | sort -V | head -1) == "$floor" ]]; then
     versions+=("$v")
   fi
-done < <(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' "$root/CHANGELOG.md" |
-  grep -vi 'unreleased' |
+done < <(grep -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\][[:space:]]*[—\-][[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}' "$root/CHANGELOG.md" |
   sed -E 's/^## \[([0-9.]+)\].*/\1/')
 
 if [[ ${#versions[@]} -eq 0 ]]; then

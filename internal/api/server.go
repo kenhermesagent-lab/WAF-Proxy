@@ -1202,6 +1202,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	if site != nil {
 		body["site"] = site.Slug
 		body["site_name"] = site.Name
+		body["site_host"] = site.ConsoleHost
 	}
 	if canSwitch {
 		body["sites"] = s.switchable()

@@ -16,16 +16,32 @@ import { api } from "../api";
 const get = vi.mocked(api.get);
 const post = vi.mocked(api.post);
 
+// The page reads the catalog from the API instead of carrying its own list.
+const tools = [
+  { name: "get_security_overview", description: "Bans, kernel status and totals." },
+  { name: "query_logs", description: "Read events." },
+  { name: "block_ip", description: "Ban an address." },
+  { name: "revoke_session", description: "Kill one session." },
+  { name: "cut_stream_ip", description: "Cut relay streams." },
+];
+
 const status = {
   endpoint: "/mcp",
   env_token: false,
   token_count: 1,
+  tools,
   protocols: ["2025-06-18", "2026-07-28"],
+  site: "default",
+  sites: [
+    { slug: "default", name: "Default" },
+    { slug: "bravo", name: "Bravo" },
+  ],
   tokens: [
     {
       id: 7,
       name: "hermes-agent",
       prefix: "abc12345",
+      site: "default",
       created_by: "admin",
       created_at: new Date().toISOString(),
       last_used_at: null,
@@ -60,7 +76,7 @@ describe("Agent access page", () => {
     expect(await screen.findByText("hermes-agent")).toBeTruthy();
     expect(screen.getAllByText(/\/mcp/).length).toBeGreaterThan(0);
     expect(screen.getByText("block_ip")).toBeTruthy();
-    expect(screen.getByText("revoke_session")).toBeTruthy();
+    expect(screen.getByText("cut_stream_ip")).toBeTruthy();
     expect(screen.getByText(/never a shell/)).toBeTruthy();
   });
 
@@ -76,22 +92,8 @@ describe("Agent access page", () => {
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/mcp/tokens", {
         name: "hermes-agent",
-        scopes: [
-          "get_security_overview",
-          "query_logs",
-          "get_ip_activity",
-          "list_anomalies",
-          "list_proxies",
-          "block_ip",
-          "unblock_ip",
-          "list_blocks",
-          "list_gate_users",
-          "block_username",
-          "unblock_username",
-          "list_sessions",
-          "revoke_session",
-          "revoke_sessions_for_ip",
-        ],
+        scopes: tools.map((t) => t.name),
+        site: "default",
       }),
     );
     expect(await screen.findByText("one-time-secret-token")).toBeTruthy();

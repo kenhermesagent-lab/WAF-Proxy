@@ -192,9 +192,11 @@ export interface Me {
   ha_enabled?: boolean;
   ha_role?: string;
   // The site this console was reached on, and the sites its role may switch
-  // between. A host_admin has no list and no switcher.
+  // between. A host_admin has no list and no switcher. site_host is that
+  // site's console hostname, empty when it has none.
   site?: string;
   site_name?: string;
+  site_host?: string;
   can_switch?: boolean;
   sites?: { slug: string; name: string; console_host: string }[];
 }
@@ -910,6 +912,8 @@ export interface MCPToken {
   last_used_at?: string | null;
   revoked_at?: string | null;
   scopes: string[];
+  // The site the token acts on; the gateway serves that site's rows only.
+  site: string;
 }
 
 export interface MCPStatus {
@@ -917,7 +921,12 @@ export interface MCPStatus {
   env_token: boolean;
   token_count: number;
   tokens: MCPToken[];
+  // The gateway's tool catalog, so the page never carries its own copy.
+  tools: { name: string; description: string }[];
   protocols: string[];
+  // This console's site and the sites a new token can be issued for.
+  site: string;
+  sites: { slug: string; name: string }[];
 }
 
 export interface AuditEntry {

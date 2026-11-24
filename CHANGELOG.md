@@ -28,6 +28,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Over h3 the pipeline behaves as it does over HTTP/2: a GET, HEAD and POST reach the upstream, a
   policy block answers `403` without touching it, and a cacheable response is served from the
   cache. A demotion releases the UDP socket with the TCP listener.
+- **The agent gateway reaches the console's newer surfaces.** `/mcp` adds read tools for the
+  tenant list (`list_sites`), one host's full posture (`get_proxy`), certificate expiry
+  (`list_certificates`), WAF profiles (`list_waf_profiles`), the media relay's live state
+  (`get_stream_status`) and the administrator audit log (`query_audit`), plus one containment
+  action, `cut_stream_ip`, which ends every relay stream from an address and audits the cut.
+  `GET /api/mcp` now returns the catalog in `tools`, and the console's AI Agent Access page
+  renders it from there instead of a hardcoded list.
+- **Agent tokens are issued per site.** The token dialog picks the site a token acts on, and the
+  gateway resolves each bearer token to that site before running a tool, so a tenant's agent
+  reads and writes only that tenant's logs, proxies, bans, gate sessions and settings. `list_sites`
+  still names every tenant, the host console mints and revokes tokens for all of them, and the
+  environment token keeps acting on the default site.
 - **A release tag that disagrees with `VERSION` fails the build.** The `assets` job compares
   `$TAG` with the version at the tagged commit before anything is compiled, attested or signed,
   so a `v1.62.4` tag on a commit holding 1.64.0 fails instead of uploading 1.64.0 binaries to a
@@ -35,13 +47,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
+- **A released section must carry its annotated tag on origin.** `deploy/check-tags.sh` requires a
+  `vX.Y.Z` tag for every dated CHANGELOG section from 1.61.0 up, refuses a lightweight tag or one
+  on a commit that does not carry the section, and the `release` job runs it on origin with
+  `--remote`, so a release cannot ship untagged and the backlog cannot build up again. A section
+  still marked `unreleased` needs no tag yet.
+- **The tag check reads `VERSION` at the tagged commit too.** A `vX.Y.Z` tag whose commit carries
+  another version fails as surely as a missing tag — in the clone, and on origin where the remote
+  run fetches the tag a shallow checkout does not have — so a tag can never name a version the
+  commit does not hold.
 - **A UDP forwarder on the WAN port is a startup error.** The relay binds before the listener
   serves, so the boot names the card that holds the port and says to move it or unset
   `WAFPROXY_HTTP3`, instead of failing later with a bare "address already in use". A port held by
   something outside this process leaves HTTPS serving, logs the failure and stops advertising h3.
+- **The uptime monitor is always on Statistics.** Its card moved above the date range, so backend
+  probes stay on screen on Overview, Traffic and Access gate logins alike, and the separate
+  Uptime tab is gone.
+- **The topbar site chip names the console host, not the site's label.** The switcher, the
+  single-site chip and the account menu's site list read `acme.example.com` instead of `Acme`, so
+  the site a page answers for is visible at a glance. A site with no console host still shows its
+  name. `GET /api/me` now carries `site_host` for the current site.
 
 ### Fixed
 
+- **The agent gateway stayed on one site.** It was built on an unscoped store, so one token
+  could read every tenant's events, gate sessions and gate users, and its audit rows were
+  written without a site and stayed invisible in the console. The gateway now uses the default
+  site's store, the same rows the console that mints tokens shows; `list_sites` still names
+  every tenant.
+- **The AI Agent Access page wraps instead of running off the card.** Every tool's description and
+  the token scope list wrap inside their cells, so the 21-tool catalog reads in full at 1440 px
+  without a sideways scroll.
 - **A fresh single-node install serves again.** With high availability off the boot normalises a
   leftover standby to `standalone`, but a data directory that never held a role file has no node id
   and the save was refused. The node stayed a standby, bound the WAN address and never accepted a
@@ -58,6 +94,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Documentation
 
+- `docs/screenshots/agent.png` is retaken on a 1.64.0 build, now showing the tool catalog the
+  page reads from `GET /api/mcp`, and the screenshot index says which capture is newer than the
+  v1.62.2 set.
 - `docs/CONFORMANCE.md` moves HTTP/3 from unsupported to supported with the cases that prove it,
   the configuration reference lists `WAFPROXY_HTTP3`, the install guides open the UDP port, and
   the Cloudflare Tunnel page states that the connector reaches the origin over HTTP/2, so h3 is a

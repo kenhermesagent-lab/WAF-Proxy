@@ -15,7 +15,9 @@ func (s *Server) getMCP(w http.ResponseWriter, r *http.Request) {
 	if !s.requireHostConsole(w, r, "the agent gateway") {
 		return
 	}
-	tokens, err := s.db(r).ListMCPTokens()
+	// The host console mints and revokes tokens for every site, so it lists
+	// them across sites rather than only its own.
+	tokens, err := s.st.Unscoped().ListMCPTokens()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -27,18 +29,37 @@ func (s *Server) getMCP(w http.ResponseWriter, r *http.Request) {
 		}
 		tokens[i].Scopes = mcp.NormalizeScopes(tokens[i].Scopes)
 	}
+	sites, err := s.st.ListSites()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	current := s.consoleSite(r)
+	rows := make([]map[string]any, 0, len(sites))
+	here := ""
+	for _, site := range sites {
+		rows = append(rows, map[string]any{"slug": site.Slug, "name": site.Name})
+		if site.ID == current {
+			here = site.Slug
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"endpoint":    mcp.Endpoint,
 		"env_token":   s.cfg.MCPToken != "",
 		"token_count": active,
 		"tokens":      tokens,
+		"tools":       mcp.Catalog(),
 		"protocols":   []string{"2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"},
+		"site":        here,
+		"sites":       rows,
 	})
 }
 
 type mcpTokenBody struct {
 	Name   string   `json:"name"`
 	Scopes []string `json:"scopes"`
+	// Site is the slug the token acts on. Empty means this console's site.
+	Site string `json:"site"`
 }
 
 // createMCPToken returns the plaintext token exactly once. Only its SHA-256
@@ -83,13 +104,24 @@ func (s *Server) createMCPToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot generate token")
 		return
 	}
+	target := s.db(r)
+	detail := in.Name + " " + strings.Join(scopes, ",")
+	if slug := strings.TrimSpace(in.Site); slug != "" {
+		site, err := s.st.SiteBySlug(slug)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "unknown site: "+slug)
+			return
+		}
+		target = s.st.InSite(site.ID)
+		detail += " site:" + site.Slug
+	}
 	sess := sessionFrom(r)
-	id, err := s.db(r).CreateMCPToken(in.Name, mcp.HashToken(token), mcp.Prefix(token), sess.Username, scopes)
+	id, err := target.CreateMCPToken(in.Name, mcp.HashToken(token), mcp.Prefix(token), sess.Username, scopes)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot store token")
 		return
 	}
-	s.db(r).AddAudit(sess.Username, "mcp.token_create", in.Name+" "+strings.Join(scopes, ","), clientIP(r))
+	s.db(r).AddAudit(sess.Username, "mcp.token_create", detail, clientIP(r))
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": id, "name": in.Name, "prefix": mcp.Prefix(token),
 		"token": token, "endpoint": mcp.Endpoint, "scopes": scopes,
@@ -105,7 +137,9 @@ func (s *Server) revokeMCPToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	revoked, err := s.db(r).RevokeMCPToken(id)
+	// The host console revokes tokens for every site, so the lookup cannot be
+	// scoped to its own rows.
+	revoked, err := s.st.Unscoped().RevokeMCPToken(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot revoke token")
 		return
