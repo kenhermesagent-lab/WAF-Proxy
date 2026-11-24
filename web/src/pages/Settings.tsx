@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import { COFFEE_URL, DOCS_URL } from "../links";
+import { NAV } from "../nav";
 import { Badge, Field, PageHead, PageTabs, SaveBar, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
 import type { AuditEntry, CrowdSecStatus, GeoIPStatus, Me } from "../types";
 import BackupCard from "../components/BackupCard";
@@ -37,21 +38,8 @@ function editable(s: Settings): Settings {
   return out;
 }
 
-// One tab per section. The page shows the selected one alone, so an operator
-// opens Updates without scrolling past the network fields first.
-const SECTIONS = [
-  { id: "network", label: "Network" },
-  { id: "updates", label: "Updates" },
-  { id: "protection", label: "Protection" },
-  { id: "retention", label: "Retention" },
-  { id: "ha", label: "High availability" },
-  { id: "backup", label: "Backup" },
-  { id: "runtime", label: "Runtime" },
-  { id: "geoip", label: "GeoIP" },
-  { id: "activity", label: "Activity" },
-  { id: "readiness", label: "Readiness" },
-  { id: "about", label: "About" },
-];
+// The tab strip is the nav's own list, so a label cannot drift between them.
+const SECTIONS = NAV.find((n) => n.id === "settings")?.tabs ?? [];
 
 export default function SettingsPage({ onError, onOK, version = "", me, onMeChanged, tab, tabs, onTab }: {
   onError: (m: string) => void;

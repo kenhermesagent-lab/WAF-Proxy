@@ -12,6 +12,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.9] — 2026-11-24
+
+### Fixed
+
+- **A fresh install can save Settings again.** `GET /api/settings` serves the HA and cache-first
+  switches as an empty string until something writes them, and the form posts back every field it
+  was served, so the save refused the whole payload with `ha_enabled must be 0 or 1` — or
+  `cache_pre_waf`, whichever the map reached first — although neither switch had been touched. An
+  empty value now means "still unset": the key is left alone instead of written, a value that is
+  not `0` or `1` is still refused, and the cache-first guard still runs for `1`. A test saves the
+  form with both switches empty and checks the rest of it landed.
+- **The update progress bar belongs to the update this page started.** A console reloaded while a
+  rebuild was running drew a bar that could never move, because only the click polls the helper.
+
+### Changed
+
+- **The Settings tabs take their labels from the navigation list**, so the page and the sidebar
+  entry cannot drift apart the way `Retention & ACME` and `Retention` already had.
+
 ## [1.65.8] — 2026-11-24
 
 ### Docs

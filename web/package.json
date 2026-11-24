@@ -1,7 +1,7 @@
 {
   "name": "wafproxy-ui",
   "private": true,
-  "version": "1.65.8",
+  "version": "1.65.9",
   "type": "module",
   "engines": {
     "node": ">=26.0.0"

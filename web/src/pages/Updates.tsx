@@ -215,7 +215,7 @@ export default function UpdatesPage({
           </>
         }
       >
-        {(applying || snap.app_updating) && (
+        {applying && (
           <div style={{ marginBottom: 6 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <span className="muted small-text">{progress.stage || "waiting for the update helper"}</span>

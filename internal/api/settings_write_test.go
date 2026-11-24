@@ -181,6 +181,32 @@ func TestSettingsSaveAcceptsUnsetSiteDefaults(t *testing.T) {
 	}
 }
 
+// An install that never wrote the HA or cache-first switch reads them back
+// empty, and the form posts back every field it was served. Empty has to mean
+// "still unset", otherwise one untouched switch refuses the whole form.
+func TestSettingsSaveAcceptsEmptySwitches(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+
+	rec := authed(t, srv, token, csrf, http.MethodPut, "/api/settings",
+		`{"ha_enabled":"","cache_pre_waf":"","retention_days":"9"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/settings with unset switches = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, err := st.GetSetting("retention_days"); err != nil || got != "9" {
+		t.Fatalf("retention_days = %q (%v), want 9", got, err)
+	}
+	for _, key := range []string{"ha_enabled", "cache_pre_waf"} {
+		if got, err := st.GetSetting(key); err != nil || got != "" {
+			t.Fatalf("%s = %q (%v), want it left unset", key, got, err)
+		}
+	}
+
+	// A value that is not a switch is still refused.
+	if rec := authed(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"2"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("ha_enabled=2 = %d, want 400", rec.Code)
+	}
+}
+
 func TestSettingsWriteSavesNormalizationMode(t *testing.T) {
 	srv, token, csrf := newSettingsServer(t)
 

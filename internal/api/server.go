@@ -1350,17 +1350,18 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "normalization_mode must be off, flag or block")
 				return
 			}
-		case "ha_enabled":
+		case "ha_enabled", "cache_pre_waf":
+			// A switch that was never written reads back empty, and the form
+			// posts every field it was served, so empty means "still unset"
+			// rather than a mode. Refusing it blocked the whole form.
+			if v == "" {
+				continue
+			}
 			if v != "0" && v != "1" {
-				writeError(w, http.StatusBadRequest, "ha_enabled must be 0 or 1")
+				writeError(w, http.StatusBadRequest, k+" must be 0 or 1")
 				return
 			}
-		case "cache_pre_waf":
-			if v != "0" && v != "1" {
-				writeError(w, http.StatusBadRequest, "cache_pre_waf must be 0 or 1")
-				return
-			}
-			if v == "1" {
+			if k == "cache_pre_waf" && v == "1" {
 				if msg := s.cacheFirstRefusal(s.db(r)); msg != "" {
 					writeError(w, http.StatusBadRequest, msg)
 					return
