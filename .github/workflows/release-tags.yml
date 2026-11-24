@@ -27,6 +27,9 @@ on:
 
 permissions:
   contents: write
+  # Dispatching Release needs this: a ref the job creates with GITHUB_TOKEN
+  # raises no push event, so the tag alone publishes nothing.
+  actions: write
 
 concurrency:
   group: release-tags
@@ -70,3 +73,22 @@ jobs:
       - name: Check the tags origin now holds
         if: ${{ inputs.dry_run != true }}
         run: bash deploy/check-tags.sh --remote --branch main
+      # A ref created with GITHUB_TOKEN raises no push event, so release.yml never
+      # saw any tag this job made: the versions it created had no release and no
+      # binaries, and the Latest badge stayed on an older release. A dispatch is
+      # an event the token may raise, so publishing starts here. A tag that has a
+      # release already is left alone, and it runs after a refused tag too,
+      # because the other releases do not depend on that one.
+      - name: Publish the releases those tags never triggered
+        if: ${{ always() && inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |-
+          set -euo pipefail
+          while read -r tag; do
+            gh release view "$tag" >/dev/null 2>&1 && continue
+            # Only a version CHANGELOG.md dates is a release, never a stray tag.
+            grep -qF "## [${tag#v}] " CHANGELOG.md || continue
+            echo "dispatching Release for $tag"
+            gh workflow run release.yml --ref main -f "tag=$tag"
+          done < <(git tag --list 'v*' --sort=v:refname)

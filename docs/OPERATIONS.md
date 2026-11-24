@@ -227,6 +227,12 @@ of being tagged somewhere nearby. Tags origin already has are skipped, so a re-r
 When a release has more than one commit where `VERSION` reads as it does, the tag names one that did
 not change a file under `.github/workflows/`, since those are the commits a token can push.
 
+A ref the job creates with `GITHUB_TOKEN` raises no `push` event, so `release.yml` never starts from
+it and the tag would have no release, no binaries and no Latest badge — which is what happened to
+`1.61.0` through `1.65.0`. The job therefore finishes by dispatching `Release` for every tag
+`CHANGELOG.md` dates that has no release yet (`gh release view` decides), and it does that even when a
+earlier tag was refused, so one unpushable tag cannot hold the rest of the releases back.
+
 A tag cannot be pushed with the runner's token when it would introduce a change under
 `.github/workflows/`, and GitHub reads that over the whole range since the previous tag rather than
 just the tagged commit. `v1.62.3`'s range carries the dependency refresh that edited `ci.yml` and

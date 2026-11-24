@@ -43,6 +43,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   would otherwise look green. `ghcr.io/<owner>/wafproxy:latest` moves only when the tag is the
   newest on `origin`, so dispatching an older tag republishes its own version and leaves the alias
   where it is.
+- **The tags now publish their own releases.** A ref the tag job creates with `GITHUB_TOKEN` raises
+  no push event, so `Release` never started for `v1.61.0` through `v1.65.0`: they had tags but no
+  release, no binaries, and the Latest badge still pointed at `v1.60.0`. The job now dispatches
+  `Release` for every dated tag that has no release, and does so even when one tag was refused.
 - **Release tags fill themselves when a version lands.** `release-tags.yml` now also runs on a push
   to `main` that touches `CHANGELOG.md` or `VERSION`, so the dated section a release adds gets its
   annotated tag without anyone dispatching the workflow; it is idempotent (tags origin already has
