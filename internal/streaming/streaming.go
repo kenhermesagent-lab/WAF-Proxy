@@ -38,7 +38,23 @@ const (
 	refusalWindow = time.Minute
 	// maxPortCount bounds one service's listen range.
 	maxPortCount = 16
+	// newSessionRate is how many new UDP sessions one source address may start
+	// per second, with newSessionBurst allowed at once.
+	newSessionRate  = 10
+	newSessionBurst = 30
 )
+
+// amplificationPorts are the numbers a UDP reflector is built from. A game never
+// needs one, and answering on one turns this host into somebody's amplifier.
+var amplificationPorts = map[int]string{
+	53:    "DNS",
+	123:   "NTP",
+	161:   "SNMP",
+	389:   "CLDAP",
+	1900:  "SSDP",
+	5353:  "mDNS",
+	11211: "memcached",
+}
 
 // Service is one supported forwarder. A game entry seeds the form and nothing
 // more: its ports are the game's published defaults, which change between
@@ -131,6 +147,10 @@ type Config struct {
 	MaxPerSource int `json:"max_per_source"`
 	IdleSeconds  int `json:"idle_seconds"`
 	MaxDatagram  int `json:"max_datagram"`
+	// RequireAllow refuses every UDP session unless a source is on an allow
+	// list. With no list attached it refuses everyone, which is safer than
+	// answering anyone.
+	RequireAllow bool `json:"require_allow"`
 	// ListIDs are the named block/allow lists this port enforces. They are
 	// resolved to their entries at apply time, so editing a list here and on
 	// the Policies page is the same edit.
@@ -256,6 +276,7 @@ func ConfigFromSettings(def Service, kv map[string]string) Config {
 		MaxPerSource: positive("max_per_source", DefaultMaxPerSource),
 		IdleSeconds:  positive("idle_seconds", DefaultUDPIdleSeconds),
 		MaxDatagram:  positive("max_datagram", DefaultMaxDatagram),
+		RequireAllow: get("require_allow") == "1",
 		ListIDs:      lists,
 	}
 }
@@ -279,6 +300,22 @@ func (c Config) Normalize(def Service) (Config, error) {
 		return c, errors.New("max_conns must be between 1 and 4096")
 	}
 
+	// Normalize the allow list first: the privileged-port rule below asks
+	// whether one is attached.
+	allow := make([]string, 0, len(c.Allow))
+	for _, raw := range c.Allow {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		prefix, err := parsePrefix(raw)
+		if err != nil {
+			return c, fmt.Errorf("allowed source %q: %w", raw, err)
+		}
+		allow = append(allow, prefix)
+	}
+	c.Allow = allow
+
 	switch c.Protocol = strings.ToLower(strings.TrimSpace(c.Protocol)); c.Protocol {
 	case "":
 		c.Protocol = "tcp"
@@ -294,6 +331,20 @@ func (c Config) Normalize(def Service) (Config, error) {
 	}
 	if c.Port+c.PortCount-1 > 65535 {
 		return c, fmt.Errorf("port range %d-%d runs past 65535", c.Port, c.Port+c.PortCount-1)
+	}
+	// UDP is the reflector: the denylist and the privileged-port rule apply to
+	// every protocol that opens a socket on the number, and not to TCP.
+	if c.Protocol != "tcp" {
+		// The denylist is checked first: its reason is the one that matters for
+		// 53, 123, 161 and 389, which are also privileged.
+		for port := c.Port; port <= c.Port+c.PortCount-1; port++ {
+			if reason, bad := amplificationPorts[port]; bad {
+				return c, fmt.Errorf("port %d is an amplification port (%s): opening it over UDP turns this host into a reflector", port, reason)
+			}
+		}
+		if c.Port < 1024 && (!c.RequireAllow || len(c.Allow) == 0) {
+			return c, fmt.Errorf("port %d is below 1024: a UDP port there needs \"require an allow list\" and at least one allowed source", c.Port)
+		}
 	}
 
 	host, port, err := splitHostPort(c.Upstream, def.DefaultPort)
@@ -329,20 +380,6 @@ func (c Config) Normalize(def Service) (Config, error) {
 	if c.MaxDatagram < 576 || c.MaxDatagram > maxDatagramCeiling {
 		return c, fmt.Errorf("max_datagram must be between 576 and %d", maxDatagramCeiling)
 	}
-
-	allow := make([]string, 0, len(c.Allow))
-	for _, raw := range c.Allow {
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			continue
-		}
-		prefix, err := parsePrefix(raw)
-		if err != nil {
-			return c, fmt.Errorf("allowed source %q: %w", raw, err)
-		}
-		allow = append(allow, prefix)
-	}
-	c.Allow = allow
 
 	ids := make([]int64, 0, len(c.ListIDs))
 	seen := make(map[int64]bool, len(c.ListIDs))
@@ -492,6 +529,12 @@ func compileSources(cfg Config, lists []List) sourcePolicy {
 	return p
 }
 
+// openToAnyone reports whether nothing restricts the port: no allow list entry,
+// no named whitelist and no whitelisted country.
+func (p sourcePolicy) openToAnyone() bool {
+	return len(p.allow) == 0 && len(p.allowList) == 0 && len(p.allowCountry) == 0
+}
+
 // verdict reports whether a source may connect. A non-empty kind means the
 // connection is refused; list names the blocklist or whitelist responsible, so
 // the event row says which list to edit.
@@ -507,8 +550,7 @@ func (p sourcePolicy) verdict(addr netip.Addr, country string) (kind, list, deta
 		}
 	}
 
-	open := len(p.allow) == 0 && len(p.allowList) == 0 && len(p.allowCountry) == 0
-	if open {
+	if p.openToAnyone() {
 		return "", "", ""
 	}
 	for _, pr := range p.allow {
@@ -550,6 +592,7 @@ type Manager struct {
 	country atomic.Value // func(netip.Addr) string
 
 	refusals *throttle
+	rates    *rateLimiter
 	now      func() time.Time
 }
 
@@ -605,6 +648,7 @@ func New(log *slog.Logger) *Manager {
 		log:      log,
 		services: make(map[string]*runtime),
 		refusals: newThrottle(refusalWindow),
+		rates:    newRateLimiter(newSessionRate, newSessionBurst),
 		now:      time.Now,
 	}
 }
@@ -1237,6 +1281,75 @@ func (t *throttle) prune(now time.Time) {
 	for k, e := range t.seen {
 		if now.Sub(e.last) > 10*t.window {
 			delete(t.seen, k)
+		}
+	}
+}
+
+// rateTableMax bounds the limiter's table, like the refusal throttle.
+const rateTableMax = 4096
+
+// rateLimiter is a token bucket per source address and service. Opening a
+// session costs one token, so a source that keeps a normal session open never
+// notices, while a loop of new sessions is cut off after the burst.
+type rateLimiter struct {
+	mu    sync.Mutex
+	rate  float64
+	burst float64
+	seen  map[rateKey]*rateBucket
+}
+
+type rateKey struct {
+	service string
+	addr    netip.Addr
+}
+
+type rateBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+func newRateLimiter(rate, burst int) *rateLimiter {
+	return &rateLimiter{rate: float64(rate), burst: float64(burst), seen: make(map[rateKey]*rateBucket)}
+}
+
+// allow takes one token for the key, refilling what elapsed since the last call.
+// A full table means the source table is under a spoofed spray, so a new source
+// is refused rather than growing the map.
+func (r *rateLimiter) allow(service string, addr netip.Addr, now time.Time) bool {
+	key := rateKey{service: service, addr: addr}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	b, ok := r.seen[key]
+	if !ok {
+		if len(r.seen) >= rateTableMax {
+			r.prune(now)
+		}
+		if len(r.seen) >= rateTableMax {
+			return false
+		}
+		r.seen[key] = &rateBucket{tokens: r.burst - 1, last: now}
+		return true
+	}
+	if elapsed := now.Sub(b.last).Seconds(); elapsed > 0 {
+		b.tokens += elapsed * r.rate
+		if b.tokens > r.burst {
+			b.tokens = r.burst
+		}
+		b.last = now
+	}
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+// prune forgets the sources that stopped opening sessions a while ago.
+func (r *rateLimiter) prune(now time.Time) {
+	for k, b := range r.seen {
+		if now.Sub(b.last) > 30*time.Second {
+			delete(r.seen, k)
 		}
 	}
 }

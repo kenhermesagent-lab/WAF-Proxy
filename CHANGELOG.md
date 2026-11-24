@@ -55,6 +55,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 - An oversized datagram is dropped and counted, never truncated and forwarded. `max_datagram`
   bounds the buffer in both directions; the default is 1500 bytes.
+- **A UDP port cannot become a reflector.** The amplification ports (DNS `53`, NTP `123`, SNMP
+  `161`, CLDAP `389`, SSDP `1900`, mDNS `5353`, memcached `11211`) refuse UDP outright, and a UDP
+  port below `1024` needs the allow requirement plus at least one allowed source. One address may
+  start at most ten new sessions a second, with a burst of thirty, so a reconnect loop cannot walk
+  the port range. Turning on **Refuse sources that are not on an allow list** refuses every session
+  when no list is attached, which is the safer default for a friends-only server.
 
 ## [1.60.1] — 2026-11-23
 

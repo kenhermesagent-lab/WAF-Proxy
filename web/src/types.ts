@@ -799,6 +799,7 @@ export interface StreamingService {
   max_per_source: number;
   idle_seconds: number;
   max_datagram: number;
+  require_allow: boolean;
   list_ids?: number[];
   bound: boolean;
   listen_addr: string;

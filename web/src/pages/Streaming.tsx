@@ -15,6 +15,7 @@ type Form = {
   max_per_source: number;
   idle_seconds: number;
   max_datagram: number;
+  require_allow: boolean;
   list_ids: number[];
 };
 
@@ -73,6 +74,7 @@ const formFrom = (s: StreamingService): Form => ({
   max_per_source: s.max_per_source || s.default.max_per_source,
   idle_seconds: s.idle_seconds || s.default.idle_seconds,
   max_datagram: s.max_datagram || s.default.max_datagram,
+  require_allow: s.require_allow,
   list_ids: s.list_ids || [],
 });
 
@@ -261,7 +263,10 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
     if (!f) return null;
     const enabled = svc.enabled;
     const openToAnyone =
-      usesUDP(f.protocol) && !f.allow.trim() && !lists.some((l) => l.kind === "whitelist" && f.list_ids.includes(l.id));
+      usesUDP(f.protocol) &&
+      !f.require_allow &&
+      !f.allow.trim() &&
+      !lists.some((l) => l.kind === "whitelist" && f.list_ids.includes(l.id));
     const busiest = svc.sessions[0];
     return (
       <div key={svc.id} className="grid" style={{ gap: 14 }}>
@@ -417,6 +422,22 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
                     onChange={(e) => setField(svc.id, "max_datagram", Number(e.target.value))}
                   />
                 </Field>
+                <label
+                  style={{ display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}
+                >
+                  <input
+                    type="checkbox"
+                    style={{ width: "auto" }}
+                    aria-label={`${svc.label} require an allow list`}
+                    checked={f.require_allow}
+                    onChange={(e) => setField(svc.id, "require_allow", e.target.checked)}
+                  />
+                  Refuse sources that are not on an allow list
+                </label>
+                <p className="muted" style={{ fontSize: 12, margin: "4px 0 12px" }}>
+                  With no allow list or whitelist attached, every new session is refused — closing the port is safer
+                  than answering anyone.
+                </p>
               </>
             )}
 
@@ -425,9 +446,10 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
                 role="note"
                 style={{ borderLeft: "4px solid var(--warn, #d08b2e)", padding: "8px 0 8px 12px", margin: "4px 0 14px", fontSize: 13 }}
               >
-                <strong>This port answers any source.</strong> Add an allow list or attach a whitelist to restrict it.
-                A UDP source address can be forged, so lists decide who is answered but cannot prove who sent. The
-                session caps and active bans still apply.
+                <strong>This port answers any source.</strong> Add an allow list, attach a whitelist, or tick “Refuse
+                sources that are not on an allow list”. A UDP source address can be forged, so a list decides who is
+                answered but cannot prove who sent; the amplification ports are refused outright and the session caps
+                bound everything else.
               </div>
             )}
 

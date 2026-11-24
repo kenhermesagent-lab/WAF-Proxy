@@ -34,6 +34,7 @@ const base: StreamingService = {
   max_per_source: 0,
   idle_seconds: 0,
   max_datagram: 0,
+  require_allow: false,
   list_ids: [],
   bound: false,
   listen_addr: "",
@@ -156,9 +157,10 @@ describe("Streaming page", () => {
     fireEvent.change(screen.getByRole("spinbutton", { name: "Custom TCP/UDP listen port" }), { target: { value: "26900" } });
     fireEvent.change(screen.getByRole("spinbutton", { name: "Custom TCP/UDP port count" }), { target: { value: "4" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Custom TCP/UDP server" }), { target: { value: "10.0.0.10:26900" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Custom TCP/UDP listen address" }), {
+        fireEvent.change(screen.getByRole("textbox", { name: "Custom TCP/UDP listen address" }), {
       target: { value: "192.168.1.20" },
     });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Custom TCP/UDP require an allow list" }));
 
     expect(screen.getByText(/Listens on 26900-26903/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -173,6 +175,7 @@ describe("Streaming page", () => {
       port: 26900,
       port_count: 4,
       upstream: "10.0.0.10:26900",
+      require_allow: true,
     });
   });
 
@@ -185,6 +188,17 @@ describe("Streaming page", () => {
 
     await screen.findByText("Valheim forwarding");
     expect(screen.getAllByText(/answers any source/)).toHaveLength(1);
+  });
+
+  it("hides the warning once the card refuses sources without a list", async () => {
+    serve([valheim()]);
+    renderPage();
+
+    await screen.findByText("Valheim forwarding");
+    expect(screen.getByText(/answers any source/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Valheim require an allow list" }));
+    expect(screen.queryByText(/answers any source/)).toBeNull();
   });
 
   it("does not warn when a whitelist is attached", async () => {

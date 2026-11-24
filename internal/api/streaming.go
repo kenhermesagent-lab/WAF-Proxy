@@ -18,18 +18,21 @@ import (
 // streamingPayload is the wire format of one service section. The allow list is
 // a comma separated string because that is what the form shows.
 type streamingPayload struct {
-	Enabled      bool    `json:"enabled"`
-	ListenIP     string  `json:"listen_ip"`
-	Protocol     string  `json:"protocol"`
-	Port         int     `json:"port"`
-	PortCount    int     `json:"port_count"`
-	Upstream     string  `json:"upstream"`
-	UpstreamPort int     `json:"upstream_port"`
-	Allow        string  `json:"allow"`
-	MaxConns     int     `json:"max_conns"`
-	MaxPerSource int     `json:"max_per_source"`
-	IdleSeconds  int     `json:"idle_seconds"`
-	MaxDatagram  int     `json:"max_datagram"`
+	Enabled      bool   `json:"enabled"`
+	ListenIP     string `json:"listen_ip"`
+	Protocol     string `json:"protocol"`
+	Port         int    `json:"port"`
+	PortCount    int    `json:"port_count"`
+	Upstream     string `json:"upstream"`
+	UpstreamPort int    `json:"upstream_port"`
+	Allow        string `json:"allow"`
+	MaxConns     int    `json:"max_conns"`
+	MaxPerSource int    `json:"max_per_source"`
+	IdleSeconds  int    `json:"idle_seconds"`
+	MaxDatagram  int    `json:"max_datagram"`
+	// A pointer, so an omitted key keeps the saved switch instead of turning
+	// the allow requirement off.
+	RequireAllow *bool   `json:"require_allow"`
 	ListIDs      []int64 `json:"list_ids"`
 }
 
@@ -105,18 +108,22 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 		Enabled: in.Enabled, ListenIP: in.ListenIP, Protocol: in.Protocol, Port: in.Port,
 		PortCount: in.PortCount, Upstream: in.Upstream, UpstreamPort: in.UpstreamPort,
 		MaxConns: in.MaxConns, MaxPerSource: in.MaxPerSource,
-		IdleSeconds: in.IdleSeconds, MaxDatagram: in.MaxDatagram, ListIDs: in.ListIDs,
+		IdleSeconds: in.IdleSeconds, MaxDatagram: in.MaxDatagram,
+		RequireAllow: in.RequireAllow != nil && *in.RequireAllow, ListIDs: in.ListIDs,
 	}
 	// A page or a cached bundle from before the protocol fields sends neither,
 	// so an omitted value keeps what is saved (or the preset on a first save)
 	// instead of turning a UDP or both card into one TCP port.
-	if strings.TrimSpace(in.Protocol) == "" || in.PortCount == 0 {
+	if strings.TrimSpace(in.Protocol) == "" || in.PortCount == 0 || in.RequireAllow == nil {
 		saved := streaming.ConfigFromSettings(def, kv)
 		if strings.TrimSpace(in.Protocol) == "" {
 			cfg.Protocol = saved.Protocol
 		}
 		if in.PortCount == 0 {
 			cfg.PortCount = saved.PortCount
+		}
+		if in.RequireAllow == nil {
+			cfg.RequireAllow = saved.RequireAllow
 		}
 	}
 	if strings.TrimSpace(in.Allow) != "" {
@@ -272,6 +279,7 @@ func streamingSettings(def streaming.Service, cfg streaming.Config) map[string]s
 		prefix + "max_per_source": strconv.Itoa(cfg.MaxPerSource),
 		prefix + "idle_seconds":   strconv.Itoa(cfg.IdleSeconds),
 		prefix + "max_datagram":   strconv.Itoa(cfg.MaxDatagram),
+		prefix + "require_allow":  boolSetting(cfg.RequireAllow),
 		prefix + "lists":          joinIDs(cfg.ListIDs),
 	}
 }

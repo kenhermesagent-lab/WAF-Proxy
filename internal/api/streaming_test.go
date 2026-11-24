@@ -257,8 +257,9 @@ func TestStreamingDefaultsComeFromThePreset(t *testing.T) {
 func TestStreamingLegacyPayloadKeepsSavedProtocol(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
 	if err := st.SetSettings(map[string]string{
-		"stream_plex_protocol":   "both",
-		"stream_plex_port_count": "2",
+		"stream_plex_protocol":      "both",
+		"stream_plex_port_count":    "2",
+		"stream_plex_require_allow": "1",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -272,9 +273,9 @@ func TestStreamingLegacyPayloadKeepsSavedProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kv["stream_plex_protocol"] != "both" || kv["stream_plex_port_count"] != "2" {
-		t.Fatalf("saved protocol/range = %q/%q, want both/2",
-			kv["stream_plex_protocol"], kv["stream_plex_port_count"])
+	if kv["stream_plex_protocol"] != "both" || kv["stream_plex_port_count"] != "2" || kv["stream_plex_require_allow"] != "1" {
+		t.Fatalf("saved protocol/range/require_allow = %q/%q/%q, want both/2/1",
+			kv["stream_plex_protocol"], kv["stream_plex_port_count"], kv["stream_plex_require_allow"])
 	}
 
 	// A payload that does carry them still wins.
@@ -283,9 +284,9 @@ func TestStreamingLegacyPayloadKeepsSavedProtocol(t *testing.T) {
 	if rec := authed(t, srv, token, csrf, http.MethodPut, "/api/streaming/plex", explicit); rec.Code != http.StatusOK {
 		t.Fatalf("PUT explicit payload = %d: %s", rec.Code, rec.Body.String())
 	}
-	if kv, _ = st.Settings(); kv["stream_plex_protocol"] != "tcp" || kv["stream_plex_port_count"] != "1" {
-		t.Fatalf("saved protocol/range = %q/%q, want tcp/1",
-			kv["stream_plex_protocol"], kv["stream_plex_port_count"])
+	if kv, _ = st.Settings(); kv["stream_plex_protocol"] != "tcp" || kv["stream_plex_port_count"] != "1" || kv["stream_plex_require_allow"] != "1" {
+		t.Fatalf("saved protocol/range/require_allow = %q/%q/%q, want tcp/1/1",
+			kv["stream_plex_protocol"], kv["stream_plex_port_count"], kv["stream_plex_require_allow"])
 	}
 
 	// Nothing saved for Valheim, so its preset (UDP over three ports) seeds it.
@@ -305,7 +306,7 @@ func TestStreamingSettingsRoundTrip(t *testing.T) {
 	want := streaming.Config{
 		Enabled: true, ListenIP: "192.168.191.2", Protocol: "both", Port: 26900, PortCount: 4,
 		Upstream: "10.0.0.10:26900", UpstreamPort: 26900, Allow: []string{"10.0.0.0/8"},
-		MaxConns: 64, MaxPerSource: 4, IdleSeconds: 90, MaxDatagram: 1200, ListIDs: []int64{3, 7},
+		MaxConns: 64, MaxPerSource: 4, IdleSeconds: 90, MaxDatagram: 1200, RequireAllow: true, ListIDs: []int64{3, 7},
 	}
 	got := streaming.ConfigFromSettings(def, streamingSettings(def, want))
 	if !reflect.DeepEqual(got, want) {

@@ -214,12 +214,21 @@ func (u *udpRuntime) session(key sessionKey) *udpSession {
 	return u.sess[key]
 }
 
-// open admits a new session after the source policy, the ban list and the caps
-// have agreed. A refusal is reported with the listen port that was hit.
+// open admits a new session after the source policy, the ban list, the allow
+// requirement, the caps and the new-session rate have agreed. A refusal is
+// reported with the listen port that was hit.
 func (u *udpRuntime) open(l *udpListener, from netip.AddrPort, addr netip.Addr) (*udpSession, bool) {
-	if kind, list, detail := u.rt.source().verdict(addr, u.m.countryOf(addr)); kind != "" {
+	src := u.rt.source()
+	if kind, list, detail := src.verdict(addr, u.m.countryOf(addr)); kind != "" {
 		u.blocked.Add(1)
 		u.m.refuseAt(u.rt, l.port, "UDP", addr, kind, detail, list)
+		return nil, false
+	}
+	// The operator asked for a list, so a port with none refuses everyone.
+	if u.cfg.RequireAllow && src.openToAnyone() {
+		u.blocked.Add(1)
+		u.m.refuseAt(u.rt, l.port, "UDP", addr, "stream-allow",
+			"this port requires an allow list, and none is attached", "")
 		return nil, false
 	}
 
@@ -244,6 +253,15 @@ func (u *udpRuntime) open(l *udpListener, from netip.AddrPort, addr netip.Addr) 
 		u.blocked.Add(1)
 		// The event sink may write a row, so it runs without the session lock.
 		u.m.refuseAt(u.rt, l.port, "UDP", addr, "stream-cap", reason, "")
+		return nil, false
+	}
+	// A source that keeps one session open never spends tokens; a loop of new
+	// sessions runs out after the burst.
+	if !u.m.rates.allow(u.def.ID, addr, u.m.now()) {
+		u.mu.Unlock()
+		u.blocked.Add(1)
+		u.m.refuseAt(u.rt, l.port, "UDP", addr, "stream-cap",
+			fmt.Sprintf("more than %d new sessions a second from one address", newSessionRate), "")
 		return nil, false
 	}
 

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -499,5 +500,147 @@ func TestUDPConfigNormalize(t *testing.T) {
 		if _, err := c.in.Normalize(plex); err == nil {
 			t.Errorf("%s: expected an error", c.name)
 		}
+	}
+}
+
+// The amplification ports and a privileged port are refused for the protocols
+// that open a UDP socket, and allowed for TCP.
+func TestNormalizeUDPPortSafety(t *testing.T) {
+	custom, _ := Lookup("custom")
+	for _, port := range []int{53, 123, 161, 389, 1900, 5353, 11211} {
+		_, err := Config{Upstream: "10.0.0.5:2456", Port: port, Protocol: "udp"}.Normalize(custom)
+		if err == nil || !strings.Contains(err.Error(), "amplification") {
+			t.Errorf("udp port %d: err = %v, want an amplification refusal", port, err)
+		}
+		if _, err := (Config{Upstream: "10.0.0.5:2456", Port: port}).Normalize(custom); err != nil {
+			t.Errorf("tcp port %d: %v", port, err)
+		}
+	}
+
+	// A range that covers a denied port is refused, and the message names it.
+	if _, err := (Config{Upstream: "10.0.0.5:2456", Port: 50, PortCount: 5, Protocol: "both"}).Normalize(custom); err == nil ||
+		!strings.Contains(err.Error(), "53") {
+		t.Errorf("range over 53: err = %v, want it to name port 53", err)
+	}
+
+	priv := Config{Upstream: "10.0.0.5:2456", Port: 443, Protocol: "udp"}
+	if _, err := priv.Normalize(custom); err == nil || !strings.Contains(err.Error(), "below 1024") {
+		t.Errorf("privileged udp without a list: err = %v", err)
+	}
+	priv.RequireAllow = true
+	if _, err := priv.Normalize(custom); err == nil {
+		t.Error("a privileged udp port with no allowed source was accepted")
+	}
+	priv.Allow = []string{"10.0.0.0/8"}
+	if _, err := priv.Normalize(custom); err != nil {
+		t.Errorf("privileged udp with a list: %v", err)
+	}
+
+	// TCP on 443 is the proxy's own number and keeps working.
+	if _, err := (Config{Upstream: "10.0.0.5:443", Port: 443}).Normalize(custom); err != nil {
+		t.Errorf("tcp 443: %v", err)
+	}
+}
+
+// A port with the allow requirement and no list refuses every session, and a
+// whitelist or an allow list satisfies it.
+func TestUDPRequireAllowRefusesWithoutAList(t *testing.T) {
+	up := newUDPEcho(t, 0, "")
+	m := New(discardLogger())
+	defer m.Close()
+	log := &eventLog{}
+	m.SetEventSink(log.sink())
+
+	listen := freeUDPPort(t)
+	u := applyUDP(t, m, "plex", Config{Port: listen, Upstream: up.addr(), RequireAllow: true})
+	client := udpClient(t, listen)
+	sendUDP(t, client, "hi")
+	expectNoReply(t, client, "a session without an allow list")
+	waitFor(t, "the refusal", func() bool { return u.blocked.Load() == 1 })
+	events := log.all()
+	if len(events) != 1 || events[0].Kind != "stream-allow" || !strings.Contains(events[0].Detail, "allow list") {
+		t.Fatalf("events = %+v, want one stream-allow refusal naming the allow list", events)
+	}
+
+	// A named whitelist is an allow list for this purpose.
+	m.SetLists([]List{{ID: 3, Name: "friends", Prefixes: []string{"127.0.0.1/32"}}})
+	if err := m.Apply("plex", Config{Enabled: true, Protocol: "udp", ListenIP: "127.0.0.1", Port: listen,
+		Upstream: up.addr(), RequireAllow: true, ListIDs: []int64{3}}); err != nil {
+		t.Fatal(err)
+	}
+	viaList := udpClient(t, listen)
+	sendUDP(t, viaList, "hi")
+	expectReply(t, viaList, "hi")
+
+	// So is the card's own allow list.
+	if err := m.Apply("plex", Config{Enabled: true, Protocol: "udp", ListenIP: "127.0.0.1", Port: listen,
+		Upstream: up.addr(), RequireAllow: true, Allow: []string{"127.0.0.1"}}); err != nil {
+		t.Fatal(err)
+	}
+	viaAllow := udpClient(t, listen)
+	sendUDP(t, viaAllow, "hi")
+	expectReply(t, viaAllow, "hi")
+}
+
+// One address may open newSessionBurst sessions at once and newSessionRate per
+// second after that; an existing session keeps flowing either way.
+func TestUDPNewSessionRateLimit(t *testing.T) {
+	up := newUDPEcho(t, 0, "")
+	m := New(discardLogger())
+	defer m.Close()
+	log := &eventLog{}
+	m.SetEventSink(log.sink())
+	var clockMu sync.Mutex
+	clock := time.Now()
+	m.now = func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return clock
+	}
+
+	listen := freeUDPPort(t)
+	u := applyUDP(t, m, "plex", Config{Port: listen, Upstream: up.addr(), MaxConns: 128, MaxPerSource: 128})
+
+	// A new socket is a new source port, so each one opens a session.
+	open := func() bool {
+		t.Helper()
+		c := udpClient(t, listen)
+		sendUDP(t, c, "hi")
+		_ = c.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
+		_, err := c.Read(make([]byte, 8))
+		_ = c.SetReadDeadline(time.Time{})
+		return err == nil
+	}
+
+	var last *net.UDPConn
+	for i := 0; i < newSessionBurst; i++ {
+		last = udpClient(t, listen)
+		sendUDP(t, last, "hi")
+		expectReply(t, last, "hi")
+	}
+	if open() {
+		t.Fatal("a session past the burst was allowed")
+	}
+	waitFor(t, "the rate refusal", func() bool { return u.blocked.Load() == 1 })
+	events := log.all()
+	if len(events) != 1 || events[0].Kind != "stream-cap" || !strings.Contains(events[0].Detail, "new sessions") {
+		t.Fatalf("events = %+v, want one stream-cap refusal naming the new-session limit", events)
+	}
+
+	// The open session is unaffected: the limit is on opening, not on packets.
+	sendUDP(t, last, "again")
+	expectReply(t, last, "again")
+
+	// A second refills the bucket for another newSessionRate opens.
+	clockMu.Lock()
+	clock = clock.Add(time.Second)
+	clockMu.Unlock()
+	for i := 0; i < newSessionRate; i++ {
+		if !open() {
+			t.Fatalf("session %d after a second was refused", i+1)
+		}
+	}
+	if open() {
+		t.Fatal("a session past the refill was allowed")
 	}
 }

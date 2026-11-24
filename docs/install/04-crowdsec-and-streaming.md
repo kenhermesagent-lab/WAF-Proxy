@@ -56,6 +56,16 @@ enter, so Valheim's `2456-2458` forwards to `2456-2458` on that host.
 A few of these overlap on purpose — ARK's query port `27015` is the Source engine's game port —
 so enable the cards a particular server needs rather than the whole group.
 
+### UDP is spoofable
+
+A UDP source address can be forged, so an allow list decides who is answered but cannot prove who
+sent. What protects the box is the rest of the settings: the amplification ports (`53`, `123`,
+`161`, `389`, `1900`, `5353`, `11211`) refuse UDP outright, a UDP port below `1024` needs **Refuse
+sources that are not on an allow list** and at least one allowed source, `max_datagram` drops
+oversized datagrams instead of truncating them, and the total, per-source and new-session rate caps
+bound what one address can start. Tick that switch on a friends-only server: with no list attached
+it refuses everyone, which is safer than answering anyone.
+
 1. GUI → **Streaming** → the application's section → enable.
 2. **Listen address** = an address assigned to this host (`192.168.1.20` in the two-NIC
    reference; on a single-NIC host the LAN address the router forwards to), **port** = the
