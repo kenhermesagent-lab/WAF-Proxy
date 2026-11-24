@@ -39,6 +39,6 @@ Next:
   git commit -am "release: $version"
   git tag -a v$version -m "$version"
   git push origin HEAD:main --follow-tags
-  bash deploy/check-tags.sh --remote   # the tag is on origin, not just here
+  bash deploy/check-tags.sh --remote --branch main   # the tag is on origin, not just here
   docker tag wafproxy:$version ghcr.io/<owner>/wafproxy:latest && docker push ...
 EOF

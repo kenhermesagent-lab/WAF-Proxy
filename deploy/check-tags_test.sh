@@ -54,6 +54,29 @@ if ! check; then
   exit 1
 fi
 
+# A release branch adds its section before the tag can exist, so the rule only
+# runs on main; --branch main enforces it from anywhere.
+seed
+changelog 1.61.2 1.61.1 1.61.0 1.60.1
+commit "1.61.2"
+git -C "$root" checkout -q -b release/1.61.2
+if ! check; then
+  echo "a release branch failed the tag check before its tag can exist" >&2
+  exit 1
+fi
+if check --branch main; then
+  echo "--branch main did not enforce the rule" >&2
+  exit 1
+fi
+if ! ( cd "$root" && GITHUB_REF=refs/pull/7/merge bash deploy/check-tags.sh >/dev/null 2>&1 ); then
+  echo "a pull request failed the tag check" >&2
+  exit 1
+fi
+if ( cd "$root" && GITHUB_REF=refs/heads/main bash deploy/check-tags.sh >/dev/null 2>&1 ); then
+  echo "a main push passed with an untagged new section" >&2
+  exit 1
+fi
+
 
 expect_fail() {
   local name=$1 mutate=$2

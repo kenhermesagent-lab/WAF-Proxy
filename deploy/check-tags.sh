@@ -12,13 +12,16 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 floor=1.61.0
 mode=local
 remote=origin
+branch=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     --remote) mode=remote ;;
     --remote=*) mode=remote; remote=${1#--remote=} ;;
+    --branch) shift; branch=${1:-}; [[ -n $branch ]] || { echo "--branch needs a name" >&2; exit 2; } ;;
+    --branch=*) branch=${1#--branch=}; [[ -n $branch ]] || { echo "--branch needs a name" >&2; exit 2; } ;;
     *)
-      echo "usage: $0 [--remote[=REMOTE]]" >&2
+      echo "usage: $0 [--remote[=REMOTE]] [--branch NAME]" >&2
       exit 2
       ;;
   esac
@@ -29,6 +32,29 @@ done
   echo "floor '$floor' is not a version" >&2
   exit 2
 }
+
+# Only main enforces the rule: a release branch adds its section before the tag
+# can exist, so checking there would fail every release until it shipped.
+if [[ -z $branch ]]; then
+  case ${GITHUB_REF:-} in
+    refs/heads/*) branch=${GITHUB_REF#refs/heads/} ;;
+    refs/tags/*) branch=main ;; # a tagged commit is release history
+    refs/*) branch=pull-request ;;
+  esac
+fi
+if [[ -z $branch ]] && git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+  if ! branch=$(git -C "$root" symbolic-ref --quiet --short HEAD); then
+    if git -C "$root" describe --tags --exact-match >/dev/null 2>&1; then
+      branch=main
+    else
+      branch=detached
+    fi
+  fi
+fi
+if [[ $branch != main ]]; then
+  echo "release tags are enforced on main; skipped on '${branch:-unknown}' (--branch main checks anyway)"
+  exit 0
+fi
 
 # Every section at or above the floor; older ones predate the rule.
 versions=()
