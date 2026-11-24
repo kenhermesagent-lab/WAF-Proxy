@@ -116,6 +116,22 @@ jobs:
             echo "gh attestation verify wafproxy_${version}_linux_amd64 --repo ${REPO}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      # GitHub marks every new release Latest unless the call says otherwise, so
+      # a batch of older tags leaves whichever job finished last on the badge.
+      # Only the highest version on origin asks for it; an older tag asks for the
+      # opposite, which also repairs a badge that an old run took.
+      - name: Decide whether this tag carries the Latest badge
+        id: latest
+        run: |-
+          set -euo pipefail
+          newest=$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/||' | sort -V | tail -1)
+          if [[ $newest == "$TAG" ]]; then
+            echo "origin's newest release is ${TAG}, so it keeps the Latest badge"
+            echo "latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "origin's newest release is ${newest:-none}, so ${TAG} leaves the Latest badge alone"
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Attach the binaries, bundles and checksums
         env:
           GH_TOKEN: ${{ github.token }}
@@ -139,10 +155,11 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Re-runs refresh the body, so a release made before this rule carries
             # the written notes too.
-            gh release edit "$TAG" --notes-file "$notes"
+            gh release edit "$TAG" --notes-file "$notes" --latest="${{ steps.latest.outputs.latest }}"
             gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$TAG" dist/* --verify-tag --notes-file "$notes" --title "WAF-Proxy ${TAG#v}"
+            gh release create "$TAG" dist/* --verify-tag --notes-file "$notes" \
+              --title "WAF-Proxy ${TAG#v}" --latest="${{ steps.latest.outputs.latest }}"
           fi
 
   image:

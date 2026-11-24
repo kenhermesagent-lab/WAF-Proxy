@@ -43,6 +43,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   would otherwise look green. `ghcr.io/<owner>/wafproxy:latest` moves only when the tag is the
   newest on `origin`, so dispatching an older tag republishes its own version and leaves the alias
   where it is.
+- **The newest release keeps the GitHub "Latest" badge.** The releases API marks every newly
+  published release latest unless it is told not to, so nine runs for a tag backlog would leave
+  whichever finished last on the badge. The `assets` job now asks for `--latest` only when the tag is
+  the highest version on `origin` and passes `--latest=false` otherwise, which also demotes an old
+  release when its tag is dispatched again; `docs/OPERATIONS.md` gives the one-line
+  `gh release edit <tag> --latest` for the backlog those tag-push runs already created.
 
 ### Fixed
 
