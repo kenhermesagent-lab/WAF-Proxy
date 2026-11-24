@@ -610,6 +610,14 @@ TLS with the expected certificate, an admin session opened before the move still
 works, a gate visitor is not asked to sign in again, and a ban issued before the move
 still blocks.
 
+A forwarded game server is the exception to that list: **a failover drops every live
+game session.** The relay keeps no per-session state on the peer, so the node that
+takes over binds the port with a fresh session table and each client reconnects on
+its own. That is better than a split-brain port, where both nodes answer and the game
+server sees duplicated traffic. The demoted node closes its UDP sessions and releases
+the port before its HTTP listener finishes draining, so the promotion binds
+immediately; players see a short disconnect, not a port that stays unusable.
+
 ---
 
 ## 9. Failback procedure

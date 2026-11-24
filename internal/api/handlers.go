@@ -2074,6 +2074,30 @@ func (s *Server) prometheusMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "# HELP wafproxy_gc_cycles_total Completed garbage collections.\n")
 		fmt.Fprintf(&b, "# TYPE wafproxy_gc_cycles_total counter\nwafproxy_gc_cycles_total %d\n", gcCycles)
 	}
+	// Forwarders report only while they hold a socket: a saved-but-off game
+	// port is a configuration, not an idle listener.
+	if s.streams != nil {
+		var streams []metrics.StreamCounters
+		for _, st := range s.streams.Statuses() {
+			if !st.Bound {
+				continue
+			}
+			streams = append(streams, metrics.StreamCounters{
+				Service: st.ID, Sessions: st.Active + st.ActiveSessions,
+				BytesIn: st.BytesIn, BytesOut: st.BytesOut,
+				PacketsIn: st.PacketsIn, PacketsOut: st.PacketsOut,
+				Refused: st.RefusedByReason,
+			})
+		}
+		metrics.Streams(&b, streams)
+	}
+	// A dropping queue means the events table cannot keep up with a refusal
+	// spray, which is exactly what an operator needs to see before the rows
+	// they are looking for go missing.
+	if s.streamDrops != nil {
+		fmt.Fprintf(&b, "# HELP wafproxy_stream_events_dropped_total Relay event rows dropped because the writer queue was full.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_stream_events_dropped_total counter\nwafproxy_stream_events_dropped_total %d\n", s.streamDrops())
+	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, _ = io.WriteString(w, b.String())
 }
