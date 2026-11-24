@@ -229,8 +229,13 @@ jobs:
             echo "::error::$1: ${detail//%/%25}" >&2
             exit 1
           }
+          # The image sets NET_BIND_SERVICE and NET_ADMIN on the binary through
+          # file capabilities, and execve refuses a file whose capabilities the
+          # container's bounding set cannot grant, so the container needs both
+          # or it dies before it can answer.
           docker run -d --name wafproxy-smoke \
             -p 18080:8080 \
+            --cap-add NET_ADMIN --cap-add NET_BIND_SERVICE \
             -e WAFPROXY_LISTEN_GUI=0.0.0.0:8080 \
             -e WAFPROXY_GUI_PRIVATE_ONLY=false \
             "wafproxy:${version}"
@@ -307,6 +312,7 @@ jobs:
           docker pull "${image}:${version}"
           docker run -d --name wafproxy-pulled \
             -p 18081:8080 \
+            --cap-add NET_ADMIN --cap-add NET_BIND_SERVICE \
             -e WAFPROXY_LISTEN_GUI=0.0.0.0:8080 \
             -e WAFPROXY_GUI_PRIVATE_ONLY=false \
             "${image}:${version}"

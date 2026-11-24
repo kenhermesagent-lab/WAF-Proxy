@@ -4,11 +4,13 @@ package api
 //go:generate go run ../../tools/openapi -src server.go -version-file ../../VERSION -out ../../docs/openapi.yaml
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -1536,6 +1538,26 @@ func decode(r *http.Request, v any) error {
 		return err
 	}
 	return nil
+}
+
+// decodeSent is decode plus the set of keys the caller actually sent, so a
+// partial update can tell an omitted field from an explicit null.
+func decodeSent(r *http.Request, v any) (map[string]json.RawMessage, error) {
+	defer r.Body.Close()
+	raw, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, 2<<20))
+	if err != nil {
+		return nil, err
+	}
+	sent := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &sent); err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return nil, err
+	}
+	return sent, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

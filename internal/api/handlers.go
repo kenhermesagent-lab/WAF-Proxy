@@ -202,7 +202,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "hostname already exists")
 		return
 	}
-	s.saveChildren(r, id, in)
+	s.saveChildren(r, id, in, nil)
 	s.reload(r.Context())
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "proxy.create", p.Hostname, clientIP(r))
@@ -241,9 +241,28 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in proxyBody
-	if err := decode(r, &in); err != nil {
+	sent, err := decodeSent(r, &in)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
+	}
+	// Only the fields the payload names are written back: a PUT carrying one
+	// setting must not detach the WAF profile or empty the upstream pool of the
+	// site it is editing. An explicit null or [] still clears them.
+	if _, ok := sent["cert_id"]; ok {
+		current.CertID = in.CertID
+	}
+	if _, ok := sent["profile_id"]; ok {
+		current.ProfileID = in.ProfileID
+	}
+	if _, ok := sent["protection_profile_id"]; ok {
+		current.ProtectionProfileID = in.ProtectionProfileID
+	}
+	if _, ok := sent["access_profile_id"]; ok {
+		current.AccessProfileID = in.AccessProfileID
+	}
+	if _, ok := sent["auth_provider_id"]; ok {
+		current.AuthProviderID = in.AuthProviderID
 	}
 	if in.Hostname != "" && in.Hostname != current.Hostname {
 		if msg := s.validateHostname(r, in.Hostname); msg != "" {
@@ -258,11 +277,6 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	if in.Maintenance != nil {
 		current.Maintenance = *in.Maintenance
 	}
-	current.CertID = in.CertID
-	current.ProfileID = in.ProfileID
-	current.ProtectionProfileID = in.ProtectionProfileID
-	current.AccessProfileID = in.AccessProfileID
-	current.AuthProviderID = in.AuthProviderID
 	s.inheritAccessProfile(r, current)
 	if in.GateMode != "" {
 		current.GateMode = in.GateMode
@@ -324,7 +338,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
-	s.saveChildren(r, id, in)
+	s.saveChildren(r, id, in, sent)
 	s.reload(r.Context())
 	sess := sessionFrom(r)
 	s.auditChange(r, sess.Username, "proxy.update", current.Hostname, clientIP(r), "proxy", id, before, s.snapshotProxy(r, id))
@@ -522,7 +536,9 @@ func requireGateSecret(mode, existing, provided string) string {
 	return ""
 }
 
-func (s *Server) saveChildren(r *http.Request, proxyID int64, in proxyBody) {
+// saveChildren writes the children the payload named. A create passes a nil set
+// and writes all of them; an update leaves the ones it did not mention alone.
+func (s *Server) saveChildren(r *http.Request, proxyID int64, in proxyBody, sent map[string]json.RawMessage) {
 	ups := make([]model.Upstream, 0, len(in.Upstreams))
 	for _, u := range in.Upstreams {
 		u.URL = strings.TrimSpace(u.URL)
@@ -542,11 +558,24 @@ func (s *Server) saveChildren(r *http.Request, proxyID int64, in proxyBody) {
 		}
 		ups = append(ups, model.Upstream{ProxyID: proxyID, URL: u.URL, Weight: w, Enabled: enabled, MaxConns: u.MaxConns})
 	}
-	_ = s.db(r).ReplaceUpstreams(proxyID, ups)
-	_ = s.db(r).ReplaceRoutes(proxyID, in.Routes)
+	if sentField(sent, "upstreams") {
+		_ = s.db(r).ReplaceUpstreams(proxyID, ups)
+	}
+	if sentField(sent, "routes") {
+		_ = s.db(r).ReplaceRoutes(proxyID, in.Routes)
+	}
 	if in.GateUsers != nil {
 		_ = s.db(r).SetGateACL(proxyID, in.GateUsers)
 	}
+}
+
+// sentField reports whether the payload carried key; a nil set is a create.
+func sentField(sent map[string]json.RawMessage, key string) bool {
+	if sent == nil {
+		return true
+	}
+	_, ok := sent[key]
+	return ok
 }
 
 func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request) {

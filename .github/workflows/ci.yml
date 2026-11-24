@@ -122,7 +122,14 @@ jobs:
       - name: Every released section has its annotated tag on origin
         id: tags
         continue-on-error: true
-        run: bash deploy/check-tags.sh --remote
+        run: |
+          # release-tags.yml creates this commit's tag on the same push, so the
+          # first attempt can run before it lands; a real backlog still fails.
+          for _ in $(seq 1 12); do
+            if bash deploy/check-tags.sh --remote; then exit 0; fi
+            sleep 10
+          done
+          exit 1
       - name: The tag check rejects missing, lightweight and misplaced tags
         run: bash deploy/check-tags_test.sh
       - name: The tag helper only tags commits that stamp VERSION

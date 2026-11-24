@@ -8,15 +8,24 @@ package waf
 // internal/proxy. The review's PROTO-10 sent two ordinary headers rather than an
 // injection, so it is not asserted. The control rows keep the path rule from
 // turning ordinary URLs into false positives.
+//
+// The follow-up review's probes are here too, including the gzip and UTF-16
+// bodies, which live in transportCorpus because their wire form is not a string.
+// Its Host-header probe is not asserted here: a Host that names no site is
+// refused by the routing that picks the site, which internal/proxy covers.
 
 import (
+	"bytes"
+	"compress/gzip"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
@@ -159,6 +168,24 @@ var bypassCorpus = []corpusCase{
 	{"PROTO-09", "Protocol", "body over the inspection limit", "POST", `/login`, map[string]string{"Content-Type": formCT},
 		"pad=" + strings.Repeat("A", 200000) + "&id=1' OR 1=1--", true, 200004},
 
+	// ---- Round two: parser and path evasions -------------------------------
+	{"R2-04", "Encoding", "double-encoded path SQLi", "GET", `/search/1%2527%2520OR%25201%253D1--`, nil, "", true, 900111},
+	// The wire form is %u0027, which Go refuses to parse as a URL; one level of
+	// percent-decoding puts the same escape in front of the path rule.
+	{"R2-07", "Encoding", "IIS %u0027 escape in a path", "GET", `/search/1%25u0027%20OR%201%3D1--`, nil, "", true, 0},
+	{"R2-08", "Encoding", "overlong UTF-8 traversal", "GET", `/static/%c0%ae%c0%ae/%c0%ae%c0%ae/etc/passwd`, nil, "", true, 0},
+	{"R2-09", "SQLi", "UNION nested in JSON objects", "POST", `/api/query`, map[string]string{"Content-Type": jsonCT}, `{"id":{"a":{"b":{"c":{"d":"1' UNION SELECT password FROM users--"}}}}}`, true, 0},
+	{"R2-10", "SQLi", "unicode-escaped SQLi in JSON", "POST", `/api/query`, map[string]string{"Content-Type": jsonCT}, `{"id":"1\u0027 OR 1=1--"}`, true, 0},
+	{"R2-11", "SQLi", "SQLi in a multipart filename", "POST", `/upload`, map[string]string{"Content-Type": multCT}, "--XX\r\nContent-Disposition: form-data; name=\"f\"; filename=\"1' OR 1=1--\"\r\n\r\nx\r\n--XX--\r\n", true, 0},
+	{"R2-12", "XSS", "XSS in a multipart filename", "POST", `/upload`, map[string]string{"Content-Type": multCT}, "--XX\r\nContent-Disposition: form-data; name=\"f\"; filename=\"<script>alert(1)</script>\"\r\n\r\nx\r\n--XX--\r\n", true, 900114},
+	{"R2-13", "XXE", "declaration split across lines", "POST", `/api/data`, map[string]string{"Content-Type": xmlCT}, "<?xml version=\"1.0\"?>\n<!DOCTYPE d [\n<!ENTITY e\n  SYSTEM \"file:///etc/passwd\"\n>]><d>&e;</d>", true, 900112},
+	{"R2-14", "SQLi", "Oracle concat in a path", "GET", `/x/1'%7C%7C'1`, nil, "", true, 0},
+	{"R2-15", "SQLi", "AND SLEEP in a path", "GET", `/x/1'%20AND%20SLEEP(5)%20AND%20'1'%3D'1`, nil, "", true, 0},
+	{"R2-16", "SQLi", "path SQLi past 8 KiB", "GET", "/search/" + strings.Repeat("a", 8200) + "/1'%20OR%201%3D1--", nil, "", true, 0},
+	{"R2-17", "Path traversal", "double-encoded traversal", "GET", `/static/%252e%252e%252f%252e%252e%252fetc%252fpasswd`, nil, "", true, 0},
+	{"R2-18", "SSRF", "metadata address in a path", "GET", `/fetch/http://169.254.169.254/latest/meta-data/`, nil, "", true, 900113},
+	{"R2-20", "XSS", "XSS in X-Forwarded-Host", "GET", `/`, map[string]string{"X-Forwarded-Host": `<script>alert(1)</script>`}, "", true, 0},
+	{"R2-21", "SQLi", "method override with a SQLi body", "POST", `/api/query?x=1`, map[string]string{"X-HTTP-Method-Override": "PUT", "Content-Type": formCT}, `id=1' OR 1=1--`, true, 0},
 	// ---- false-positive guards for the path rules ------------------------
 	{"ALLOW-01", "Control", "apostrophe in a path", "GET", `/blog/it's-a-good-day`, nil, "", false, 0},
 	{"ALLOW-02", "Control", "ordinary REST path", "GET", `/api/v1/items/42`, nil, "", false, 0},
@@ -166,10 +193,49 @@ var bypassCorpus = []corpusCase{
 	{"ALLOW-04", "Control", "and/or as words in a path", "GET", `/docs/and-or-operators`, nil, "", false, 0},
 }
 
-// TestBypassCorpus runs the review's corpus against the shipped defaults at
-// paranoia level 1. It is the regression gate: a new bypass, or a rule that
-// stops firing after a CRS bump, fails here.
-func TestBypassCorpus(t *testing.T) {
+// The probes whose wire body is not a plain string: gzip and UTF-16 both reach
+// the application intact, so the layer has to decide them too.
+type transportCase struct {
+	corpusCase
+	Encode string // "gzip" or "utf16"
+}
+
+var transportCorpus = []transportCase{
+	{corpusCase{"R2-01", "Compression", "gzip SQLi body", "POST", `/login`, map[string]string{"Content-Type": formCT, "Content-Encoding": "gzip"}, `user=1' OR 1=1--&pass=x`, true, 0}, "gzip"},
+	{corpusCase{"R2-02", "Compression", "gzip XXE body", "POST", `/api/data`, map[string]string{"Content-Type": xmlCT, "Content-Encoding": "gzip"}, `<?xml version="1.0"?><!DOCTYPE d [<!ENTITY e SYSTEM "file:///etc/passwd">]><d>&e;</d>`, true, 0}, "gzip"},
+	{corpusCase{"R2-03", "Compression", "gzip XSS body", "POST", `/api/comment`, map[string]string{"Content-Type": jsonCT, "Content-Encoding": "gzip"}, `{"comment":"<script>alert(1)</script>"}`, true, 0}, "gzip"},
+	{corpusCase{"R2-05", "Encoding", "UTF-16 XXE body", "POST", `/api/data`, map[string]string{"Content-Type": xmlCT + "; charset=utf-16"}, `<?xml version="1.0"?><!DOCTYPE d [<!ENTITY e SYSTEM "file:///etc/passwd">]><d>&e;</d>`, true, 0}, "utf16"},
+	{corpusCase{"R2-06", "Encoding", "UTF-16 form body without a charset", "POST", `/login`, map[string]string{"Content-Type": formCT}, `user=1' OR 1=1--`, true, 0}, "utf16"},
+}
+
+func encodeTransport(t *testing.T, body, encoding string) []byte {
+	t.Helper()
+	switch encoding {
+	case "gzip":
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		if _, err := zw.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	case "utf16":
+		out := []byte{0xff, 0xfe}
+		for _, u := range utf16.Encode([]rune(body)) {
+			out = append(out, byte(u), byte(u>>8))
+		}
+		return out
+	}
+	t.Fatalf("unknown transport encoding %q", encoding)
+	return nil
+}
+
+// corpusEngine compiles the shipped defaults at paranoia level 1, the setting
+// every row is decided against.
+func corpusEngine(t *testing.T) *Engine {
+	t.Helper()
 	id := int64(1)
 	set := NewSet([]model.Profile{{
 		ID: id, Name: "corpus", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072,
@@ -178,28 +244,59 @@ func TestBypassCorpus(t *testing.T) {
 	if engine == nil {
 		t.Fatal("no engine compiled")
 	}
-	addr := netip.MustParseAddr("203.0.113.9")
+	return engine
+}
+
+func corpusRequest(c corpusCase, body []byte) *http.Request {
+	req := httptest.NewRequest(c.Method, c.Target, nil)
+	if len(body) > 0 {
+		// A body without a length trips 920180 before the body rules see
+		// anything, which would hide what the probe is testing.
+		req.ContentLength = int64(len(body))
+		req.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	}
+	for k, v := range c.Headers {
+		if k == "Host" {
+			// httptest carries the authority on the request, not the header map.
+			req.Host = v
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+	return req
+}
+
+// runCorpus asserts one probe's verdict, and the rule when the row pins one.
+func runCorpus(t *testing.T, engine *Engine, c corpusCase, body []byte) {
+	t.Run(c.ID, func(t *testing.T) {
+		res := engine.Inspect(corpusRequest(c, body), body, netip.MustParseAddr("203.0.113.9"))
+		if res.Blocked != c.WantBlocked {
+			t.Fatalf("%s (%s): blocked=%v, want %v; rule=%d label=%s",
+				c.Technique, c.Category, res.Blocked, c.WantBlocked, res.RuleID, res.Label)
+		}
+		if c.WantBlocked && c.Rule != 0 && res.RuleID != c.Rule {
+			t.Fatalf("%s: blocked by rule %d, want %d", c.Technique, res.RuleID, c.Rule)
+		}
+	})
+}
+
+// TestBypassCorpus runs the review's corpus against the shipped defaults at
+// paranoia level 1. It is the regression gate: a new bypass, or a rule that
+// stops firing after a CRS bump, fails here.
+func TestBypassCorpus(t *testing.T) {
+	engine := corpusEngine(t)
 	for _, c := range bypassCorpus {
-		t.Run(c.ID, func(t *testing.T) {
-			req := httptest.NewRequest(c.Method, c.Target, nil)
-			if c.Body != "" {
-				// A body without a length trips 920180 before the body rules see
-				// anything, which would hide what the probe is testing.
-				req.ContentLength = int64(len(c.Body))
-				req.Header.Set("Content-Length", strconv.Itoa(len(c.Body)))
-			}
-			for k, v := range c.Headers {
-				req.Header.Set(k, v)
-			}
-			res := engine.Inspect(req, []byte(c.Body), addr)
-			if res.Blocked != c.WantBlocked {
-				t.Fatalf("%s (%s): blocked=%v, want %v; rule=%d label=%s",
-					c.Technique, c.Category, res.Blocked, c.WantBlocked, res.RuleID, res.Label)
-			}
-			if c.WantBlocked && c.Rule != 0 && res.RuleID != c.Rule {
-				t.Fatalf("%s: blocked by rule %d, want %d", c.Technique, res.RuleID, c.Rule)
-			}
-		})
+		runCorpus(t, engine, c, []byte(c.Body))
+	}
+}
+
+// TestTransportCorpus pins the probes a string body cannot carry: the origin
+// decodes gzip and UTF-16 the way a framework does, so a body parser that skips
+// them hands the attack to the application.
+func TestTransportCorpus(t *testing.T) {
+	engine := corpusEngine(t)
+	for _, c := range transportCorpus {
+		runCorpus(t, engine, c.corpusCase, encodeTransport(t, c.corpusCase.Body, c.Encode))
 	}
 }
 
@@ -208,22 +305,32 @@ func TestBypassCorpus(t *testing.T) {
 func TestBypassCorpusIsComplete(t *testing.T) {
 	seen := map[string]int{}
 	ids := map[string]bool{}
-	for _, c := range bypassCorpus {
+	add := func(c corpusCase) {
 		seen[c.Category]++
 		if ids[c.ID] {
 			t.Fatalf("duplicate probe id %s", c.ID)
 		}
 		ids[c.ID] = true
 	}
-	for _, want := range []string{"SQLi", "XSS", "Path traversal", "RCE", "XXE", "SSRF", "Protocol", "Control"} {
+	for _, c := range bypassCorpus {
+		add(c)
+	}
+	for _, c := range transportCorpus {
+		add(c.corpusCase)
+	}
+	for _, want := range []string{"SQLi", "XSS", "Path traversal", "RCE", "XXE", "SSRF", "Protocol", "Control", "Compression", "Encoding"} {
 		if seen[want] == 0 {
 			t.Errorf("no %s probes in the corpus", want)
 		}
 	}
-	// 81 rows: the 70 review probes this layer decides, plus four XXE variants
-	// and three round-two bypasses beyond them, and four URL controls that must
-	// stay allowed.
-	if len(bypassCorpus) != 81 {
-		t.Errorf("corpus has %d probes, want 81", len(bypassCorpus))
+	// 96 rows: the 70 review probes this layer decides, four XXE variants, the
+	// three first round-two bypasses, fifteen more from the follow-up review,
+	// and four URL controls that must stay allowed. Five further probes need an
+	// encoded body, so they ride in transportCorpus instead.
+	if len(bypassCorpus) != 96 {
+		t.Errorf("corpus has %d probes, want 96", len(bypassCorpus))
+	}
+	if len(transportCorpus) != 5 {
+		t.Errorf("transport corpus has %d probes, want 5", len(transportCorpus))
 	}
 }

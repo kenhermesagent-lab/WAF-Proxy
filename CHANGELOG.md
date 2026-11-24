@@ -12,6 +12,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.3] — 2026-11-24
+
+### Fixed
+
+- **A one-field update no longer dismantles a site.** `PUT /api/proxies/{id}` wrote every profile id
+  it did not receive as "none" and replaced the upstream pool with an empty one, so renaming a host
+  or flipping `maintenance` also detached its WAF profile and left it answering 502 unfiltered. The
+  handler now writes only the keys the payload names; an explicit `null` or `[]` still clears them,
+  so a client that sends the whole object behaves as before.
+- **The release image job boots the image it publishes.** The console never answered because
+  `execve` refused the binary: the image grants `NET_BIND_SERVICE` and `NET_ADMIN` through file
+  capabilities, and a container whose bounding set cannot grant them fails the exec with
+  `operation not permitted` before the process starts. The smoke test and the pull-back check now
+  pass both capabilities, as `deploy/docker-smoke-test.sh` and the compose file already did.
+- **CI waits for the tag its own push creates.** The tag check runs on the same push that
+  `release-tags.yml` tags, so the first attempt saw a missing tag and failed the job. It now retries
+  for up to two minutes; a real backlog still fails.
+
+### Security
+
+- **The corpus covers the second review.** Fifteen more probes — double-encoded and overlong
+  encodings, `%u0027`, JSON nesting and `\u0027`, multipart file names, split declarations, Oracle
+  and time-based payloads in the path, traversal and SSRF destinations — run beside five transport
+  probes that gzip and UTF-16 the body, so the techniques proven blocked cannot regress silently.
+
 ## [1.65.2] — 2026-11-24
 
 ### Security
