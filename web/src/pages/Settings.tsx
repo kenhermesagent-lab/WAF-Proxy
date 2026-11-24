@@ -409,7 +409,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
               label="Max inspected body (bytes)"
               hint={hostWide ? "Host-wide: the proxy buffers every site's requests up to the default site's value, so this field is read-only here." : "Process-wide request buffer; per-profile body limits still apply."}
             >
-              <input value={s.max_body ?? "131072"} onChange={(e) => set("max_body", e.target.value)} disabled={hostWide} />
+              <input value={s.max_body ?? "67108864"} onChange={(e) => set("max_body", e.target.value)} disabled={hostWide} />
             </Field>
             <Field
               label="Queue wait (ms)"

@@ -105,6 +105,38 @@ func (b *budget) reserve(ctx context.Context, size int64, wait time.Duration) (f
 	}
 }
 
+// charge adds bytes to a live reservation while a body is read. It reports
+// false when the buffer budget cannot hold them, so a body with no declared
+// length is cut at the ceiling instead of being read up to it while only the
+// 64 KiB estimate is accounted for.
+func (b *budget) charge(size int64) bool {
+	if size <= 0 {
+		return true
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.bytes+size > b.maxBytes {
+		b.shedBytes++
+		return false
+	}
+	b.bytes += size
+	return true
+}
+
+// uncharge gives charged bytes back when the request ends.
+func (b *budget) uncharge(size int64) {
+	if size <= 0 {
+		return
+	}
+	b.mu.Lock()
+	b.bytes -= size
+	if b.bytes < 0 {
+		b.bytes = 0
+	}
+	b.wake()
+	b.mu.Unlock()
+}
+
 // release gives the reservation back once the request is done. The estimate is
 // what the request could hold, not what it did: an unknown length is capped at
 // 64 KiB, so the over-reservation is bounded and dies with the request.

@@ -140,6 +140,12 @@ func newHarness(t testing.TB) *harness {
 				time.Sleep(60 * time.Millisecond)
 			}
 			return
+		case "/upload":
+			// Echoes how many bytes arrived, so a streamed upload can be proven
+			// whole without the harness holding it.
+			n, _ := io.Copy(io.Discard, r.Body)
+			_, _ = fmt.Fprintf(w, "size:%d", n)
+			return
 		case "/stream":
 			// No length: the response is cut once it passes the ceiling.
 			w.Header().Set("Content-Type", "text/plain")

@@ -3,6 +3,25 @@ package model
 
 import "time"
 
+// DefaultMaxBody is the request-body ceiling a new install starts with. Every
+// body is buffered so the WAF can inspect it, which is why the buffered byte
+// budget — not this value — is what bounds total memory.
+const DefaultMaxBody = 64 << 20
+
+// MaxBodyCeiling bounds the setting. A body above the buffered byte budget
+// (WAFPROXY_MAX_BUFFERED_BYTES, 512 MiB by default) is refused with a 503, so a
+// larger ceiling only takes effect once that budget is raised too.
+const MaxBodyCeiling = 1 << 30
+
+// BodySkip is one request path whose body streams to the upstream without being
+// buffered or inspected. ListIDs narrows the exemption to sources named by
+// those lists, so an operator can trust a CIDR instead of the whole internet.
+type BodySkip struct {
+	Method  string  `json:"method"`
+	Prefix  string  `json:"prefix"`
+	ListIDs []int64 `json:"list_ids,omitempty"`
+}
+
 // Proxy is a hostname routed through the gateway.
 type Proxy struct {
 	ID                  int64  `json:"id"`
@@ -32,6 +51,12 @@ type Proxy struct {
 	// process-wide budget.
 	MaxInflight          int `json:"max_inflight"`
 	MaxInflightPerClient int `json:"max_inflight_per_client"`
+	// MaxBody bounds the buffered request body for this site. Zero inherits the
+	// host-wide ceiling; a body-skip path is not bounded because it is streamed.
+	MaxBody int64 `json:"max_body"`
+	// BodySkip paths stream their body without inspection. Method, path and
+	// header rules, lists, rate limits, bans and the access gate still apply.
+	BodySkip []BodySkip `json:"body_skip"`
 	// UpstreamTimeout bounds a whole upstream exchange in seconds; zero keeps
 	// the transport default. Retries applies to idempotent requests only.
 	UpstreamTimeout int `json:"upstream_timeout"`

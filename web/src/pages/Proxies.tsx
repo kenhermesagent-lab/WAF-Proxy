@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import ProxyDetail from "../components/ProxyDetail";
-import { AccessProfile, AuthProvider, Cert, Preset, Profile, ProtectionProfile, Proxy, Route, Upstream } from "../types";
+import { AccessList, AccessProfile, AuthProvider, BodySkip, Cert, Preset, Profile, ProtectionProfile, Proxy, Route, Upstream } from "../types";
 import { Badge, ConfirmDialog, Drawer, Empty, Field, PageHead, PageTabs, Switch, TableWrap, errText } from "../ui";
 import type { NavTab } from "../nav";
 import Certs from "./Certs";
@@ -23,6 +23,8 @@ type Draft = {
   bot_level: string;
   maintenance: boolean;
   waf_mode: string;
+  max_body: number;
+  body_skip: BodySkip[];
   preset: string;
   upstreams: Upstream[];
   routes: Route[];
@@ -55,6 +57,8 @@ function emptyDraft(): Draft {
     bot_level: "light",
     maintenance: false,
     waf_mode: "inherit",
+    max_body: 0,
+    body_skip: [],
     preset: "",
     upstreams: [{ url: "http://10.0.0.10:8080", weight: 1, enabled: true }],
     routes: [],
@@ -85,6 +89,7 @@ export default function Proxies({
   const [providers, setProviders] = useState<AuthProvider[]>([]);
   const [certs, setCerts] = useState<Cert[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
+  const [lists, setLists] = useState<AccessList[]>([]);
   // Whether the operator has a gate account: a preset may only preselect its
   // suggested gate when one exists, or the new site would lock everyone out.
   const [gateAccounts, setGateAccounts] = useState(0);
@@ -109,8 +114,9 @@ export default function Proxies({
       api.get<Preset[]>("/api/presets"),
       api.get<Profile[]>("/api/profiles"),
       api.get<{ id: number }[]>("/api/gate-users"),
+      api.get<AccessList[]>("/api/lists"),
     ])
-      .then(([p, pp, ap, prov, c, pre, prof, gu]) => {
+      .then(([p, pp, ap, prov, c, pre, prof, gu, li]) => {
         setList(p);
         setProtections(pp);
         setAccessProfiles(ap);
@@ -119,6 +125,7 @@ export default function Proxies({
         setPresets(pre);
         setProfiles(prof);
         setGateAccounts(gu.length);
+        setLists(li);
       })
       .catch((e) => onError(errText(e)));
 
@@ -152,6 +159,8 @@ export default function Proxies({
       bot_level: p.bot_level || "light",
       maintenance: p.maintenance,
       waf_mode: p.waf_mode || "inherit",
+      max_body: p.max_body ?? 0,
+      body_skip: p.body_skip ?? [],
       preset: "",
       upstreams: p.upstreams?.length ? p.upstreams : [{ url: "", weight: 1, enabled: true }],
       routes: p.routes ?? [],
@@ -202,7 +211,7 @@ export default function Proxies({
   const patch = (fn: (d: Draft) => void) =>
     setDraft((d) => {
       if (!d) return d;
-      const next: Draft = { ...d, upstreams: [...d.upstreams], routes: [...d.routes], gate_users: [...d.gate_users] };
+      const next: Draft = { ...d, upstreams: [...d.upstreams], routes: [...d.routes], gate_users: [...d.gate_users], body_skip: [...d.body_skip] };
       fn(next);
       return next;
     });
@@ -364,7 +373,18 @@ export default function Proxies({
                           patch((d) => {
                             d.preset = e.target.value;
                             const pre = presets.find((p) => p.id === d.preset);
-                            if (pre?.gate && d.gate_mode === "off" && gateAccounts > 0) d.gate_mode = pre.gate;
+                            if (!pre) return;
+                            if (pre.gate && d.gate_mode === "off" && gateAccounts > 0) d.gate_mode = pre.gate;
+                            // The suggested body settings are prefilled and visible on
+                            // the Protection tab, never applied where the operator
+                            // cannot see or change them.
+                            if (pre.proxy_max_body) d.max_body = pre.proxy_max_body;
+                            if (pre.body_skip_paths?.length) {
+                              d.body_skip = pre.body_skip_paths.map((line) => {
+                                const [method, ...path] = line.trim().split(/\s+/);
+                                return { method: method.toUpperCase(), prefix: path.join(" "), list_ids: [] };
+                              });
+                            }
                           })
                         }
                       >
@@ -386,6 +406,14 @@ export default function Proxies({
                         </ul>
                       )}
                     </Field>
+                  )}
+                  {!draft.id && chosenPreset && chosenPreset.steps?.length > 0 && (
+                    <div className="banner" style={{ display: "block", marginTop: 2, marginBottom: 12 }}>
+                      <strong style={{ fontSize: 12 }}>Steps for {chosenPreset.name}</strong>
+                      <ol style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12 }}>
+                        {chosenPreset.steps.map((s) => <li key={s} style={{ marginBottom: 4 }}>{s}</li>)}
+                      </ol>
+                    </div>
                   )}
                   <Field label="Hostname">
                     <input value={draft.hostname} onChange={(e) => patch((d) => (d.hostname = e.target.value))} placeholder={`app.${base}`} />
@@ -451,6 +479,7 @@ export default function Proxies({
               )}
 
               {drawerTab === "protection" && (
+                <>
                 <div className="field-grid">
                   <Field label="WAF mode">
                     <select value={draft.waf_mode} onChange={(e) => patch((d) => (d.waf_mode = e.target.value))}>
@@ -475,6 +504,61 @@ export default function Proxies({
                     </select>
                   </Field>
                 </div>
+                <div style={{ marginTop: 16 }}>
+                  <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>Request body</h3>
+                  <div className="field-grid">
+                    <Field label="Site body ceiling (MiB)" hint="0 inherits the host setting. A buffered body above this is refused with 413.">
+                      <input
+                        type="number"
+                        min={0}
+                        max={1024}
+                        value={draft.max_body ? Math.round(draft.max_body / (1 << 20)) : 0}
+                        onChange={(e) => patch((d) => (d.max_body = Math.max(0, Math.min(1024, Number(e.target.value) || 0)) * (1 << 20)))}
+                      />
+                    </Field>
+                  </div>
+                  <p className="faint small-text" style={{ margin: "8px 0" }}>
+                    A skip path streams its request body to the app without buffering or inspection, so uploads of any size pass. Method, path and header rules, bans, lists, rate limits and the access gate still apply; only the body is unseen, and neither the body deadline nor the site's upstream timeout cuts it short. A client that stops sending for two minutes is dropped.
+                  </p>
+                  {draft.body_skip.map((s, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "100px minmax(0,1fr) minmax(0,1fr) auto", gap: 8, alignItems: "start", marginBottom: 8 }}>
+                      <Field label={i === 0 ? "Method" : `Skip ${i + 1}`}>
+                        <select value={s.method} onChange={(e) => patch((d) => { d.body_skip[i] = { ...d.body_skip[i], method: e.target.value }; })}>
+                          <option value="POST">POST</option>
+                          <option value="PUT">PUT</option>
+                          <option value="PATCH">PATCH</option>
+                        </select>
+                      </Field>
+                      <Field label="Path prefix">
+                        <input placeholder="/api/assets" value={s.prefix} onChange={(e) => patch((d) => { d.body_skip[i] = { ...d.body_skip[i], prefix: e.target.value }; })} />
+                      </Field>
+                      <Field label="Trust lists (optional)" hint={lists.length === 0 ? "No lists yet: add one under Policies → Lists." : "Only these sources skip inspection."}>
+                        {lists.length > 0 ? (
+                          <select
+                            multiple
+                            size={Math.min(3, lists.length)}
+                            value={(s.list_ids ?? []).map(String)}
+                            onChange={(e) => patch((d) => { d.body_skip[i] = { ...d.body_skip[i], list_ids: Array.from(e.target.selectedOptions).map((o) => Number(o.value)) }; })}
+                          >
+                            {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.kind})</option>)}
+                          </select>
+                        ) : (
+                          <p className="faint small-text" style={{ margin: 0, paddingTop: 6 }}>Any source</p>
+                        )}
+                      </Field>
+                      <button className="ghost" style={{ marginTop: 22 }} aria-label={`Remove skip path ${i + 1}`} onClick={() => patch((d) => { d.body_skip.splice(i, 1); })}>
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <button className="small" onClick={() => patch((d) => { d.body_skip.push({ method: "POST", prefix: "", list_ids: [] }); })}>
+                    <Icon name="plus" size={13} /> Add skip path
+                  </button>
+                  <p className="faint small-text" style={{ marginTop: 6 }}>
+                    Without a trust list the prefix is skipped for every source. Prefer a method and a narrow path, and leave the root out.
+                  </p>
+                </div>
+                </>
               )}
 
               {drawerTab === "access" && (

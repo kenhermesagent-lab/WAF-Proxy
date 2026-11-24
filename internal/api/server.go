@@ -38,6 +38,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/intel"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/netmatch"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
@@ -1024,7 +1025,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		"stealth_ping":       "0",
 		"protection_enabled": "1",
 		"sample_above_rps":   "500",
-		"max_body":           "131072",
+		"max_body":           strconv.FormatInt(model.DefaultMaxBody, 10),
 		"gate_ttl_hours":     "12",
 		"acme_email":         strings.TrimSpace(req.Email),
 		"admin_allow_cidrs":  "",
@@ -1395,8 +1396,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			case "max_body":
-				if n < 1024 || n > 8<<20 {
-					writeError(w, http.StatusBadRequest, "max_body must be 1024-8388608 bytes")
+				if n < 1024 || n > model.MaxBodyCeiling {
+					writeError(w, http.StatusBadRequest, "max_body must be 1024-1073741824 bytes")
 					return
 				}
 			case "queue_ms":

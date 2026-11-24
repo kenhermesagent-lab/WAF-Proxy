@@ -337,6 +337,27 @@ func TestSettingsTenantFormRoundTrips(t *testing.T) {
 	}
 }
 
+// max_body accepts up to 1 GiB: a phone video is far above the old 8 MiB
+// ceiling, and the buffered byte budget — not this value — bounds memory.
+func TestSettingsMaxBodyCeiling(t *testing.T) {
+	srv, token, csrf := newSettingsServer(t)
+
+	rec := authed(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"max_body":"1073741824"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("max_body = 1 GiB = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := srv.policy.CurrentSettings().MaxBody; got != 1<<30 {
+		t.Fatalf("the policy engine reads max body %d, want 1 GiB", got)
+	}
+	rec = authed(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"max_body":"1073741825"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("max_body above 1 GiB = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if got := srv.policy.CurrentSettings().MaxBody; got != 1<<30 {
+		t.Fatalf("the refused save changed max body to %d", got)
+	}
+}
+
 func TestSettingsWriteSavesNormalizationMode(t *testing.T) {
 	srv, token, csrf := newSettingsServer(t)
 

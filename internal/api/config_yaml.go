@@ -69,6 +69,8 @@ type configProxy struct {
 	HealthFailAfter   int              `json:"health_fail_after,omitempty"`
 	MaxInflight       int              `json:"max_inflight,omitempty"`
 	MaxInflightClient int              `json:"max_inflight_per_client,omitempty"`
+	MaxBody           int64            `json:"max_body,omitempty"`
+	BodySkip          []configBodySkip `json:"body_skip,omitempty"`
 	UpstreamTimeout   int              `json:"upstream_timeout,omitempty"`
 	Retries           int              `json:"retries,omitempty"`
 	TLSMinVersion     string           `json:"tls_min_version,omitempty"`
@@ -76,6 +78,14 @@ type configProxy struct {
 	ResponseHeaders   []model.HeaderOp `json:"response_headers,omitempty"`
 	Upstreams         []configUpstream `json:"upstreams"`
 	Routes            []configRoute    `json:"routes"`
+}
+
+// configBodySkip names the lists that narrow an exemption, because numeric ids
+// from another install mean nothing here.
+type configBodySkip struct {
+	Method string   `json:"method"`
+	Prefix string   `json:"prefix"`
+	Lists  []string `json:"lists,omitempty"`
 }
 
 type configUpstream struct {
@@ -192,8 +202,18 @@ func (s *Server) configDocument(r *http.Request) (configDoc, error) {
 			LBPolicy: p.LBPolicy, HealthPath: p.HealthPath, HealthExpect: p.HealthExpect,
 			HealthInterval: p.HealthInterval, HealthFailAfter: p.HealthFailAfter,
 			MaxInflight: p.MaxInflight, MaxInflightClient: p.MaxInflightPerClient,
+			MaxBody:         p.MaxBody,
 			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries, TLSMinVersion: p.TLSMinVersion,
 			RequestHeaders: p.RequestHeaders, ResponseHeaders: p.ResponseHeaders,
+		}
+		for _, s := range p.BodySkip {
+			names, ok := listNamesFor(s.ListIDs, listName)
+			if !ok {
+				// A list that no longer exists cannot be named, and dropping its
+				// name would export a narrowed entry as one that trusts everyone.
+				continue
+			}
+			row.BodySkip = append(row.BodySkip, configBodySkip{Method: s.Method, Prefix: s.Prefix, Lists: names})
 		}
 		if p.ProfileID != nil {
 			row.WAFProfile = wafName[*p.ProfileID]
@@ -477,7 +497,22 @@ func (s *Server) applyConfigPolicies(r *http.Request, in []configPolicy, problem
 	return s.applyPolicies(r, rows, problems)
 }
 
-// applyConfigProxies resolves profile names, then uses the shared proxy importer.
+// listNamesFor resolves list ids to names. A missing name means the list is gone;
+// the caller then drops the whole entry rather than widen the exemption.
+func listNamesFor(ids []int64, names map[int64]string) ([]string, bool) {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		name := names[id]
+		if name == "" {
+			return nil, false
+		}
+		out = append(out, name)
+	}
+	return out, true
+}
+
+// applyConfigProxies resolves profile and list names, then uses the shared proxy
+// importer.
 func (s *Server) applyConfigProxies(r *http.Request, in []configProxy, problems []string) (int, []string) {
 	wafID := map[string]int64{}
 	if list, err := s.db(r).ListProfiles(); err == nil {
@@ -491,6 +526,12 @@ func (s *Server) applyConfigProxies(r *http.Request, in []configProxy, problems 
 			protectionID[p.Name] = p.ID
 		}
 	}
+	listID := map[string]int64{}
+	if list, err := s.db(r).ListAccessLists(); err == nil {
+		for _, l := range list {
+			listID[l.Name] = l.ID
+		}
+	}
 	rows := make([]backupProxy, 0, len(in))
 	for _, p := range in {
 		bp := backupProxy{Proxy: model.Proxy{
@@ -499,9 +540,31 @@ func (s *Server) applyConfigProxies(r *http.Request, in []configProxy, problems 
 			LBPolicy: p.LBPolicy, HealthPath: p.HealthPath, HealthExpect: p.HealthExpect,
 			HealthInterval: p.HealthInterval, HealthFailAfter: p.HealthFailAfter,
 			MaxInflight: p.MaxInflight, MaxInflightPerClient: p.MaxInflightClient,
+			MaxBody:         p.MaxBody,
 			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries, TLSMinVersion: p.TLSMinVersion,
 			RequestHeaders: p.RequestHeaders, ResponseHeaders: p.ResponseHeaders,
 		}}
+		for _, s := range p.BodySkip {
+			entry := model.BodySkip{Method: s.Method, Prefix: s.Prefix}
+			resolved := true
+			for _, name := range s.Lists {
+				id, ok := listID[name]
+				if !ok {
+					problems = append(problems, "proxy "+p.Hostname+": body-skip "+s.Method+" "+s.Prefix+": unknown list "+name+", entry skipped")
+					resolved = false
+					break
+				}
+				entry.ListIDs = append(entry.ListIDs, id)
+			}
+			if !resolved {
+				continue
+			}
+			if msg := validateBodySkip([]model.BodySkip{entry}); msg != "" {
+				problems = append(problems, "proxy "+p.Hostname+": body-skip "+s.Method+" "+s.Prefix+": "+msg+", entry skipped")
+				continue
+			}
+			bp.Proxy.BodySkip = append(bp.Proxy.BodySkip, entry)
+		}
 		known := true
 		if p.WAFProfile != "" {
 			if id, ok := wafID[p.WAFProfile]; ok {

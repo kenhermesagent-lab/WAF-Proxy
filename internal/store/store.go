@@ -298,7 +298,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   paranoia INTEGER NOT NULL DEFAULT 1,
   anomaly INTEGER NOT NULL DEFAULT 5,
   allowed_methods TEXT NOT NULL DEFAULT 'GET,HEAD,POST',
-  max_body INTEGER NOT NULL DEFAULT 131072,
+  max_body INTEGER NOT NULL DEFAULT 67108864,
   exceptions TEXT NOT NULL DEFAULT '',
   responses TEXT NOT NULL DEFAULT 'off',
   max_response INTEGER NOT NULL DEFAULT 0,
@@ -354,6 +354,8 @@ CREATE TABLE IF NOT EXISTS proxies (
   bot_level TEXT NOT NULL DEFAULT 'light',
   maintenance INTEGER NOT NULL DEFAULT 0,
   waf_mode TEXT NOT NULL DEFAULT 'inherit',
+  max_body INTEGER NOT NULL DEFAULT 0,
+  body_skip TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS protection_profiles (
@@ -743,6 +745,10 @@ func (s *Store) migrateAddColumns() error {
 		{"certificates", "source", `ALTER TABLE certificates ADD COLUMN source TEXT NOT NULL DEFAULT 'acme'`},
 		// Per-site minimum TLS version; empty means 1.2.
 		{"proxies", "tls_min_version", `ALTER TABLE proxies ADD COLUMN tls_min_version TEXT NOT NULL DEFAULT ''`},
+		// A site may accept larger buffered bodies than the host default, and may
+		// stream selected upload paths without buffering or inspecting them.
+		{"proxies", "max_body", `ALTER TABLE proxies ADD COLUMN max_body INTEGER NOT NULL DEFAULT 0`},
+		{"proxies", "body_skip", `ALTER TABLE proxies ADD COLUMN body_skip TEXT NOT NULL DEFAULT '[]'`},
 		// Every configurable row belongs to a site. migrateSites runs after
 		// this pass and hands the rows written before sites existed to the
 		// default site, so 0 only survives for the shared builtin profiles.
