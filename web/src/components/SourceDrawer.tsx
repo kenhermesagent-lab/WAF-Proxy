@@ -303,10 +303,12 @@ export default function SourceDrawer({
                 <div className="intel-block">
                   <div className="intel-block-head">
                     <span>AbuseIPDB</span>
-                    {third.abuse && !third.abuse.error ? (
-                      <Badge tone={abuseTone(third.abuse.score)}>{third.abuse.score}% confidence</Badge>
+                    {!third.abuse ? (
+                      <Badge tone="warn">no key</Badge>
+                    ) : third.abuse.error ? (
+                      <Badge tone="warn">unavailable</Badge>
                     ) : (
-                      <Badge tone="warn">no report</Badge>
+                      <Badge tone={abuseTone(third.abuse.score)}>{third.abuse.score}% confidence</Badge>
                     )}
                   </div>
                   <p className="intel-line">{abuseSummary(third.abuse)}</p>

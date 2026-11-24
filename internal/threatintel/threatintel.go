@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -162,10 +163,10 @@ func (c *Client) Lookup(ctx context.Context, ip string, key string) (Result, err
 		return Result{}, errors.New("not an IP address")
 	}
 	ip = addr.String()
-	now := c.now()
+	now := c.Now()
 
 	c.mu.Lock()
-	if hit, ok := c.cache[ip]; ok && now.Sub(hit.at) < c.ttl() {
+	if hit, ok := c.cache[ip]; ok && now.Sub(hit.at) < c.TTL {
 		c.mu.Unlock()
 		res := hit.res
 		res.Cached = true
@@ -233,27 +234,6 @@ func (c *Client) store(ip string, res Result) {
 	c.cache[ip] = entry{at: res.At, res: res}
 }
 
-func (c *Client) now() time.Time {
-	if c.Now != nil {
-		return c.Now()
-	}
-	return time.Now()
-}
-
-func (c *Client) ttl() time.Duration {
-	if c.TTL > 0 {
-		return c.TTL
-	}
-	return TTL
-}
-
-func (c *Client) client() *http.Client {
-	if c.HTTP != nil {
-		return c.HTTP
-	}
-	return http.DefaultClient
-}
-
 // rdap asks rdap.org, which redirects to the RIR that owns the address.
 func (c *Client) rdap(ctx context.Context, ip string) RDAP {
 	ctx, cancel := context.WithTimeout(ctx, 9*time.Second)
@@ -264,7 +244,7 @@ func (c *Client) rdap(ctx context.Context, ip string) RDAP {
 	}
 	req.Header.Set("Accept", "application/rdap+json")
 	req.Header.Set("User-Agent", "WAF-Proxy")
-	resp, err := c.client().Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return RDAP{Error: "rdap.org did not answer"}
 	}
@@ -280,9 +260,16 @@ func (c *Client) rdap(ctx context.Context, ip string) RDAP {
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return RDAP{Error: "RDAP sent an unexpected answer"}
 	}
+	network := doc.network()
+	name := first(doc.Name, doc.Handle)
+	// Registries often repeat the range as the network name, only differing in
+	// the dash, and the console would print the same string twice.
+	if sameRange(name, network) {
+		name = ""
+	}
 	out := RDAP{
-		Network:    doc.network(),
-		Name:       first(doc.Name, doc.Handle),
+		Network:    network,
+		Name:       name,
 		Org:        doc.org(),
 		Abuse:      doc.abuseEmail(),
 		Registered: doc.event("registration"),
@@ -306,7 +293,7 @@ func (c *Client) abuse(ctx context.Context, ip, key string) (*Abuse, *Quota, err
 	req.Header.Set("Key", key)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "WAF-Proxy")
-	resp, err := c.client().Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, nil, errors.New("AbuseIPDB did not answer")
 	}
@@ -352,32 +339,16 @@ func (c *Client) abuse(ctx context.Context, ip, key string) (*Abuse, *Quota, err
 	return out, quota, nil
 }
 
-// quotaFrom reads the rate-limit block every check answers with. A missing or
-// unparsable header leaves the field at zero rather than guessing.
+// quotaFrom reads the rate-limit block every check answers with. Without a
+// ceiling there is no plan to infer and no bar to draw, so a partial header
+// block is ignored rather than shown as 0 of 0.
 func quotaFrom(h http.Header) *Quota {
-	// Without a ceiling there is no plan to infer and no bar to draw, so a
-	// partial header block is ignored rather than shown as 0 of 0.
-	limit, ok := atoiHeader(h.Get("X-RateLimit-Limit"))
-	if !ok || limit <= 0 {
+	limit, err := strconv.Atoi(h.Get("X-RateLimit-Limit"))
+	if err != nil || limit <= 0 {
 		return nil
 	}
-	remaining, _ := atoiHeader(h.Get("X-RateLimit-Remaining"))
+	remaining, _ := strconv.Atoi(h.Get("X-RateLimit-Remaining"))
 	return &Quota{Limit: limit, Remaining: remaining, ResetAt: h.Get("X-RateLimit-Reset")}
-}
-
-func atoiHeader(v string) (int, bool) {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return 0, false
-	}
-	n := 0
-	for _, c := range v {
-		if c < '0' || c > '9' {
-			return 0, false
-		}
-		n = n*10 + int(c-'0')
-	}
-	return n, true
 }
 
 func quotaClock(q *Quota) string {
@@ -481,6 +452,24 @@ func EncodeQuota(q *Quota) string {
 	return string(blob)
 }
 
+// sameRange reports whether a network name just restates its address range.
+func sameRange(name, network string) bool {
+	if name == "" || network == "" {
+		return false
+	}
+	return squashRange(name) == squashRange(network)
+}
+
+func squashRange(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 func registryName(host string) string {
 	switch {
 	case strings.HasSuffix(host, "ripe.net"):
@@ -509,12 +498,11 @@ func first(values ...string) string {
 // rdapDoc is the subset of an RDAP answer the console reads. The format puts
 // names in vCard arrays, so the helpers below pick the fields out.
 type rdapDoc struct {
-	Handle    string `json:"handle"`
-	Name      string `json:"name"`
-	Start     string `json:"startAddress"`
-	End       string `json:"endAddress"`
-	IPVersion string `json:"ipVersion"`
-	CIDR0     []struct {
+	Handle string `json:"handle"`
+	Name   string `json:"name"`
+	Start  string `json:"startAddress"`
+	End    string `json:"endAddress"`
+	CIDR0  []struct {
 		Length int `json:"length"`
 	} `json:"cidr0_cidrs"`
 	Events []struct {

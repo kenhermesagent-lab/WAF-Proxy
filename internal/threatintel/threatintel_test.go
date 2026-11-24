@@ -211,3 +211,19 @@ func TestQuotaCodec(t *testing.T) {
 		t.Fatal("garbage quota decoded")
 	}
 }
+
+func TestSameRangeIgnoresDashes(t *testing.T) {
+	cases := []struct {
+		name, network string
+		want          bool
+	}{
+		{"41.127.128.0 - 41.127.255.255", "41.127.128.0 – 41.127.255.255", true},
+		{"SELECTEL-NET", "5.42.64.0 – 5.42.64.255", false},
+		{"", "5.42.64.0 – 5.42.64.255", false},
+	}
+	for _, c := range cases {
+		if got := sameRange(c.name, c.network); got != c.want {
+			t.Fatalf("sameRange(%q, %q) = %v, want %v", c.name, c.network, got, c.want)
+		}
+	}
+}

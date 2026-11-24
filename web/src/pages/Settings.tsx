@@ -324,6 +324,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   const sections = (tabs?.length ? tabs : SECTIONS).filter((sec) => !(hostWide && sec.id === "ha"));
   // A deep link to a tab this console may not show falls back to the first one.
   const shown = sections.some((sec) => sec.id === active) ? active : sections[0]?.id ?? "network";
+  const intelQuota = quotaView(intel?.quota);
   const select = (id: string) => {
     setActive(id);
     onTab?.(id);
@@ -633,7 +634,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
               <div className="faint small-text">Network, organisation, abuse contact and registration date, asked of the registry that owns the address.</div>
             </div>
             <div>
-              <Badge tone="ok">on · no key</Badge>
+              <Badge tone="ok">on · keyless</Badge>
               <span className="faint small-text" style={{ marginLeft: 8 }}>cached with the lookup</span>
             </div>
           </div>
@@ -677,14 +678,11 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
                   </span>
                 )}
               </div>
-              {intel.quota && (() => {
-                const q = quotaView(intel.quota);
-                return q ? (
-                  <div className="intel-meter" role="img" aria-label={`${q.used.toLocaleString()} of ${q.limit.toLocaleString()} checks used today`}>
-                    <i style={{ width: `${Math.min(100, q.percent)}%` }} />
-                  </div>
-                ) : null;
-              })()}
+              {intelQuota && (
+                <div className="intel-meter" role="img" aria-label={`${intelQuota.used.toLocaleString()} of ${intelQuota.limit.toLocaleString()} checks used today`}>
+                  <i style={{ width: `${intelQuota.percent}%` }} />
+                </div>
+              )}
               <div className="row between" style={{ marginTop: 8 }}>
                 <a className="link-button" href="https://www.abuseipdb.com/account/api" target="_blank" rel="noreferrer">
                   <Icon name="external" size={14} /> Manage the key at AbuseIPDB
