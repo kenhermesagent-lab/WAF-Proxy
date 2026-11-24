@@ -128,7 +128,7 @@ Applied before per-site profiles.
 | Protection pipeline enabled | Gates the global bot-filter check in the request pipeline. Bans, lists, country/ASN rules, decoy names, feeds, rate limits, the access gate and the WAF keep running while it is off. | On |
 | Global rate limit (rps/IP) | Per-address request rate allowed before the rate-limit stage refuses. | **100**, positive |
 | Burst | Burst allowance above the rate. | **200**, positive |
-| Max inspected body (bytes) | Hard ceiling on a request body. A larger body is refused with 413 before the WAF runs and logged with the `body-limit` stage; it is never forwarded uninspected. | **131072** (128 KiB), 1 KiB–8 MiB |
+| Max inspected body (bytes) | Hard ceiling on a request body. A larger body is refused with 413 before the WAF runs and logged with the `body-limit` stage; it is never forwarded uninspected. The buffered byte budget (`WAFPROXY_MAX_BUFFERED_BYTES`, 512 MiB by default) bounds memory, so a body above that budget is refused with 503 `budget-too-large` instead — raise the budget for uploads near the ceiling. | **67108864** (64 MiB), 1 KiB–1 GiB |
 | Sample allowed above (rps) | Above this global request rate, allowed requests are sampled rather than each written as an event, so the event table stays small. | **500**, positive |
 | Queue wait (ms) | Per site: how long a request waits for a free request slot before it is refused with a 503. `0` refuses at once, which is what a release before 1.61 did. | **250**, 0–5000 |
 | Body deadline (s) | Per site: how long a client may take to send its body. A trickled upload is cut with `408` and logged with the `body-timeout` rule, so it cannot hold a request slot. The deadline is cleared before the request is forwarded, so it never limits an upstream response. `0` disables it. | **30**, 0–3600 |
@@ -267,6 +267,16 @@ These per-site values are editable through the API/YAML (see
 | WAF mode | **Inherit profile**, **Off**, **Detect only** (log, never block), **Block**. | inherit |
 | Bot protection | Proof-of-work challenge level: **Off**, **Light**, **Standard**, **Aggressive**. Separate from the global bot filter. | light |
 | Fingerprint mode | **Strict** or **Minimal** client fingerprinting for challenge decisions. | strict |
+| Site body ceiling | Buffered request-body limit for this site, in MiB; **0** inherits the host setting. A larger body is refused with 413 before it is read. | 0 |
+| Body-skip path | Method (**POST**, **PUT**, **PATCH**) plus a path prefix whose body streams to the app without buffering or inspection. Optional trust lists narrow it to those sources. | empty |
+
+A skipped body is not inspected, so the WAF body rules, the anomaly score, the body deadline and the
+site's whole-exchange upstream timeout do not apply to it; method, path and header rules, bans,
+lists, rate limits and the access gate still do. The transport's response-header timeout still
+bounds the wait once the body has been sent. The prefix matches whole path segments, so `/api/assets` covers `/api/assets/1` but not
+`/api/assetsfoo`, and the root cannot be skipped. The drawer holds at most 16 entries, and each
+may name blocklists or whitelists: only their addresses or countries skip, and a deleted list
+matches nobody, so the path fails closed to inspection.
 
 ### Access gate tab
 
@@ -311,6 +321,8 @@ site unless the upstream overrides them. They are not all exposed in the drawer.
 | `health_fail_after` | Consecutive failures before passive ejection, 0–20; 0 uses 3. | 3 |
 | `max_inflight` | Concurrent requests served for this site, 0–100000; 0 inherits the process budget. | 0 |
 | `max_inflight_per_client` | Concurrent requests per client address, 0–10000; 0 inherits. | 0 |
+| `max_body` | Buffered request-body ceiling in bytes for this site, 0 (inherit the host setting) to 1073741824. | 0 |
+| `body_skip` | Paths streamed without inspection: `{method, prefix, list_ids}` in the API and `{method, prefix, lists}` by name in YAML, POST/PUT/PATCH only; at most 16. An entry whose list or prefix cannot be resolved on import is dropped and reported. | empty |
 | `upstream_timeout` | Whole upstream exchange in seconds, 0–3600; 0 keeps the transport default. | 0 |
 | `retries` | Retries for idempotent requests only, 0–5. | 0 |
 | `tls_min_version` | **1.2** or 1.3 for this site. | 1.2 |
@@ -329,6 +341,10 @@ Guacamole, Actual Budget, read-later (Karakeep, Linkwarden), feed readers (Fresh
 wikis and notes (Outline, Wiki.js, Docmost, Memos), file sync (Seafile, ownCloud), file managers
 (FileBrowser, copyparty), Stirling-PDF, Matrix (Synapse, Conduit), DNS consoles (Pi-hole, AdGuard
 Home, Technitium) and Generic web application.
+
+Immich, Nextcloud and the file-sync preset also suggest a site body ceiling, body-skip paths and a
+body deadline for whole-file uploads. They are prefilled in the drawer and stay editable, and the
+drawer prints the ordered steps for the chosen application.
 
 Presets whose app puts a thin or root-equivalent login in front of the host — container managers,
 Guacamole, Frigate, a DNS console, Open WebUI, Stirling-PDF, the file managers — also suggest an

@@ -65,6 +65,9 @@ type PolicyEngine interface {
 	// ResponseEngine compiles the profile the proxy names, for its own site.
 	ResponseEngine(p *model.Proxy) *waf.Engine
 	ProfileFor(p *model.Proxy) *model.Profile
+	// InList matches the request's client against the named lists, for
+	// body-skip trust.
+	InList(req *policy.Request, ids []int64) bool
 }
 
 type Deps struct {
@@ -156,7 +159,7 @@ func New(d Deps) (*Server, error) {
 		edges:              map[string]*edge{},
 		self:               self,
 		events:             make(chan model.Event, 8192),
-		hardBody:           8 << 20,
+		hardBody:           model.DefaultMaxBody,
 		defaultQueue:       DefaultQueue,
 		defaultBodyTimeout: DefaultBodyTimeout,
 	}

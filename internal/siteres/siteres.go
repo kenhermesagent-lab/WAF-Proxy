@@ -401,6 +401,14 @@ func (r *Router) Screen(req *policy.Request) model.Verdict {
 	return model.Verdict{Action: "allow"}
 }
 
+// InList matches the request's client against the named lists of its site.
+func (r *Router) InList(req *policy.Request, ids []int64) bool {
+	if e := r.requestEngine(req); e != nil {
+		return e.InList(req, ids)
+	}
+	return false
+}
+
 // Inspect runs the body stages for the request's site.
 func (r *Router) Inspect(req *policy.Request) (model.Verdict, policy.WAFInfo) {
 	if e := r.requestEngine(req); e != nil {

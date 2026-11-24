@@ -457,7 +457,7 @@ func splitUpper(s string) []string {
 func parseSettings(kv map[string]string) Settings {
 	s := Settings{
 		RPS: 100, Burst: 200, ASNBlock: true, StealthDrop: true, StealthPing: false,
-		RetentionDays: 7, SampleAboveRPS: 500, MaxBody: 131072, Enabled: true,
+		RetentionDays: 7, SampleAboveRPS: 500, MaxBody: model.DefaultMaxBody, Enabled: true,
 		WANIface:          kv["wan_iface"],
 		LANIface:          kv["lan_iface"],
 		NormalizationMode: normalizationMode(kv["normalization_mode"]),
@@ -1326,6 +1326,34 @@ func (e *Engine) normVerdict(findings []norm.Finding) (model.Verdict, bool) {
 		v.Action, v.Status = "block", http.StatusForbidden
 	}
 	return v, true
+}
+
+// InList reports whether an address or its country is named by any of the given
+// named lists. It answers an empty id set with false; a list that no longer
+// exists matches nothing, so a deleted list fails closed.
+func (e *Engine) InList(req *Request, ids []int64) bool {
+	if req == nil || len(ids) == 0 {
+		return false
+	}
+	addr, country := req.Addr, req.Loc.Country
+	country = strings.ToUpper(country)
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, id := range ids {
+		l, ok := e.lists[id]
+		if !ok {
+			continue
+		}
+		for _, pr := range l.ips {
+			if pr.Contains(addr) {
+				return true
+			}
+		}
+		if country != "" && l.countries[country] {
+			return true
+		}
+	}
+	return false
 }
 
 // NoteTraffic records request volume for sampling decisions.

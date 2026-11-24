@@ -30,6 +30,15 @@ type Preset struct {
 	// covers browser sessions, so an app whose mobile client or API tokens must
 	// reach it directly leaves this empty.
 	Gate string `json:"gate"`
+	// ProxyMaxBody suggests the site's buffered body ceiling; 0 leaves the host
+	// default alone.
+	ProxyMaxBody int64 `json:"proxy_max_body"`
+	// BodySkipPaths suggests upload paths whose bodies stream to the app without
+	// inspection, written as "METHOD /prefix". They are prefilled and editable,
+	// never applied behind the operator's back.
+	BodySkipPaths []string `json:"body_skip_paths"`
+	// Steps is the ordered setup guide shown when the preset is chosen.
+	Steps []string `json:"steps"`
 	// Exceptions are OWASP CRS rule IDs commonly reported as false positives by
 	// this application. They are suggestions: check them in detect mode first.
 	Exceptions string   `json:"exceptions"`
@@ -42,19 +51,30 @@ const privateRanges = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32,::1/
 
 var all = []Preset{
 	{
-		ID:          "nextcloud",
-		Name:        "Nextcloud",
-		Description: "File sync and share over WebDAV, with an admin area under /settings.",
-		Methods:     "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS,PROPFIND,PROPPATCH,MKCOL,COPY,MOVE,LOCK,UNLOCK,REPORT",
-		MaxBody:     8 << 20,
-		LoginPaths:  "/login,/index.php/login,/ocs/v2.php/core/getapppassword",
-		LoginRPS:    3,
-		LoginBurst:  5,
-		AdminPaths:  "/settings,/index.php/settings,/ocs/v2.php/cloud/users,/apps",
-		AdminIPs:    privateRanges,
-		Exceptions:  "920350,920440,921110",
+		ID:           "nextcloud",
+		Name:         "Nextcloud",
+		Description:  "File sync and share over WebDAV, with an admin area under /settings.",
+		Methods:      "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS,PROPFIND,PROPPATCH,MKCOL,COPY,MOVE,LOCK,UNLOCK,REPORT",
+		MaxBody:      8 << 20,
+		ProxyMaxBody: 64 << 20,
+		BodySkipPaths: []string{
+			"PUT /remote.php/dav/files/",
+			"PUT /remote.php/webdav/",
+		},
+		Steps: []string{
+			"Set the site body ceiling to 64 MiB (on the Protection tab, already prefilled) for the WebDAV API.",
+			"The sync clients upload a whole file per PUT, so their two WebDAV roots are prefilled in Body-skip: those bodies stream without inspection.",
+			"A streamed upload is not cut by the site's body deadline or its upstream timeout; a path left buffered still is, so raise them before removing that entry.",
+			"Verify with a large upload: Events shows stage body-skip, status 200.",
+		},
+		LoginPaths: "/login,/index.php/login,/ocs/v2.php/core/getapppassword",
+		LoginRPS:   3,
+		LoginBurst: 5,
+		AdminPaths: "/settings,/index.php/settings,/ocs/v2.php/cloud/users,/apps",
+		AdminIPs:   privateRanges,
+		Exceptions: "920350,920440,921110",
 		Notes: []string{
-			"Uploads larger than 8 MiB are refused because the body is buffered for inspection; raise the limit or route large uploads through a streaming port.",
+			"The two WebDAV upload roots stream without inspection (Body-skip); any other path is buffered and capped by the site ceiling.",
 			"File downloads are not capped.",
 		},
 	},
@@ -359,20 +379,30 @@ var all = []Preset{
 		},
 	},
 	{
-		ID:          "immich",
-		Name:        "Immich",
-		Description: "Photo and video library with a mobile app, chunked uploads and streamed playback.",
-		Methods:     "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-		MaxBody:     64 << 20,
-		LoginPaths:  "/api/auth/login",
-		LoginRPS:    3,
-		LoginBurst:  5,
-		AdminPaths:  "/api/admin,/admin",
-		AdminIPs:    privateRanges,
-		Exceptions:  "920350,920440",
+		ID:            "immich",
+		Name:          "Immich",
+		Description:   "Photo and video library with a mobile app, chunked uploads and streamed playback.",
+		Methods:       "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+		MaxBody:       64 << 20,
+		ProxyMaxBody:  256 << 20,
+		BodySkipPaths: []string{"POST /api/assets"},
+		Steps: []string{
+			"Set the site body ceiling to 256 MiB (on the Protection tab, already prefilled); it covers ordinary photos and short clips on the JSON API.",
+			"POST /api/assets is prefilled in Body-skip: the mobile app sends each photo or video as one non-resumable request, so whole-file uploads stream to Immich without being buffered or inspected.",
+			"A streamed upload is not cut by the site's body deadline (30 s by default) or its upstream timeout, so a multi-GB clip needs nothing raised; a path left buffered still is cut.",
+			"Method, path and header rules, bans, lists, rate limits and the access gate still apply to that path; only the body is unseen.",
+			"Optional: name a trust list on the skip entry to exempt only your own networks.",
+			"Verify with a large video: Events shows stage body-skip, status 200.",
+		},
+		LoginPaths: "/api/auth/login",
+		LoginRPS:   3,
+		LoginBurst: 5,
+		AdminPaths: "/api/admin,/admin",
+		AdminIPs:   privateRanges,
+		Exceptions: "920350,920440",
 		Notes: []string{
 			"The mobile app and the CLI authenticate with an API key, which a gate would intercept: this preset leaves the gate off so backup and sync keep working.",
-			"Uploads arrive in chunks and each chunk is buffered for inspection, so 64 MiB is the per-chunk ceiling, not a file-size limit.",
+			"POST /api/assets streams to Immich, so a whole-file backup is not buffered or inspected; every other path is still buffered under the site ceiling.",
 			"Photos and videos are streamed and not capped; the admin area stays on the private allowlist.",
 		},
 	},
@@ -562,20 +592,27 @@ var all = []Preset{
 		},
 	},
 	{
-		ID:          "filesync",
-		Name:        "File sync (Seafile, ownCloud)",
-		Description: "Desktop and mobile clients that sync files, including WebDAV on ownCloud.",
-		Methods:     "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS,PROPFIND,PROPPATCH,MKCOL,COPY,MOVE,LOCK,UNLOCK,REPORT",
-		MaxBody:     16 << 20,
-		LoginPaths:  "/api2/auth-token/,/index.php/login,/ocs/v2.php/core/getapppassword",
-		LoginRPS:    3,
-		LoginBurst:  5,
-		AdminPaths:  "/sys,/settings/admin",
-		AdminIPs:    privateRanges,
-		Exceptions:  "920350,920440,921110",
+		ID:            "filesync",
+		Name:          "File sync (Seafile, ownCloud)",
+		Description:   "Desktop and mobile clients that sync files, including WebDAV on ownCloud.",
+		Methods:       "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS,PROPFIND,PROPPATCH,MKCOL,COPY,MOVE,LOCK,UNLOCK,REPORT",
+		MaxBody:       16 << 20,
+		ProxyMaxBody:  64 << 20,
+		BodySkipPaths: []string{"PUT /remote.php/dav/files/"},
+		Steps: []string{
+			"Set the site body ceiling to 64 MiB (on the Protection tab, already prefilled); both clients upload in chunks that fit that.",
+			"ownCloud's WebDAV upload root is prefilled in Body-skip for clients that send a whole file per PUT; delete the entry if your clients only chunk.",
+			"A streamed upload is not cut by the site's body deadline or upstream timeout; delete the skip entry and raise both if you would rather inspect those uploads.",
+		},
+		LoginPaths: "/api2/auth-token/,/index.php/login,/ocs/v2.php/core/getapppassword",
+		LoginRPS:   3,
+		LoginBurst: 5,
+		AdminPaths: "/sys,/settings/admin",
+		AdminIPs:   privateRanges,
+		Exceptions: "920350,920440,921110",
 		Notes: []string{
 			"The sync clients authenticate with a token, so a gate would stop every device; the app's own accounts and its sharing rules are the control.",
-			"Both clients split large files into chunks, and each chunk is buffered: 16 MiB covers the default chunk size, while file downloads stream uncapped.",
+			"Chunks are buffered and fit 16 MiB; ownCloud's whole-file PUTs stream through the prefilled skip entry, and downloads stay uncapped.",
 			"Server administration (/sys on Seafile, /settings/admin on ownCloud) stays on the private allowlist.",
 		},
 	},

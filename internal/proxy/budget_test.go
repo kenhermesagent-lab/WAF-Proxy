@@ -133,6 +133,27 @@ func TestBudgetBytesCeiling(t *testing.T) {
 	}
 }
 
+// Bytes charged while an unknown-length body is read come back when the request
+// ends, and the ceiling still holds while they are charged.
+func TestBudgetChargeHoldsTheCeiling(t *testing.T) {
+	b := newBudget(10, 100)
+	release, _ := b.reserve(context.Background(), 10, 0)
+	if release == nil {
+		t.Fatal("the request was refused")
+	}
+	if !b.charge(80) {
+		t.Fatal("a charge within the ceiling was refused")
+	}
+	if b.charge(20) {
+		t.Fatal("a charge past the ceiling was admitted")
+	}
+	b.uncharge(80)
+	release()
+	if st := b.snapshot(); st.bytes != 0 || st.count != 0 {
+		t.Fatalf("after release: bytes %d, count %d; want 0, 0", st.bytes, st.count)
+	}
+}
+
 // The whole estimate comes back when the request ends, however small the body
 // turned out to be.
 func TestBudgetReleasesTheWholeReservation(t *testing.T) {

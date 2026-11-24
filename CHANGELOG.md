@@ -12,6 +12,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.70.0] — 2026-11-24
+
+### Added
+
+- **A site can carry large uploads, and can exempt one upload path from body inspection.** Each site
+  now has its own buffered-body ceiling (`max_body`, 0 inherits the host setting, up to 1 GiB) and a
+  list of body-skip paths (`body_skip`: method plus path prefix, at most 16 entries). A matching
+  request streams its body straight to the app: no buffering, no budget reservation, no body
+  deadline and no WAF body rules, and Events records the stage as `body-skip`. Method, path and
+  header rules, bans, lists, rate limits and the access gate still apply. A prefix matches whole
+  path segments, so `/api/assets` covers `/api/assets/1` but not `/api/assetsfoo`.
+- **A skip path can be narrowed to a named list.** Each entry may name blocklists or whitelists
+  (`list_ids`), and only the addresses or countries they contain skip inspection; every other source
+  is still buffered and inspected. A deleted list matches nobody, so the path fails closed.
+- **Presets prefill the upload settings and print the steps.** Immich, Nextcloud and the file-sync
+  preset show the suggested ceiling, skip paths and body deadline in the site drawer — visible and
+  editable, never applied silently — with an ordered setup guide for the chosen application.
+- **A streamed upload is exempt from the site's whole-exchange upstream timeout.** A site with
+  `upstream_timeout` set, or a route timeout on the path, used to cut a long upload at that mark
+  even though the body deadline no longer applied. A skip path now ignores both; the transport's
+  60-second response-header timeout still bounds the wait after the body, and the response ceiling
+  still bounds the answer.
+- **YAML names the trust lists of a skip path.** `body_skip` exports `lists:` by name instead of a
+  numeric `list_ids`, so importing into another install binds the entry to that install's lists
+  rather than whatever row happens to hold the same id. An entry whose list or prefix cannot be
+  resolved is dropped and reported, never stored as one that trusts every source.
+- **The console exposes both settings.** Protection → Request body sets the site ceiling in MiB and
+  manages the skip rows with a trust-list picker.
+
+### Changed
+
+- **Uploads are no longer capped at 128 KiB by default.** The host-wide inspected-body ceiling
+  defaulted to 128 KiB, so any photo or video larger than that was refused with a 413 and logged at
+  the `body-limit` stage — a stock Immich backup could not upload a single screenshot. The default
+  is now 64 MiB and the setting accepts up to 1 GiB; the buffered byte budget
+  (`WAFPROXY_MAX_BUFFERED_BYTES`, 512 MiB by default) still bounds memory, and a body above that
+  budget is refused with a 503 logged as `budget-too-large`. A WAF profile's inspected-body limit
+  moves with the same ceiling, and the application presets no longer promise an 8 MiB limit the
+  process could not honour.
+
+### Fixed
+
+- **A body with no declared length could be read past its budget reservation.** A chunked request
+  reserved 64 KiB and was then read up to the body ceiling, so a raised ceiling would have let one
+  connection allocate it all. Reads now charge the budget as bytes arrive, and the request is
+  refused with a 503 when the budget is full.
+
 ## [1.68.0] — 2026-11-24
 
 ### Added

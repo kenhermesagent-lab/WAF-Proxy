@@ -77,6 +77,8 @@ type proxyBody struct {
 	HealthFailAfter      *int             `json:"health_fail_after"`
 	MaxInflight          *int             `json:"max_inflight"`
 	MaxInflightPerClient *int             `json:"max_inflight_per_client"`
+	MaxBody              *int64           `json:"max_body"`
+	BodySkip             []model.BodySkip `json:"body_skip"`
 	UpstreamTimeout      *int             `json:"upstream_timeout"`
 	Retries              *int             `json:"retries"`
 	RequestHeaders       []model.HeaderOp `json:"request_headers"`
@@ -149,6 +151,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		TLSMinVersion:   in.TLSMinVersion,
 	}
 	applyProxyNumbers(p, in)
+	p.BodySkip = in.BodySkip
 	if in.Maintenance != nil {
 		p.Maintenance = *in.Maintenance
 	}
@@ -162,6 +165,10 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if msg := s.checkAuthProvider(r, in.AuthProviderID); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := s.checkBodySkipLists(r, in.BodySkip); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -309,7 +316,14 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		current.TLSMinVersion = in.TLSMinVersion
 	}
 	applyProxyNumbers(current, in)
+	if in.BodySkip != nil {
+		current.BodySkip = in.BodySkip
+	}
 	if msg := validateProxyOptions(in); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := s.checkBodySkipLists(r, in.BodySkip); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -356,6 +370,45 @@ func applyProxyNumbers(p *model.Proxy, in proxyBody) {
 			*dst = *src
 		}
 	}
+	if in.MaxBody != nil {
+		p.MaxBody = *in.MaxBody
+	}
+}
+
+// validateBodySkip keeps an exemption narrow enough to be a deliberate choice:
+// an upload method, a path prefix, and never the site root.
+func validateBodySkip(entries []model.BodySkip) string {
+	if len(entries) > 16 {
+		return "at most 16 body-skip paths are allowed"
+	}
+	for _, e := range entries {
+		switch strings.ToUpper(strings.TrimSpace(e.Method)) {
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
+		default:
+			return "a body-skip path must be POST, PUT or PATCH"
+		}
+		prefix := strings.TrimSpace(e.Prefix)
+		if !strings.HasPrefix(prefix, "/") || prefix == "/" {
+			return "a body-skip path must start with / and not be the root"
+		}
+		if len(prefix) > 256 || strings.ContainsAny(prefix, " \t\r\n?#") {
+			return "a body-skip path contains invalid characters"
+		}
+	}
+	return ""
+}
+
+// checkBodySkipLists refuses a trust list that no longer exists, so a deleted
+// list cannot leave an exemption that reads as narrowed but matches everyone.
+func (s *Server) checkBodySkipLists(r *http.Request, entries []model.BodySkip) string {
+	for _, e := range entries {
+		for _, id := range e.ListIDs {
+			if _, err := s.db(r).GetAccessList(id); err != nil {
+				return "a body-skip trust list no longer exists"
+			}
+		}
+	}
+	return ""
 }
 
 // validateHeaderOps rejects rewrites that would break framing or the request
@@ -458,6 +511,12 @@ func validateProxyOptions(in proxyBody) string {
 	}
 	if in.MaxInflightPerClient != nil && (*in.MaxInflightPerClient < 0 || *in.MaxInflightPerClient > 10000) {
 		return "the per-client request budget must be between 0 and 10000"
+	}
+	if in.MaxBody != nil && (*in.MaxBody < 0 || *in.MaxBody > model.MaxBodyCeiling) {
+		return "the site body ceiling must be between 0 (inherit) and 1 GiB"
+	}
+	if msg := validateBodySkip(in.BodySkip); msg != "" {
+		return msg
 	}
 	if in.UpstreamTimeout != nil && (*in.UpstreamTimeout < 0 || *in.UpstreamTimeout > 3600) {
 		return "the upstream timeout must be between 0 and 3600 seconds"
@@ -803,7 +862,7 @@ func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(in.AllowedMethods) != "" {
 		p.AllowedMethods = strings.TrimSpace(in.AllowedMethods)
 	}
-	if in.MaxBody >= 1024 && in.MaxBody <= 8388608 {
+	if in.MaxBody >= 1024 && in.MaxBody <= model.MaxBodyCeiling {
 		p.MaxBody = in.MaxBody
 	}
 	p.Exceptions = in.Exceptions
@@ -847,6 +906,9 @@ func validateProfileLimits(in model.Profile) string {
 	}
 	if in.MaxResponse < 0 || in.MaxResponse > 1<<32 {
 		return "the response ceiling must be between 0 (unlimited) and 4 GiB"
+	}
+	if in.MaxBody != 0 && (in.MaxBody < 1024 || in.MaxBody > model.MaxBodyCeiling) {
+		return "the inspected body limit must be between 1 KiB and 1 GiB"
 	}
 	if in.LoginRPS < 0 || in.LoginRPS > 1000 {
 		return "login rate must be between 0 (off) and 1000 requests per second"
