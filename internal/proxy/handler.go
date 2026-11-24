@@ -217,11 +217,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// One cache decision serves both the cache-first check and the writer.
+	cacheable := cacheableRequest(r)
+	cacheKeyOf := ""
+	if cacheable {
+		cacheKeyOf = cacheKey(r)
+	}
+
 	// Cache-first answers a cached GET here, before the CRS. The site opts in
 	// (cache_pre_waf), a gated site never gets it, and a request that carries a
 	// body is not answered from a stored response.
-	if e.cachePreWAF && r.ContentLength == 0 && cacheableRequest(r) {
-		key := cacheKey(r)
+	if e.cachePreWAF && r.ContentLength == 0 && cacheable {
+		key := cacheKeyOf
 		if entry, ok := e.cache.get(key); ok {
 			enc, acceptable := negotiateEncoding(r.Header.Get("Accept-Encoding"))
 			if !acceptable {
@@ -259,11 +266,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// budget slot and is cleared before the forward, so a slow upstream is
 	// governed by its own timeout instead.
 	rc := http.NewResponseController(rw)
-	if e.bodyTimeout > 0 {
+	// A request that cannot carry a body has nothing to wait for, so a GET
+	// avoids the two deadline syscalls.
+	hasBody := r.ContentLength != 0 || len(r.TransferEncoding) > 0
+	if e.bodyTimeout > 0 && hasBody {
 		_ = rc.SetReadDeadline(time.Now().Add(e.bodyTimeout))
 	}
 	read, tooLarge, err := readBody(r, s.hardBody)
-	_ = rc.SetReadDeadline(time.Time{})
+	if e.bodyTimeout == 0 || hasBody {
+		_ = rc.SetReadDeadline(time.Time{})
+	}
 	body := read
 	defer release()
 	if tooLarge {
@@ -338,8 +350,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	gz := newGzipWriter(rw, r.Header.Get("Accept-Encoding"))
 	var out http.ResponseWriter = gz
 	var cw *cacheWriter
-	if cacheableRequest(r) {
-		key := cacheKey(r)
+	if cacheable {
+		key := cacheKeyOf
 		enc, acceptable := negotiateEncoding(r.Header.Get("Accept-Encoding"))
 		if !acceptable {
 			blocked = true

@@ -172,6 +172,8 @@ jobs:
           cache: true
       - name: Benchmarks against perf/baseline.json
         run: make perf-gate
+      - name: Uncached proxy throughput floor
+        run: make perf-proxy-gate
 
   docker:
     name: Container image build

@@ -70,6 +70,8 @@ func main() {
 	wafMode := flag.String("waf", "off", "-proxy: off or block (the Generic Web profile)")
 	inflight := flag.Int("inflight", 0, "-proxy: request budget (default twice the client count)")
 	queue := flag.Duration("queue", 250*time.Millisecond, "-proxy: how long a request waits for budget; 0 refuses at once")
+	minRPS := flag.Float64("min-rps", 0, "-proxy: exit non-zero below this completion rate; 0 disables")
+	maxP95 := flag.Duration("max-p95", 0, "-proxy: exit non-zero above this p95 latency; 0 disables")
 	flag.Parse()
 
 	if *proxyMode {
@@ -91,7 +93,7 @@ func main() {
 		os.Exit(runProxy(proxyConfig{Root: *dir, Duration: *duration, Clients: *clients, Encoding: *encoding,
 			CacheFirst: *cacheFirst,
 			Hosts:      *sites, Body: *body, Cache: cacheOn, HTTP2: *h2, WAF: wafOn, Record: *record,
-			Inflight: *inflight, Queue: *queue}))
+			Inflight: *inflight, Queue: *queue, MinRPS: *minRPS, MaxP95: *maxP95}))
 	}
 	if *loadFor > 0 {
 		os.Exit(runLoad(*loadFor, *workers))

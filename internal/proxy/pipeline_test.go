@@ -321,6 +321,26 @@ func TestPipelineUnknownHostBlackholes(t *testing.T) {
 	h.waitEvent(t, func(e model.Event) bool { return e.Stage == "unknown-host" })
 }
 
+// The follow-up review's Host probe (R2-19) put a SQL injection in the Host
+// header. It names no configured site, so the site lookup refuses it before the
+// WAF runs and it never reaches an upstream.
+func TestPipelineHostHeaderInjectionIsRefused(t *testing.T) {
+	h := newHarness(t)
+	rec := h.request(http.MethodGet, testHost+`' OR 1=1--`, "/", "", nil)
+	// httptest.ResponseRecorder cannot be hijacked, so the fallback status is
+	// used. A real TCP connection is closed without an answer instead.
+	if rec.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMisdirectedRequest)
+	}
+	if h.hits.Load() != 0 {
+		t.Fatalf("the injected Host reached the upstream %d time(s)", h.hits.Load())
+	}
+	e := h.waitEvent(t, func(e model.Event) bool { return e.Stage == "unknown-host" })
+	if e.Action != "block" || e.Status != http.StatusMisdirectedRequest {
+		t.Fatalf("event = %+v, want block/%d", e, http.StatusMisdirectedRequest)
+	}
+}
+
 func TestPipelineDecoyHostBans(t *testing.T) {
 	h := newHarness(t)
 	if err := h.st.SetSetting("decoy_hosts", "admin.example.com"); err != nil {

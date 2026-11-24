@@ -267,9 +267,12 @@ func (c *responseCache) get(key string) (*cacheEntry, bool) {
 	return nil, false
 }
 
-func (c *responseCache) put(key string, status int, header http.Header, body []byte) {
+// storable reports whether a response may be kept, and for how long. The
+// response writer uses it to stop buffering a body that can never be stored;
+// put is still the authority.
+func storable(status int, header http.Header) (int, bool) {
 	if status != http.StatusOK || header.Get("Set-Cookie") != "" || header.Get("Cache-Control") == "" {
-		return
+		return 0, false
 	}
 	maxAge := 0
 	for _, part := range strings.Split(header.Get("Cache-Control"), ",") {
@@ -280,16 +283,21 @@ func (c *responseCache) put(key string, status int, header http.Header, body []b
 			}
 		}
 		if part == "no-store" || part == "private" || part == "no-cache" {
-			return
+			return 0, false
 		}
 	}
-	if maxAge <= 0 || maxAge > 300 || len(body) > 512*1024 {
-		return
+	if maxAge <= 0 || maxAge > 300 {
+		return 0, false
 	}
 	// A response that varies on anything other than the encoding is not a
 	// single representation, so caching it under one key could serve, for
 	// example, the wrong language to the next visitor.
-	if variesBeyondEncoding(header) {
+	return maxAge, !variesBeyondEncoding(header)
+}
+
+func (c *responseCache) put(key string, status int, header http.Header, body []byte) {
+	maxAge, ok := storable(status, header)
+	if !ok || len(body) > 512*1024 {
 		return
 	}
 	cp := header.Clone()
@@ -432,8 +440,7 @@ func (w *cacheWriter) WriteHeader(code int) {
 		// A body the upstream already encoded cannot be stored as identity and
 		// re-encoded later. Read here, before the outer writer changes it.
 		ce := w.Header().Get("Content-Encoding")
-		if code != http.StatusOK || len(w.Header().Get("Cache-Control")) == 0 ||
-			(ce != "" && !strings.EqualFold(ce, encIdentity)) {
+		if _, ok := storable(code, w.Header()); !ok || (ce != "" && !strings.EqualFold(ce, encIdentity)) {
 			w.skip = true
 		}
 	}

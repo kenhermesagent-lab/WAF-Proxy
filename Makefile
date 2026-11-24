@@ -11,7 +11,7 @@ LDFLAGS := -s -w \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.BuildDate=$(BUILD_DATE) \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates.AppRepo=$(REPO)
 
-.PHONY: all ui build run test test-release waf-corpus docs-check vet fmt docker install clean verify-release sbom perf perf-gate perf-record
+.PHONY: all ui build run test test-release waf-corpus docs-check vet fmt docker install clean verify-release sbom perf perf-gate perf-record perf-proxy-gate
 
 all: ui build
 
@@ -69,6 +69,12 @@ perf:
 
 perf-gate:
 	go run ./cmd/perftool
+
+# End-to-end floor for the uncached path: the real listener and the CRS under a
+# fixed load. The thresholds are coarse because CI runners share CPUs; the gate
+# catches a collapse, not a small drift.
+perf-proxy-gate:
+	go run ./cmd/perftool -proxy -duration 10s -clients 50 -sites 1 -cache=off -waf=block -min-rps 1200 -max-p95 500ms
 
 # Re-record after a deliberate change or a new CI runner class.
 perf-record:

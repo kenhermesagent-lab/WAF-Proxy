@@ -262,7 +262,10 @@ func (w *gzipWriter) WriteHeader(code int) {
 			h.Set("Content-Encoding", "gzip")
 			h.Del("Content-Length")
 			h.Add("Vary", "Accept-Encoding")
-			w.gz = gzip.NewWriter(w.ResponseWriter)
+			// A compressor carries large buffers, so it is pooled rather than
+			// allocated per response; the cache path already does the same.
+			w.gz = gzipPool.Get().(*gzip.Writer)
+			w.gz.Reset(w.ResponseWriter)
 		}
 	}
 	w.ResponseWriter.WriteHeader(code)
@@ -281,10 +284,13 @@ func (w *gzipWriter) Write(b []byte) (int, error) {
 func (w *gzipWriter) headersSent() bool { return w.decided }
 
 func (w *gzipWriter) Close() error {
-	if w.gz != nil {
-		return w.gz.Close()
+	if w.gz == nil {
+		return nil
 	}
-	return nil
+	err := w.gz.Close()
+	gzipPool.Put(w.gz)
+	w.gz = nil
+	return err
 }
 
 func (w *gzipWriter) Flush() {

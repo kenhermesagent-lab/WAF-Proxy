@@ -189,6 +189,53 @@ go run ./cmd/perftool -proxy -duration 10s -clients 200 -sites 4 -body 1024 -inf
   other two are from the same session and are not recorded, so a later `-record` cannot silently
   replace the inspected-path baseline with a different body.
 
+### Uncached path: pooled compression and no dead buffering (1.65.5)
+
+Every request below still ran the full CRS. Only the work around it changed: the response
+compressor is pooled instead of allocated per response, the cache writer stops buffering a body
+whose headers forbid storing it, bodyless requests skip the read-deadline calls, the admission
+timer only exists while a request queues, and the cache key is computed once.
+
+| Run (uncached, WAF block, 1 KiB body) | rps | p50 | p95 | p99 | Peak RSS |
+|---|---:|---:|---:|---:|---:|
+| 50 clients, 1 site — before | 3,419 / 3,264 | 12.24 / 12.85 ms | 30.66 / 32.53 ms | 46.12 / 47.21 ms | 333 / 315 MiB |
+| 50 clients, 1 site — after | 7,462 / 7,626 | 5.55 / 5.61 ms | 14.10 / 14.14 ms | 19.52 / 19.56 ms | 316 / 167 MiB |
+| 200 clients, 16 sites — before | 3,429 | 49.31 ms | 130.07 ms | 209.53 ms | 348 MiB |
+| 200 clients, 16 sites — after | 6,883 | 24.75 ms | 61.97 ms | 98.20 ms | 307 MiB |
+
+The two 50-client columns are two alternating runs of each binary in the same session; the 200-client
+row is one run each. Both binaries came from this checkout (before = the `HEAD` archive), and the
+shared sandbox's neighbours move absolute numbers between sessions, which is why the threshold
+gate below is coarse.
+
+```bash
+go run ./cmd/perftool -proxy -duration 8s -clients 50 -sites 1 -body 1024 -cache=off -waf=block
+```
+
+| Item | Value |
+|---|---|
+| CPU | `AMD EPYC 7003 (Milan)`, 8 vCPU (shared cloud sandbox) |
+| Go | 1.27.4 |
+| Date | 2026-11-24 |
+
+A CPU profile of the before run attributed about 29 % to `RuleGroup.Eval`, 13 % to gzip and its
+per-response `NewWriter`, 11 % to GC assist and 14 % to the reverse-proxy copy. `GOGC=off` moved the
+WAF-only microbenchmark by just 6.5 %, so this is not a GC knob: it is the compressor and the
+response copy that were allocated on every request.
+
+The quickstart demo (proxy, console and a Python echo origin as separate processes) served
+**3,734 rps at p50 1.71 ms / p95 3.39 ms** for 50 uncached clients over 10 s, with the ordinary
+request at 200 and the SQL injection at 403. Its loopback source needed the per-source rate limit
+raised first; at the shipped 100 rps the load is answered, correctly, with ban pages.
+
+### End-to-end gate
+
+`perftool -proxy` takes `-min-rps` and `-max-p95`, and exits non-zero naming the value it measured
+when either misses. `make perf-proxy-gate` runs the committed thresholds — 1,200 rps and a 500 ms
+p95 for 50 uncached clients over 10 s — and the CI performance job runs that target after the
+microbenchmark gate. The thresholds are deliberately low for a 4-core shared runner; the gate catches
+a collapse (a lost fast path, double inspection, a serialised stage), not a 10 % drift.
+
 ## Not measured
 
 The plan's Phase 9 list also asked for:

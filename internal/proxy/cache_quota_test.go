@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -9,6 +10,17 @@ func cacheableHeader(maxAge string) http.Header {
 	h := http.Header{}
 	h.Set("Cache-Control", "max-age="+maxAge)
 	return h
+}
+
+func TestCacheWriterSkipsANoStoreBody(t *testing.T) {
+	cw := &cacheWriter{ResponseWriter: httptest.NewRecorder(), cache: newResponseCache(1 << 20)}
+	cw.Header().Set("Cache-Control", "no-store")
+	if _, err := cw.Write([]byte("secret")); err != nil {
+		t.Fatal(err)
+	}
+	if !cw.skip || len(cw.buf) != 0 {
+		t.Fatalf("no-store response buffered %d bytes (skip=%v)", len(cw.buf), cw.skip)
+	}
 }
 
 func TestCachePerHostQuotaIsolatesSites(t *testing.T) {

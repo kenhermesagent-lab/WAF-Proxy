@@ -12,7 +12,8 @@ package waf
 // The follow-up review's probes are here too, including the gzip and UTF-16
 // bodies, which live in transportCorpus because their wire form is not a string.
 // Its Host-header probe is not asserted here: a Host that names no site is
-// refused by the routing that picks the site, which internal/proxy covers.
+// refused by the routing that picks the site, which
+// internal/proxy's TestPipelineHostHeaderInjectionIsRefused covers.
 
 import (
 	"bytes"

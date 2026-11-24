@@ -12,6 +12,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.5] — 2026-11-24
+
+### Changed
+
+- **The uncached path costs less per request without touching the rule engine.** The CRS still
+  inspects every request. Response compression now borrows a pooled `gzip.Writer` instead of
+  allocating one per response, the cache writer stops buffering a body as soon as the response
+  headers say it can never be stored, bodyless requests skip the two read-deadline syscalls, the
+  admission timer is created only when a request actually queues, and the cache key is computed
+  once. Measured on the sandbox with the same load: 3,419/3,264 → 7,462/7,626 rps and p95
+  30.7/32.5 → 14.1 ms for 50 uncached clients; 3,429 → 6,883 rps and p95 130 → 62 ms at 200
+  clients across 16 sites. Profile, commands and caveats are in `docs/BENCHMARKS.md`.
+
+### Added
+
+- **CI fails when the uncached pipeline collapses.** The performance job now runs a real uncached,
+  WAF-block load through the listener and requires at least 1,200 rps with a p95 under 500 ms.
+  `perftool -proxy` gained `-min-rps` and `-max-p95`, and `make perf-proxy-gate` runs the committed
+  thresholds. The existing gate only microbenchmarked `Inspect`, so a regression around it stayed
+  green.
+- **The Host-header probe from the follow-up review stays guarded.** A test in `internal/proxy`
+  sends `Host: <site>' OR 1=1--`, asserts the site lookup refuses it with the blackhole status and
+  that no upstream is reached; the WAF corpus points at that test where it explains the omission.
+
 ## [1.65.4] — 2026-11-24
 
 ### Fixed

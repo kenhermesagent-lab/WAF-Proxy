@@ -59,6 +59,21 @@ type proxyConfig struct {
 	// the old immediate-shed behaviour did on the same host.
 	Inflight int
 	Queue    time.Duration
+	// MinRPS and MaxP95 turn a run into a gate. A floor and a ceiling travel
+	// with the command, because the absolute numbers depend on the host.
+	MinRPS float64
+	MaxP95 time.Duration
+}
+
+// gateFailure names the threshold the run missed, or "" when it passed.
+func (c proxyConfig) gateFailure(res proxyResult) string {
+	if c.MinRPS > 0 && res.RPS < c.MinRPS {
+		return fmt.Sprintf("gate: %.0f rps is below the %.0f rps floor", res.RPS, c.MinRPS)
+	}
+	if c.MaxP95 > 0 && res.P95MS > float64(c.MaxP95)/float64(time.Millisecond) {
+		return fmt.Sprintf("gate: p95 %.2fms is above the %s ceiling", res.P95MS, c.MaxP95)
+	}
+	return ""
 }
 
 // proxyResult is the file written per mode. Every field is a measurement, not
@@ -126,6 +141,10 @@ func runProxy(c proxyConfig) int {
 		res.Requests, res.Seconds, res.RPS, float64(res.BytesOut)/res.Seconds/(1<<20))
 	fmt.Printf("latency p50 %.2fms  p95 %.2fms  p99 %.2fms  shed %d  errors %d  peak RSS %.1f MiB\n",
 		res.P50MS, res.P95MS, res.P99MS, res.Shed, res.Errors, float64(res.PeakRSSBytes)/(1<<20))
+	if msg := c.gateFailure(res); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
+		return 1
+	}
 
 	path := filepath.Join(c.Root, "perf", "proxy-"+res.Mode+".json")
 	if c.Record {

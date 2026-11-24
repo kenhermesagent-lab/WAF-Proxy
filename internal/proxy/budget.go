@@ -67,14 +67,22 @@ func (b *budget) reserve(ctx context.Context, size int64, wait time.Duration) (f
 		b.mu.Unlock()
 		return nil, "bytes"
 	}
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
+	// The timer only exists while the request is actually queueing.
+	var timer *time.Timer
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
 	for {
 		if b.count < b.maxCount && b.bytes+size <= b.maxBytes {
 			b.count++
 			b.bytes += size
 			b.mu.Unlock()
 			return b.release(size), ""
+		}
+		if timer == nil {
+			timer = time.NewTimer(wait)
 		}
 		b.queued++
 		changed := b.changed
