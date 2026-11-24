@@ -98,6 +98,30 @@ func TestBodySkipStillHonoursTheProfileMethodList(t *testing.T) {
 	}
 }
 
+// A buffered request is inspected, so the CRS method policy runs on it: it must
+// read the profile's list rather than its own default, which has no PUT or
+// PROPFIND. A method the profile leaves out is still refused.
+func TestBufferedRequestHonoursTheProfileMethodList(t *testing.T) {
+	h := newHarness(t)
+	h.proxy.WAFMode = "block"
+	attachProfile(t, h, model.Profile{Name: "webdav", AllowedMethods: "GET,HEAD,POST,PUT,PROPFIND", MaxBody: 1 << 20})
+	// attachProfile saves the row; compiling it is what the console's save does
+	// next, and without it the request falls back to the default engine.
+	if err := h.pol.ReloadWAF(); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := h.request(http.MethodPut, testHost, "/file", "payload", nil); rec.Code != http.StatusOK {
+		t.Fatalf("buffered PUT allowed by the profile = %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := h.request("PROPFIND", testHost, "/dir/", "", nil); rec.Code != http.StatusOK {
+		t.Fatalf("buffered PROPFIND allowed by the profile = %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := h.request(http.MethodDelete, testHost, "/file", "", nil); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("DELETE outside the profile list = %d, want 405", rec.Code)
+	}
+}
+
 // The exemption is one method and one path: everything else is still buffered
 // and still refused over the site ceiling.
 func TestBodySkipIsBoundToItsMethodAndPath(t *testing.T) {

@@ -220,7 +220,15 @@ func compile(p model.Profile, bundles []Bundle) (*Engine, error) {
 	// A transaction that starts at the response phase never runs the CRS setup,
 	// so the phase-3 action restores the thresholds and scores the request
 	// phase would have set.
-	directives := fmt.Sprintf(`Include @coraza.conf-recommended
+	// CRS's method policy refuses any method outside tx.allowed_methods, whose
+	// default list is GET HEAD POST OPTIONS: no PUT, PATCH or PROPFIND. The
+	// profile's allowlist is the operator's own method policy, and the policy
+	// layer refuses anything outside it before this engine runs, so hand CRS the
+	// same list instead of letting its default overrule the profile. CRS only
+	// installs its default when the variable is unset, so this action has to be
+	// registered ahead of the includes.
+	directives := methodPolicyAction(p.AllowedMethods)
+	directives += fmt.Sprintf(`Include @coraza.conf-recommended
 Include @crs-setup.conf.example
 Include @owasp_crs/*.conf
 SecRuleEngine On
@@ -283,6 +291,39 @@ SecAction "id:9001004,phase:3,nolog,pass,t:none,setvar:tx.blocking_paranoia_leve
 		bundles:    origins,
 		waf:        w,
 	}, nil
+}
+
+// methodPolicyAction hands the profile's method allowlist to the CRS method
+// policy. An empty profile list leaves CRS's own default in force, which is
+// what a site without a profile gets.
+func methodPolicyAction(allowed string) string {
+	var methods []string
+	seen := map[string]bool{}
+	for _, m := range strings.Split(allowed, ",") {
+		m = safeMethod(m)
+		if m == "" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		methods = append(methods, m)
+	}
+	if len(methods) == 0 {
+		return ""
+	}
+	return "SecAction \"id:900105,phase:1,nolog,pass,t:none,setvar:'tx.allowed_methods=" +
+		strings.Join(methods, " ") + "'\"\n"
+}
+
+// safeMethod keeps a configured verb from breaking out of the directive: a
+// method is an RFC 9110 token, so only its characters survive.
+func safeMethod(m string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(strings.TrimSpace(m)) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // bundleDirectives turns the installed packs into phase-1 rules for one

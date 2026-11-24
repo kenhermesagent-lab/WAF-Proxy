@@ -283,8 +283,10 @@ exists for: any request content type, including the `application/octet-stream` a
 client sends, and the `PUT`/`PATCH` those clients use. CRS's content-type policy (920420) and its
 method policy (911100, whose default list holds no `PUT` or `PATCH`) are written for a body the WAF
 inspects and for CRS's own defaults, so both are removed for that request only. The profile's
-method allowlist is still enforced before the exemption applies, every other header rule still
-runs, and a buffered path keeps both policies.
+method allowlist is still enforced before the exemption applies, and every other header rule still
+runs. A buffered path enforces the profile's method list too: CRS's method policy is given that
+list, so a `PUT` or `PROPFIND` the profile names is admitted and one it omits is refused with 405,
+while CRS's content-type policy still applies to the body the WAF holds.
 
 ### Access gate tab
 

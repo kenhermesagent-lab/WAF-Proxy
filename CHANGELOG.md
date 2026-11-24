@@ -12,6 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.71.2] — 2026-11-24
+
+### Fixed
+
+- **The WAF method policy now enforces the profile's list, not CRS's default.** A buffered `PUT`
+  or `PROPFIND` was refused with 403 from CRS rule 911100 even when the profile's `allowed_methods`
+  named it, because the rule compared the request against CRS's own default list (`GET HEAD POST
+  OPTIONS`). Each compiled profile now hands its list to CRS, so a method the operator allows
+  reaches the app and one the list omits is still refused with 405. A profile without a list keeps
+  CRS's default, and the content-type policy for a buffered body is unchanged.
+
 ## [1.71.1] — 2026-11-24
 
 ### Fixed
