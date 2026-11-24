@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Cuts the annotated vX.Y.Z tags that CHANGELOG.md dates but origin lacks.
 #
-# A release tag has to name the commit that stamped VERSION to that version and
-# does not carry the section, so the commit is found rather than guessed: the
-# candidates are the commits that touched VERSION, and only those where VERSION
-# reads back as the release and CHANGELOG.md already dates the section, on main,
-# survive. The oldest one is the release commit; a later commit that repeats the
-# version (a merge that kept it) is not the release.
+# A release tag has to name a commit where VERSION reads as that version and
+# CHANGELOG.md already dates its section, so the commit is found rather than
+# guessed. The version still in VERSION is tagged at the newest such commit, so a
+# release carries every fix and every note it ended up with; a version already
+# succeeded takes the oldest, which is the commit that cut it. Using the newest
+# commit for a succeeded version would pick a later merge that briefly stamped the
+# old number again, and the tag would look cut after the release that followed it.
 #
 # Nothing is created for a tag that is already on the remote, so a re-run only
 # fills the gaps. A version with no such commit is an error, not a skip: the
@@ -107,26 +108,25 @@ fi
 
 listing=$(git ls-remote --tags "$remote")
 
-# commit_for VERSION -> prints "<commit> <release time>" of the release commit.
-commit_for() {
-  local version=$1 best= best_time=
-  local c v t
-  while IFS= read -r c; do
-    v=$(git show "${c}:VERSION" 2>/dev/null | tr -d '[:space:]')
-    [[ $v == "$version" ]] || continue
-    # grep without -q: it has to read the whole body, or it closes the pipe
-    # early and pipefail reports git show's SIGPIPE as a missing section.
-    git show "${c}:CHANGELOG.md" 2>/dev/null | grep -E "^## \[${version}\] " >/dev/null || continue
-    git merge-base --is-ancestor "$c" "$main" 2>/dev/null || continue
-    t=$(git log -1 --format=%ct "$c")
-    if [[ -z $best_time || $t -lt $best_time ]]; then
-      best=$c
-      best_time=$t
-    fi
-  done < <(git log --all --format=%H -- VERSION)
-  [[ -n $best ]] || return 1
-  printf '%s %s\n' "$best" "$best_time"
-}
+# One walk of main, newest first, records the first and the last qualifying commit
+# of each version. Only VERSION is read per commit, so the whole history is cheap.
+declare -A newest_commit=() newest_when=() oldest_commit=() oldest_when=()
+while IFS= read -r c; do
+  # || true: a commit older than the file has no VERSION, and pipefail would
+  # otherwise end the run on the first one.
+  v=$(git show "${c}:VERSION" 2>/dev/null | tr -d '[:space:]' || true)
+  [[ -n $v ]] || continue
+  # grep without -q: it has to read the whole body, or it closes the pipe
+  # early and pipefail reports git show's SIGPIPE as a missing section.
+  git show "${c}:CHANGELOG.md" 2>/dev/null | grep -E "^## \[${v}\] " >/dev/null || continue
+  t=$(git log -1 --format=%ct "$c")
+  if [[ -z ${newest_commit[$v]:-} ]]; then
+    newest_commit[$v]=$c
+    newest_when[$v]=$t
+  fi
+  oldest_commit[$v]=$c
+  oldest_when[$v]=$t
+done < <(git rev-list "$main")
 
 created=0
 for v in "${versions[@]}"; do
@@ -134,8 +134,15 @@ for v in "${versions[@]}"; do
     echo "v$v already on $remote"
     continue
   fi
-  if ! read -r commit when < <(commit_for "$v"); then
+  if [[ -z ${oldest_commit[$v]:-} ]]; then
     die "v$v: no commit on main carries the dated $v section with VERSION $v; nothing to tag"
+  fi
+  if [[ $v == "${shipped[0]}" ]]; then
+    commit=${newest_commit[$v]}
+    when=${newest_when[$v]}
+  else
+    commit=${oldest_commit[$v]}
+    when=${oldest_when[$v]}
   fi
   when=$(date -u -d "@$when" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "?")
   if ((dry_run)); then

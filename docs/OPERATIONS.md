@@ -213,7 +213,11 @@ checkout without credentials, so the gaps are filled by a job that has them:
 3. Run it again with `dry_run` off. Each missing tag is created at its release commit, pushed, and
    the job ends by running the gate against `origin`.
 
-A version whose section was dated while `VERSION` stayed on an older number fails the job instead
+The version still in `VERSION` is tagged at its newest qualifying commit, so the release ships every
+fix and every note it ended up with instead of the draft that first stamped the number; a version
+that has since been succeeded is tagged at the commit that cut it, because a later merge can briefly
+stamp the old number again and that tag would look cut after the release that followed it. A version
+whose section was dated while `VERSION` stayed on an older number fails the job instead
 of being tagged somewhere nearby. Tags origin already has are skipped, so a re-run only fills gaps.
 The same work is available locally as `bash deploy/create-release-tags.sh --dry-run`, then without
 `--dry-run` to push. A tag that exists only in the local checkout makes the script stop: it points

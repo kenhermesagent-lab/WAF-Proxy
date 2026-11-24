@@ -31,6 +31,11 @@ release() { # release VERSION -> a commit that stamps VERSION and dates the sect
   GIT_COMMITTER_DATE="2026-01-0$((++n))T00:00:00" git commit -q -m "Release $v"
 }
 
+# A commit older than VERSION must not end the walk.
+printf '# test\n' >README.md
+git add README.md
+git commit -q -m "Start"
+
 n=0
 release 1.61.0
 release 1.61.1
@@ -60,10 +65,25 @@ out=$(bash "$script" --remote origin)
 grep -q "v1.61.0 already on origin" <<<"$out" || fail "a re-run did not skip v1.61.0: $out"
 grep -q "created 0 tag(s)" <<<"$out" || fail "a re-run created a tag: $out"
 
-# A version whose section was dated while VERSION stayed behind is an error, not
-# a tag on some commit that happens to be nearby.
+# The version being cut is tagged at the newest commit that carries it, so the
+# release ships the fixes and the notes added after the first stamp instead of
+# the draft that stamped VERSION.
+python3 - <<'PY'
+p = 'CHANGELOG.md'
+s = open(p).read()
+s = s.replace('## [1.61.1] \u2014 2026-01-01\n', '## [1.61.1] \u2014 2026-01-01\n\n- a later fix\n', 1)
+open(p, 'w').write(s)
+PY
+git commit -q -am "Add a later fix to the 1.61.1 notes"
+git push -q origin main
 git tag -d v1.61.1 >/dev/null
 git push -q origin :refs/tags/v1.61.1
+out=$(bash "$script" --remote origin --dry-run)
+grep -q "would tag v1.61.1 at $(git rev-parse --short=12 HEAD)" <<<"$out" ||
+  fail "v1.61.1 was not tagged at the newest commit that carries it: $out"
+
+# A version whose section was dated while VERSION stayed behind is an error, not
+# a tag on some commit that happens to be nearby.
 {
   printf '## [1.99.0] — 2026-01-09\n\n- thing\n\n'
   cat CHANGELOG.md

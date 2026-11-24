@@ -43,6 +43,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   would otherwise look green. `ghcr.io/<owner>/wafproxy:latest` moves only when the tag is the
   newest on `origin`, so dispatching an older tag republishes its own version and leaves the alias
   where it is.
+- **A release tag lands on the release that actually shipped.** `deploy/create-release-tags.sh` tagged
+  the oldest commit that stamped `VERSION`, so a run would publish the notes and the binaries of a
+  first draft and leave out every fix added before the version was cut. The version still in `VERSION`
+  is now tagged at the newest commit that carries it; a version that has since been succeeded keeps
+  the commit that cut it, because a later merge can briefly stamp the old number again. The walk also
+  skips commits older than `VERSION` instead of ending on them.
 - **The newest release keeps the GitHub "Latest" badge.** The releases API marks every newly
   published release latest unless it is told not to, so nine runs for a tag backlog would leave
   whichever finished last on the badge. The `assets` job now asks for `--latest` only when the tag is
