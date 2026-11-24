@@ -168,11 +168,22 @@ jobs:
             echo "tag '${TAG}' does not match VERSION ${version} at $(git rev-parse --short HEAD)" >&2
             exit 1
           fi
+      # arm64 is built on an amd64 runner, so the runtime stage's apk and
+      # setcap steps need the emulators the action registers.
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # The smoke test runs the platform it is on, so build that one into the
+      # local daemon; the multi-platform build below reuses these layers.
       - name: Build the image
         run: |-
           set -euo pipefail
           version=$(cat VERSION)
-          docker build -t "wafproxy:${version}" \
+          docker buildx build \
+            --platform linux/amd64 \
+            --load \
+            -t "wafproxy:${version}" \
             --build-arg VERSION="$version" \
             --build-arg COMMIT="$(git rev-parse --short HEAD)" \
             --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
@@ -203,10 +214,45 @@ jobs:
         run: |-
           set -euo pipefail
           version=$(cat VERSION)
-          image="ghcr.io/${GITHUB_REPOSITORY,,}/wafproxy"
+          # The documented package is ghcr.io/<owner>/wafproxy, not the lowercased
+          # repository path, so pull lines in the docs resolve.
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wafproxy"
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-          docker tag "wafproxy:${version}" "${image}:${version}"
-          docker push "${image}:${version}"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -t "${image}:${version}" \
+            --build-arg VERSION="$version" \
+            --build-arg COMMIT="$(git rev-parse --short HEAD)" \
+            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --push .
+          # A manifest that lost one architecture would still pull on the other,
+          # so read the published index back instead of trusting the build.
+          docker buildx imagetools inspect --raw "${image}:${version}" > /tmp/index.json
+          python3 - <<'PY'
+          import json
+          index = json.load(open('/tmp/index.json'))
+          published = {f"{m['platform']['os']}/{m['platform']['architecture']}"
+                       for m in index.get('manifests', [])}
+          print('published:', ', '.join(sorted(published)))
+          missing = {'linux/amd64', 'linux/arm64'} - published
+          if missing:
+              raise SystemExit('the published manifest is missing ' + ', '.join(sorted(missing)))
+          PY
+      # 1.61.0 through 1.65.0 shipped without an image, so a new tag is not
+      # automatically the newest image: only move latest when this tag is the
+      # newest on origin.
+      - name: Point latest at the newest release
+        run: |-
+          set -euo pipefail
+          version=$(cat VERSION)
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wafproxy"
+          newest=$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/||' | sort -V | tail -1)
+          if [[ $newest != "$TAG" ]]; then
+            echo "${TAG} is not the newest tag on origin ('${newest}'), so latest stays where it is"
+            exit 0
+          fi
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker buildx imagetools create -t "${image}:latest" "${image}:${version}"
       - name: Remove the smoke container
         if: always()
         run: docker rm -f wafproxy-smoke || true

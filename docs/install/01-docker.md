@@ -46,7 +46,9 @@ docker pull "ghcr.io/kenhermesagent-lab/wafproxy:${version}"
 
 `VERSION` in `deploy/.env` is the release to run, and it is also the name compose gives the
 image, so take the tag from the file rather than typing a number: the pull and the container
-then cannot name different releases.
+then cannot name different releases. Each tag is published for `linux/amd64` and `linux/arm64`,
+and `docker pull` takes the one this host runs; `:latest` follows the newest release, so pin the
+version for a host that should not move on its own.
 
 The package starts **private**, so an anonymous pull answers `denied` until the owner makes it
 public (the repository's **Packages** → the package → **Package settings** → **Change

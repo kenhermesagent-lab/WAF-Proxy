@@ -584,8 +584,9 @@ and publishes that tag's `CHANGELOG.md` section as the GitHub release body, so t
 written notes are what operators read. A tag with no section fails the job instead
 of publishing an empty release. The same push builds the container image, boots it
 and checks `/api/health` reports the same version, then pushes
-`ghcr.io/<owner>/wafproxy:<version>`; an image that fails the boot is never
-published. Dispatching the workflow for an existing tag builds its image the same
+`ghcr.io/<owner>/wafproxy:<version>` for `linux/amd64` and `linux/arm64`; an image
+that fails the boot is never published, a manifest missing either architecture
+fails the job, and `:latest` moves only when the tag is the newest on origin. Dispatching the workflow for an existing tag builds its image the same
 way, so a release cut before this rule can still get one.
 
 `make verify-release` runs `deploy/check-tags.sh`, which fails when a
