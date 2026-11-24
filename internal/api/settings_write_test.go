@@ -5,12 +5,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/gate"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
@@ -43,6 +45,86 @@ func newSettingsServer(t *testing.T) (*Server, string, string) {
 	// The plain fixture leaves GeoIP nil, and the settings read reports it.
 	srv.geo = geoip.Open(t.TempDir())
 	return srv, token, csrf
+}
+
+// queue_ms=0 is a real setting ("refuse at once"), not an unset field, and the
+// cap is enforced so a form cannot park every request for a minute.
+func TestSettingsQueueMSRange(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	if _, err := st.CreateSite("queue", "Queue", "console.queue.test"); err != nil {
+		t.Fatal(err)
+	}
+	rec := sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"queue_ms": "0"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("queue_ms=0 = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"queue_ms": "9000"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("queue_ms=9000 = %d, want 400", rec.Code)
+	}
+	rec = sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"body_timeout_s": "0"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("body_timeout_s=0 = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"body_timeout_s": "7200"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("body_timeout_s=7200 = %d, want 400", rec.Code)
+	}
+	rec = sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"upstream_idle_conns": "256"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upstream_idle_conns=256 = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"upstream_idle_conns": "0"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("upstream_idle_conns=0 = %d, want 400", rec.Code)
+	}
+}
+
+// Cache-first skips the CRS, so the API refuses it where it would also skip a
+// control the operator asked for: an access gate, or a site with the WAF off.
+func TestSettingsRefuseCacheFirstWhereItSkipsControls(t *testing.T) {
+	srv, token, csrf := newSettingsServer(t)
+	site, err := srv.st.CreateSite("cached", "Cached", "console.cached.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := srv.st.InSite(site.ID)
+	p := &model.Proxy{Hostname: "cached.test", SiteID: site.ID, Enabled: true, GateMode: "off", WAFMode: "off"}
+	id, err := st.CreateProxy(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.ID = id
+	put := func(v string) *httptest.ResponseRecorder {
+		return sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "cached",
+			map[string]string{"cache_pre_waf": v})
+	}
+	if rec := put("1"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("cache_pre_waf with the WAF off = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	p.WAFMode = "block"
+	if err := st.UpdateProxy(p); err != nil {
+		t.Fatal(err)
+	}
+	if rec := put("1"); rec.Code != http.StatusOK {
+		t.Fatalf("cache_pre_waf with the WAF blocking = %d: %s", rec.Code, rec.Body.String())
+	}
+	p.GateMode = "basic"
+	if err := st.UpdateProxy(p); err != nil {
+		t.Fatal(err)
+	}
+	if rec := put("0"); rec.Code != http.StatusOK {
+		t.Fatalf("turning cache_pre_waf off = %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := put("1"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("cache_pre_waf behind a gate = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
 }
 
 // A site created after setup has no settings rows, so its form reads empty

@@ -12,7 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.61.3] — 2026-11-23
+## [1.62.1] — 2026-11-24
 
 ### Fixed
 
@@ -30,6 +30,99 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **The restart banner sits beside the HA switch** and leaves after the toast confirms reconnection.
 - **Tenant consoles can no longer read the host-wide bundle or CrowdSec pages.** Their listing,
   hit, install and blocklist routes now require the host console, matching their mutating routes.
+
+## [1.62.0] — 2026-11-24
+
+### Fixed
+
+- **A cached DNS answer no longer stalls a connection on a dead family.** The resolver cache had
+  replaced `net.Dialer`'s own fallback, so an answer whose first address was IPv6 on a host with no
+  IPv6 route burned the whole five-second dial timeout before IPv4 was tried. Both families are now
+  dialled at once and the first success wins, while addresses inside a family stay in order.
+
+- **A route that fails to build gives its upstream pool back.** A reload that failed after the
+  connection pool was acquired held a reference forever, so the pool could never close its idle
+  connections.
+
+- **The lockfile names the release it belongs to.** `web/package-lock.json` still said 1.60.1 while
+  `package.json` moved on, which is what `npm ci` and a release audit read; it is updated, and
+  `deploy/check-version.sh` now fails when the two disagree.
+
+### Changed
+
+- **Capacity is visible instead of guessed.** `GET /api/capacity` reports what the node is holding
+  and what it refused: requests in flight against the cap, the queue, buffered bytes, refusals split
+  by reason (`bytes`, `queue`, `site`, `client`), the cache's bytes, hits and misses per site, the
+  number of upstream pools, and heap and GC counters. `/metrics` exports the same numbers as
+  `wafproxy_inflight_requests`, `wafproxy_queued_requests`, `wafproxy_buffer_bytes`,
+  `wafproxy_shed_total{reason}`, `wafproxy_cache_{bytes,hits_total,misses_total}{site}`,
+  `wafproxy_heap_bytes` and `wafproxy_gc_cycles_total`. The dashboard gains a Capacity card with the
+  in-flight meter, the queue, the cache hit rate and a link to the setting to raise when anything was
+  shed. A tenant console sees its own routes only; the budget itself is process-wide. Refusals already
+  logged `stage=capacity`, and the report is the aggregate of them.
+
+- **A burst is absorbed, not refused.** Admission now bounds request bytes as well as the request
+  count (`WAFPROXY_MAX_BUFFERED_BYTES`, default 512 MiB, and a `WAFPROXY_MAX_INFLIGHT` default of
+  256), and a request that cannot be admitted waits `WAFPROXY_QUEUE_MS` (default 250 ms, per-site
+  `queue_ms`, `0` for the old behaviour) for a slot before it receives a 503. On the test host,
+  200 clients against a 128-request budget refused 162,630 of 345,571 requests with no queue and
+  none with it, while completing 17 % more of them. `WAFPROXY_MEMORY_LIMIT` sets the soft heap
+  limit and boot refuses a buffer budget that cannot fit under it.
+
+- **A cached response is compressed once, for every client.** The cache key is now the URL alone:
+  one identity copy per entry, with `br` or `gzip` built on the first hit that asks for it and kept
+  inside the entry. Clients whose `Accept-Encoding` differed only in order or weights used to keep
+  duplicate entries and none of them received a compressed cached body. Negotiation honours
+  q-values (`br` wins a tie), a client that refuses every encoding gets a 406, and a body the
+  upstream already encoded is no longer stored as if it were plain. A cacheable request is now
+  forwarded with `Accept-Encoding: identity` so an origin that compresses for its clients still
+  fills the cache; an origin that encodes regardless is passed through uncached. Variant bytes are
+  charged to the host's quota as well as the total. On the test host a hit on a
+  64 KiB asset served 39,817 rps against 3,667 rps for the same request through the pipeline, with
+  6,366 bytes on the wire instead of 65,536. Brotli is quality 4, chosen from the table in
+  `docs/BENCHMARKS.md`.
+
+- **Upstream connections survive a reload.** Each upstream address keeps its own connection pool
+  (default 64 idle connections, 256 in total, per-site `upstream_idle_conns`), so a busy backend no
+  longer competes with another site's for slots. A reload reuses the pool of an unchanged upstream
+  instead of rebuilding it, and a removed or changed upstream closes its idle connections while the
+  requests already in flight finish. Dialling now resolves through a 30-second cache with one lookup
+  per host at a time, and keeps dialling the last good address for five minutes while the resolver
+  is failing, so a DNS blip does not take every backend down with it. Health probes keep their own
+  short-timeout, no-keep-alive transport. A test drives two reloads of an unchanged upstream and
+  records zero new upstream connections.
+
+- **A slow client cannot hold a request slot.** A request body now has its own deadline
+  (`WAFPROXY_BODY_TIMEOUT`, default 30 s, per-site `body_timeout_s`, `0` disables it) that is cleared
+  before the forward: a trickled upload is cut with a 408 and logged as `body-timeout`, while an
+  upstream response streaming past the deadline is untouched. The listener's blanket 60-second
+  request read timeout is gone; the per-site deadline is now the one bound on a body.
+
+### Added
+
+- **A cached hit can be answered before the WAF, per site.** With `cache_pre_waf=1` a cacheable GET
+  that has a fresh entry is served after screening but before the CRS: bans, the allow-list, the
+  rate limit and the bot filter still apply, while the CRS request rules, per-IP WAF rules, bot
+  challenge and access gate do not see it. Off by default; the API refuses the setting on a site
+  with an access gate or a WAF mode other than block/detect, so it cannot quietly disable a
+  control the operator asked for. On the test host a cached 1 KiB asset served 38,459 rps against
+  8,720 rps when every hit was inspected.
+
+- **Sizing and the shedding answer are written down.** `docs/OPERATIONS.md` pairs
+  `WAFPROXY_MAX_BUFFERED_BYTES` with a sizing table and a checklist that maps each refusal counter to
+  the setting to change, `docs/CONFIGURATION.md` lists the per-site capacity settings (`queue_ms`,
+  `body_timeout_s`, `cache_pre_waf`, `upstream_idle_conns`), and the README no longer lists brotli as
+  missing or implies relay-class throughput for inspected requests.
+
+- **A capacity number instead of a guess.** `cmd/perftool -proxy` runs the real proxy — TLS
+  listener, routing, cache and event writer — against stub upstreams with a keep-alive client
+  fan-out, and records requests, rps, p50/p95/p99, shed count and peak RSS per mode in
+  `perf/proxy-*.json`. The first recorded runs are in `docs/BENCHMARKS.md`: on this sandbox the
+  uncached path served 6,080 rps, a cache hit 54,776 rps, and the same hit with the WAF on
+  10,574 rps. `-cache` and `-encoding` choose what the run asks for, including a compressed 64 KiB
+  asset for measuring the cache's encoded variants.
+
+- `github.com/andybalholm/brotli` (pure Go, no cgo) for cached response variants.
 
 ## [1.61.2] — 2026-11-23
 

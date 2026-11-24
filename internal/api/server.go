@@ -381,6 +381,7 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/certs/{id}", s.authed(s.deleteCert))
 
 	m.HandleFunc("GET /api/metrics", s.authed(s.getMetrics))
+	m.HandleFunc("GET /api/capacity", s.authed(s.getCapacity))
 	m.HandleFunc("GET /metrics", s.prometheusMetrics)
 	m.HandleFunc("GET /api/analytics", s.authed(s.getAnalytics))
 	m.HandleFunc("GET /api/uptime", s.authed(s.getUptime))
@@ -1208,10 +1209,31 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 var publicSettingKeys = []string{
 	"base_domain", "wan_ip", "wan_port", "lan_ip", "gui_port", "wan_iface", "lan_iface",
 	"dos_rps", "dos_burst", "asn_block", "stealth_drop", "stealth_ping", "retention_days",
-	"sample_above_rps", "max_body", "protection_enabled", "acme_staging", "acme_email",
+	"sample_above_rps", "max_body", "queue_ms", "body_timeout_s", "cache_pre_waf",
+	"upstream_idle_conns",
+	"protection_enabled", "acme_staging", "acme_email",
 	"gate_ttl_hours", "home_lat", "home_lon", "decoy_hosts",
 	"admin_allow_cidrs", "bot_filter", "bot_filter_allow", "geoip_auto_update",
 	"normalization_mode", "ha_enabled",
+}
+
+// cacheFirstRefusal names why this site cannot answer a cache hit before the
+// CRS: that path skips the access gate and every WAF request rule, so it is
+// only offered where the gate is off and the site wants its traffic inspected.
+func (s *Server) cacheFirstRefusal(st *store.Store) string {
+	proxies, err := st.ListProxies()
+	if err != nil {
+		return "database error"
+	}
+	for _, p := range proxies {
+		if p.GateMode != "" && p.GateMode != "off" {
+			return "cache_pre_waf cannot be enabled on a site with an access gate"
+		}
+		if p.WAFMode != "block" && p.WAFMode != "detect" {
+			return "cache_pre_waf needs the site's WAF mode to be block or detect"
+		}
+	}
+	return ""
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -1324,9 +1346,20 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "ha_enabled must be 0 or 1")
 				return
 			}
+		case "cache_pre_waf":
+			if v != "0" && v != "1" {
+				writeError(w, http.StatusBadRequest, "cache_pre_waf must be 0 or 1")
+				return
+			}
+			if v == "1" {
+				if msg := s.cacheFirstRefusal(s.db(r)); msg != "" {
+					writeError(w, http.StatusBadRequest, msg)
+					return
+				}
+			}
 		}
 		switch k {
-		case "dos_rps", "dos_burst", "retention_days", "sample_above_rps", "max_body", "gate_ttl_hours":
+		case "dos_rps", "dos_burst", "retention_days", "sample_above_rps", "max_body", "queue_ms", "body_timeout_s", "gate_ttl_hours", "upstream_idle_conns":
 			if v == "" {
 				break
 			}
@@ -1344,6 +1377,24 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			case "max_body":
 				if n < 1024 || n > 8<<20 {
 					writeError(w, http.StatusBadRequest, "max_body must be 1024-8388608 bytes")
+					return
+				}
+			case "queue_ms":
+				// 0 is a setting: shed at the door instead of waiting.
+				if n < 0 || n > 5000 {
+					writeError(w, http.StatusBadRequest, "queue_ms must be 0-5000")
+					return
+				}
+			case "body_timeout_s":
+				// 0 disables the deadline for large or genuinely slow uploads.
+				if n < 0 || n > 3600 {
+					writeError(w, http.StatusBadRequest, "body_timeout_s must be 0-3600")
+					return
+				}
+			case "upstream_idle_conns":
+				// One pool per upstream, and the pool is capped at its total.
+				if n < 1 || n > 256 {
+					writeError(w, http.StatusBadRequest, "upstream_idle_conns must be 1-256")
 					return
 				}
 			case "gate_ttl_hours":

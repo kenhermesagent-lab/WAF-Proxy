@@ -1,0 +1,23 @@
+{
+  "recorded": "2026-11-23",
+  "host": "AMD EPYC 7003 (Milan)",
+  "go": "go1.27.4",
+  "mode": "cache-on-waf-budget256",
+  "proto": "h1",
+  "waf": "block",
+  "clients": 200,
+  "hosts": 4,
+  "budget": 256,
+  "queue_ms": 250,
+  "body_bytes": 1024,
+  "seconds": 30.017548403,
+  "requests": 253727,
+  "rps": 8452.62233256338,
+  "p50_ms": 18.462,
+  "p95_ms": 60.267,
+  "p99_ms": 89.763,
+  "bytes_out": 259816448,
+  "shed": 0,
+  "errors": 0,
+  "peak_rss_bytes": 318939136
+}

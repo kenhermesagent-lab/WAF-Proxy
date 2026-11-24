@@ -264,6 +264,38 @@ site's console is reached at its own `console_host`:
   about 3 ms per inspected request per core (see [BENCHMARKS.md](BENCHMARKS.md)); size for
   bursts, and use `Static/CDN` or a higher-profile tuning only where appropriate.
 
+### Sizing the request budget
+
+Admission is a byte budget as well as a request count, so size `WAFPROXY_MAX_BUFFERED_BYTES` for
+body size × concurrency:
+
+| In flight | Body limit | Budget to allow |
+| ---: | ---: | ---: |
+| 256 | 128 KiB | 32 MiB |
+| 256 | 1 MiB | 256 MiB |
+| 128 | 8 MiB | 1 GiB |
+
+The default 512 MiB covers 256 requests at the default 128 KiB body limit with room for the cache
+and the runtime. Boot refuses a budget that cannot fit under `WAFPROXY_MEMORY_LIMIT` once the
+128 MiB response cache and a 128 MiB runtime floor are added, so a value the box cannot hold fails
+at startup instead of under load.
+
+### When the box sheds
+
+The Capacity card, `GET /api/capacity` and `/metrics` say why, so the answer follows the counter:
+
+| Counter | What it means | What to change |
+| --- | --- | --- |
+| `shed` `queue` | Requests waited the full queue window and still found no slot. | Raise `queue_ms` to ride out a longer burst, or raise `WAFPROXY_MAX_INFLIGHT` / the byte budget if the host has the memory. |
+| `shed` `bytes` | One request is bigger than the whole budget. | Raise `WAFPROXY_MAX_BUFFERED_BYTES`, or lower `max_body` so it is refused with a 413 instead. |
+| `shed` `site` | One site's own cap is full. | Raise that proxy's max in-flight, or accept the queue for that site. |
+| `shed` `client` | One source is spending the site's budget. | Keep the per-client cap or rate limit on that site rather than raising it globally. |
+| `queued` high, `shed` flat | The box is absorbing the burst. | Nothing, unless p95 latency climbs with it. |
+| Cache misses high | The origin sends no usable `max-age`, or the body is over 512 KiB. | Fix the origin's cache headers; only HTTP 200 with `Cache-Control: max-age` up to 300 is stored. |
+
+A `503` from capacity always carries `Retry-After: 1` and is logged with `stage=capacity`, so the
+event log shows the same refusals the counters count.
+
 ## Security notes
 
 - The GUI is plain HTTP on the LAN. Keep it on a trusted segment, or put it behind a TLS

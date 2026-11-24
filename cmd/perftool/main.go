@@ -2,7 +2,8 @@
 // benchmarks in this repository against perf/baseline.json and fails when one
 // is more than the tolerance slower or allocates more. -record rewrites the
 // baseline; -load replays the request mix for a duration and prints latency
-// percentiles.
+// percentiles; -proxy drives the whole pipeline against stub upstreams and
+// writes perf/proxy-<mode>.json.
 package main
 
 import (
@@ -57,8 +58,41 @@ func main() {
 	record := flag.Bool("record", false, "rewrite the baseline from this machine")
 	loadFor := flag.Duration("load", 0, "replay the request mix for this long (for example 5s) instead of gating")
 	workers := flag.Int("workers", runtime.NumCPU(), "load workers")
+	proxyMode := flag.Bool("proxy", false, "drive the whole proxy pipeline against stub upstreams instead of gating")
+	duration := flag.Duration("duration", 30*time.Second, "-proxy: load duration")
+	clients := flag.Int("clients", 200, "-proxy: concurrent keep-alive clients")
+	sites := flag.Int("sites", 4, "-proxy: hostnames behind the proxy")
+	body := flag.Int("body", 1024, "-proxy: upstream response size in bytes")
+	cache := flag.String("cache", "off", "-proxy: off or on (let the upstream response be cacheable)")
+	encoding := flag.String("encoding", "off", "-proxy: request Accept-Encoding: off, br or gzip")
+	cacheFirst := flag.Bool("cache-first", false, "-proxy: answer cache hits before the WAF (per-site cache_pre_waf)")
+	h2 := flag.Bool("h2", false, "-proxy: speak HTTP/2 between client and proxy")
+	wafMode := flag.String("waf", "off", "-proxy: off or block (the Generic Web profile)")
+	inflight := flag.Int("inflight", 0, "-proxy: request budget (default twice the client count)")
+	queue := flag.Duration("queue", 250*time.Millisecond, "-proxy: how long a request waits for budget; 0 refuses at once")
 	flag.Parse()
 
+	if *proxyMode {
+		cacheOn, err := onOff("-cache", *cache)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		var wafOn bool
+		switch strings.ToLower(strings.TrimSpace(*wafMode)) {
+		case "block", "on":
+			wafOn = true
+		case "off":
+			wafOn = false
+		default:
+			fmt.Fprintf(os.Stderr, "-waf: %q is not off or block\n", *wafMode)
+			os.Exit(1)
+		}
+		os.Exit(runProxy(proxyConfig{Root: *dir, Duration: *duration, Clients: *clients, Encoding: *encoding,
+			CacheFirst: *cacheFirst,
+			Hosts:      *sites, Body: *body, Cache: cacheOn, HTTP2: *h2, WAF: wafOn, Record: *record,
+			Inflight: *inflight, Queue: *queue}))
+	}
 	if *loadFor > 0 {
 		os.Exit(runLoad(*loadFor, *workers))
 	}
@@ -185,6 +219,18 @@ func check(path string, got map[string]sample) int {
 	}
 	fmt.Printf("\nperformance gate passed (allocations +%.0f%%, time +%.0f%%)\n", allocsTol*100, timeTol*100)
 	return 0
+}
+
+// onOff reads an on/off flag value, so a run states its mode instead of
+// relying on a bare boolean whose default a reader has to look up.
+func onOff(name, v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "on", "yes", "true", "1":
+		return true, nil
+	case "off", "no", "false", "0":
+		return false, nil
+	}
+	return false, fmt.Errorf("%s: %q is not on or off", name, v)
 }
 
 func runLoad(d time.Duration, workers int) int {

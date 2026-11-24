@@ -36,10 +36,14 @@ type upstream struct {
 	url      *url.URL
 	weight   int
 	maxConns int64
-	healthy  atomic.Bool
-	inFlight atomic.Int64
-	latency  atomic.Int64 // milliseconds, 0 until measured
-	fails    atomic.Int32
+	// transport is the connection pool this upstream dials through, held by the
+	// route for as long as it is live so a reload keeps it warm.
+	transport *http.Transport
+	tkey      transportKey
+	healthy   atomic.Bool
+	inFlight  atomic.Int64
+	latency   atomic.Int64 // milliseconds, 0 until measured
+	fails     atomic.Int32
 	// ejectedUntil is when a passively ejected upstream may be probed again.
 	ejectedUntil atomic.Int64
 }

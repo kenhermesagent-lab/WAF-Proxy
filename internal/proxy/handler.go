@@ -3,11 +3,13 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -28,13 +30,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			r.RemoteAddr = net.JoinHostPort(addr.String(), "0")
 		}
 	}
-	if !s.acquire() {
-		w.Header().Set("Retry-After", "1")
-		uniformError(w, http.StatusServiceUnavailable)
-		return
-	}
-	defer s.release()
-
 	host := normalizeHost(r.Host)
 	e := s.lookup(host)
 
@@ -219,7 +214,55 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	body, tooLarge, err := readBody(r, s.hardBody)
+	// Cache-first answers a cached GET here, before the CRS. The site opts in
+	// (cache_pre_waf), a gated site never gets it, and a request that carries a
+	// body is not answered from a stored response.
+	if e.cachePreWAF && r.ContentLength == 0 && cacheableRequest(r) {
+		key := cacheKey(r)
+		if entry, ok := e.cache.get(key); ok {
+			enc, acceptable := negotiateEncoding(r.Header.Get("Accept-Encoding"))
+			if !acceptable {
+				blocked = true
+				notAcceptable(rw, &event)
+				return
+			}
+			e.serveCached(rw, key, entry, enc)
+			event.Stage, event.RuleID = "cache", "cache-hit"
+			return
+		}
+	}
+
+	// A body that cannot fit in the buffer is refused now rather than queued
+	// behind a full budget: the answer is 413 either way, and the client should
+	// hear it without a wait.
+	if r.ContentLength > s.hardBody {
+		blocked = true
+		event.Stage, event.RuleID = "body-limit", "too-large"
+		uniformError(rw, http.StatusRequestEntityTooLarge)
+		return
+	}
+	release, reason := s.budget.reserve(r.Context(), estimateBody(r, s.hardBody), e.queue)
+	if release == nil {
+		blocked = true
+		event.Stage, event.RuleID = "capacity", "queue-timeout"
+		if reason == "bytes" {
+			event.RuleID = "budget-too-large"
+		}
+		rw.Header().Set("Retry-After", "1")
+		uniformError(rw, http.StatusServiceUnavailable)
+		return
+	}
+	// The body deadline is the client's: it starts once the request owns a
+	// budget slot and is cleared before the forward, so a slow upstream is
+	// governed by its own timeout instead.
+	rc := http.NewResponseController(rw)
+	if e.bodyTimeout > 0 {
+		_ = rc.SetReadDeadline(time.Now().Add(e.bodyTimeout))
+	}
+	read, tooLarge, err := readBody(r, s.hardBody)
+	_ = rc.SetReadDeadline(time.Time{})
+	body := read
+	defer release()
 	if tooLarge {
 		blocked = true
 		event.Stage, event.RuleID = "body-limit", "too-large"
@@ -229,6 +272,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		blocked = true
 		event.Stage = "protocol"
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			event.RuleID, event.RuleMsg = "body-timeout", "request body deadline exceeded"
+			uniformError(rw, http.StatusRequestTimeout)
+			return
+		}
 		uniformError(rw, http.StatusBadRequest)
 		return
 	}
@@ -281,20 +329,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	up.inFlight.Add(1)
 	defer up.inFlight.Add(-1)
 
-	// Cache the uncompressed representation: the cache writer sits outside the
-	// gzip writer so a cache hit is written without a stale Content-Encoding.
+	// Cache the identity representation: the cache writer sits outside the gzip
+	// writer so a hit writes its own body instead of a stale encoding. An
+	// encoded hit is a variant of the one stored entry.
 	gz := newGzipWriter(rw, r.Header.Get("Accept-Encoding"))
 	var out http.ResponseWriter = gz
 	var cw *cacheWriter
 	if cacheableRequest(r) {
 		key := cacheKey(r)
+		enc, acceptable := negotiateEncoding(r.Header.Get("Accept-Encoding"))
+		if !acceptable {
+			blocked = true
+			notAcceptable(rw, &event)
+			return
+		}
+		// The cache stores identity and encodes per client, so ask the origin for
+		// plain bytes: an encoded reply it sent on our own request would leave
+		// the URL uncacheable for as long as the origin keeps compressing.
+		r.Header.Set("Accept-Encoding", encIdentity)
 		if entry, ok := e.cache.get(key); ok {
-			for k, vals := range entry.header {
-				rw.Header()[k] = append([]string(nil), vals...)
-			}
-			rw.Header().Del("Content-Length")
-			rw.WriteHeader(entry.status)
-			_, _ = rw.Write(entry.body)
+			e.serveCached(rw, key, entry, enc)
 			return
 		}
 		cw = &cacheWriter{ResponseWriter: gz, key: key, cache: e.cache}
@@ -344,6 +398,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		blocked = rv.blocked
 	}
+}
+
+// notAcceptable answers a client that accepts none of the body encodings the
+// proxy can send.
+func notAcceptable(w http.ResponseWriter, event *model.Event) {
+	event.Stage, event.RuleID = "cache", "not-acceptable"
+	w.Header().Set("Vary", "Accept-Encoding")
+	uniformError(w, http.StatusNotAcceptable)
 }
 
 func respondVerdict(w http.ResponseWriter, v model.Verdict) {
@@ -572,6 +634,19 @@ func validHeaderName(name string) bool {
 		}
 	}
 	return true
+}
+
+// estimateBody reserves what the request will hold before its body is read: the
+// declared length when there is one, the largest body the proxy will buffer when
+// there is not. The reservation is settled against the real length afterwards.
+func estimateBody(r *http.Request, hardBody int64) int64 {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return 0
+	}
+	if r.ContentLength > 0 {
+		return min(r.ContentLength, hardBody)
+	}
+	return min(hardBody, 64<<10)
 }
 
 func readBody(r *http.Request, limit int64) ([]byte, bool, error) {

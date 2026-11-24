@@ -399,6 +399,24 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             >
               <input value={s.max_body ?? "131072"} onChange={(e) => set("max_body", e.target.value)} disabled={hostWide} />
             </Field>
+            <Field
+              label="Queue wait (ms)"
+              hint="Per site: how long a request waits for capacity before it is refused with a 503. 0 refuses at once."
+            >
+              <input value={s.queue_ms ?? "250"} onChange={(e) => set("queue_ms", e.target.value)} />
+            </Field>
+            <Field
+              label="Body deadline (s)"
+              hint="Per site: how long a client may take to send its body before the request is cut with a 408. 0 disables the deadline."
+            >
+              <input value={s.body_timeout_s ?? "30"} onChange={(e) => set("body_timeout_s", e.target.value)} />
+            </Field>
+            <Field
+              label="Idle upstream connections"
+              hint="Per site: idle connections kept open to each upstream address, so a repeat request reuses one instead of dialling again. Default 64."
+            >
+              <input value={s.upstream_idle_conns ?? "64"} onChange={(e) => set("upstream_idle_conns", e.target.value)} />
+            </Field>
             <Field label="Sample allowed above (rps)" hint="Per-site sampling threshold for the request log."><input value={s.sample_above_rps ?? "500"} onChange={(e) => set("sample_above_rps", e.target.value)} /></Field>
           </div>
           <Field label="Request normalization" hint="Duplicate parameters and double encoding from the release checks.">
@@ -408,6 +426,12 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
               <option value="block">Block</option>
             </select>
           </Field>
+          <Switch
+            label="Serve cache hits before the WAF"
+            help="Per site: a cached GET is answered before the CRS and the per-IP WAF rules, so those rules never see a repeat visitor. Only for sites with no access gate whose WAF mode is block or detect."
+            checked={s.cache_pre_waf === "1"}
+            onChange={(v) => set("cache_pre_waf", v ? "1" : "0")}
+          />
           <Switch label="Protection pipeline enabled" checked={s.protection_enabled !== "0"} onChange={(v) => set("protection_enabled", v ? "1" : "0")} />
           <Switch label="Block hosting / VPS / cloud ASNs by default" help="Requires an ASN database; skipped and reported when unavailable." checked={s.asn_block !== "0"} onChange={(v) => set("asn_block", v ? "1" : "0")} />
           <Switch label="Stealth mode (DROP, no reset)" checked={s.stealth_drop !== "0"} onChange={(v) => set("stealth_drop", v ? "1" : "0")} />

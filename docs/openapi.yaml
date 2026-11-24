@@ -2,7 +2,7 @@
 openapi: 3.0.3
 info:
   title: WAF-Proxy admin API
-  version: "1.61.3"
+  version: "1.62.1"
   description: |
     Routes registered by the admin console. Every `/api` route except setup,
     login, health and version requires the session cookie and, for mutations,
@@ -977,6 +977,20 @@ paths:
     post:
       operationId: postApiCanary
       tags: [canary]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/capacity:
+    get:
+      operationId: getApiCapacity
+      tags: [capacity]
       summary: Authed
       security:
         - sessionCookie: []

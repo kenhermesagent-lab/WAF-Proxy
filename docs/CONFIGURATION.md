@@ -115,6 +115,8 @@ Applied before per-site profiles.
 | Burst | Burst allowance above the rate. | **200**, positive |
 | Max inspected body (bytes) | Hard ceiling on a request body. A larger body is refused with 413 before the WAF runs and logged with the `body-limit` stage; it is never forwarded uninspected. | **131072** (128 KiB), 1 KiB–8 MiB |
 | Sample allowed above (rps) | Above this global request rate, allowed requests are sampled rather than each written as an event, so the event table stays small. | **500**, positive |
+| Queue wait (ms) | Per site: how long a request waits for a free request slot before it is refused with a 503. `0` refuses at once, which is what a release before 1.61 did. | **250**, 0–5000 |
+| Body deadline (s) | Per site: how long a client may take to send its body. A trickled upload is cut with `408` and logged with the `body-timeout` rule, so it cannot hold a request slot. The deadline is cleared before the request is forwarded, so it never limits an upstream response. `0` disables it. | **30**, 0–3600 |
 | Request normalization | Action on malformed encodings (duplicate parameters, double encoding): **off**, **flag** (log only), or **block**. Only applies while the WAF stage runs. | **flag** |
 | Block hosting / VPS / cloud ASNs | Blocks traffic from hosting-provider ASNs by default. Needs the ASN database; reported as unavailable and skipped without it. | On |
 | Stealth mode (DROP, no reset) | Refused connections are dropped instead of answered with a reset. | On |
@@ -904,7 +906,11 @@ addresses.
 | `WAFPROXY_LISTEN_HTTP` | empty | Serves ACME HTTP-01 and redirects to HTTPS on this address; empty disables it. |
 | `WAFPROXY_WAN_IFACE`, `WAFPROXY_LAN_IFACE` | empty | Interface names the installer passes to the wizard. |
 | `WAFPROXY_TRUSTED_PROXIES` | empty | CIDRs whose `X-Forwarded-For` may name the client. Empty means the socket peer always wins. |
-| `WAFPROXY_MAX_INFLIGHT` | `128` | Requests buffered at once; the ceiling on request memory. Past it, requests get 503. |
+| `WAFPROXY_MAX_INFLIGHT` | `256` | Requests buffered at once. |
+| `WAFPROXY_MAX_BUFFERED_BYTES` | `512 MiB` | Request memory those requests may hold, in bytes or with a `KiB`/`MiB`/`GiB` suffix. Both limits must hold before a request is admitted. |
+| `WAFPROXY_QUEUE_MS` | `250` | How long a request waits for capacity before a 503; `0` refuses at once. Per-site override is the `queue_ms` setting. |
+| `WAFPROXY_BODY_TIMEOUT` | `30` | Seconds a client may take to send its body before the request is cut with a 408; `0` disables the deadline. Per-site override is the `body_timeout_s` setting. |
+| `WAFPROXY_MEMORY_LIMIT` | 75 % of the cgroup limit, unset without one | Soft heap limit. Boot fails when the cache plus `WAFPROXY_MAX_BUFFERED_BYTES` plus a 128 MiB runtime floor exceed it. |
 | `WAFPROXY_DB_CONNS` | twice the CPU count, clamped 4–32 | SQLite connection pool size; an explicit value of 1–64 replaces the computed one. |
 | `WAFPROXY_MASTER_KEY` | generated `master.key` | Base64 32-byte master key to seal secrets, instead of the file. |
 | `WAFPROXY_LOG_LEVEL` | `info` | Service log verbosity. |
@@ -926,6 +932,22 @@ addresses.
 The update helper scripts under `deploy/` use their own `WAFPROXY_UPDATE_*` and
 `WAFPROXY_SELF_UPDATE_CONF` variables; see the comments in those scripts and
 [docs/install/08-upgrades-and-removal.md](install/08-upgrades-and-removal.md).
+
+### Per-site capacity settings
+
+Settings → Protection holds these. Each is that site's override; the process default applies when
+it is empty.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `queue_ms` | `WAFPROXY_QUEUE_MS` (250) | How long a request waits for budget before a 503; `0` refuses at once. |
+| `body_timeout_s` | `WAFPROXY_BODY_TIMEOUT` (30) | How long a client may take to send its body before a 408; `0` disables it. |
+| `cache_pre_waf` | off | Answers a cached GET after screening but before the CRS. Refused by the API on a site with an access gate or a WAF mode other than block/detect. |
+| `upstream_idle_conns` | 64 | Idle connections kept per upstream address (1–256), so a repeat request reuses one instead of dialling. |
+
+`GET /api/capacity` reports the numbers these produce — in flight against the cap, the queue,
+refusals by reason and the cache hit ratio — and the dashboard's Capacity card shows the same.
+See [Sizing the request budget](OPERATIONS.md#sizing-the-request-budget) before raising a limit.
 
 ## Data directory and headless commands
 

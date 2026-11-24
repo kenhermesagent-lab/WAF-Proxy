@@ -5,6 +5,23 @@ import (
 	"testing"
 )
 
+// A buffer budget that cannot fit under the memory ceiling is a boot failure,
+// not a warning: the alternative is the OOM killer.
+func TestCheckMemoryRefusesABudgetThatCannotFit(t *testing.T) {
+	tight := &Config{MemoryLimit: 512 << 20, MaxBufferedBytes: 512 << 20}
+	if err := tight.CheckMemory(128 << 20); err == nil {
+		t.Fatal("a 512 MiB box accepted a 512 MiB buffer budget plus the cache")
+	}
+	roomy := &Config{MemoryLimit: 1 << 30, MaxBufferedBytes: 512 << 20}
+	if err := roomy.CheckMemory(128 << 20); err != nil {
+		t.Fatalf("a 1 GiB box refused a budget that fits: %v", err)
+	}
+	unlimited := &Config{MaxBufferedBytes: 512 << 20}
+	if err := unlimited.CheckMemory(128 << 20); err != nil {
+		t.Fatalf("a host with no limit refused the default budget: %v", err)
+	}
+}
+
 func TestIsLocalAddress(t *testing.T) {
 	cases := []struct {
 		addr string

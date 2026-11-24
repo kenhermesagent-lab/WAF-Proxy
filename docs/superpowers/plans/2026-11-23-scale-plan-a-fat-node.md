@@ -1,8 +1,24 @@
 # Plan A — Fat node: "one box absorbs the whole rack"
 
-Status: **proposed, awaiting approval.** No code until this plan is approved.
-Owner: one agent, one branch. Window: two weeks. Releases: **1.61.0**, **1.62.0**.
+Status: **built and merged to `main` in 1.62.0 (2026-11-24).** Main had already shipped
+1.61.0–1.61.2 from other work when this branch merged, so the whole track is one release.
+Owner: one agent, one branch. Window: **three weeks** of build (15 task-days), then one
+review-and-merge pass. Releases: **1.62.0**. Build loop: the roadmap's
+[Post-1.60 scale track](../ROADMAP.md).
 Companion plan: [Plan C — game-server streaming](2026-11-23-scale-plan-c-game-streaming.md).
+
+## Progress
+
+| Task | State |
+| --- | --- |
+| A1 — measurement harness and baseline | **done** 2026-11-23: `cmd/perftool -proxy`, results in `docs/BENCHMARKS.md` and `perf/proxy-*.json` |
+| A2 — byte budget, bounded queue, memory ceiling | **done** 2026-11-23: `budget.go`, `queue_ms`, measured in `docs/BENCHMARKS.md` |
+| A3 — deadlines | **done** 2026-11-23: body deadline, `body_timeout_s`, 408 on a trickle |
+| A4 — cache and brotli | **done** 2026-11-23: normalized key, per-encoding variants, 406, measured in `docs/BENCHMARKS.md` |
+| A5 — cache-first | **done** 2026-11-23: `cache_pre_waf` per site, API guard, measured in `docs/BENCHMARKS.md` |
+| A6 — transports | **done** 2026-11-24: per-upstream pools kept across reloads, caching resolver, `upstream_idle_conns` |
+| A7 — observability, console | **done** 2026-11-24: `/api/capacity`, capacity metrics, dashboard card |
+| A8 — docs and releases | **done** 2026-11-24: sizing and shedding docs, gate re-run, 1.61.0 + 1.62.0 cut, console bundle rebuilt |
 
 ## Why this plan exists
 
@@ -97,6 +113,8 @@ WAF engine alone:
 ```
 perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=off
 perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=on
+perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=on -h2
+perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=on -waf=block
 perftool -waf  -load 5s                      # existing in-process mix
 ```
 
@@ -112,12 +130,13 @@ perftool -waf  -load 5s                      # existing in-process mix
   and compares.
 
 Files: `cmd/perftool/main.go` (new flags and `runProxy`), `cmd/perftool/proxy.go`
-(new), `docs/BENCHMARKS.md`, `perf/proxy-baseline.json`.
+(new), `cmd/perftool/proxy_test.go`, `docs/BENCHMARKS.md`, and one result file per
+mode under `perf/` (`perf/proxy-cache-off.json`, `perf/proxy-cache-on.json`, …).
 
 Tests: `cmd/perftool/proxy_test.go` asserts a short run produces plausible
 counters (requests > 0, p95 > 0, shed == 0 with a large budget).
 
-Exit: the four commands above run on the build host and the numbers are in
+Exit: the commands above run on the build host and the numbers are in
 `docs/BENCHMARKS.md`, marked with the host and date.
 
 ## Task A2 — Byte budget, bounded queue, memory ceiling (3 days)
@@ -151,9 +170,10 @@ func (b *budget) reserve(ctx context.Context, size int64) (release func(actual i
 
 ### Queue
 
-- `WAFPROXY_QUEUE_MS`, default 250, `0` disables (today's behaviour). Per-site
-  override in `model.Proxy` (`queue_ms`) so a bulk site can wait while a
-  latency-sensitive one does not.
+- `WAFPROXY_QUEUE_MS`, default 250, `0` disables (today's behaviour). The per-site
+  override is the `site_settings` key `queue_ms` (0–5000), read through
+  `Store.SettingsFor` once per `Reload` and cached on the edge as `queueMS`, so a
+  bulk site can wait while a latency-sensitive one does not.
 - Wait on the weighted semaphore with `context.WithTimeout`; the handler's
   request context already carries cancellation from the client.
 - On timeout: `503`, `Retry-After: 1`, event `stage="capacity"`,
@@ -170,15 +190,17 @@ func (b *budget) reserve(ctx context.Context, size int64) (release func(actual i
 
 Files: `internal/proxy/budget.go`, `internal/proxy/budget_test.go`,
 `internal/proxy/server.go` (`SetMaxInflight` → `SetBudget`), `internal/config/config.go`,
-`internal/model/model.go` (`QueueMS`), `internal/store/proxies.go` (additive
-column is **not** needed: read `queue_ms` from `site_settings` instead — see
-below), `internal/api/handlers.go` (proxy payload field), `cmd/wafproxy/main.go`.
+`internal/proxy/handler.go` (hand the reservation the body size), `cmd/wafproxy/main.go`,
+the console's site Settings page (the field), `docs/CONFIGURATION.md`.
 
-Store note: use one `site_settings` key `queue_ms` per site rather than a new
-`proxies` column. It keeps this plan schema-free; the proxy payload reads the
-site setting through the existing `policy.Settings` loader. If the field has to
-travel with the proxy for HA, `site_settings` is already `ClassReplicated`, so
-the pair stays consistent without a migration.
+Store note — one mechanism, no struct field: the per-site queue lives in
+`site_settings` under `queue_ms` only. `SetSettingsFor` already accepts every key
+that is not host-wide, so the settings form saves it with no API change, and
+`Store.SettingsFor(siteID)` returns it at `Reload` time. There is no
+`model.Proxy.QueueMS` field and no `proxies` column: a struct field would only
+carry a value that has to be stored somewhere first, and a column is exactly the
+migration this plan avoids. `site_settings` is `ClassReplicated`, so the HA
+snapshot carries the value without a new table.
 
 Tests:
 
@@ -369,9 +391,18 @@ CPU and date. Anything measured only in a microbenchmark is reported as such.
 | Transport registry leaks on reload | registry refcounts users, closes idle conns on last release, tested with `httptest` connection counts |
 | Skipping work voids the "WAF" claim | no default changes to inspection; only cache hits, which were already inspected when stored, can skip, and only when the operator says so |
 
-## Order and commits
+## Order, weeks and commits
+
+| Week | Tasks | Ends with |
+| --- | --- | --- |
+| 1 | A1, A2, A3 (5 days) | — |
+| 2 | A6, A4 (5 days) | **1.61.0** committed on the branch |
+| 3 | A5, A7, A8 (5 days) | **1.62.0** committed on the branch |
+| 4 | deslop pass, reviews, one merge to `main` | both releases on `main` |
 
 A1 → A2 → A3 → A6 → A4 (1.61.0) → A5 → A7 → A8 (1.62.0). One commit per task,
-project message style, tests in the same commit. If the window slips, 1.61.0 is
-a complete, shippable capacity release without cache-first; 1.62.0 can land
-later without a second design.
+project message style, tests in the same commit. The 15 task-days are the build;
+the week-4 pass is the review and merge the roadmap's build loop requires, which
+is why the honest label for this plan is three weeks plus a merge day rather
+than two weeks. If the window slips, 1.61.0 is a complete, shippable capacity
+release without cache-first; 1.62.0 can land later without a second design.

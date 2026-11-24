@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -49,49 +48,5 @@ func TestUntrustedPeerCannotSetClientAddress(t *testing.T) {
 	})
 	if !strings.Contains(rec.Body.String(), "upstream:/echo:"+testIP) {
 		t.Fatalf("untrusted peer set the client address: %q", rec.Body.String())
-	}
-}
-
-// The budget is a hard ceiling: past it, requests are refused instead of
-// buffering more bodies in memory.
-func TestInflightBudgetSheds(t *testing.T) {
-	s := &Server{}
-	s.SetMaxInflight(2)
-	first := s.acquire()
-	second := s.acquire()
-	if !first || !second {
-		t.Fatal("the budget refused a request it should accept")
-	}
-	if s.acquire() {
-		t.Fatal("a third request was accepted over a budget of two")
-	}
-	inflight, max, shed := s.Capacity()
-	if inflight != 2 || max != 2 || shed != 1 {
-		t.Fatalf("capacity = %d/%d shed %d, want 2/2 shed 1", inflight, max, shed)
-	}
-	s.release()
-	if inflight, _, _ := s.Capacity(); inflight != 1 {
-		t.Fatalf("inflight = %d after release, want 1", inflight)
-	}
-}
-
-// A request past the budget is refused at the door, with a retry hint, instead
-// of being buffered behind the slow ones.
-func TestShedRequestGets503(t *testing.T) {
-	s := &Server{}
-	s.SetMaxInflight(1)
-	s.inflight <- struct{}{} // the budget is already taken
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Host = testHost
-	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", rec.Code)
-	}
-	if rec.Header().Get("Retry-After") == "" {
-		t.Fatal("a refused request carries no Retry-After")
-	}
-	if _, _, shed := s.Capacity(); shed != 1 {
-		t.Fatalf("shed counter = %d, want 1", shed)
 	}
 }

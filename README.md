@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.61.3.
+systemd service. Version 1.62.1.
 
 ## Contents
 
@@ -320,8 +320,14 @@ secrets are not part of the document.
   skipped instead of pretending to be active.
 - **Subdomains are not a secrecy boundary.** Certificates are published to Certificate
   Transparency logs, so a wildcard's names are discoverable.
-- **Not included:** AbuseIPDB enrichment, tarpit, per-site HTTP basic auth/mTLS, brotli, per-site
-  bandwidth history, HTTP/3, and multi-user roles beyond the built-in RBAC.
+- **Capacity is bounded, not endless.** A request that cannot be admitted waits the queue window
+  and is then refused with a `503` and `Retry-After`, and the byte budget is checked as well as the
+  count, so the box stays inside its memory limit instead of swapping. The dashboard's Capacity card
+  shows what is in flight, queued, cached and refused. This is not HAProxy parity and the numbers
+  should not be read as such: cache hits and WAF-off sites run at relay speed, but every inspected
+  request still pays Coraza and the CRS.
+- **Not included:** AbuseIPDB enrichment, tarpit, per-site HTTP basic auth/mTLS, per-site bandwidth
+  history, HTTP/3, and multi-user roles beyond the built-in RBAC.
 
 ## High availability
 

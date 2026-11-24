@@ -40,6 +40,10 @@ type responseWriter struct {
 	secure     bool
 }
 
+// Unwrap lets http.NewResponseController reach the connection, so the body
+// deadline can be set through the wrapper.
+func (w *responseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *responseWriter) WriteHeader(code int) {
 	if w.wroteHeader {
 		return

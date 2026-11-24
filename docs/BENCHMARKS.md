@@ -53,16 +53,152 @@ second on this CPU before TLS, proxying and event writes. That is adequate for a
 edge, but it is the first stage to profile on a busier host. On real hardware measure with
 your own workload; the microbenchmark is not a capacity guarantee.
 
+The gate was re-run for 1.62.0 with `make perf-gate`: 1.03 ms, 0.93 ms and 0.88 ms for the three
+hypotheses at 2,693/2,569/2,512 allocations, inside the 2× time and 25 % allocation tolerance. The
+baseline in `perf/baseline.json` stays at the faster recorded run — re-recording on a busier machine
+would only widen the gate.
+
+## End-to-end proxy pipeline (`cmd/perftool -proxy`)
+
+The real `proxy.Server` — TLS listener, routing, cache and event writer into a throwaway SQLite
+database — in front of an `httptest` upstream, with 200 keep-alive clients over 4 hostnames and a
+1 KiB compressible body per request. Each row is one 30 s run of the command in its first column.
+
+| Run | Requests | rps | p50 | p95 | p99 | Shed | Errors | Peak RSS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `-cache=off` (h1) | 211,028 | 7,029 | 26.3 ms | 61.2 ms | 79.5 ms | 0 | 0 | 343 MiB |
+| `-cache=on` (h1) | 1,560,753 | 51,846 | 3.2 ms | 9.1 ms | 14.0 ms | 0 | 0 | 189 MiB |
+| `-cache=on` (h2) | 1,542,336 | 51,227 | 3.6 ms | 7.5 ms | 10.6 ms | 0 | 0 | 207 MiB |
+| `-cache=on -waf=block` (h1) | 253,727 | 8,453 | 18.5 ms | 60.3 ms | 89.8 ms | 0 | 0 | 304 MiB |
+
+```bash
+go run ./cmd/perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=on -waf=block -record
+```
+
+| Item | Value |
+|---|---|
+| CPU | `AMD EPYC 7003 (Milan)`, 8 vCPU (shared cloud sandbox) |
+| OS / arch | Linux, amd64 |
+| Go | 1.27.4 |
+| Date | 2026-11-23 |
+| Client and proxy | same process, loopback |
+
+What the numbers say, and do not:
+
+- **A cache hit is 7× the uncached path** (51,846 vs 7,029 rps) and **6× the inspected path**
+  (8,453 rps). The gap between `-cache=on` and `-cache=on -waf=block` is the cost of running
+  Coraza on a request the cache could have answered: it is defect 3 of Plan A, measured.
+- `errors` counts non-200 responses, so a shed request appears there as well; `shed` comes from
+  the proxy's own capacity counter.
+- Every client shares one loopback source address, so the run raises `dos_rps`/`dos_burst` out of
+  the way. The per-source rate limit has its own tests; it is not what these rows measure.
+- `bytes_out` in `perf/proxy-*.json` is what the client read off the wire: identity bytes without
+  `-encoding`, the compressed body with it.
+- One process, no real NIC and no separate client host: this is the pipeline's own ceiling, not a
+  network measurement. `perf/proxy-*.json` carries each run's date and CPU, because a shared
+  sandbox's neighbours change the numbers between runs.
+
+### Admission: the queue absorbs the burst
+
+200 keep-alive clients against a 128-request budget, uncached, on the same host. The first row is
+what 1.60 did (shed at the door); the second is the same budget with the 250 ms queue.
+
+| Run | Served | rps | p95 | p99 | Shed | Peak RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| `-inflight 128 -queue 0` | 182,941 | 6,094 | 64.7 ms | 86.4 ms | **162,630** | 320 MiB |
+| `-inflight 128 -queue 250ms` | 213,480 | 7,112 | 61.0 ms | 81.9 ms | **0** | 316 MiB |
+| `-inflight 256 -queue 250ms` (default) | 211,028 | 7,029 | 61.2 ms | 79.5 ms | **0** | 343 MiB |
+
+With no queue, 47 % of the attempts on the box (162,630 of 345,571) were refused with a 503 while
+the CPUs were busy serving the other 53 %. The queue turns the same budget into zero refusals and
+17 % more completed requests, at the same p95: the wait is shorter than the time a slot takes to
+come free. Latency in the queue-0 row is measured over served requests only, so it flatters the
+shed requests it hides.
+
+```bash
+go run ./cmd/perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=off -inflight 128 -queue 0 -record
+go run ./cmd/perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=off -inflight 128 -queue 250ms -record
+```
+
+### Encoded cache hits: one entry, a variant per encoding
+
+A4 stores one identity copy of a cacheable response and builds `br` or `gzip` inside the entry on
+the first hit that asks for it, so two clients whose `Accept-Encoding` differs only in order or
+weights share one upstream fetch. For this run the stub asset is 64 KiB of page-shaped markup:
+the same rows with varying numbers, because a repeated 8-byte string compresses to nothing and
+would flatter both encodings. These rows therefore compare only within this table.
+
+| Run | Requests | rps | p95 | Bytes per response | Peak RSS |
+|---|---:|---:|---:|---:|---:|
+| `-cache=off -encoding br` (miss, gzip on the wire) | 36,792 | 3,667 | 110.6 ms | 9,680 | 399 MiB |
+| `-cache=on -encoding br` (hit, brotli variant) | 398,683 | 39,817 | 11.7 ms | 6,366 | 265 MiB |
+
+```bash
+go run ./cmd/perftool -proxy -duration 10s -clients 200 -sites 4 -body 65536 -inflight 256 -queue 250ms -cache=off -encoding br -record
+go run ./cmd/perftool -proxy -duration 10s -clients 200 -sites 4 -body 65536 -inflight 256 -queue 250ms -cache=on  -encoding br -record
+```
+
+- **A cached asset is 10.9× the same request through the pipeline** (39,817 vs 3,667 rps) and its
+  p95 falls from 110.6 ms to 11.7 ms.
+- **Bytes on the wire for the 64 KiB asset: 6,366 instead of 65,536** — a 90 % drop — and 34 %
+  below the 9,680 B gzip sends on a miss.
+- The miss row is higher in peak RSS because it compresses the 64 KiB body for every request;
+  the hit row pays that once per entry.
+
+Brotli quality on a 64 KiB page-shaped body, one compression per entry:
+
+| Quality | ns/op | Compressed bytes |
+|---|---:|---:|
+| 1 | 321,214 | 7,555 |
+| **4** (cached default) | 942,236 | 6,364 |
+| 9 | 3,118,462 | 6,890 |
+
+The 6,364 B the quality benchmark compresses to is the same body the hit row above puts on the
+wire, which is the check that the cache is serving the variant rather than re-compressing per hit.
+
+```bash
+go test ./internal/proxy -run '^$' -bench BenchmarkBrotliQuality -benchtime 2s
+```
+
+Quality 4 is the knee: 16 % smaller than quality 1 for 0.94 ms once per entry, while quality 9
+costs three times the CPU and ends up larger on this body.
+
+### Cache-first: a hit answered before the CRS
+
+A site can opt in to answering a cached GET before the WAF (`cache_pre_waf`, off by default,
+refused by the API for a site with an access gate or a WAF mode other than block/detect). These
+three rows are the same 1 KiB cached asset, budget 256, 10 s each: every hit inspected, the same
+hit answered before the CRS, and finally with the WAF off for reference.
+
+| Run | Requests | rps | p95 | p99 | Peak RSS |
+|---|---:|---:|---:|---:|---:|
+| `-cache=on -waf=block` (each hit inspected) | 87,312 | 8,720 | 59.7 ms | 93.0 ms | 252 MiB |
+| `-cache=on -waf=block -cache-first` | 384,963 | **38,459** | 12.6 ms | 23.4 ms | 352 MiB |
+| `-cache=on -cache-first` (WAF off) | 435,355 | 43,485 | 11.6 ms | 22.9 ms | 172 MiB |
+
+```bash
+go run ./cmd/perftool -proxy -duration 10s -clients 200 -sites 4 -body 1024 -inflight 256 -queue 250ms -cache=on -waf=block -cache-first -record
+```
+
+- **Cache-first is 4.4× the inspected hit path** (38,459 vs 8,720 rps) and 5.5× the uncached path.
+  That gap is Coraza running on a request the cache already answered: what the setting trades away.
+- The setting is per site and off by default because the fast path skips the CRS, the per-IP WAF
+  rules, the bot challenge and the access gate. Bans, the allow-list, the rate limit and the bot
+  filter still run before it, and the API refuses the setting on a gated site.
+- Only the cache-first row has a recorded `perf/proxy-cache-on-cachefirst-waf-budget256.json`; the
+  other two are from the same session and are not recorded, so a later `-record` cannot silently
+  replace the inspected-path baseline with a different body.
+
 ## Not measured
 
 The plan's Phase 9 list also asked for:
 
-- end-to-end requests/s and added latency with the WAF on vs. off,
-- resident memory at 1k and 5k rps,
 - behaviour of the nftables set at 200k entries,
 - 7-day query latency and database growth.
 
-These need a Docker host with a real client generating traffic. Reproduce them there:
+Requests/s and resident memory now come from `cmd/perftool -proxy` above, which runs the real
+listener in one process. What it cannot show is a separate client host, a real network or a
+container memory limit. Reproduce those on a Docker host:
 
 ```bash
 # On a separate client, against a test proxy:
@@ -125,7 +261,11 @@ size.
 
 | Setting | Where | Effect |
 |---|---|---|
-| `WAFPROXY_MAX_INFLIGHT` | environment | Hard cap on concurrent buffered requests; excess is refused with 503 and counted as `shed`. |
+| `WAFPROXY_MAX_INFLIGHT` | environment | Cap on concurrent buffered requests, default 256. |
+| `WAFPROXY_MAX_BUFFERED_BYTES` | environment | Cap on the request memory those requests hold, default 512 MiB (suffixes `KiB`/`MiB`/`GiB` accepted). |
+| `WAFPROXY_QUEUE_MS` | environment | How long a request waits for budget before a 503, default 250; 0 refuses at once. Per-site override: the `queue_ms` setting. |
+| `WAFPROXY_BODY_TIMEOUT` | environment | Seconds a client may take to send its body before a 408, default 30; 0 disables it. Per-site override: the `body_timeout_s` setting. |
+| `WAFPROXY_MEMORY_LIMIT` | environment | Soft heap limit; default 75 % of the cgroup limit. Startup refuses a buffer budget that cannot fit under it. |
 | `WAFPROXY_DB_CONNS` | environment | SQLite pool size; defaults to 2× CPU count (4–32). |
 | Max inspected body | Settings / WAF profile | Per-request memory ceiling; the dominant term above. |
 | Event retention | Settings | 1–30 days; the main driver of database growth. |

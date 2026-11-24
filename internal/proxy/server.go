@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -83,19 +84,25 @@ type edge struct {
 	protection *model.ProtectionProfile
 	// waf is the selected WAF profile, kept for the limits it carries: the
 	// response ceiling. The policy engine reads the same row for the rest.
-	waf     *model.Profile
-	ups     []*upstream
-	routes  []model.Route
-	rr      uint64
-	rp      *httputil.ReverseProxy
-	cache   *responseCache
-	cancel  context.CancelFunc
-	health  healthSettings
-	site    *capLimiter
-	clients *clientLimiter
-	timeout time.Duration
-	reqOps  []model.HeaderOp
-	respOps []model.HeaderOp
+	waf    *model.Profile
+	ups    []*upstream
+	routes []model.Route
+	rr     uint64
+	rp     *httputil.ReverseProxy
+	cache  *responseCache
+	cancel context.CancelFunc
+	queue  time.Duration
+	// bodyTimeout is how long this site's client may take to send its body.
+	bodyTimeout time.Duration
+	// cachePreWAF answers a cached GET before the CRS. Off unless the site asks
+	// for it, and never behind an access gate.
+	cachePreWAF bool
+	health      healthSettings
+	site        *capLimiter
+	clients     *clientLimiter
+	timeout     time.Duration
+	reqOps      []model.HeaderOp
+	respOps     []model.HeaderOp
 }
 
 type ctxKey int
@@ -112,7 +119,7 @@ type Server struct {
 	certs      CertProvider
 	alpn       ALPNProvider
 	self       *tls.Certificate
-	transport  *http.Transport
+	pool       *transportPool
 	cache      *responseCache
 	draining   atomic.Bool
 	// httpChallenge answers ACME HTTP-01 on the plain-HTTP listener.
@@ -123,12 +130,10 @@ type Server struct {
 
 	hardBody int64
 
-	// inflight bounds the requests buffered at once; shed counts the ones
-	// refused because that budget was full.
-	inflight    chan struct{}
-	inflightN   atomic.Int64
-	maxInflight atomic.Int64
-	shed        atomic.Int64
+	// budget bounds the requests buffered at once, by count and by bytes.
+	budget             *budget
+	defaultQueue       time.Duration
+	defaultBodyTimeout time.Duration
 
 	listenMu  sync.Mutex
 	listenErr map[string]string
@@ -141,31 +146,20 @@ func New(d Deps) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		d:        d,
-		edges:    map[string]*edge{},
-		self:     self,
-		events:   make(chan model.Event, 8192),
-		hardBody: 8 << 20,
+		d:                  d,
+		edges:              map[string]*edge{},
+		self:               self,
+		events:             make(chan model.Event, 8192),
+		hardBody:           8 << 20,
+		defaultQueue:       DefaultQueue,
+		defaultBodyTimeout: DefaultBodyTimeout,
 	}
-	s.SetMaxInflight(DefaultMaxInflight)
+	s.budget = newBudget(DefaultMaxInflight, DefaultMaxBufferedBytes)
 	// One cache for the process: 128 MiB total, at most 32 MiB per hostname,
 	// so one site cannot evict every other site's entries.
-	s.cache = newResponseCache(128<<20, 32<<20)
-	// No Proxy field: an HTTP_PROXY in the service environment must never
-	// carry customer traffic through a third party.
-	s.transport = &http.Transport{
-		DialContext:       (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		ForceAttemptHTTP2: true,
-		// Sized for a busier edge: an 8 vCPU host runs several hundred
-		// concurrent requests across a handful of backends, and the defaults
-		// close upstream connections between bursts.
-		MaxIdleConns:          1024,
-		MaxIdleConnsPerHost:   256,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
-		ExpectContinueTimeout: time.Second,
-	}
+	s.cache = newResponseCache(CacheBytes, 32<<20)
+	// One connection pool per upstream, kept across reloads (transport.go).
+	s.pool = newTransportPool()
 	return s, nil
 }
 
@@ -229,47 +223,107 @@ func (s *Server) SetBodyLimit(n int64) {
 	}
 }
 
-// DefaultMaxInflight is the request budget when none is configured. With the
-// 8 MiB body ceiling this keeps the worst case near a gigabyte rather than
-// letting a few hundred concurrent uploads take the host down.
-const DefaultMaxInflight = 128
+// DefaultMaxInflight is the request-count budget when none is configured. The
+// byte budget is the other half: a count alone lets 256 large uploads hold two
+// gigabytes while the CPU is still idle.
+const DefaultMaxInflight = 256
+
+// DefaultMaxBufferedBytes bounds the request memory held at once.
+const DefaultMaxBufferedBytes = 512 << 20
+
+// DefaultQueue is how long a request waits for budget before it is shed: long
+// enough to smooth a burst, short enough that a client sees a 503 rather than a
+// stall.
+const DefaultQueue = 250 * time.Millisecond
+
+// CacheBytes is the response cache's share of process memory, checked against
+// the configured ceiling at startup.
+const CacheBytes = 128 << 20
+
+// DefaultBodyTimeout bounds how long a client may take to send its body, so a
+// trickling upload cannot hold a budget slot. Zero disables the deadline.
+const DefaultBodyTimeout = 30 * time.Second
 
 // SetMaxInflight bounds how many requests may be in flight or buffered at once.
 // It is called once at startup, before the listeners serve.
 func (s *Server) SetMaxInflight(n int) {
-	if n <= 0 {
-		n = DefaultMaxInflight
-	}
-	s.maxInflight.Store(int64(n))
-	s.inflight = make(chan struct{}, n)
+	s.budget.setCount(int64(n))
+}
+
+// SetBudget sets the byte ceiling and how long a request waits for room before
+// it is shed. Called once at startup, before the listeners serve.
+func (s *Server) SetBudget(maxBytes int64, queue time.Duration) {
+	s.defaultQueue = queue
+	s.budget.setLimits(maxBytes)
+}
+
+// SetBodyTimeout sets how long a client may take to send its body; zero
+// disables the deadline. Called once at startup, before the listeners serve.
+func (s *Server) SetBodyTimeout(d time.Duration) {
+	s.defaultBodyTimeout = d
 }
 
 // Capacity reports the current request budget: in flight, allowed, and how many
 // requests have been refused because the budget was full.
 func (s *Server) Capacity() (inflight, max int, shed int64) {
-	return int(s.inflightN.Load()), int(s.maxInflight.Load()), s.shed.Load()
+	st := s.budget.snapshot()
+	return int(st.count), int(st.maxCount), st.shedBytes + st.shedQueue
 }
 
-func (s *Server) acquire() bool {
-	if s.inflight == nil {
-		return true
-	}
-	select {
-	case s.inflight <- struct{}{}:
-		s.inflightN.Add(1)
-		return true
-	default:
-		s.shed.Add(1)
-		return false
-	}
+// CapacityReport is the process's capacity view: the request budget, what it
+// refused and what each site holds, plus the cache and the upstream pools.
+type CapacityReport struct {
+	Inflight, MaxInflight int
+	Queued                int
+	BufferBytes           int64
+	MaxBufferBytes        int64
+	// Shed is keyed by reason: bytes, queue, site and client.
+	Shed          map[string]int64
+	CacheBytes    int64
+	CacheMaxBytes int64
+	Pools         int
+	Sites         []SiteCapacity
 }
 
-func (s *Server) release() {
-	if s.inflight == nil {
-		return
+// SiteCapacity is one route's share of the report.
+type SiteCapacity struct {
+	Host        string
+	Inflight    int
+	ShedSite    int64
+	ShedClient  int64
+	CacheBytes  int64
+	CacheHits   int64
+	CacheMisses int64
+}
+
+func (s *Server) CapacityReport() CapacityReport {
+	st := s.budget.snapshot()
+	cacheBytes, cacheMax, hosts := s.cache.snapshot()
+	rep := CapacityReport{
+		Inflight: int(st.count), MaxInflight: int(st.maxCount), Queued: int(st.queued),
+		BufferBytes: st.bytes, MaxBufferBytes: st.maxBytes,
+		Shed:       map[string]int64{"bytes": st.shedBytes, "queue": st.shedQueue},
+		CacheBytes: cacheBytes, CacheMaxBytes: cacheMax, Pools: s.pool.size(),
 	}
-	<-s.inflight
-	s.inflightN.Add(-1)
+	s.mu.RLock()
+	edges := make([]*edge, 0, len(s.edges))
+	for _, e := range s.edges {
+		edges = append(edges, e)
+	}
+	s.mu.RUnlock()
+	sort.Slice(edges, func(i, j int) bool { return edges[i].proxy.Hostname < edges[j].proxy.Hostname })
+	for _, e := range edges {
+		name := e.proxy.Hostname
+		inflight, siteShed := e.site.stats()
+		clientShed := e.clients.shedTotal()
+		h := hosts[name]
+		rep.Shed["site"] += siteShed
+		rep.Shed["client"] += clientShed
+		rep.Sites = append(rep.Sites, SiteCapacity{Host: name, Inflight: inflight,
+			ShedSite: siteShed, ShedClient: clientShed,
+			CacheBytes: h.Bytes, CacheHits: h.Hits, CacheMisses: h.Misses})
+	}
+	return rep
 }
 
 // Reload rebuilds every host route from the database.
@@ -307,15 +361,26 @@ func (s *Server) Reload(ctx context.Context) error {
 	s.edges = next
 	s.mu.Unlock()
 
-	// Warm upstream connections are kept: rebuilding a route must not cost
-	// every other site its pooled connections.
+	// The new edge holds its own references, so an unchanged upstream keeps its
+	// warm connections and a removed or changed one closes its idle ones.
 	for host, prev := range old {
 		if _, keep := next[host]; !keep && prev.cancel != nil {
 			prev.cancel()
 		}
+		s.releasePools(prev.ups)
 	}
 	s.d.Log.Info("routes reloaded", "proxies", len(next))
 	return nil
+}
+
+// releasePools gives back every pool a route acquired; the last user of one
+// closes its idle connections.
+func (s *Server) releasePools(ups []*upstream) {
+	for _, u := range ups {
+		if u.transport != nil {
+			s.pool.release(u.tkey)
+		}
+	}
 }
 
 func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
@@ -324,6 +389,7 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 	if err != nil {
 		return nil, err
 	}
+	idle := s.upstreamIdleFor(p.SiteID)
 	for _, u := range list {
 		if !u.Enabled {
 			continue
@@ -333,15 +399,21 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 			s.d.Log.Warn("invalid upstream", "proxy", p.Hostname, "url", u.URL, "err", err)
 			continue
 		}
+		up.tkey = transportKey{addr: up.url.Scheme + "://" + up.url.Host, idlePerHost: idle}
+		up.transport = s.pool.acquire(up.tkey)
 		ups = append(ups, up)
 	}
 	routes, err := s.d.Store.ListRoutes(p.ID)
 	if err != nil {
+		// Nothing else will hold these pools: the edge is never built.
+		s.releasePools(ups)
 		return nil, err
 	}
 	child, cancel := context.WithCancel(ctx)
 	e := &edge{proxy: p, ups: ups, routes: routes, cache: s.cache, cancel: cancel,
-		waf: s.d.Policy.ProfileFor(&p), health: healthFor(p),
+		queue: s.queueFor(p.SiteID), bodyTimeout: s.bodyTimeoutFor(p.SiteID),
+		cachePreWAF: s.cacheFirstFor(p),
+		waf:         s.d.Policy.ProfileFor(&p), health: healthFor(p),
 		site: newCapLimiter(p.MaxInflight), clients: newClientLimiter(p.MaxInflightPerClient),
 		timeout: time.Duration(p.UpstreamTimeout) * time.Second,
 		reqOps:  p.RequestHeaders, respOps: p.ResponseHeaders}
@@ -364,7 +436,7 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 			pr.Out.Host = pr.In.Host
 			pr.SetXForwarded()
 		},
-		Transport:     &retryTransport{base: s.transport, retries: p.Retries},
+		Transport:     &retryTransport{base: upstreamTransport{def: s.pool.shared}, retries: p.Retries},
 		FlushInterval: 100 * time.Millisecond,
 		ModifyResponse: func(res *http.Response) error {
 			applyHeaderOps(e.respOps, res.Header)
@@ -395,6 +467,70 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 		go healthLoop(child, ups, e.health)
 	}
 	return e, nil
+}
+
+// queueFor is the site's queue wait: the process default unless the site sets
+// queue_ms, where 0 means refuse at once.
+func (s *Server) queueFor(siteID int64) time.Duration {
+	kv, err := s.d.Store.SettingsFor(siteID)
+	if err != nil {
+		return s.defaultQueue
+	}
+	raw, ok := kv["queue_ms"]
+	if !ok {
+		return s.defaultQueue
+	}
+	ms, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || ms < 0 || ms > 5000 {
+		return s.defaultQueue
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+// cacheFirstFor reports whether this site answers a cached GET before the WAF.
+// The fast path skips the CRS and the access gate, so a gated site never gets
+// it whatever the setting says.
+func (s *Server) cacheFirstFor(p model.Proxy) bool {
+	if gate.Enabled(&p) {
+		return false
+	}
+	kv, err := s.d.Store.SettingsFor(p.SiteID)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(kv["cache_pre_waf"]) == "1"
+}
+
+// upstreamIdleFor is how many idle connections one upstream keeps: the default
+// unless the site sets upstream_idle_conns.
+func (s *Server) upstreamIdleFor(siteID int64) int {
+	kv, err := s.d.Store.SettingsFor(siteID)
+	if err != nil {
+		return defaultUpstreamIdleConns
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(kv["upstream_idle_conns"]))
+	if err != nil || n < 1 || n > maxIdleUpstreamConns {
+		return defaultUpstreamIdleConns
+	}
+	return n
+}
+
+// bodyTimeoutFor is the site's body deadline: the process default unless the
+// site sets body_timeout_s, where 0 disables it.
+func (s *Server) bodyTimeoutFor(siteID int64) time.Duration {
+	kv, err := s.d.Store.SettingsFor(siteID)
+	if err != nil {
+		return s.defaultBodyTimeout
+	}
+	raw, ok := kv["body_timeout_s"]
+	if !ok {
+		return s.defaultBodyTimeout
+	}
+	sec, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || sec < 0 || sec > 3600 {
+		return s.defaultBodyTimeout
+	}
+	return time.Duration(sec) * time.Second
 }
 
 func (s *Server) lookup(host string) *edge {
@@ -494,9 +630,9 @@ func (s *Server) ListenWith(ctx context.Context, bind func(addr string) (net.Lis
 		out.servers = append(out.servers, &http.Server{
 			Handler:           s,
 			ReadHeaderTimeout: 10 * time.Second,
-			// Bound slow request bodies (slowloris) while leaving writes unbounded
-			// so SSE and large streamed downloads are not cut off.
-			ReadTimeout:    60 * time.Second,
+			// Headers and the handshake are bounded here; a request body is
+			// bounded by the site's own deadline in the handler, and writes stay
+			// unbounded so SSE and large streamed downloads are not cut off.
 			IdleTimeout:    90 * time.Second,
 			MaxHeaderBytes: 32 << 10,
 			ErrorLog:       nil,

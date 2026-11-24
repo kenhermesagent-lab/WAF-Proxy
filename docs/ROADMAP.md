@@ -27,6 +27,10 @@ that run in parallel on separate branches and separate files:
 | **A — fat node** | One box absorbs the rack without falling over: byte budget + bounded queue, memory ceiling, slow-client deadlines, brotli, precompressed cache variants, opt-in cache-first, per-upstream transports | agent 1 | 1.61.0, 1.62.0 | [Plan A](superpowers/plans/2026-11-23-scale-plan-a-fat-node.md) |
 | **C — game streaming** | UDP relay, port ranges, TCP+UDP pairing, game presets, per-session visibility, UDP safety limits, HA lifecycle; HTTP/3 as the follow-on release | agent 2 | 1.63.0 (relay), 1.64.0 (HTTP/3) | [Plan C](superpowers/plans/2026-11-23-scale-plan-c-game-streaming.md) |
 
+Timeline: each plan is **three weeks of build** — Plan A 15 task-days, Plan C
+14.5 — followed by one review-and-merge pass in week 4. The two-week label these
+plans first carried did not match the sum of their own task estimates.
+
 Decisions this track is built on:
 
 - **Positioning:** the middle of the self-hosted market — 5–50 sites on one or
@@ -58,6 +62,21 @@ Rules both plans follow:
   and the streaming docs. Shared files are `VERSION`, `CHANGELOG.md`, this file
   and one route block in `internal/api/server.go`.
 - A merges first (1.61.0, 1.62.0); C rebases and ships 1.63.0, then 1.64.0.
+
+### Build loop (both plans)
+
+Each plan is built on its own branch and merged to `main` **once**, after its
+last part passes review. Every part repeats the same four steps:
+
+1. Build the part with `/ponytail` and the `/deepseek-4-1-flash-coding` stages
+   that apply to it: brief, one vertical slice, tests, gate.
+2. Review that part's diff with fresh eyes through `/deslop`, and apply what it
+   finds before the part is called done.
+3. Update `CHANGELOG.md`, `VERSION` and the version files for the release the
+   part belongs to, so `bash deploy/check-version.sh` is green on the branch at
+   every part rather than only at the end.
+4. Report the part complete. The next part starts only after that report; a part
+   that cannot pass its own gate is fixed, never skipped.
 
 Still deferred beyond this track: N-node clustering / PostgreSQL+Redis, config
 importers (NPM, Traefik, Caddyfile, HAProxy), dynamic upstream discovery, shared
@@ -609,3 +628,10 @@ docs. None of them are required by a single-node deployment.
   signature bundles with providers; saved log views keyed per site; and the ban and saved-view
   migration merges that let a rolled-back install start again. See `CHANGELOG.md` for each
   release.
+- **1.62.0 — Plan A (fat node): built, merged.** Admission bounded by bytes as well as a
+  count, a queue that absorbs a short burst, a memory ceiling checked at boot, per-site body
+  deadlines, brotli with one compressed cache variant per encoding, per-upstream transports that
+  survive a reload with a caching resolver, opt-in cache-first for un-gated sites, and capacity
+  counters on `/metrics`, `/api/capacity` and the dashboard. Harness numbers are in
+  [BENCHMARKS.md](BENCHMARKS.md); the task list is
+  [Plan A](superpowers/plans/2026-11-23-scale-plan-a-fat-node.md).

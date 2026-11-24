@@ -6,6 +6,7 @@ import Chart from "../components/Chart";
 import Icon from "../components/Icon";
 import { countryFlag, countryName } from "../countries";
 import { Badge, Card, Empty, Info, PageHead, Skeleton, TableWrap, fmtAgo, fmtBps, fmtBytes, fmtTime } from "../ui";
+import CapacityCard, { Capacity } from "../components/CapacityCard";
 import { AnomalyEvent, Cert, Event, Feed, GlobeHit, GlobePoint, Metrics, Proxy, UpdatesSnapshot, Uptime } from "../types";
 
 type Rate = { requests: number; bytesIn: number; bytesOut: number };
@@ -42,7 +43,8 @@ export default function Dashboard({
   const [certs, setCerts] = useState<Cert[]>([]);
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [anomalies, setAnomalies] = useState<AnomalyEvent[]>([]);
-  const [updates, setUpdates] = useState<UpdatesSnapshot | null>(null);
+  	const [updates, setUpdates] = useState<UpdatesSnapshot | null>(null);
+  const [capacity, setCapacity] = useState<Capacity | null>(null);
   const [rates, setRates] = useState<Record<string, Rate>>({});
   const [hours, setHours] = useState(1);
   const [connected, setConnected] = useState(false);
@@ -180,6 +182,23 @@ export default function Dashboard({
         .catch(() => undefined);
     load();
     const t = setInterval(load, 30000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  // The budget moves faster than the uptime poll, and a shed request is the
+  // one number an operator wants to see while it is happening.
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api
+        .get<Capacity>("/api/capacity")
+        .then((c) => alive && setCapacity(c))
+        .catch(() => undefined);
+    load();
+    const t = setInterval(load, 5000);
     return () => {
       alive = false;
       clearInterval(t);
@@ -481,6 +500,7 @@ export default function Dashboard({
             </div>
           </>
         )}
+        <CapacityCard capacity={capacity} />
       </div>
 
       <Card

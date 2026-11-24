@@ -37,6 +37,17 @@ type Config struct {
 	// MaxInflight bounds the requests that may be buffered at once, which is
 	// what keeps a burst of large uploads from exhausting a small host.
 	MaxInflight int
+	// MaxBufferedBytes is the other half of that bound: the request memory those
+	// requests may hold.
+	MaxBufferedBytes int64
+	// QueueMS is how long a request waits for capacity before it is shed; 0
+	// refuses at once.
+	QueueMS int
+	// BodyTimeout is how long a client may take to send its body, in seconds; 0
+	// disables the deadline.
+	BodyTimeout int
+	// MemoryLimit is the soft heap limit. Zero leaves Go's own default.
+	MemoryLimit int64
 	// TailscaleIP is the tailscale0 IPv4 address captured at boot. Settings
 	// decide whether it is used; a missing interface leaves it empty and the
 	// service continues with only the LAN/WAN listeners.
@@ -92,25 +103,29 @@ type Config struct {
 // Load reads configuration from the environment, applying safe defaults.
 func Load() (*Config, error) {
 	c := &Config{
-		DataDir:        envOr("WAFPROXY_DATA_DIR", "./data"),
-		ListenWAN:      envOr("WAFPROXY_LISTEN_WAN", ":8443"),
-		ListenGUI:      envOr("WAFPROXY_LISTEN_GUI", "127.0.0.1:8080"),
-		ListenGUITLS:   envBoolOr("WAFPROXY_LISTEN_GUI_TLS", false),
-		GUIHost:        strings.ToLower(strings.TrimSpace(os.Getenv("WAFPROXY_GUI_HOST"))),
-		ListenHTTP:     envOr("WAFPROXY_LISTEN_HTTP", ""),
-		WANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_WAN_IFACE")),
-		LANIface:       strings.TrimSpace(os.Getenv("WAFPROXY_LAN_IFACE")),
-		GUIPrivateOnly: envBoolOr("WAFPROXY_GUI_PRIVATE_ONLY", true),
-		TrustedProxies: splitList(os.Getenv("WAFPROXY_TRUSTED_PROXIES")),
-		MaxInflight:    envInt("WAFPROXY_MAX_INFLIGHT", 128),
-		TailscaleIP:    tailscaleIPv4(),
-		CrowdSecURL:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_URL")),
-		CrowdSecKey:    strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_KEY")),
-		MCPToken:       strings.TrimSpace(os.Getenv("WAFPROXY_MCP_TOKEN")),
-		MCPActor:       envOr("WAFPROXY_MCP_ACTOR", "hermes-agent"),
-		MetricsToken:   strings.TrimSpace(os.Getenv("WAFPROXY_METRICS_TOKEN")),
-		ACMEDirectory:  strings.TrimSpace(os.Getenv("WAFPROXY_ACME_DIRECTORY")),
-		ACMECAFile:     strings.TrimSpace(os.Getenv("WAFPROXY_ACME_CA_FILE")),
+		DataDir:          envOr("WAFPROXY_DATA_DIR", "./data"),
+		ListenWAN:        envOr("WAFPROXY_LISTEN_WAN", ":8443"),
+		ListenGUI:        envOr("WAFPROXY_LISTEN_GUI", "127.0.0.1:8080"),
+		ListenGUITLS:     envBoolOr("WAFPROXY_LISTEN_GUI_TLS", false),
+		GUIHost:          strings.ToLower(strings.TrimSpace(os.Getenv("WAFPROXY_GUI_HOST"))),
+		ListenHTTP:       envOr("WAFPROXY_LISTEN_HTTP", ""),
+		WANIface:         strings.TrimSpace(os.Getenv("WAFPROXY_WAN_IFACE")),
+		LANIface:         strings.TrimSpace(os.Getenv("WAFPROXY_LAN_IFACE")),
+		GUIPrivateOnly:   envBoolOr("WAFPROXY_GUI_PRIVATE_ONLY", true),
+		TrustedProxies:   splitList(os.Getenv("WAFPROXY_TRUSTED_PROXIES")),
+		MaxInflight:      envInt("WAFPROXY_MAX_INFLIGHT", 256),
+		MaxBufferedBytes: envBytes("WAFPROXY_MAX_BUFFERED_BYTES", 512<<20),
+		QueueMS:          envIntAllowZero("WAFPROXY_QUEUE_MS", 250),
+		BodyTimeout:      envIntAllowZero("WAFPROXY_BODY_TIMEOUT", 30),
+		MemoryLimit:      envBytes("WAFPROXY_MEMORY_LIMIT", cgroupMemoryLimit()*3/4),
+		TailscaleIP:      tailscaleIPv4(),
+		CrowdSecURL:      strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_URL")),
+		CrowdSecKey:      strings.TrimSpace(os.Getenv("WAFPROXY_CROWDSEC_KEY")),
+		MCPToken:         strings.TrimSpace(os.Getenv("WAFPROXY_MCP_TOKEN")),
+		MCPActor:         envOr("WAFPROXY_MCP_ACTOR", "hermes-agent"),
+		MetricsToken:     strings.TrimSpace(os.Getenv("WAFPROXY_METRICS_TOKEN")),
+		ACMEDirectory:    strings.TrimSpace(os.Getenv("WAFPROXY_ACME_DIRECTORY")),
+		ACMECAFile:       strings.TrimSpace(os.Getenv("WAFPROXY_ACME_CA_FILE")),
 
 		BundleProvidersJSON:   strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_PROVIDERS")),
 		BundleURL:             strings.TrimSpace(os.Getenv("WAFPROXY_BUNDLE_URL")),
@@ -150,6 +165,16 @@ func Load() (*Config, error) {
 	if c.MetricsToken != "" && len(c.MetricsToken) < 32 {
 		return nil, errors.New("WAFPROXY_METRICS_TOKEN must be at least 32 characters")
 	}
+	if c.QueueMS > 5000 {
+		return nil, errors.New("WAFPROXY_QUEUE_MS must be 0-5000")
+	}
+	if c.BodyTimeout > 3600 {
+		return nil, errors.New("WAFPROXY_BODY_TIMEOUT must be 0-3600 seconds")
+	}
+	// 128 MiB is proxy.CacheBytes; config cannot import the proxy package.
+	if err := c.CheckMemory(128 << 20); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(c.DataDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
@@ -160,6 +185,23 @@ func Load() (*Config, error) {
 	}
 	c.MasterKey = key
 	return c, nil
+}
+
+// CheckMemory refuses a configuration whose cache plus request buffers leave the
+// runtime less than 128 MiB, because the heap, not the budget, is what takes a
+// small box down. cacheBytes is the response cache's share.
+func (c *Config) CheckMemory(cacheBytes int64) error {
+	if c.MemoryLimit <= 0 {
+		return nil
+	}
+	const floor = 128 << 20
+	if need := cacheBytes + c.MaxBufferedBytes + floor; need > c.MemoryLimit {
+		return fmt.Errorf("WAFPROXY_MEMORY_LIMIT is %d MiB, but the cache (%d MiB) plus "+
+			"WAFPROXY_MAX_BUFFERED_BYTES (%d MiB) plus a 128 MiB runtime floor need %d MiB: "+
+			"lower the buffer budget or raise the limit",
+			c.MemoryLimit>>20, cacheBytes>>20, c.MaxBufferedBytes>>20, need>>20)
+	}
+	return nil
 }
 
 // IsLocalAddress reports whether a listen address can be bound here. An empty
@@ -283,6 +325,54 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return v
+}
+
+// envIntAllowZero is envInt for a knob where zero is a real setting.
+func envIntAllowZero(key string, fallback int) int {
+	v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key)))
+	if err != nil || v < 0 {
+		return fallback
+	}
+	return v
+}
+
+// envBytes reads a size in bytes, plain or with a KiB/MiB/GiB suffix.
+func envBytes(key string, fallback int64) int64 {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if raw == "" {
+		return fallback
+	}
+	mult := int64(1)
+	for _, u := range []struct {
+		suffix string
+		mult   int64
+	}{{"gib", 1 << 30}, {"mib", 1 << 20}, {"kib", 1 << 10}, {"gb", 1000000000}, {"mb", 1000000}, {"kb", 1000}} {
+		if strings.HasSuffix(raw, u.suffix) {
+			raw, mult = strings.TrimSpace(strings.TrimSuffix(raw, u.suffix)), u.mult
+			break
+		}
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v <= 0 {
+		return fallback
+	}
+	return v * mult
+}
+
+// cgroupMemoryLimit is the container's memory ceiling, or 0 when the host sets
+// none: a limit nobody configured must not become a limit.
+func cgroupMemoryLimit() int64 {
+	for _, path := range []string{"/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		// cgroup v2 writes "max" for unlimited; v1 uses a huge sentinel.
+		if v, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64); err == nil && v > 0 && v < 1<<50 {
+			return v
+		}
+	}
+	return 0
 }
 
 func splitList(raw string) []string {
