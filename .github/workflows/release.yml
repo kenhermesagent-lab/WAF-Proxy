@@ -148,24 +148,24 @@ jobs:
   image:
     name: Build, smoke-test and push the container image
     runs-on: ubuntu-latest
-    # A tag push is the only thing that publishes an image: a dispatch that
-    # attaches assets to an existing tag does not move the registry.
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || inputs.tag != ''
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
       # The image takes its name from VERSION and its tag from the ref, so a tag
       # that disagrees would publish a mislabelled image.
       - name: Check the tag matches VERSION
         run: |-
           set -euo pipefail
           version=$(cat VERSION)
-          if [[ ${GITHUB_REF_NAME#v} != "$version" ]]; then
-            echo "tag '${GITHUB_REF_NAME}' does not match VERSION ${version} at ${GITHUB_SHA}" >&2
+          if [[ ${TAG#v} != "$version" ]]; then
+            echo "tag '${TAG}' does not match VERSION ${version} at $(git rev-parse --short HEAD)" >&2
             exit 1
           fi
       - name: Build the image

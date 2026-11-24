@@ -585,7 +585,8 @@ written notes are what operators read. A tag with no section fails the job inste
 of publishing an empty release. The same push builds the container image, boots it
 and checks `/api/health` reports the same version, then pushes
 `ghcr.io/<owner>/wafproxy:<version>`; an image that fails the boot is never
-published.
+published. Dispatching the workflow for an existing tag builds its image the same
+way, so a release cut before this rule can still get one.
 
 `make verify-release` runs `deploy/check-tags.sh`, which fails when a
 `CHANGELOG.md` section from **1.61.0** on has no annotated tag, when the tag is

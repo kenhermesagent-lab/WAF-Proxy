@@ -19,7 +19,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **A release tag publishes the container image too.** The `image` job builds `wafproxy:<version>`,
   boots it and asks `/api/health` for its own version before it pushes
   `ghcr.io/<owner>/wafproxy:<version>`, so a tag delivers the binaries and the image that matches
-  them. A dispatch that only re-attaches assets to an existing tag leaves the registry alone.
+  them. Dispatching the workflow for a tag that already exists builds and publishes its image the
+  same way, so a release cut before this rule can still get one.
 
 ### Fixed
 
