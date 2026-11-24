@@ -49,6 +49,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **A tag backlog no longer hides the rest of the release job.** The tag check still turns red, but the
   job carries on through the pin checks, the SBOM and its upload and fails at the end, so the rest of
   the release metadata is still produced and attached while the tags are behind.
+- **A streaming card that fails to bind no longer opens its port.** The firewall step runs after
+  the listener, and a bind failure now leaves the rules untouched instead of punching a hole for a
+  service that never started.
+- **A stopped firewalld is not read as running.** Detection compared the state output for the word
+  "running", which the tool's own "not running" answer also contains; it now has to be exactly
+  that word, and a failing command reports the tool's message instead of "exit status 1".
 - **The Backup card stops repeating the daily file.** Each tier reports its own last run, so a
   recent daily copy no longer appears as both the last run and the last daily copy; leaving the
   daily tier on adds its own last and next rows instead.
