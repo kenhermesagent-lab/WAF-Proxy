@@ -36,6 +36,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `WAFPROXY_HTTP3`, instead of failing later with a bare "address already in use". A port held by
   something outside this process leaves HTTPS serving, logs the failure and stops advertising h3.
 
+### Fixed
+
+- **A fresh single-node install serves again.** With high availability off the boot normalises a
+  leftover standby to `standalone`, but a data directory that never held a role file has no node id
+  and the save was refused. The node stayed a standby, bound the WAN address and never accepted a
+  connection, so a new host answered the console and nothing else. The normalisation now mints the
+  id, and the first request after the wizard is proxied.
+
 ### Security
 
 - HTTP/3 refuses 0-RTT, bounds handshakes per unverified source, caps a connection at 100 streams

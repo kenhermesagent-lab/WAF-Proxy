@@ -67,6 +67,30 @@ func TestHABootRoleKeepsAPairedStandbyOutOfService(t *testing.T) {
 	}
 }
 
+// A fresh install has neither a role file nor a node id. With HA off it must
+// boot serving as a single node, not hold the WAN address as a standby.
+func TestHABootRoleServesAFreshSingleNode(t *testing.T) {
+	dir := t.TempDir()
+	node, err := ha.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := haBootRole(dir, node, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Active() || got.Role != ha.RoleStandalone {
+		t.Fatalf("a fresh node booted as %+v with HA off", got)
+	}
+	saved, err := ha.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !saved.Active() {
+		t.Fatalf("the role file on disk leaves a fresh node out of service: %+v", saved)
+	}
+}
+
 func TestHADisableRefusalFollowsTheRoleAndTypedID(t *testing.T) {
 	active := &ha.Node{Role: ha.RoleActive}
 	standby := &ha.Node{Role: ha.RoleStandby}
