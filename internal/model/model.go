@@ -438,6 +438,7 @@ type Event struct {
 	Host      string    `json:"host"`
 	SrcIP     string    `json:"src_ip"`
 	Country   string    `json:"country"`
+	City      string    `json:"city,omitempty"`
 	ASN       int       `json:"asn"`
 	Lat       float64   `json:"lat"`
 	Lon       float64   `json:"lon"`

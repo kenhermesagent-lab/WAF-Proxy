@@ -160,6 +160,7 @@ export const NAV_UTILITY: NavItem[] = [
       { id: "backup", label: "Backup" },
       { id: "runtime", label: "Runtime" },
       { id: "geoip", label: "GeoIP" },
+      { id: "threat-intel", label: "Threat intel" },
       { id: "activity", label: "Activity" },
       { id: "readiness", label: "Readiness" },
       { id: "about", label: "About" },

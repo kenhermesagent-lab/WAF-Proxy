@@ -20,15 +20,15 @@ func (s *Store) InsertEvents(events []model.Event) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.Prepare(`INSERT INTO events(ts, proxy_id, host, src_ip, country, asn, lat, lon, method, path,
+	stmt, err := tx.Prepare(`INSERT INTO events(ts, proxy_id, host, src_ip, country, city, asn, lat, lon, method, path,
 		status, bytes_in, bytes_out, latency_ms, stage, rule_id, rule_msg, action, ua, sample)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	for _, e := range events {
-		if _, err := stmt.Exec(stamp(e.TS), e.ProxyID, e.Host, e.SrcIP, e.Country, e.ASN, e.Lat, e.Lon, e.Method, trim(e.Path, 512),
+		if _, err := stmt.Exec(stamp(e.TS), e.ProxyID, e.Host, e.SrcIP, e.Country, trim(e.City, 96), e.ASN, e.Lat, e.Lon, e.Method, trim(e.Path, 512),
 			e.Status, e.BytesIn, e.BytesOut, e.LatencyMS, e.Stage, e.RuleID, trim(e.RuleMsg, 256), e.Action,
 			trim(e.UA, 256), maxInt(e.Sample, 1)); err != nil {
 			return err
@@ -344,6 +344,7 @@ func (s *Store) Summary(since time.Time) (Totals, error) {
 // GlobePoint is one aggregated attack arc for the globe view.
 type GlobePoint struct {
 	Country  string  `json:"country"`
+	City     string  `json:"city,omitempty"`
 	Host     string  `json:"host"`
 	Category string  `json:"category"`
 	Count    int64   `json:"count"`
@@ -352,12 +353,14 @@ type GlobePoint struct {
 	Lon      float64 `json:"lon"`
 }
 
-// Globe returns attacks grouped by country/category since a time.
+// Globe returns attacks grouped by country, city, host and category since a
+// time. Splitting by city is what lets the map show city dots at depth; a
+// database without city data simply groups on an empty city.
 func (s *Store) Globe(since time.Time) ([]GlobePoint, error) {
-	rows, err := s.db.Query(`SELECT country, host, stage, COUNT(*), MAX(ts), AVG(lat), AVG(lon)
+	rows, err := s.db.Query(`SELECT country, city, host, stage, COUNT(*), MAX(ts), AVG(lat), AVG(lon)
 		FROM events WHERE ts >= ? AND action IN ('block','ban','challenge') AND country <> ''
 		AND `+eventSiteSQL+`
-		GROUP BY country, host, stage ORDER BY COUNT(*) DESC LIMIT 300`,
+		GROUP BY country, city, host, stage ORDER BY COUNT(*) DESC LIMIT 300`,
 		stamp(since), s.site, s.site, s.site, s.defaultSite)
 	if err != nil {
 		return nil, err
@@ -366,7 +369,7 @@ func (s *Store) Globe(since time.Time) ([]GlobePoint, error) {
 	out := []GlobePoint{}
 	for rows.Next() {
 		var p GlobePoint
-		if err := rows.Scan(&p.Country, &p.Host, &p.Category, &p.Count, &p.LastSeen, &p.Lat, &p.Lon); err != nil {
+		if err := rows.Scan(&p.Country, &p.City, &p.Host, &p.Category, &p.Count, &p.LastSeen, &p.Lat, &p.Lon); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

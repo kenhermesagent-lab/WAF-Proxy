@@ -4,7 +4,7 @@ export type IconName =
   | "dashboard" | "chart" | "proxies" | "play" | "shield" | "radio" | "logs"
   | "alert" | "lock" | "intel" | "crowdsec" | "certificate" | "terminal"
   | "mail" | "upload" | "network" | "settings" | "user" | "power" | "search"
-  | "globe" | "map" | "cloud" | "check" | "x" | "info" | "plus" | "trash" | "edit"
+  | "globe" | "map" | "cloud" | "check" | "x" | "info" | "plus" | "minus" | "trash" | "edit"
   | "refresh" | "external" | "download" | "menu" | "chevronDown" | "chevronLeft"
   | "chevronRight" | "collapse" | "expand" | "clock" | "server" | "activity"
   | "arrowUp" | "arrowDown" | "filter" | "file" | "help" | "key" | "users" | "coffee";
@@ -37,6 +37,7 @@ const PATHS: Record<IconName, string[]> = {
   x: ["M6 6l12 12", "M18 6 6 18"],
   info: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18", "M12 11v5", "M12 8h.01"],
   plus: ["M12 5v14", "M5 12h14"],
+  minus: ["M5 12h14"],
   trash: ["M4 7h16", "M9 7V5h6v2", "M6 7l1 13h10l1-13", "M10 11v5", "M14 11v5"],
   edit: ["M4 20h4L20 8l-4-4L4 16z", "M14 6l4 4"],
   refresh: ["M20 11a8 8 0 1 0-2.3 5.7", "M20 4v7h-7"],

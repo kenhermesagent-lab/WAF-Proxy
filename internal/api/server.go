@@ -46,6 +46,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/siteres"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/threatintel"
 	updatepkg "github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/uptime"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
@@ -95,6 +96,7 @@ type Server struct {
 	restartFn   func()
 	tailscale   TailscaleState
 	cloudflared *cf.Supervisor
+	threat      *threatintel.Client
 
 	// Cloudflare install progress and the last check result, both polled by the
 	// page. cfNonce marks responses the connector delivered.
@@ -165,7 +167,7 @@ func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Serve
 		st: st, box: box, cfg: cfg, proxy: px, policy: pol, bans: bans, feeds: feeds,
 		certs: certs, cs: cs, metrics: met, notify: nt, geo: geo, res: res, log: log,
 		limiter: auth.NewLimiter(), mux: http.NewServeMux(), started: time.Now(),
-		totpPending: map[string]pendingTOTP{},
+		totpPending: map[string]pendingTOTP{}, threat: threatintel.New(),
 	}
 	// A backup covers the whole install, not just the default site.
 	s.backup = backup.New(st.Unscoped(), box, log, s.backupDocument)
@@ -174,6 +176,7 @@ func New(st *store.Store, box *wfcrypto.Box, cfg *config.Config, px *proxy.Serve
 	}
 	if kv, err := st.Settings(); err == nil {
 		s.setCloudflareNonce(cf.Load(kv, box).Nonce)
+		s.threat.SetQuota(threatintel.DecodeQuota(kv[threatintel.KeyQuota]))
 	}
 	s.routes()
 	return s
@@ -359,6 +362,9 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/anomaly/events/{id}/ack", s.authed(s.acknowledgeAnomaly))
 
 	m.HandleFunc("GET /api/intel/lookup", s.authed(s.lookupIP))
+	m.HandleFunc("GET /api/threat-intel", s.authed(s.getThreatIntel))
+	m.HandleFunc("PUT /api/threat-intel", s.authed(s.putThreatIntel))
+	m.HandleFunc("GET /api/threat-intel/lookup", s.authed(s.lookupThreatIntel))
 
 	m.HandleFunc("GET /api/feeds", s.authed(s.listFeeds))
 	m.HandleFunc("POST /api/feeds", s.authed(s.createFeed))

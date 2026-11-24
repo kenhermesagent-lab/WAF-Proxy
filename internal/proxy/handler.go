@@ -51,7 +51,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}()
 			}
 			s.record(model.Event{TS: start, Host: host, SrcIP: ip.String(),
-				Country: loc.Country, ASN: loc.ASN, Lat: loc.Lat, Lon: loc.Lon,
+				Country: loc.Country, City: loc.City, ASN: loc.ASN, Lat: loc.Lat, Lon: loc.Lon,
 				Method: r.Method, Path: r.URL.Path, Stage: "decoy-host", RuleID: "decoy-host",
 				RuleMsg: "decoy hostname", Action: "ban", Status: http.StatusForbidden,
 				UA: r.UserAgent(), Sample: 1})
@@ -91,7 +91,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	loc := s.d.Geo.Lookup(ip)
 	event := model.Event{
 		TS: start, ProxyID: &e.proxy.ID, Host: host, SrcIP: ip.String(), RequestID: rw.requestID,
-		Country: loc.Country, ASN: loc.ASN, Lat: loc.Lat, Lon: loc.Lon,
+		Country: loc.Country, City: loc.City, ASN: loc.ASN, Lat: loc.Lat, Lon: loc.Lon,
 		Method: r.Method, Path: r.URL.Path, UA: r.UserAgent(), Sample: 1,
 	}
 	blocked := false

@@ -679,6 +679,7 @@ export interface Uptime {
 
 export interface GlobePoint {
   country: string;
+  city?: string;
   host: string;
   category: string;
   count: number;
@@ -1031,4 +1032,57 @@ export interface SimResult {
   truncated: boolean;
   notes: string[];
   exception?: SimException;
+}
+
+// Third-party enrichment: the allowance is what AbuseIPDB reports in the
+// rate-limit headers of every check, not a value the console can configure.
+export interface IntelQuota {
+  limit: number;
+  remaining: number;
+  reset_at?: string;
+}
+
+export interface IntelPlan {
+  name: string;
+  checks_per_day: number;
+}
+
+export interface IntelStatus {
+  rdap: boolean;
+  configured: boolean;
+  key_tail?: string;
+  quota?: IntelQuota;
+  plan?: IntelPlan;
+  cache_hours: number;
+}
+
+export interface IntelRDAP {
+  network?: string;
+  name?: string;
+  org?: string;
+  abuse?: string;
+  registered?: string;
+  registry?: string;
+  error?: string;
+}
+
+export interface IntelAbuse {
+  score: number;
+  reports: number;
+  reporters: number;
+  last_reported?: string;
+  usage_type?: string;
+  isp?: string;
+  domain?: string;
+  country?: string;
+  error?: string;
+}
+
+export interface ThreatLookup {
+  ip: string;
+  at: string;
+  cached: boolean;
+  rdap: IntelRDAP;
+  abuse?: IntelAbuse;
+  quota?: IntelQuota;
 }

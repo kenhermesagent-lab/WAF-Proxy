@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { GlobeHit, GlobePoint } from "../types";
 import { countryName } from "../countries";
 import { COUNTRY_LABELS, COUNTRY_SHAPES } from "../countries-geo";
+import Icon from "./Icon";
 
 const COLORS: Record<string, string> = {
   waf: "#ef4444",
@@ -139,16 +140,29 @@ const GRID: V3[][] = (() => {
 
 type Screen = (v: V3, radius: number) => { x: number; y: number; z: number };
 
-function makeProjector(rot: number, cx: number, cy: number): Screen {
-  const a = rot * DEG;
+// The camera turns around the poles first (yaw) and then tilts (pitch), so a
+// click can put any city in the middle of the sphere instead of only bringing
+// its meridian to the front.
+function makeProjector(yaw: number, pitch: number, cx: number, cy: number): Screen {
+  const a = yaw * DEG;
   const ca = Math.cos(a);
   const sa = Math.sin(a);
+  const b = pitch * DEG;
+  const cb = Math.cos(b);
+  const sb = Math.sin(b);
   return (v, radius) => {
     const x = v.x * ca + v.z * sa;
     const z = v.z * ca - v.x * sa;
-    return { x: cx + x * radius, y: cy - v.y * radius, z };
+    const y = v.y * cb - z * sb;
+    const zz = z * cb + v.y * sb;
+    return { x: cx + x * radius, y: cy - y * radius, z: zz };
   };
 }
+
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 4.5;
+const PITCH_LIMIT = 1.15;
+const HOME_PITCH = 0.05;
 
 // Great-circle samples in unrotated space, cached by the endpoint pair. The
 // rotation is applied per frame, so the cache survives the whole animation.
@@ -343,6 +357,48 @@ function drawCountryLabels(
   ctx.restore();
 }
 
+// City labels appear once the camera is deep enough that dots stop overlapping.
+// They carry the city name and the blocked count, and the one that was clicked
+// stays pinned so the flight has a visible destination.
+function drawCityLabels(
+  ctx: CanvasRenderingContext2D,
+  project: Screen,
+  r: number,
+  w: number,
+  h: number,
+  points: GlobePoint[],
+  focus: string | null,
+  picked: string | null,
+) {
+  const top = [...points].sort((a, b) => b.count - a.count).slice(0, 12);
+  const taken: { x: number; y: number; w: number; h: number }[] = [];
+  ctx.save();
+  ctx.font = "500 10px Inter, ui-sans-serif, sans-serif";
+  ctx.textBaseline = "middle";
+  for (const pt of top) {
+    const p = project(unitVec(pt.lat, pt.lon), r);
+    if (p.z <= 0.12) continue;
+    const dim = focus && pt.country !== focus;
+    const label = `${pt.city || countryName(pt.country)}  ${pt.count.toLocaleString()}`;
+    const width = Math.ceil(ctx.measureText(label).width) + 12;
+    const box = { x: p.x + 9, y: p.y - 9, w: width, h: 18 };
+    if (box.x + box.w > w - 6 || box.y < 6) continue;
+    if (taken.some((b) => box.x < b.x + b.w + 3 && box.x + box.w + 3 > b.x && box.y < b.y + b.h + 3 && box.y + box.h + 3 > b.y)) continue;
+    taken.push(box);
+    ctx.globalAlpha = dim ? 0.35 : 1;
+    ctx.beginPath();
+    ctx.roundRect(box.x, box.y, box.w, box.h, 4);
+    ctx.fillStyle = "rgba(7,15,23,0.86)";
+    ctx.fill();
+    ctx.strokeStyle = picked && pt.city === picked ? "rgba(94,234,212,0.85)" : "rgba(255,255,255,0.14)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = picked && pt.city === picked ? "#9ff3e4" : "#dbe6f3";
+    ctx.fillText(label, box.x + 6, box.y + box.h / 2 + 0.5);
+  }
+  ctx.restore();
+}
+
 function flagEmoji(country: string): string {
   if (!/^[a-z]{2}$/i.test(country)) return "";
   const base = 0x1f1e6;
@@ -360,16 +416,13 @@ function ago(ts: string): string {
 
 type Tip = { x: number; y: number; pt: GlobePoint };
 
-export default function Globe({
-  points,
-  hits,
-  reached = [],
-  home,
-  hours = 1,
-  focus: focusProp,
-  onFocusChange,
-  variant = "default",
-}: {
+export type GlobeHandle = {
+  // stepBack returns true when it consumed the key: city -> country -> world.
+  stepBack: () => boolean;
+  reset: () => void;
+};
+
+const Globe = forwardRef<GlobeHandle, {
   points: GlobePoint[];
   hits: GlobeHit[];
   // Allowed requests that landed on a sensitive endpoint, drawn as teal
@@ -380,7 +433,7 @@ export default function Globe({
   focus?: string | null;
   onFocusChange?: (country: string | null) => void;
   variant?: "default" | "compact" | "expanded";
-}) {
+}>(function Globe({ points, hits, reached = [], home, hours = 1, focus: focusProp, onFocusChange, variant = "default" }, ref) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const size = useRef({ w: 0, h: 0 });
@@ -398,11 +451,23 @@ export default function Globe({
   tipRef.current = tip !== null;
   const hoverRef = useRef(false);
   const suppressClick = useRef(false);
-  const drag = useRef({ active: false, startX: 0, startRotation: 0, moved: false });
+  const drag = useRef({ active: false, startX: 0, startY: 0, startYaw: 0, startPitch: 0, moved: false });
   // One tick keeps "attacks / min" and "last hit" counting down between polls.
   const [tick, setTick] = useState(0);
 
-  const state = useRef({ points, hits, reached, home, visible, focus, rotation: 0 });
+  // The camera is a goal plus the current value; the draw loop eases one into
+  // the other so a click reads as a flight rather than a jump cut.
+  const camRef = useRef({ yaw: 0, pitch: HOME_PITCH, zoom: 1 });
+  const goalRef = useRef({ yaw: 0, pitch: HOME_PITCH, zoom: 1 });
+  const [view, setView] = useState<{ country: string | null; city: string | null; zoom: number }>({
+    country: null,
+    city: null,
+    zoom: 1,
+  });
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
+  const state = useRef({ points, hits, reached, home, visible, focus });
   state.current.points = points;
   state.current.hits = hits;
   state.current.reached = reached;
@@ -467,7 +532,7 @@ export default function Globe({
     let live: Live[] = [];
     const seen = new Set<number>();
     let primed = false;
-    const follow = { target: 0, until: 0, active: false };
+    const follow = { until: 0 };
     const cache: {
       key: string;
       sphere: CanvasGradient | null;
@@ -482,17 +547,19 @@ export default function Globe({
       const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
       const paused = reduced || document.visibilityState !== "visible";
 
-      if (!paused && !drag.current.active && !hoverRef.current) {
-        // A new burst eases the sphere round to face the source, then hands
-        // control back to the slow spin so the map keeps showing everything.
-        if (follow.active && now < follow.until) {
-          let delta = follow.target - state.current.rotation;
-          delta = (((delta + 180) % 360) + 360) % 360 - 180;
-          state.current.rotation += delta * Math.min(1, dt * 2.4);
-        } else {
-          follow.active = false;
-          state.current.rotation = (state.current.rotation + dt * 4) % 360;
-        }
+      const cam = camRef.current;
+      const goal = goalRef.current;
+      const ease = paused ? 1 : Math.min(1, dt * 6);
+      let turn = goal.yaw - cam.yaw;
+      turn = (((turn + 180) % 360) + 360) % 360 - 180;
+      cam.yaw = (cam.yaw + turn * ease + 360) % 360;
+      cam.pitch += (goal.pitch - cam.pitch) * ease;
+      cam.zoom += (goal.zoom - cam.zoom) * ease;
+      // The slow spin only runs at world zoom; a zoomed map holds still so the
+      // city an operator picked stays under the pointer.
+      if (!paused && !drag.current.active && !hoverRef.current && now > follow.until && goal.zoom <= 1.01) {
+        cam.yaw = (cam.yaw + dt * 4) % 360;
+        goal.yaw = cam.yaw;
       }
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -507,9 +574,8 @@ export default function Globe({
 
       const cx = cssW / 2;
       const cy = cssH / 2;
-      const r = Math.min(cssW, cssH) * 0.4;
-      const rot = state.current.rotation;
-      const project = makeProjector(rot, cx, cy);
+      const r = Math.min(cssW, cssH) * 0.4 * cam.zoom;
+      const project = makeProjector(cam.yaw, cam.pitch, cx, cy);
 
       if (cache.key !== `${cssW}x${cssH}`) {
         cache.key = `${cssW}x${cssH}`;
@@ -620,12 +686,11 @@ export default function Globe({
           if (seen.has(h.id)) continue;
           seen.add(h.id);
           live.push({ hit: h, born: now, life: 1200 });
-          if (!reduced && !tipRef.current && now - follow.until > 4000) {
+          if (!reduced && !tipRef.current && now > follow.until && goal.zoom <= 1.01) {
             const facing = project(unitVec(h.lat, h.lon), r);
             if (facing.z < 0.25) {
-              follow.target = -h.lon;
-              follow.until = now + 2600;
-              follow.active = true;
+              goalRef.current.yaw = -h.lon;
+              follow.until = now + 4000;
             }
           }
         }
@@ -728,7 +793,7 @@ export default function Globe({
         if (target.z <= 0) continue;
         const dim = focus && pt.country !== focus;
         const weight = Math.min(1, Math.log10(1 + pt.count) / 3);
-        const radius = 3 + weight * 11;
+        const radius = (3 + weight * 11) / Math.sqrt(Math.max(1, cam.zoom));
         const group = groupFor(pt.category);
         ctx.save();
         if (!dim) {
@@ -784,7 +849,12 @@ export default function Globe({
       }
 
       if (variant === "expanded") {
-        drawCountryLabels(ctx, project, r, cssW, cssH, countryCounts, focus);
+        if (cam.zoom >= 1.7) {
+          drawCityLabels(ctx, project, r, cssW, cssH, shown, focus, viewRef.current.city);
+        }
+        if (cam.zoom < 2.4) {
+          drawCountryLabels(ctx, project, r, cssW, cssH, countryCounts, focus);
+        }
       }
 
       ctx.strokeStyle = "rgba(96,165,250,0.22)";
@@ -801,14 +871,99 @@ export default function Globe({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+  // flyToAngle points the camera at a coordinate. The pitch is clamped short of
+  // the poles: beyond that the country shapes fold onto themselves.
+  const flyToAngle = (lat: number, lon: number, zoom: number) => {
+    goalRef.current.yaw = -lon;
+    goalRef.current.pitch = clamp(lat * DEG, -PITCH_LIMIT, PITCH_LIMIT);
+    goalRef.current.zoom = clamp(zoom, ZOOM_MIN, ZOOM_MAX);
+  };
+
+  const setZoom = (next: number) => {
+    const zoom = clamp(next, ZOOM_MIN, ZOOM_MAX);
+    goalRef.current.zoom = zoom;
+    if (zoom === ZOOM_MIN) goalRef.current.pitch = HOME_PITCH;
+    setView((v) => ({ ...v, zoom }));
+  };
+
+  const resetCamera = () => {
+    goalRef.current.zoom = ZOOM_MIN;
+    goalRef.current.pitch = HOME_PITCH;
+    setView({ country: null, city: null, zoom: 1 });
+  };
+
+  const selectPoint = (pt: GlobePoint) => {
+    const code = pt.country.toUpperCase();
+    chooseFocus(code);
+    flyToAngle(pt.lat, pt.lon, 3);
+    setView({ country: code, city: pt.city || null, zoom: 3 });
+  };
+
+  useImperativeHandle(ref, () => ({
+    stepBack: () => {
+      const v = viewRef.current;
+      if (v.city) {
+        // Back to the country: same camera tilt, one level out.
+        goalRef.current.zoom = 1.9;
+        setView({ ...v, city: null, zoom: 1.9 });
+        return true;
+      }
+      if (v.country) {
+        chooseFocus(null);
+        resetCamera();
+        return true;
+      }
+      if (goalRef.current.zoom > 1.02 || Math.abs(goalRef.current.pitch - HOME_PITCH) > 0.02) {
+        resetCamera();
+        return true;
+      }
+      return false;
+    },
+    reset: () => {
+      chooseFocus(null);
+      resetCamera();
+    },
+  }));
+
+  // The wheel has to be a non-passive listener: the page must not scroll while
+  // the map is being zoomed under the pointer.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || variant !== "expanded") return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const next = clamp(goalRef.current.zoom * (e.deltaY > 0 ? 1 / 1.25 : 1.25), ZOOM_MIN, ZOOM_MAX);
+      goalRef.current.zoom = next;
+      setView((v) => (v.zoom === next ? v : { ...v, zoom: next }));
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [variant]);
+
+  // Clearing the country filter from outside (the HUD chip or the map's tabs)
+  // also puts the camera back, so the globe never sits zoomed on nothing.
+  useEffect(() => {
+    if (focusProp === null && viewRef.current.country) {
+      resetCamera();
+    }
+    // resetCamera closes over refs only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusProp]);
+
   const onMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     hoverRef.current = true;
     if (drag.current.active) {
       const dx = e.clientX - drag.current.startX;
-      if (Math.abs(dx) > 3) drag.current.moved = true;
-      state.current.rotation = (drag.current.startRotation + dx * 0.4) % 360;
+      const dy = e.clientY - drag.current.startY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.current.moved = true;
+      // Dragging a zoomed map moves less per pixel, so a city stays reachable.
+      const gain = 0.45 / Math.sqrt(Math.max(1, camRef.current.zoom));
+      goalRef.current.yaw = (drag.current.startYaw + dx * gain + 360) % 360;
+      goalRef.current.pitch = clamp(drag.current.startPitch + dy * gain * 0.8, -PITCH_LIMIT, PITCH_LIMIT);
       setTip(null);
       return;
     }
@@ -848,10 +1003,10 @@ export default function Globe({
     const rect = canvas.getBoundingClientRect();
     const w = rect.width;
     const h = rect.height;
-    const r = Math.min(w, h) * 0.4;
+    const r = Math.min(w, h) * 0.4 * goalRef.current.zoom;
     const cx = w / 2;
     const cy = h / 2;
-    const project = makeProjector(state.current.rotation, cx, cy);
+    const project = makeProjector(camRef.current.yaw, camRef.current.pitch, cx, cy);
     // Hit-testing ignores the context transform, so convert CSS pixels to backing-store pixels.
     const scale = canvas.width / rect.width;
     for (const country of COUNTRIES_V) {
@@ -859,7 +1014,14 @@ export default function Globe({
       const path = new Path2D();
       countryPath(path, country, project, cx, cy, r);
       if (ctx.isPointInPath(path, x * scale, y * scale)) {
-        chooseFocus(focus === country.code ? null : country.code);
+        const next = focus === country.code ? null : country.code;
+        chooseFocus(next);
+        if (next) {
+          flyToAngle(Math.asin(country.label.y) / DEG, Math.atan2(country.label.x, country.label.z) / DEG, 1.9);
+          setView({ country: next, city: null, zoom: 1.9 });
+        } else {
+          resetCamera();
+        }
         return;
       }
     }
@@ -868,7 +1030,14 @@ export default function Globe({
   const onDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (variant !== "expanded") return;
     suppressClick.current = false;
-    drag.current = { active: true, startX: e.clientX, startRotation: state.current.rotation, moved: false };
+    drag.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      startYaw: goalRef.current.yaw,
+      startPitch: goalRef.current.pitch,
+      moved: false,
+    };
     e.currentTarget.setPointerCapture(e.pointerId);
     setTip(null);
   };
@@ -894,8 +1063,7 @@ export default function Globe({
     const y = e.clientY - rect.top;
     for (const d of dots.current) {
       if (Math.hypot(d.x - x, d.y - y) <= d.r + 7) {
-        const code = d.pt.country.toUpperCase();
-        chooseFocus(focus === code ? null : code);
+        selectPoint(d.pt);
         return;
       }
     }
@@ -920,6 +1088,62 @@ export default function Globe({
           onPointerLeave={() => { hoverRef.current = false; if (!drag.current.active) setTip(null); }}
           style={{ cursor: variant === "expanded" ? "grab" : tip ? "pointer" : "default" }}
         />
+        {variant === "expanded" && (
+          <>
+            <div className="globe-zoom" role="group" aria-label="Map camera">
+              <button className="icon-btn" aria-label="Zoom in" title="Zoom in (+)" onClick={() => setZoom(goalRef.current.zoom * 1.4)}>
+                <Icon name="plus" />
+              </button>
+              <button className="icon-btn" aria-label="Zoom out" title="Zoom out (−)" onClick={() => setZoom(goalRef.current.zoom / 1.4)}>
+                <Icon name="minus" />
+              </button>
+              <button
+                className="icon-btn"
+                aria-label="Reset the map"
+                title="Back to the world (0)"
+                onClick={() => {
+                  chooseFocus(null);
+                  resetCamera();
+                }}
+              >
+                <Icon name="refresh" />
+              </button>
+            </div>
+            {(view.country || view.city || view.zoom > 1.02) && (
+              <nav className="globe-crumbs" aria-label="Map location">
+                <button
+                  onClick={() => {
+                    chooseFocus(null);
+                    resetCamera();
+                  }}
+                >
+                  World
+                </button>
+                {view.country && (
+                  <>
+                    <span aria-hidden="true">/</span>
+                    <button
+                      disabled={!view.city}
+                      onClick={() => {
+                        goalRef.current.zoom = 1.9;
+                        setView((v) => ({ ...v, city: null, zoom: 1.9 }));
+                      }}
+                    >
+                      {countryName(view.country)}
+                    </button>
+                  </>
+                )}
+                {view.city && (
+                  <>
+                    <span aria-hidden="true">/</span>
+                    <span className="globe-crumb-now">{view.city}</span>
+                  </>
+                )}
+                <span className="globe-zoom-label">{view.zoom.toFixed(1)}×</span>
+              </nav>
+            )}
+          </>
+        )}
         <div className="globe-hud" aria-hidden="true">
           <span className="globe-hud-rate">
             <b>{liveStats.perMin}</b> attacks/min
@@ -994,7 +1218,9 @@ export default function Globe({
       </div>
     </>
   );
-}
+});
+
+export default Globe;
 
 function shownTotal(counts: Record<GroupID, number>): number {
   return GROUPS.reduce((n, g) => n + counts[g.id], 0);

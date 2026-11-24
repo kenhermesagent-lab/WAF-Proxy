@@ -182,10 +182,12 @@ export function Info({ label, children }: { label: string; children: ReactNode }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function useDialogFocus(active: boolean, onClose?: () => void) {
+function useDialogFocus(active: boolean, onClose?: () => void, onEscape?: () => boolean) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const escapeRef = useRef(onEscape);
+  escapeRef.current = onEscape;
   useEffect(() => {
     if (!active || !ref.current) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -193,9 +195,18 @@ function useDialogFocus(active: boolean, onClose?: () => void) {
     const first = root.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? root).focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && closeRef.current) {
-        e.stopPropagation();
-        closeRef.current();
+      if (e.key === "Escape") {
+        // A panel may own Escape for a step-back (the attack map walks back a
+        // camera level) and only let the close happen at the top level.
+        if (escapeRef.current?.()) {
+          e.stopPropagation();
+          e.preventDefault();
+          return;
+        }
+        if (closeRef.current) {
+          e.stopPropagation();
+          closeRef.current();
+        }
         return;
       }
       if (e.key !== "Tab") return;
@@ -250,6 +261,7 @@ export function Drawer({
   children,
   footer,
   wide,
+  onEscape,
 }: {
   title: ReactNode;
   sub?: ReactNode;
@@ -257,8 +269,11 @@ export function Drawer({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  // Returns true when the panel handled Escape itself (a step back) and the
+  // drawer should stay open.
+  onEscape?: () => boolean;
 }) {
-  const ref = useDialogFocus(true, onClose);
+  const ref = useDialogFocus(true, onClose, onEscape);
   useEffect(() => {
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";

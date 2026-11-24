@@ -53,7 +53,8 @@ func permissionFor(r *http.Request) string {
 	case strings.HasPrefix(path, "/api/certs"):
 		area = "certificates"
 	case strings.HasPrefix(path, "/api/feeds"), strings.HasPrefix(path, "/api/agents"),
-		strings.HasPrefix(path, "/api/intel"), strings.HasPrefix(path, "/api/crowdsec"),
+		strings.HasPrefix(path, "/api/intel"), strings.HasPrefix(path, "/api/threat-intel"),
+		strings.HasPrefix(path, "/api/crowdsec"),
 		strings.HasPrefix(path, "/api/bundles"):
 		area = "sources"
 	case strings.HasPrefix(path, "/api/policies"), strings.HasPrefix(path, "/api/bans"),

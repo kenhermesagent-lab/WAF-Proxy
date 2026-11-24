@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { countryFlag, countryName } from "../countries";
-import type { IPDetail, IntelLookup } from "../types";
+import type { IPDetail, IntelLookup, ThreatLookup } from "../types";
+import { abuseSummary, abuseTone } from "../threatintel";
 import { Badge, Drawer, Empty, Skeleton, confirmDialog, errText, fmtAgo, fmtTime } from "../ui";
 import IncidentReport, { reportFilename } from "./IncidentReport";
 
@@ -34,6 +35,7 @@ export default function SourceDrawer({
   const [hours, setHours] = useState(24);
   const [detail, setDetail] = useState<IPDetail | null>(null);
   const [intel, setIntel] = useState<IntelLookup | null>(null);
+  const [third, setThird] = useState<ThreatLookup | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("Manual ban from source investigation");
@@ -74,6 +76,22 @@ export default function SourceDrawer({
       .get<IntelLookup>(`/api/intel/lookup?ip=${encodeURIComponent(ip)}`)
       .then((r) => {
         if (alive) setIntel(r);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [ip]);
+
+  // The registry lookups are supplementary: a console with no key, no network
+  // or no RDAP answer simply shows what it has.
+  useEffect(() => {
+    let alive = true;
+    setThird(null);
+    api
+      .get<ThreatLookup>(`/api/threat-intel/lookup?ip=${encodeURIComponent(ip)}`)
+      .then((r) => {
+        if (alive) setThird(r);
       })
       .catch(() => undefined);
     return () => {
@@ -272,6 +290,81 @@ export default function SourceDrawer({
               ) : null}
             </div>
           ) : null}
+
+          {third?.rdap && (
+            <div className="intel-card">
+              <div className="intel-card-head">
+                <span>Third-party lookups</span>
+                <span className="faint small-text">
+                  {third.cached ? "cached" : "live"} · {fmtAgo(third.at)}
+                </span>
+              </div>
+              <div className="intel-grid">
+                <div className="intel-block">
+                  <div className="intel-block-head">
+                    <span>AbuseIPDB</span>
+                    {third.abuse && !third.abuse.error ? (
+                      <Badge tone={abuseTone(third.abuse.score)}>{third.abuse.score}% confidence</Badge>
+                    ) : (
+                      <Badge tone="warn">no report</Badge>
+                    )}
+                  </div>
+                  <p className="intel-line">{abuseSummary(third.abuse)}</p>
+                  {third.abuse?.usage_type && (
+                    <p className="intel-line">
+                      {third.abuse.isp || "unknown network"} · {third.abuse.usage_type}
+                    </p>
+                  )}
+                  {third.quota && (
+                    <p className="intel-quota">
+                      {third.quota.remaining.toLocaleString()} / {third.quota.limit.toLocaleString()} checks left
+                      {third.quota.reset_at ? ` · resets ${third.quota.reset_at.slice(11, 16)} UTC` : ""}
+                    </p>
+                  )}
+                </div>
+                <div className="intel-block">
+                  <div className="intel-block-head">
+                    <span>RDAP</span>
+                    {third.rdap.registry && <span className="faint small-text">{third.rdap.registry}</span>}
+                  </div>
+                  {third.rdap.error ? (
+                    <p className="intel-line">{third.rdap.error}</p>
+                  ) : (
+                    <>
+                      {third.rdap.network && (
+                        <div className="intel-kv"><span>Network</span><b className="mono">{third.rdap.network}</b></div>
+                      )}
+                      {third.rdap.name && (
+                        <div className="intel-kv"><span>Name</span><b className="mono">{third.rdap.name}</b></div>
+                      )}
+                      {third.rdap.org && (
+                        <div className="intel-kv"><span>Organisation</span><b>{third.rdap.org}</b></div>
+                      )}
+                      {third.rdap.abuse && (
+                        <div className="intel-kv">
+                          <span>Abuse</span>
+                          <b>
+                            {/* RDAP is a third party: only a plain address becomes a link. */}
+                            {/^[^\s@:]+@[^\s@:]+$/.test(third.rdap.abuse) ? (
+                              <a href={`mailto:${third.rdap.abuse}`}>{third.rdap.abuse}</a>
+                            ) : (
+                              third.rdap.abuse
+                            )}
+                          </b>
+                        </div>
+                      )}
+                      {third.rdap.registered && (
+                        <div className="intel-kv"><span>Registered</span><b>{third.rdap.registered}</b></div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+              <p className="faint small-text" style={{ margin: "8px 0 0" }}>
+                Sent to the registries for this lookup only. Cache holds an answer for six hours.
+              </p>
+            </div>
+          )}
 
           {detail.events.length === 0 ? (
             <Empty title="No requests in this window" icon="logs">

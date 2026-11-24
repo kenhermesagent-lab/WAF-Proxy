@@ -3,8 +3,9 @@ import { api } from "../api";
 import Icon from "../components/Icon";
 import { COFFEE_URL, DOCS_URL } from "../links";
 import { NAV } from "../nav";
-import { Badge, Field, PageHead, PageTabs, SaveBar, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
-import type { AuditEntry, CrowdSecStatus, GeoIPStatus, Me } from "../types";
+import { Badge, Field, PageHead, PageTabs, SaveBar, Switch, TableWrap, confirmDialog, errText, fmtAgo, fmtTime } from "../ui";
+import type { AuditEntry, CrowdSecStatus, GeoIPStatus, IntelStatus, Me } from "../types";
+import { describePlan, quotaView } from "../threatintel";
 import BackupCard from "../components/BackupCard";
 import UpdatesPage from "./Updates";
 import Readiness from "./Readiness";
@@ -59,6 +60,9 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   const [saving, setSaving] = useState(false);
   const [cs, setCs] = useState<CrowdSecStatus | null>(null);
   const [geo, setGeo] = useState<GeoIPStatus | null>(null);
+  const [intel, setIntel] = useState<IntelStatus | null>(null);
+  const [intelKey, setIntelKey] = useState("");
+  const [intelBusy, setIntelBusy] = useState(false);
   const [installingGeo, setInstallingGeo] = useState(false);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [chain, setChain] = useState("");
@@ -93,6 +97,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
 
   const loadHA = () => api.get<HAInfo>("/api/ha").then(setHaInfo).catch(() => setHaInfo(null));
   const loadGeo = () => api.get<GeoIPStatus>("/api/geoip").then(setGeo).catch(() => undefined);
+  const loadIntel = () => api.get<IntelStatus>("/api/threat-intel").then(setIntel).catch(() => undefined);
   const loadAudit = () =>
     api.get<AuditEntry[]>("/api/audit").then((r) => setAudit((r || []).slice(0, 20))).catch(() => undefined);
 
@@ -109,6 +114,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
     loadHA();
     api.get<CrowdSecStatus>("/api/crowdsec/status").then(setCs).catch(() => undefined);
     loadGeo();
+    loadIntel();
     loadAudit();
   }, []);
 
@@ -139,6 +145,37 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
       onError(errText(e));
     } finally {
       setInstallingGeo(false);
+    }
+  };
+
+  const saveIntelKey = async () => {
+    if (!intelKey.trim()) return;
+    setIntelBusy(true);
+    try {
+      // The save checks the key against AbuseIPDB, so a refusal here is the
+      // API's answer and nothing is stored.
+      await api.put("/api/threat-intel", { abuseipdb_key: intelKey.trim() });
+      setIntelKey("");
+      onOK("AbuseIPDB key saved; the allowance is read from the API's response headers");
+      loadIntel();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setIntelBusy(false);
+    }
+  };
+
+  const removeIntelKey = async () => {
+    if (!(await confirmDialog("Lookups stop using AbuseIPDB until a key is saved again. RDAP keeps working without a key.", { title: "Remove key", confirmLabel: "Remove" }))) return;
+    setIntelBusy(true);
+    try {
+      await api.put("/api/threat-intel", { abuseipdb_key: "" });
+      onOK("AbuseIPDB key removed");
+      loadIntel();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setIntelBusy(false);
     }
   };
 
@@ -577,6 +614,95 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             Free DB-IP Lite databases are licensed under CC BY 4.0. <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a>.
           </p>
           </fieldset>
+        </section>
+
+        <section id="threat-intel" hidden={shown !== "threat-intel"} className="settings-section card">
+          <div className="card-head">
+            <h2>Threat intelligence</h2>
+            <div className="actions">
+              <button className="small" onClick={loadIntel}>Refresh</button>
+            </div>
+          </div>
+          <p className="muted small-text">
+            Third-party enrichment for a source address. Nothing is sent until an operator opens a source, and
+            answers are cached per address so a busy map does not spend the allowance.
+          </p>
+          <div className="bar-row">
+            <div>
+              RDAP / whois
+              <div className="faint small-text">Network, organisation, abuse contact and registration date, asked of the registry that owns the address.</div>
+            </div>
+            <div>
+              <Badge tone="ok">on · no key</Badge>
+              <span className="faint small-text" style={{ marginLeft: 8 }}>cached with the lookup</span>
+            </div>
+          </div>
+          <div className="bar-row">
+            <div>
+              AbuseIPDB
+              <div className="faint small-text">Confidence score, report count and the abuse categories other operators reported.</div>
+            </div>
+            <div>
+              {intel?.configured ? (
+                <Badge tone="ok">connected · {intel.key_tail}</Badge>
+              ) : (
+                <Badge tone="warn">no key</Badge>
+              )}
+            </div>
+          </div>
+
+          {!intel?.configured ? (
+            <div className="intel-key-row">
+              <input
+                type="password"
+                value={intelKey}
+                onChange={(e) => setIntelKey(e.target.value)}
+                placeholder="Paste your AbuseIPDB API key"
+                aria-label="AbuseIPDB API key"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button className="small primary" onClick={saveIntelKey} disabled={intelBusy || !intelKey.trim()}>
+                {intelBusy ? "Checking…" : "Save key"}
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="intel-plan">
+                <span className="intel-plan-name">{describePlan(intel.plan, intel.quota)}</span>
+                {intel.quota && (
+                  <span className="faint small-text">
+                    remaining {intel.quota.remaining.toLocaleString()} of {intel.quota.limit.toLocaleString()}
+                    {intel.quota.reset_at ? ` · resets ${intel.quota.reset_at.slice(11, 16)} UTC` : ""}
+                  </span>
+                )}
+              </div>
+              {intel.quota && (() => {
+                const q = quotaView(intel.quota);
+                return q ? (
+                  <div className="intel-meter" role="img" aria-label={`${q.used.toLocaleString()} of ${q.limit.toLocaleString()} checks used today`}>
+                    <i style={{ width: `${Math.min(100, q.percent)}%` }} />
+                  </div>
+                ) : null;
+              })()}
+              <div className="row between" style={{ marginTop: 8 }}>
+                <a className="link-button" href="https://www.abuseipdb.com/account/api" target="_blank" rel="noreferrer">
+                  <Icon name="external" size={14} /> Manage the key at AbuseIPDB
+                </a>
+                <button className="small" onClick={removeIntelKey} disabled={intelBusy}>Remove key</button>
+              </div>
+            </>
+          )}
+          <p className="faint small-text">
+            Plan and allowance come from the key's own response headers — <span className="mono">X-RateLimit-Limit</span>,{" "}
+            <span className="mono">Remaining</span> and <span className="mono">Reset</span> — so a paid plan shows its real
+            ceiling. AbuseIPDB does not name the plan, so the tier above is inferred from that limit. The free Individual
+            plan allows 1,000 checks a day; a lookup spends one check per address every {intel?.cache_hours ?? 6} hours.
+          </p>
+          <p className="faint small-text">
+            The key is sealed with this console's master key and only ever leaves the server as the request header
+            AbuseIPDB expects; the page receives a masked tail.
+          </p>
         </section>
 
         <section id="activity" hidden={shown !== "activity"} className="settings-section card">

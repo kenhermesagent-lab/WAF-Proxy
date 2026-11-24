@@ -450,6 +450,7 @@ CREATE TABLE IF NOT EXISTS events (
   host TEXT NOT NULL DEFAULT '',
   src_ip TEXT NOT NULL DEFAULT '',
   country TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT '',
   asn INTEGER NOT NULL DEFAULT 0,
   lat REAL NOT NULL DEFAULT 0,
   lon REAL NOT NULL DEFAULT 0,
@@ -667,6 +668,7 @@ func (s *Store) migrate() error {
 // so every new column needs an explicit, idempotent step here.
 func (s *Store) migrateAddColumns() error {
 	steps := []struct{ table, column, ddl string }{
+		{"events", "city", `ALTER TABLE events ADD COLUMN city TEXT NOT NULL DEFAULT ''`},
 		{"users", "totp_last_step", `ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
 		{"users", "role_id", `ALTER TABLE users ADD COLUMN role_id INTEGER NOT NULL DEFAULT 0`},
 		// Password-reset mail goes to the administrator's own address.

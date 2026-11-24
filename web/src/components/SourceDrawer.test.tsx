@@ -120,4 +120,45 @@ describe("SourceDrawer", () => {
     await screen.findByText("42");
     expect(screen.queryByRole("button", { name: "Ban 24h" })).toBeNull();
   });
+
+  // The drawer shows the registry answer and the allowance the key reported,
+  // not a plan guessed in the browser.
+  it("shows RDAP and the abuse report for the source", async () => {
+    get.mockImplementation(async (path: string) => {
+      if (path.startsWith("/api/ips/")) return detail;
+      if (path.startsWith("/api/intel/lookup")) return { ip: "203.0.113.7", feed: null, ban: null };
+      if (path.startsWith("/api/threat-intel/lookup")) {
+        return {
+          ip: "203.0.113.7",
+          at: "2026-11-24T18:00:00Z",
+          cached: false,
+          rdap: {
+            network: "5.42.64.0 – 5.42.64.255",
+            name: "SELECTEL-NET",
+            org: "Selectel",
+            abuse: "abuse@selectel.ru",
+            registered: "2012-06-14",
+            registry: "RIPE NCC",
+          },
+          abuse: {
+            score: 100,
+            reports: 3410,
+            reporters: 486,
+            usage_type: "Data Center/Web Hosting/Transit",
+            isp: "Selectel",
+          },
+          quota: { limit: 1000, remaining: 871, reset_at: "2026-11-25T00:00:00Z" },
+        };
+      }
+      return {};
+    });
+    renderDrawer();
+
+    expect(await screen.findByText("RIPE NCC")).toBeTruthy();
+    expect(screen.getByText("100% confidence")).toBeTruthy();
+    expect(screen.getByText("SELECTEL-NET")).toBeTruthy();
+    expect(screen.getByText("abuse@selectel.ru")).toBeTruthy();
+    expect(screen.getByText(/871 \/ 1,000 checks left/)).toBeTruthy();
+    expect(screen.getByText(/3,410 reports · 486 reporters/)).toBeTruthy();
+  });
 });

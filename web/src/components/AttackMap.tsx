@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { countryFlag, countryName } from "../countries";
 import { nearMissTotal, reachedApps, reachedGlobePoints, statusTone } from "../reach";
 import type { Event, GlobeHit, GlobePoint, Reach } from "../types";
 import { Badge, Drawer, Empty, Skeleton, fmtAgo, fmtTime } from "../ui";
-import Globe from "./Globe";
+import Globe, { type GlobeHandle } from "./Globe";
 
 type Tab = "blocked" | "reached" | "near";
 
@@ -33,6 +33,9 @@ export default function AttackMap({
   const [tab, setTab] = useState<Tab>("blocked");
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
+  // Escape walks the map back one level (city, then country, then the world)
+  // before it closes the drawer.
+  const globe = useRef<GlobeHandle | null>(null);
 
   const regions = useMemo(() => {
     const map = new Map<string, { country: string; count: number; category: string; hosts: Set<string> }>();
@@ -118,6 +121,7 @@ export default function AttackMap({
       }
       sub={`${total.toLocaleString()} blocked · ${reachedCount.toLocaleString()} reached your applications in the last ${hours} hour${hours === 1 ? "" : "s"}`}
       onClose={onClose}
+      onEscape={() => globe.current?.stepBack() ?? false}
       footer={<button onClick={onClose}>Close</button>}
     >
       <div className="map-shell">
@@ -130,9 +134,10 @@ export default function AttackMap({
                 </button>
               ))}
             </div>
-            <span className="faint small-text">Drag to rotate · click a country or hotspot to isolate it.</span>
+            <span className="faint small-text">Drag to orbit · scroll to zoom · click a hotspot to fly to its city, then Esc to step back.</span>
           </div>
           <Globe
+            ref={globe}
             points={points}
             hits={hits}
             reached={reachedPoints}
