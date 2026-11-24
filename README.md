@@ -271,9 +271,9 @@ page.*
 
 ### Console tour
 
-Each image is a page of the demo install the guides were written against, with sample data.
-The captures were taken on v1.48.8, so the sidebar has since gained **Sites**, **High
-availability** and the tenant switcher; the pages and their controls are the ones listed above.
+Each image is a page of the demo install the guides were written against, with sample data:
+two tenant sites, nine proxies, certificates, bans, threat feeds and a week of traffic. The
+captures were taken on **v1.62.2**, so the sidebar and the pages match this release.
 
 <table>
 <tr>
@@ -310,7 +310,10 @@ availability** and the tenant switcher; the pages and their controls are the one
 </tr>
 <tr>
 <td width="50%"><img src="docs/screenshots/updates.png" alt="Updates: application and host packages" width="100%"><br><sub><b>Updates</b> — application and host package versions, and the restart that applies a rebuild.</sub></td>
-<td width="50%"><b>Sites</b> and <b>High availability</b> are newer than these captures and are not pictured; see their rows above and the guides linked below.</td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/sites.png" alt="Sites: every tenant site, its console host and its hostnames" width="100%"><br><sub><b>Sites</b> — the sites this install serves, each with its own console host and hostnames.</sub></td>
+<td width="50%"><img src="docs/screenshots/ha.png" alt="High availability: cluster state and node pairing" width="100%"><br><sub><b>High availability</b> — cluster status and the pairing flow for a second node.</sub></td>
 </tr>
 </table>
 
