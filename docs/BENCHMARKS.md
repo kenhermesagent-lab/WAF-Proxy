@@ -53,6 +53,11 @@ second on this CPU before TLS, proxying and event writes. That is adequate for a
 edge, but it is the first stage to profile on a busier host. On real hardware measure with
 your own workload; the microbenchmark is not a capacity guarantee.
 
+The gate was re-run for 1.62.0 with `make perf-gate`: 1.03 ms, 0.93 ms and 0.88 ms for the three
+hypotheses at 2,693/2,569/2,512 allocations, inside the 2× time and 25 % allocation tolerance. The
+baseline in `perf/baseline.json` stays at the faster recorded run — re-recording on a busier machine
+would only widen the gate.
+
 ## End-to-end proxy pipeline (`cmd/perftool -proxy`)
 
 The real `proxy.Server` — TLS listener, routing, cache and event writer into a throwaway SQLite

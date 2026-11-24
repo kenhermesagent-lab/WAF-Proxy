@@ -12,9 +12,9 @@ schema and the unit files.
 
 | Version | Supported |
 |---|---|
-| 1.61.x | Yes |
-| 1.60.x | Yes — until 1.62.0 ships |
-| 1.59.x and older | No — upgrade first (`deploy/install.sh`, or the Update button) |
+| 1.62.x | Yes |
+| 1.61.x | Yes — until 1.63.0 ships |
+| 1.60.x and older | No — upgrade first (`deploy/install.sh`, or the Update button) |
 
 The version you run is shown on **Updates** and in `GET /api/health`. If a report only
 reproduces on an unsupported version, the first step is to confirm it on the newest release.

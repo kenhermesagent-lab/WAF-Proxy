@@ -12,7 +12,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.61.0] — unreleased
+## [1.62.0] — 2026-11-24
+
+### Changed
+
+- **Capacity is visible instead of guessed.** `GET /api/capacity` reports what the node is holding
+  and what it refused: requests in flight against the cap, the queue, buffered bytes, refusals split
+  by reason (`bytes`, `queue`, `site`, `client`), the cache's bytes, hits and misses per site, the
+  number of upstream pools, and heap and GC counters. `/metrics` exports the same numbers as
+  `wafproxy_inflight_requests`, `wafproxy_queued_requests`, `wafproxy_buffer_bytes`,
+  `wafproxy_shed_total{reason}`, `wafproxy_cache_{bytes,hits_total,misses_total}{site}`,
+  `wafproxy_heap_bytes` and `wafproxy_gc_cycles_total`. The dashboard gains a Capacity card with the
+  in-flight meter, the queue, the cache hit rate and a link to the setting to raise when anything was
+  shed. A tenant console sees its own routes only; the budget itself is process-wide. Refusals already
+  logged `stage=capacity`, and the report is the aggregate of them.
+
+### Added
+
+- **A cached hit can be answered before the WAF, per site.** With `cache_pre_waf=1` a cacheable GET
+  that has a fresh entry is served after screening but before the CRS: bans, the allow-list, the
+  rate limit and the bot filter still apply, while the CRS request rules, per-IP WAF rules, bot
+  challenge and access gate do not see it. Off by default; the API refuses the setting on a site
+  with an access gate or a WAF mode other than block/detect, so it cannot quietly disable a
+  control the operator asked for. On the test host a cached 1 KiB asset served 38,459 rps against
+  8,720 rps when every hit was inspected.
+- **Sizing and the shedding answer are written down.** `docs/OPERATIONS.md` pairs
+  `WAFPROXY_MAX_BUFFERED_BYTES` with a sizing table and a checklist that maps each refusal counter to
+  the setting to change, `docs/CONFIGURATION.md` lists the per-site capacity settings (`queue_ms`,
+  `body_timeout_s`, `cache_pre_waf`, `upstream_idle_conns`), and the README no longer lists brotli as
+  missing or implies relay-class throughput for inspected requests.
+
+## [1.61.0] — 2026-11-24
 
 ### Changed
 
@@ -52,23 +82,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
-- **A cached hit can be answered before the WAF, per site.** With `cache_pre_waf=1` a cacheable GET
-  that has a fresh entry is served after screening but before the CRS: bans, the allow-list, the
-  rate limit and the bot filter still apply, while the CRS request rules, per-IP WAF rules, bot
-  challenge and access gate do not see it. Off by default; the API refuses the setting on a site
-  with an access gate or a WAF mode other than block/detect, so it cannot quietly disable a
-  control the operator asked for. On the test host a cached 1 KiB asset served 38,459 rps against
-  8,720 rps when every hit was inspected.
-- **Capacity is visible instead of guessed.** `GET /api/capacity` reports what the node is holding
-  and what it refused: requests in flight against the cap, the queue, buffered bytes, refusals split
-  by reason (`bytes`, `queue`, `site`, `client`), the cache's bytes, hits and misses per site, the
-  number of upstream pools, and heap and GC counters. `/metrics` exports the same numbers as
-  `wafproxy_inflight_requests`, `wafproxy_queued_requests`, `wafproxy_buffer_bytes`,
-  `wafproxy_shed_total{reason}`, `wafproxy_cache_{bytes,hits_total,misses_total}{site}`,
-  `wafproxy_heap_bytes` and `wafproxy_gc_cycles_total`. The dashboard gains a Capacity card with the
-  in-flight meter, the queue, the cache hit rate and a link to the setting to raise when anything was
-  shed. A tenant console sees its own routes only; the budget itself is process-wide. Refusals already
-  logged `stage=capacity`, and the report is the aggregate of them.
 - **A capacity number instead of a guess.** `cmd/perftool -proxy` runs the real proxy — TLS
   listener, routing, cache and event writer — against stub upstreams with a keep-alive client
   fan-out, and records requests, rps, p50/p95/p99, shed count and peak RSS per mode in

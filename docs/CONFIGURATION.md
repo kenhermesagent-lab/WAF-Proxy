@@ -933,6 +933,22 @@ The update helper scripts under `deploy/` use their own `WAFPROXY_UPDATE_*` and
 `WAFPROXY_SELF_UPDATE_CONF` variables; see the comments in those scripts and
 [docs/install/08-upgrades-and-removal.md](install/08-upgrades-and-removal.md).
 
+### Per-site capacity settings
+
+Settings → Protection holds these. Each is that site's override; the process default applies when
+it is empty.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `queue_ms` | `WAFPROXY_QUEUE_MS` (250) | How long a request waits for budget before a 503; `0` refuses at once. |
+| `body_timeout_s` | `WAFPROXY_BODY_TIMEOUT` (30) | How long a client may take to send its body before a 408; `0` disables it. |
+| `cache_pre_waf` | off | Answers a cached GET after screening but before the CRS. Refused by the API on a site with an access gate or a WAF mode other than block/detect. |
+| `upstream_idle_conns` | 64 | Idle connections kept per upstream address (1–256), so a repeat request reuses one instead of dialling. |
+
+`GET /api/capacity` reports the numbers these produce — in flight against the cap, the queue,
+refusals by reason and the cache hit ratio — and the dashboard's Capacity card shows the same.
+See [Sizing the request budget](OPERATIONS.md#sizing-the-request-budget) before raising a limit.
+
 ## Data directory and headless commands
 
 The data directory holds `wafproxy.db`, `master.key`, backups and internal CA material. The

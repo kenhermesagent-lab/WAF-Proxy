@@ -1,7 +1,7 @@
 # Plan A — Fat node: "one box absorbs the whole rack"
 
-Status: **approved 2026-11-23, in build.** Built on its own branch and merged to `main`
-once, after the last part passes review.
+Status: **built 2026-11-24 on its own branch, awaiting review.** Merged to `main` once,
+after the last part passes review.
 Owner: one agent, one branch. Window: **three weeks** of build (15 task-days), then one
 review-and-merge pass. Releases: **1.61.0**, **1.62.0**. Build loop: the roadmap's
 [Post-1.60 scale track](../ROADMAP.md).
@@ -18,7 +18,7 @@ Companion plan: [Plan C — game-server streaming](2026-11-23-scale-plan-c-game-
 | A5 — cache-first | **done** 2026-11-23: `cache_pre_waf` per site, API guard, measured in `docs/BENCHMARKS.md` |
 | A6 — transports | **done** 2026-11-24: per-upstream pools kept across reloads, caching resolver, `upstream_idle_conns` |
 | A7 — observability, console | **done** 2026-11-24: `/api/capacity`, capacity metrics, dashboard card |
-| A8 — docs and releases | next |
+| A8 — docs and releases | **done** 2026-11-24: sizing and shedding docs, gate re-run, 1.61.0 + 1.62.0 cut, console bundle rebuilt |
 
 ## Why this plan exists
 
