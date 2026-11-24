@@ -121,8 +121,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |-
           set -euo pipefail
+          # The written CHANGELOG section is the release body; GitHub's generated
+          # notes would publish a commit list instead of what the release says.
+          version=${TAG#v}
+          notes="${RUNNER_TEMP}/release-notes-${TAG}.md"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { inside = 1; next }
+            inside && /^## \[/ { exit }
+            inside && !started && $0 ~ /^[[:space:]]*$/ { next }
+            inside { started = 1; line[++n] = $0; if ($0 ~ /[^[:space:]]/) last = n }
+            END { for (i = 1; i <= last; i++) print line[i] }
+          ' CHANGELOG.md >"$notes"
+          if [[ ! -s $notes ]]; then
+            echo "CHANGELOG.md has no section for ${TAG}, so there are no notes to publish" >&2
+            exit 1
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
+            # Re-runs refresh the body, so a release made before this rule carries
+            # the written notes too.
+            gh release edit "$TAG" --notes-file "$notes"
             gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$TAG" dist/* --verify-tag --generate-notes --title "WAF-Proxy ${TAG#v}"
+            gh release create "$TAG" dist/* --verify-tag --notes-file "$notes" --title "WAF-Proxy ${TAG#v}"
           fi
