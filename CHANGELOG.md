@@ -12,10 +12,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [Unreleased]
+## [1.65.0] — 2026-11-24
 
 ### Added
 
+- **Each streaming service has its own tab.** A strip under the Proxies tabs lists every
+  forwarder in the catalog, and the page shows only the card, status and connecting guide of the
+  one selected, so Jellyfin's settings no longer sit under Plex's. A dot marks the forwarders that
+  are on, the strip scrolls sideways, and the page opens on the first enabled service.
+- **Enabling a forwarder opens the port on the host firewall.** firewalld gets
+  `--permanent --add-port` for the listen range and a reload, ufw gets `allow <range>/<proto>`. The
+  ports a save opened are recorded beside the settings, so moving a card to another port or
+  switching it off closes exactly what this console opened and leaves hand-written rules alone. A
+  container with host networking shares those rules, and when neither tool is reachable the save
+  still succeeds and the page says which range to open by hand.
 - **The release-tag rules cannot drift from the runbook.** `deploy/check-tags-docs_test.sh` maps
   every refusal `deploy/check-tags.sh` and `scripts/release.sh` can print to the sentence
   `docs/OPERATIONS.md` uses for it, and runs in `make verify-release` and first in the `release` job,
@@ -29,6 +39,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **A stopped forwarder could start a handler after its shutdown.** A connection accepted as the
+  service was rebinding or closing could register its relay after the shutdown had finished
+  waiting, leaking the stream; the handler now registers under a lock that the shutdown closes
+  first.
 - **The example env file names the release it ships with.** `VERSION` in `.env.example` still read
   `1.20.0`, so a fresh `deploy/.env` tagged the image and the compose service after a release from
   months ago.
@@ -41,6 +55,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Documentation
 
+- The streaming install guide and the configuration reference describe the per-service tabs and
+  say which firewall the console opens and which range to open when it cannot.
 - The Settings help explains the two backup counts: the schedule keeps its own number of files,
   the optional daily tier keeps a second count, and each prunes independently.
 - **The Docker install page shows how to run the published image.** It gives the `docker pull`

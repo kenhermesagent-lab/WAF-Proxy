@@ -46,6 +46,10 @@ const PROTOCOLS: { id: string; label: string }[] = [
   { id: "both", label: "TCP + UDP" },
 ];
 
+// tabLabel keeps a preset's short name in the tab strip: the card title carries
+// the full label and its examples.
+const tabLabel = (label: string) => label.replace(/\s*\(.*\)$/, "");
+
 const protocolLabel = (p: string) => (p === "both" ? "TCP+UDP" : p.toUpperCase());
 const usesUDP = (p: string) => p === "udp" || p === "both";
 
@@ -174,6 +178,9 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
   const [env, setEnv] = useState<{ path: string; error: string }>({ path: "", error: "" });
   const [saving, setSaving] = useState("");
   const [restarting, setRestarting] = useState(false);
+  // One service at a time: the strip under the page tabs picks which card shows.
+  const [active, setActive] = useState("");
+  const [fwNote, setFwNote] = useState<Record<string, string>>({});
 
   const load = (resetForms: boolean) =>
     api
@@ -184,6 +191,12 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
         if (resetForms) {
           setForms(Object.fromEntries(r.services.map((s) => [s.id, formFrom(s)])));
         }
+        // Land on the first forwarder that is on, so a returning operator sees
+        // what is running rather than the top of the catalog.
+        setActive((current) => {
+          if (current && r.services.some((s) => s.id === current)) return current;
+          return (r.services.find((s) => s.enabled) ?? r.services[0])?.id ?? "";
+        });
       })
       .catch((e) => onError(errText(e)));
 
@@ -233,11 +246,14 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
   const save = async (svc: StreamingService) => {
     setSaving(svc.id);
     try {
-      const r = await api.put<{ applied: boolean; error: string; env: { path: string; error: string } }>(
-        `/api/streaming/${svc.id}`,
-        forms[svc.id],
-      );
+      const r = await api.put<{
+        applied: boolean;
+        error: string;
+        env: { path: string; error: string };
+        firewall?: { detail: string; error?: string };
+      }>(`/api/streaming/${svc.id}`, forms[svc.id]);
       setEnv(r.env || { path: "", error: "" });
+      setFwNote((prev) => ({ ...prev, [svc.id]: r.firewall?.error ? `Firewall: ${r.firewall.error}` : r.firewall?.detail || "" }));
       if (r.applied) onOK(`${svc.label} forwarder saved and applied`);
       else onError(`Saved, but the ${svc.label} listener did not start: ${r.error}`);
       // Re-read this service only, so edits in another section survive.
@@ -261,6 +277,8 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
       onError(errText(e));
     }
   };
+
+  const selected = services.find((s) => s.id === active) ?? services[0];
 
   const card = (svc: StreamingService) => {
     const f = forms[svc.id];
@@ -508,6 +526,17 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
                 </div>
               </div>
               <div className="bar-row">
+                <div>Host firewall</div>
+                <div className={svc.firewall?.length ? "mono" : "muted"}>
+                  {svc.firewall?.length ? svc.firewall.join(", ") : "not opened by this console"}
+                </div>
+              </div>
+              {fwNote[svc.id] && (
+                <p className="muted" style={{ fontSize: 12, margin: "6px 0 10px" }}>
+                  {fwNote[svc.id]}
+                </p>
+              )}
+              <div className="bar-row">
                 <div>Protocol</div>
                 <div>
                   {protocolLabel(svc.protocol || "tcp")}
@@ -583,9 +612,43 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
     );
   };
 
+  const group = GROUPS.find((g) => g.id === selected?.group);
+
   return (
     <div className="grid" style={{ gap: 14 }}>
       {head && <PageHead sub="One front door for media servers and game servers, with the same source policy and bans as your web sites." />}
+
+      {services.length > 0 && (
+        <div className="tabs tabs-scroll" role="tablist" aria-label="Streaming services">
+          {services.map((s) => (
+            <button
+              key={s.id}
+              role="tab"
+              aria-selected={s.id === selected?.id}
+              className={`tab ${s.id === selected?.id ? "active" : ""}`}
+              onClick={() => setActive(s.id)}
+            >
+              {tabLabel(s.label)}
+              {s.enabled && <span className="count" title="enabled">●</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selected && (
+        <section className="grid" style={{ gap: 14 }}>
+          {group && (
+            <div>
+              <h2 style={{ margin: 0, fontSize: 16 }}>{group.title}</h2>
+              <p className="muted" style={{ margin: "4px 0 0", fontSize: 12, lineHeight: 1.6, maxWidth: "88ch" }}>
+                {group.sub}
+              </p>
+            </div>
+          )}
+          {card(selected)}
+        </section>
+      )}
+
       <Card title="How forwarding works">
         <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.7, maxWidth: "88ch" }}>
           Each enabled service gets its own listener on a port on this host, relaying bytes unchanged over TCP, UDP or
@@ -597,22 +660,6 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
           the ban lands.
         </p>
       </Card>
-
-      {GROUPS.map((g) => {
-        const group = services.filter((s) => s.group === g.id);
-        if (group.length === 0) return null;
-        return (
-          <section key={g.id} className="grid" style={{ gap: 14 }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 16 }}>{g.title}</h2>
-              <p className="muted" style={{ margin: "4px 0 0", fontSize: 12, lineHeight: 1.6, maxWidth: "88ch" }}>
-                {g.sub}
-              </p>
-            </div>
-            {group.map(card)}
-          </section>
-        );
-      })}
 
       <Card title="Restart WAF-Proxy">
         <p className="muted" style={{ fontSize: 13, marginTop: 0, maxWidth: "88ch" }}>
