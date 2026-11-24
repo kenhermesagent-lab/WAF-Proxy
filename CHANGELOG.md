@@ -38,6 +38,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - `/api/threat-intel` reads need the sources permission; saving a key is host-console only and audited as
   `threatintel.key`.
 
+## [1.67.4] — 2026-11-24
+
+### Fixed
+
+- **`PUT /api/policies/{id}` takes a partial payload.** The handler wrote every field from the body,
+  so `{"enabled":false}` failed with "unknown policy kind" — and had the kind defaulted, it would
+  have returned a proxy-scoped policy to `global`. Only the keys the request names are written now,
+  a named value is still validated (an emptied one is still rejected), and a scope other than
+  `proxy` drops the stored `proxy_id` instead of leaving a host on a policy that no longer applies
+  to it. Regression test: the toggle, a value edit and the rejected empty value.
+
+## [1.67.3] — 2026-11-24
+
+### Fixed
+
+- **The other partial updates that cleared what they did not name.** 1.67.1 fixed this on the WAF
+  profile; sweeping every `PUT` handler found the same pattern in four more, each now writing only
+  the keys the payload names, with an explicit empty value still clearing:
+  - `PUT /api/protection-profiles/{id}` overwrote every header switch from the payload, so turning
+    on HSTS dropped the CSP, nosniff, frame options and the rest.
+  - `PUT /api/access-profiles/{id}` overwrote the rule set and both attached profile IDs, so
+    changing the WAF profile emptied the lists that grant access.
+  - `PUT /api/lists/{id}` overwrote the addresses and countries together, so editing one cleared the
+    other.
+  - `PUT /api/feeds/{id}` wrote the whole row from the payload, so pausing a feed blanked its URL,
+    its action and the fetch state that decides whether it is healthy.
+  Each has a regression test, and so does the proxy upstream pool, which already merged by presence.
+- **Pausing a feed crashed a server without the intel manager.** `updateFeed` started the refresh
+  without the nil check `createFeed` has, so the goroutine dereferenced a nil manager. Found by the
+  new feed test.
+
 ## [1.67.2] — 2026-11-24
 
 ### Fixed
