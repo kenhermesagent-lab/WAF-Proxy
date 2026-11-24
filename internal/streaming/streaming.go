@@ -194,6 +194,7 @@ type Session struct {
 	PacketsIn  uint64    `json:"packets_in"`
 	PacketsOut uint64    `json:"packets_out"`
 	Started    time.Time `json:"started"`
+	LastSeen   time.Time `json:"last_seen"`
 }
 
 // Status is the configuration plus live state for one service. Active counts
@@ -204,23 +205,26 @@ type Status struct {
 	Label       string `json:"label"`
 	DefaultPort int    `json:"default_port"`
 	Config
-	Bound          bool      `json:"bound"`
-	ListenAddr     string    `json:"listen_addr"`
-	UpstreamBase   string    `json:"upstream_base"`
-	Active         int64     `json:"active"`
-	ActiveSessions int64     `json:"active_sessions"`
-	Total          uint64    `json:"total"`
-	Blocked        uint64    `json:"blocked"`
-	Banned         uint64    `json:"banned"`
-	Dropped        uint64    `json:"dropped"`
-	Oversize       uint64    `json:"oversize"`
-	BytesIn        uint64    `json:"bytes_in"`
-	BytesOut       uint64    `json:"bytes_out"`
-	PacketsIn      uint64    `json:"packets_in"`
-	PacketsOut     uint64    `json:"packets_out"`
-	Refused        uint64    `json:"refused"`
-	Sessions       []Session `json:"sessions"`
-	LastError      string    `json:"last_error"`
+	Bound          bool   `json:"bound"`
+	ListenAddr     string `json:"listen_addr"`
+	UpstreamBase   string `json:"upstream_base"`
+	Active         int64  `json:"active"`
+	ActiveSessions int64  `json:"active_sessions"`
+	Total          uint64 `json:"total"`
+	Blocked        uint64 `json:"blocked"`
+	Banned         uint64 `json:"banned"`
+	Dropped        uint64 `json:"dropped"`
+	Oversize       uint64 `json:"oversize"`
+	BytesIn        uint64 `json:"bytes_in"`
+	BytesOut       uint64 `json:"bytes_out"`
+	PacketsIn      uint64 `json:"packets_in"`
+	PacketsOut     uint64 `json:"packets_out"`
+	Refused        uint64 `json:"refused"`
+	// RefusedByReason is how many refusals each rule filed, keyed without the
+	// stream- prefix (ban, list, allow, cap); nil until the first refusal.
+	RefusedByReason map[string]uint64 `json:"refused_by_reason,omitempty"`
+	Sessions        []Session         `json:"sessions"`
+	LastError       string            `json:"last_error"`
 }
 
 // ConfigFromSettings rebuilds a saved configuration. Values live under
@@ -343,7 +347,7 @@ func (c Config) Normalize(def Service) (Config, error) {
 			}
 		}
 		if c.Port < 1024 && (!c.RequireAllow || len(c.Allow) == 0) {
-			return c, fmt.Errorf("port %d is below 1024: a UDP port there needs \"require an allow list\" and at least one allowed source", c.Port)
+			return c, fmt.Errorf("port %d is below 1024: a UDP port there needs \"Refuse sources that are not on an allow list\" and at least one allowed source", c.Port)
 		}
 	}
 
@@ -619,6 +623,11 @@ type runtime struct {
 	banned  atomic.Uint64
 	dropped atomic.Uint64
 	lastErr atomic.Value // string
+
+	// refMu guards the per-reason refusal counts, which are a map and so cannot
+	// ride the atomics above.
+	refMu       sync.Mutex
+	refByReason map[string]uint64
 }
 
 // tcpListener is one bound TCP port. A range listens on N ports and forwards
@@ -637,6 +646,9 @@ type relay struct {
 	addr     netip.Addr
 	port     int
 	started  time.Time
+	// lastSeen is the last read or write, so an idle stream shows separately
+	// from a busy one.
+	lastSeen atomic.Int64
 
 	bytesIn, bytesOut     atomic.Uint64
 	packetsIn, packetsOut atomic.Uint64
@@ -903,7 +915,7 @@ func (m *Manager) Statuses() []Status {
 			sessions = append(sessions, Session{
 				Addr: r.addr.String(), Port: r.port, Protocol: "TCP",
 				BytesIn: in, BytesOut: out, PacketsIn: pktsIn, PacketsOut: pktsOut,
-				Started: r.started,
+				Started: r.started, LastSeen: time.Unix(0, r.lastSeen.Load()),
 			})
 		}
 		rt.connMu.Unlock()
@@ -941,6 +953,7 @@ func (m *Manager) Statuses() []Status {
 			sessions = append(sessions, u.sessions()...)
 		}
 		st.Refused = st.Blocked + st.Banned
+		st.RefusedByReason = rt.refusalCounts()
 		st.Sessions = topSessions(sessions)
 		out = append(out, st)
 	}
@@ -950,15 +963,17 @@ func (m *Manager) Statuses() []Status {
 // maxStatusSessions caps the live session list the page renders.
 const maxStatusSessions = 50
 
-// topSessions keeps the busiest sessions, so the page can show top talkers
-// without a second call.
+// topSessions keeps the newest sessions, then ranks those by traffic, so the
+// page shows top talkers among the streams that are actually live without a
+// second call.
 func topSessions(all []Session) []Session {
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].BytesIn+all[i].BytesOut > all[j].BytesIn+all[j].BytesOut
-	})
+	sort.Slice(all, func(i, j int) bool { return all[i].LastSeen.After(all[j].LastSeen) })
 	if len(all) > maxStatusSessions {
 		all = all[:maxStatusSessions]
 	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].BytesIn+all[i].BytesOut > all[j].BytesIn+all[j].BytesOut
+	})
 	return all
 }
 
@@ -1034,6 +1049,7 @@ func (m *Manager) accept(rt *runtime, l *tcpListener) {
 		}
 		if rt.active.Load() >= int64(rt.cfg.MaxConns) {
 			rt.blocked.Add(1)
+			rt.countRefusal("stream-cap")
 			_ = conn.Close()
 			continue
 		}
@@ -1072,6 +1088,9 @@ func (m *Manager) accept(rt *runtime, l *tcpListener) {
 // refuseAt reports a refusal on one protocol and listen port: a range has a
 // socket per port, so the event names the port that was actually hit.
 func (m *Manager) refuseAt(rt *runtime, port int, method string, addr netip.Addr, kind, detail, list string) {
+	// Counted before the throttle: the export should show every refusal, not
+	// only the ones that earned an event row.
+	rt.countRefusal(kind)
 	emit, suppressed := m.refusals.allow(rt.def.ID, addr, m.now())
 	if !emit {
 		return
@@ -1100,6 +1119,7 @@ func (m *Manager) handle(rt *runtime, l *tcpListener, client net.Conn, addr neti
 	// relay in conns and cuts it, and one that landed during the dial is
 	// caught by the check itself.
 	r := &relay{client: client, upstream: upstream, addr: addr, port: l.port, started: time.Now()}
+	r.lastSeen.Store(time.Now().UnixNano())
 	rt.track(r)
 	defer rt.untrack(r)
 
@@ -1115,6 +1135,30 @@ func (m *Manager) handle(rt *runtime, l *tcpListener, client net.Conn, addr neti
 		_ = tcp.SetKeepAlivePeriod(30 * time.Second)
 	}
 	relayCopy(r)
+}
+
+// countRefusal files one refusal under the metric label without the stream-
+// prefix, so the export reads reason="cap" rather than reason="stream-cap".
+func (rt *runtime) countRefusal(kind string) {
+	rt.refMu.Lock()
+	if rt.refByReason == nil {
+		rt.refByReason = make(map[string]uint64)
+	}
+	rt.refByReason[strings.TrimPrefix(kind, "stream-")]++
+	rt.refMu.Unlock()
+}
+
+func (rt *runtime) refusalCounts() map[string]uint64 {
+	rt.refMu.Lock()
+	defer rt.refMu.Unlock()
+	if len(rt.refByReason) == 0 {
+		return nil
+	}
+	out := make(map[string]uint64, len(rt.refByReason))
+	for k, v := range rt.refByReason {
+		out[k] = v
+	}
+	return out
 }
 
 func (rt *runtime) setSource(p sourcePolicy) { rt.src.Store(&p) }
@@ -1142,8 +1186,8 @@ func (rt *runtime) untrack(r *relay) {
 // finishes, which is what closes a stream promptly. Reads are counted on the
 // socket they drain, so bytes in are client-to-server and bytes out the reverse.
 func relayCopy(r *relay) {
-	client := idleConn{Conn: r.client, bytes: &r.bytesIn, packets: &r.packetsIn}
-	upstream := idleConn{Conn: r.upstream, bytes: &r.bytesOut, packets: &r.packetsOut}
+	client := idleConn{Conn: r.client, bytes: &r.bytesIn, packets: &r.packetsIn, last: &r.lastSeen}
+	upstream := idleConn{Conn: r.upstream, bytes: &r.bytesOut, packets: &r.packetsOut, last: &r.lastSeen}
 	done := make(chan struct{}, 2)
 	go func() {
 		_, _ = io.Copy(upstream, client)
@@ -1166,6 +1210,7 @@ type idleConn struct {
 	net.Conn
 	bytes   *atomic.Uint64
 	packets *atomic.Uint64
+	last    *atomic.Int64
 }
 
 func (c idleConn) Read(b []byte) (int, error) {
@@ -1174,13 +1219,18 @@ func (c idleConn) Read(b []byte) (int, error) {
 	if n > 0 {
 		c.bytes.Add(uint64(n))
 		c.packets.Add(1)
+		c.last.Store(time.Now().UnixNano())
 	}
 	return n, err
 }
 
 func (c idleConn) Write(b []byte) (int, error) {
 	_ = c.Conn.SetWriteDeadline(time.Now().Add(idleTimeout))
-	return c.Conn.Write(b)
+	n, err := c.Conn.Write(b)
+	if n > 0 {
+		c.last.Store(time.Now().UnixNano())
+	}
+	return n, err
 }
 
 // describeRange names what the operator can reach: one address for a single

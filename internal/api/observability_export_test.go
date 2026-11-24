@@ -3,10 +3,15 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 )
 
 func TestPrometheusMetricsRequiresToken(t *testing.T) {
@@ -52,6 +57,50 @@ func TestPrometheusMetricsRequiresToken(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("metrics missing %q:\n%s", want, rec.Body.String())
 		}
+	}
+}
+
+// A bound forwarder appears in the export under its service id, and a service
+// that holds no socket does not appear at all.
+func TestPrometheusMetricsExportsForwarders(t *testing.T) {
+	srv, _, _, _ := newObservabilityServer(t)
+	srv.cfg.MetricsToken = "a-metrics-scrape-token-that-is-long-enough"
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+
+	m := streaming.New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	defer m.Close()
+	if err := m.Apply("plex", streaming.Config{Enabled: true, ListenIP: "127.0.0.1", Port: port,
+		Upstream: "127.0.0.1:1"}); err != nil {
+		t.Fatal(err)
+	}
+	srv.SetStreaming(m)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer "+srv.cfg.MetricsToken)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`wafproxy_stream_sessions{service="plex"} 0`,
+		`wafproxy_stream_bytes_total{service="plex",direction="out"} 0`,
+		`# TYPE wafproxy_stream_packets_total counter`,
+		`wafproxy_stream_cap_hits_total{service="plex"} 0`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("metrics missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `service="valheim"`) {
+		t.Fatalf("an unbound service was exported:\n%s", body)
 	}
 }
 

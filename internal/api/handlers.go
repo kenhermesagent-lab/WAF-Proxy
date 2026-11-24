@@ -1975,6 +1975,23 @@ func (s *Server) prometheusMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "# HELP wafproxy_ha_outbox_bytes Bytes of changes waiting to reach the standby.\n")
 		fmt.Fprintf(&b, "# TYPE wafproxy_ha_outbox_bytes gauge\nwafproxy_ha_outbox_bytes %d\n", bytes)
 	}
+	// Forwarders report only while they hold a socket: a saved-but-off game
+	// port is a configuration, not an idle listener.
+	if s.streams != nil {
+		var streams []metrics.StreamCounters
+		for _, st := range s.streams.Statuses() {
+			if !st.Bound {
+				continue
+			}
+			streams = append(streams, metrics.StreamCounters{
+				Service: st.ID, Sessions: st.Active + st.ActiveSessions,
+				BytesIn: st.BytesIn, BytesOut: st.BytesOut,
+				PacketsIn: st.PacketsIn, PacketsOut: st.PacketsOut,
+				Refused: st.RefusedByReason,
+			})
+		}
+		metrics.Streams(&b, streams)
+	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, _ = io.WriteString(w, b.String())
 }

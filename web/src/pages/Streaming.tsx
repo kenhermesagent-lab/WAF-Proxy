@@ -203,7 +203,11 @@ export default function Streaming({ onError, onOK, head = true }: { onError: (m:
       .get<AccessList[]>("/api/lists")
       .then(setLists)
       .catch((e) => onError(errText(e)));
-    const t = setInterval(refresh, 5000);
+    // Only a visible tab polls: a hidden one asking for counters every three
+    // seconds buys nothing.
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, 3000);
     return () => clearInterval(t);
   }, []);
 

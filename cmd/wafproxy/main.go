@@ -757,25 +757,9 @@ func run() error {
 	// Refusals and cut streams are written as ordinary events so they appear in
 	// Logs and on the attack globe next to the HTTP traffic. The payload carries
 	// the service and port, so the sink needs no manager lookup.
-	streams.SetEventSink(func(ev streaming.Event) {
-		kind := ev.Kind
-		if kind == "" {
-			kind = "stream-ban"
-		}
-		method := ev.Method
-		if method == "" {
-			method = "TCP"
-		}
-		row := model.Event{
-			TS: time.Now(), Host: ev.Service, SrcIP: ev.Addr.String(),
-			Method: method, Path: fmt.Sprintf(":%d", ev.Port),
-			Status: http.StatusForbidden, Stage: "stream", Action: "block",
-			RuleID: kind, RuleMsg: ev.Detail,
-		}
-		if err := st.InsertEvents([]model.Event{row}); err != nil {
-			log.Warn("streaming event insert failed", "err", err)
-		}
-	})
+	streamWriter := newStreamEvents(st, log)
+	defer streamWriter.stop()
+	streams.SetEventSink(func(ev streaming.Event) { streamWriter.record(streamEventRow(ev)) })
 	// A forwarder enforces the same named lists as a proxied site; country
 	// entries need the GeoIP database the HTTP pipeline already loads.
 	if accessLists, err := st.ListAccessLists(); err != nil {

@@ -422,6 +422,7 @@ func (u *udpRuntime) sessions() []Session {
 			Addr: s.addr.String(), Port: s.key.port, Protocol: "UDP",
 			BytesIn: s.bytesIn.Load(), BytesOut: s.bytesOut.Load(),
 			PacketsIn: s.pktsIn.Load(), PacketsOut: s.pktsOut.Load(), Started: s.started,
+			LastSeen: time.Unix(0, s.lastSeen.Load()),
 		})
 	}
 	return out

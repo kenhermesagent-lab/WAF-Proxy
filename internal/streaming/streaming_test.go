@@ -16,6 +16,55 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// Statuses moves its counters with traffic, keeps a last-seen time per session
+// and files refusals under the reason that produced them.
+func TestStatusesCountTrafficAndRefusals(t *testing.T) {
+	up := echoServer(t)
+	defer up.Close()
+	upstream := fmt.Sprintf("127.0.0.1:%d", up.Addr().(*net.TCPAddr).Port)
+	m := New(discardLogger())
+	defer m.Close()
+
+	listen := freePort(t)
+	if err := m.Apply("plex", Config{Enabled: true, ListenIP: "127.0.0.1", Port: listen, Upstream: upstream}); err != nil {
+		t.Fatal(err)
+	}
+	plex := func() Status {
+		for _, st := range m.Statuses() {
+			if st.ID == "plex" {
+				return st
+			}
+		}
+		t.Fatal("plex is missing from Statuses")
+		return Status{}
+	}
+
+	conn := dialRelay(t, listen)
+	defer conn.Close()
+	if _, err := conn.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(conn, make([]byte, 5)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the forwarded traffic to reach the status", func() bool {
+		st := plex()
+		return st.Total == 1 && st.BytesIn >= 5 && st.BytesOut >= 5 && len(st.Sessions) == 1
+	})
+	if s := plex().Sessions[0]; s.LastSeen.IsZero() || s.LastSeen.Before(s.Started) {
+		t.Fatalf("session last seen = %v, started %v", s.LastSeen, s.Started)
+	}
+
+	// A source the port does not allow files one refusal under "allow".
+	if err := m.Apply("plex", Config{Enabled: true, ListenIP: "127.0.0.1", Port: listen, Upstream: upstream,
+		Allow: []string{"10.9.9.9/32"}}); err != nil {
+		t.Fatal(err)
+	}
+	refused := dialRelay(t, listen)
+	_ = refused.Close()
+	waitFor(t, "the refusal reason", func() bool { return plex().RefusedByReason["allow"] == 1 })
+}
+
 func freePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

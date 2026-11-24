@@ -43,6 +43,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   a card with its protocol, port range, upstream and — for UDP — the per-source and idle limits; a UDP
   card with no allow list says plainly that it answers any source. The status side shows what is
   bound, bytes each way, refusals, oversize drops and the busiest source.
+- **Sessions carry a last-seen time, and the page refreshes itself.** The status list keeps the fifty
+  newest sessions with bytes, packets, start and last activity, ranked by traffic, and the page polls
+  every three seconds — only while the tab is visible.
+- **Prometheus covers the forwarders.** `wafproxy_stream_sessions`, `_stream_bytes_total`,
+  `_stream_packets_total`, `_stream_refused_total{reason}` and `_stream_cap_hits_total` report per
+  service on the existing authenticated `/metrics` endpoint, for listening services only.
 
 ### Changed
 
@@ -50,6 +56,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `upstream_port`, `max_per_source`, `idle_seconds` and `max_datagram` join the existing keys, and a
   configuration saved by 1.60 loads unchanged as one TCP port. Port-conflict checks now compare the
   protocol as well: a TCP and a UDP listener may share a number, two on the same protocol may not.
+- **Relay rows are written in batches.** A refused game client retries in a loop, so events go through
+  a 1,024-row buffer that inserts once per 250 ms or 256 rows through the same `InsertEvents`
+  transaction the HTTP pipeline uses; a full buffer drops rows and counts them instead of stalling a
+  stream.
+- A UDP port below `1024` names the switch that unlocks it: the error says
+  **Refuse sources that are not on an allow list**, which is the control on the card.
 
 ### Security
 

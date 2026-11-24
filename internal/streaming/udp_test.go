@@ -524,7 +524,10 @@ func TestNormalizeUDPPortSafety(t *testing.T) {
 	}
 
 	priv := Config{Upstream: "10.0.0.5:2456", Port: 443, Protocol: "udp"}
-	if _, err := priv.Normalize(custom); err == nil || !strings.Contains(err.Error(), "below 1024") {
+	// The message names the switch the operator sees on the card, not an
+	// internal setting key.
+	if _, err := priv.Normalize(custom); err == nil || !strings.Contains(err.Error(), "below 1024") ||
+		!strings.Contains(err.Error(), "Refuse sources that are not on an allow list") {
 		t.Errorf("privileged udp without a list: err = %v", err)
 	}
 	priv.RequireAllow = true
