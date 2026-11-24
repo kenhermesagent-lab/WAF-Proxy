@@ -55,6 +55,10 @@ jobs:
           ref: main
           # The release commits are history, so the whole graph has to be here.
           fetch-depth: 0
+          # The checkout's credential has to stay out of git's config: it sends its
+          # own Authorization header, and a second one is refused as a duplicate by
+          # the remote. The step below installs the one credential it needs.
+          persist-credentials: false
       # The tags are annotated, and git refuses a tag without an identity.
       - name: Give git an identity for the tags
         run: |-
@@ -90,7 +94,11 @@ jobs:
               awk -F': ' 'tolower($1) == "x-oauth-scopes" {print $2}')
             if [[ $code == 200 ]]; then
               export GH_TOKEN=$token
-              git config --local --unset-all 'http.https://github.com/.extraheader' || true
+              # Any header git finds, whatever key it is under, would sit beside
+              # this one and be refused, so none survive.
+              git config --local --get-regexp '^http\..*extraheader$' 2>/dev/null |
+                awk '{print $1}' | sort -u |
+                while read -r key; do git config --local --unset-all "$key" || true; done || true
               git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
               git config --local --add 'http.https://github.com/.extraheader' \
                 "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$token" | base64 -w0)"
@@ -106,7 +114,12 @@ jobs:
               fi
             else
               echo "::warning::TAG_PUSH_TOKEN is not accepted by GitHub (HTTP $code); using the App token, which cannot push a tag that spans a workflow change" >&2
+              # No wide token: the App token in the URL is the only credential.
+              git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
             fi
+          else
+            # No secret configured: same single App credential, as before.
+            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           fi
           args=()
           if [[ $DRY_RUN == true ]]; then
