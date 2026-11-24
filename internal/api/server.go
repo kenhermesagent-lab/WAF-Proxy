@@ -380,6 +380,7 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/certs/{id}", s.authed(s.deleteCert))
 
 	m.HandleFunc("GET /api/metrics", s.authed(s.getMetrics))
+	m.HandleFunc("GET /api/capacity", s.authed(s.getCapacity))
 	m.HandleFunc("GET /metrics", s.prometheusMetrics)
 	m.HandleFunc("GET /api/analytics", s.authed(s.getAnalytics))
 	m.HandleFunc("GET /api/uptime", s.authed(s.getUptime))

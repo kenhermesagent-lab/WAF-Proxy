@@ -48,7 +48,11 @@ type responseCache struct {
 	// perHost caps one hostname so a single site cannot fill the cache.
 	perHost   int64
 	hostBytes map[string]int64
-	now       func() time.Time
+	// hits and misses are per hostname for the capacity panel. They never
+	// shrink, so a site that stopped caching still reports its ratio.
+	hits   map[string]int64
+	misses map[string]int64
+	now    func() time.Time
 }
 
 func newResponseCache(maxSize int64, perHost ...int64) *responseCache {
@@ -60,7 +64,8 @@ func newResponseCache(maxSize int64, perHost ...int64) *responseCache {
 		quota = perHost[0]
 	}
 	return &responseCache{entries: map[string]*cacheEntry{}, maxSize: maxSize,
-		perHost: quota, hostBytes: map[string]int64{}, now: time.Now}
+		perHost: quota, hostBytes: map[string]int64{},
+		hits: map[string]int64{}, misses: map[string]int64{}, now: time.Now}
 }
 
 func cacheHost(key string) string {
@@ -249,15 +254,17 @@ func cacheableRequest(r *http.Request) bool {
 func (c *responseCache) get(key string) (*cacheEntry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	host := cacheHost(key)
 	e, ok := c.entries[key]
-	if !ok {
-		return nil, false
+	if ok && !c.now().After(e.expires) {
+		c.hits[host]++
+		return e, true
 	}
-	if c.now().After(e.expires) {
+	c.misses[host]++
+	if ok {
 		c.removeLocked(key, e)
-		return nil, false
 	}
-	return e, true
+	return nil, false
 }
 
 func (c *responseCache) put(key string, status int, header http.Header, body []byte) {
@@ -350,6 +357,32 @@ func (c *responseCache) evictOldestLocked() {
 
 // purge drops every cached response for a host, or everything when host is
 // empty, and returns how many entries were removed.
+// cacheHostStats is one hostname's share of the cache.
+type cacheHostStats struct {
+	Bytes, Hits, Misses int64
+}
+
+// snapshot reports the cache totals and one line per hostname.
+func (c *responseCache) snapshot() (bytes, max int64, hosts map[string]cacheHostStats) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	hosts = make(map[string]cacheHostStats, len(c.hostBytes))
+	for h, b := range c.hostBytes {
+		hosts[h] = cacheHostStats{Bytes: b}
+	}
+	for h, n := range c.hits {
+		s := hosts[h]
+		s.Hits = n
+		hosts[h] = s
+	}
+	for h, n := range c.misses {
+		s := hosts[h]
+		s.Misses = n
+		hosts[h] = s
+	}
+	return c.bytes, c.maxSize, hosts
+}
+
 func (c *responseCache) purge(host string) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()

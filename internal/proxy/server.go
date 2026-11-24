@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -265,8 +266,64 @@ func (s *Server) SetBodyTimeout(d time.Duration) {
 // Capacity reports the current request budget: in flight, allowed, and how many
 // requests have been refused because the budget was full.
 func (s *Server) Capacity() (inflight, max int, shed int64) {
-	count, maxCount, _, _, refused := s.budget.snapshot()
-	return int(count), int(maxCount), refused
+	st := s.budget.snapshot()
+	return int(st.count), int(st.maxCount), st.shedBytes + st.shedQueue
+}
+
+// CapacityReport is the process's capacity view: the request budget, what it
+// refused and what each site holds, plus the cache and the upstream pools.
+type CapacityReport struct {
+	Inflight, MaxInflight int
+	Queued                int
+	BufferBytes           int64
+	MaxBufferBytes        int64
+	// Shed is keyed by reason: bytes, queue, site and client.
+	Shed          map[string]int64
+	CacheBytes    int64
+	CacheMaxBytes int64
+	Pools         int
+	Sites         []SiteCapacity
+}
+
+// SiteCapacity is one route's share of the report.
+type SiteCapacity struct {
+	Host        string
+	Inflight    int
+	ShedSite    int64
+	ShedClient  int64
+	CacheBytes  int64
+	CacheHits   int64
+	CacheMisses int64
+}
+
+func (s *Server) CapacityReport() CapacityReport {
+	st := s.budget.snapshot()
+	cacheBytes, cacheMax, hosts := s.cache.snapshot()
+	rep := CapacityReport{
+		Inflight: int(st.count), MaxInflight: int(st.maxCount), Queued: int(st.queued),
+		BufferBytes: st.bytes, MaxBufferBytes: st.maxBytes,
+		Shed:       map[string]int64{"bytes": st.shedBytes, "queue": st.shedQueue},
+		CacheBytes: cacheBytes, CacheMaxBytes: cacheMax, Pools: s.pool.size(),
+	}
+	s.mu.RLock()
+	edges := make([]*edge, 0, len(s.edges))
+	for _, e := range s.edges {
+		edges = append(edges, e)
+	}
+	s.mu.RUnlock()
+	sort.Slice(edges, func(i, j int) bool { return edges[i].proxy.Hostname < edges[j].proxy.Hostname })
+	for _, e := range edges {
+		name := e.proxy.Hostname
+		inflight, siteShed := e.site.stats()
+		clientShed := e.clients.shedTotal()
+		h := hosts[name]
+		rep.Shed["site"] += siteShed
+		rep.Shed["client"] += clientShed
+		rep.Sites = append(rep.Sites, SiteCapacity{Host: name, Inflight: inflight,
+			ShedSite: siteShed, ShedClient: clientShed,
+			CacheBytes: h.Bytes, CacheHits: h.Hits, CacheMisses: h.Misses})
+	}
+	return rep
 }
 
 // Reload rebuilds every host route from the database.

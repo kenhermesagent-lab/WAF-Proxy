@@ -987,6 +987,20 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+  /api/capacity:
+    get:
+      operationId: getApiCapacity
+      tags: [capacity]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/certs:
     get:
       operationId: getApiCerts

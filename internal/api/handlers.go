@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	rmetrics "runtime/metrics"
 	"sort"
 	"strconv"
 	"strings"
@@ -1849,6 +1850,68 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.metricsSnapshot())
 }
 
+// getCapacity reports what the node is holding and refusing. The budget is
+// process-wide, so it is reported as it is; the site list and the cache totals
+// are trimmed to the sites this request may see.
+func (s *Server) getCapacity(w http.ResponseWriter, r *http.Request) {
+	if s.proxy == nil {
+		writeError(w, http.StatusServiceUnavailable, "proxy is not running")
+		return
+	}
+	rep := s.proxy.CapacityReport()
+	var visible map[string]bool
+	if scoped := s.db(r); scoped.SiteID() != s.st.SiteID() {
+		proxies, err := scoped.ListProxies()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "database error")
+			return
+		}
+		visible = map[string]bool{}
+		for _, p := range proxies {
+			visible[p.Hostname] = true
+		}
+	}
+	shed := map[string]int64{"bytes": rep.Shed["bytes"], "queue": rep.Shed["queue"]}
+	sites := make([]map[string]any, 0, len(rep.Sites))
+	var cached, hits, misses int64
+	for _, site := range rep.Sites {
+		if visible != nil && !visible[site.Host] {
+			continue
+		}
+		cached += site.CacheBytes
+		hits += site.CacheHits
+		misses += site.CacheMisses
+		shed["site"] += site.ShedSite
+		shed["client"] += site.ShedClient
+		sites = append(sites, map[string]any{
+			"host": site.Host, "inflight": site.Inflight,
+			"shed_site": site.ShedSite, "shed_client": site.ShedClient,
+			"cache_bytes": site.CacheBytes, "cache_hits": site.CacheHits,
+			"cache_misses": site.CacheMisses,
+		})
+	}
+	heapBytes, gcCycles := runtimeTotals()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"inflight": rep.Inflight, "max_inflight": rep.MaxInflight, "queued": rep.Queued,
+		"buffer_bytes": rep.BufferBytes, "max_buffer_bytes": rep.MaxBufferBytes,
+		"shed":  shed,
+		"cache": map[string]any{"bytes": cached, "max_bytes": rep.CacheMaxBytes, "hits": hits, "misses": misses},
+		"sites": sites, "pools": rep.Pools,
+		"heap_bytes": heapBytes, "gc_cycles": gcCycles, "memory_limit": s.cfg.MemoryLimit,
+	})
+}
+
+// runtimeTotals reads the heap and GC counters from runtime/metrics, which does
+// not stop the world the way ReadMemStats does.
+func runtimeTotals() (heap, gc uint64) {
+	samples := []rmetrics.Sample{
+		{Name: "/memory/classes/heap/objects:bytes"},
+		{Name: "/gc/cycles/total:gc-cycles"},
+	}
+	rmetrics.Read(samples)
+	return samples[0].Value.Uint64(), samples[1].Value.Uint64()
+}
+
 // metricsSnapshot is the console's view of the counters: the process metrics
 // plus the proxy's request budget, which lives on the proxy server. Both the
 // polled and the streamed payload come from here, so the dashboard cannot show
@@ -1974,6 +2037,42 @@ func (s *Server) prometheusMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "# TYPE wafproxy_ha_outbox_depth gauge\nwafproxy_ha_outbox_depth %d\n", depth)
 		fmt.Fprintf(&b, "# HELP wafproxy_ha_outbox_bytes Bytes of changes waiting to reach the standby.\n")
 		fmt.Fprintf(&b, "# TYPE wafproxy_ha_outbox_bytes gauge\nwafproxy_ha_outbox_bytes %d\n", bytes)
+	}
+	// Capacity counters: what the node holds, what it refused and how much of
+	// the response cache each site is using.
+	if s.proxy != nil {
+		cap := s.proxy.CapacityReport()
+		heapBytes, gcCycles := runtimeTotals()
+		fmt.Fprintf(&b, "# HELP wafproxy_inflight_requests Requests holding a budget slot.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_inflight_requests gauge\nwafproxy_inflight_requests %d\n", cap.Inflight)
+		fmt.Fprintf(&b, "# HELP wafproxy_queued_requests Requests waiting for a budget slot.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_queued_requests gauge\nwafproxy_queued_requests %d\n", cap.Queued)
+		fmt.Fprintf(&b, "# HELP wafproxy_buffer_bytes Request memory in use.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_buffer_bytes gauge\nwafproxy_buffer_bytes %d\n", cap.BufferBytes)
+		fmt.Fprintf(&b, "# HELP wafproxy_shed_total Requests refused, by reason.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_shed_total counter\n")
+		for _, reason := range []string{"bytes", "queue", "site", "client"} {
+			fmt.Fprintf(&b, "wafproxy_shed_total{reason=%q} %d\n", reason, cap.Shed[reason])
+		}
+		fmt.Fprintf(&b, "# HELP wafproxy_cache_bytes Response cache bytes, by site.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_cache_bytes gauge\n")
+		for _, site := range cap.Sites {
+			fmt.Fprintf(&b, "wafproxy_cache_bytes{site=%q} %d\n", site.Host, site.CacheBytes)
+		}
+		fmt.Fprintf(&b, "# HELP wafproxy_cache_hits_total Cache hits, by site.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_cache_hits_total counter\n")
+		for _, site := range cap.Sites {
+			fmt.Fprintf(&b, "wafproxy_cache_hits_total{site=%q} %d\n", site.Host, site.CacheHits)
+		}
+		fmt.Fprintf(&b, "# HELP wafproxy_cache_misses_total Cache misses, by site.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_cache_misses_total counter\n")
+		for _, site := range cap.Sites {
+			fmt.Fprintf(&b, "wafproxy_cache_misses_total{site=%q} %d\n", site.Host, site.CacheMisses)
+		}
+		fmt.Fprintf(&b, "# HELP wafproxy_heap_bytes Heap memory in use.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_heap_bytes gauge\nwafproxy_heap_bytes %d\n", heapBytes)
+		fmt.Fprintf(&b, "# HELP wafproxy_gc_cycles_total Completed garbage collections.\n")
+		fmt.Fprintf(&b, "# TYPE wafproxy_gc_cycles_total counter\nwafproxy_gc_cycles_total %d\n", gcCycles)
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, _ = io.WriteString(w, b.String())

@@ -108,8 +108,8 @@ func TestBudgetZeroQueueShedsAtOnce(t *testing.T) {
 		t.Fatalf("a request with no queue waited %s", waited)
 	}
 	held()
-	if _, _, _, _, shed := b.snapshot(); shed != 1 {
-		t.Fatalf("shed = %d, want 1", shed)
+	if st := b.snapshot(); st.shedQueue != 1 || st.queued != 0 {
+		t.Fatalf("shedQueue = %d, queued = %d; want 1 and 0", st.shedQueue, st.queued)
 	}
 }
 
@@ -128,8 +128,8 @@ func TestBudgetBytesCeiling(t *testing.T) {
 	}
 	first()
 	second()
-	if _, _, used, _, _ := b.snapshot(); used != 0 {
-		t.Fatalf("bytes = %d after both releases, want 0", used)
+	if st := b.snapshot(); st.bytes != 0 {
+		t.Fatalf("bytes = %d after both releases, want 0", st.bytes)
 	}
 }
 
@@ -142,8 +142,8 @@ func TestBudgetReleasesTheWholeReservation(t *testing.T) {
 		t.Fatal("the request was refused")
 	}
 	release()
-	if count, _, used, _, _ := b.snapshot(); count != 0 || used != 0 {
-		t.Fatalf("after settling: count %d, bytes %d; want 0, 0", count, used)
+	if st := b.snapshot(); st.count != 0 || st.bytes != 0 {
+		t.Fatalf("after settling: count %d, bytes %d; want 0, 0", st.count, st.bytes)
 	}
 }
 
@@ -162,8 +162,8 @@ func TestBudgetConcurrentStaysUnderCeiling(t *testing.T) {
 			if release == nil {
 				return
 			}
-			if _, _, used, _, _ := b.snapshot(); used > peak.Load() {
-				peak.Store(used)
+			if st := b.snapshot(); st.bytes > peak.Load() {
+				peak.Store(st.bytes)
 			}
 			release()
 		}()
@@ -172,7 +172,7 @@ func TestBudgetConcurrentStaysUnderCeiling(t *testing.T) {
 	if peak.Load() > ceiling {
 		t.Fatalf("peak bytes = %d, above the %d ceiling", peak.Load(), ceiling)
 	}
-	if _, _, used, _, _ := b.snapshot(); used != 0 {
-		t.Fatalf("bytes = %d after the run, want 0", used)
+	if st := b.snapshot(); st.bytes != 0 {
+		t.Fatalf("bytes = %d after the run, want 0", st.bytes)
 	}
 }

@@ -15,9 +15,13 @@ type budget struct {
 	mu       sync.Mutex
 	count    int64
 	bytes    int64
+	queued   int64
 	maxCount int64
 	maxBytes int64
-	shed     int64
+	// Refusals are split by reason, because "the request was too big" and "the
+	// queue ran out" need different answers from the operator.
+	shedBytes int64
+	shedQueue int64
 	// changed is closed and replaced whenever a slot is given back, so waiters
 	// sleep without a condition variable.
 	changed chan struct{}
@@ -59,7 +63,7 @@ func (b *budget) setLimits(maxBytes int64) {
 func (b *budget) reserve(ctx context.Context, size int64, wait time.Duration) (func(), string) {
 	b.mu.Lock()
 	if size > b.maxBytes {
-		b.shed++
+		b.shedBytes++
 		b.mu.Unlock()
 		return nil, "bytes"
 	}
@@ -72,18 +76,24 @@ func (b *budget) reserve(ctx context.Context, size int64, wait time.Duration) (f
 			b.mu.Unlock()
 			return b.release(size), ""
 		}
+		b.queued++
 		changed := b.changed
 		b.mu.Unlock()
+		refused := false
 		select {
 		case <-changed:
 		case <-ctx.Done():
-			b.refuse()
-			return nil, "queue"
+			refused = true
 		case <-timer.C:
-			b.refuse()
-			return nil, "queue"
+			refused = true
 		}
 		b.mu.Lock()
+		b.queued--
+		if refused {
+			b.shedQueue++
+			b.mu.Unlock()
+			return nil, "queue"
+		}
 	}
 }
 
@@ -100,12 +110,6 @@ func (b *budget) release(reserved int64) func() {
 	}
 }
 
-func (b *budget) refuse() {
-	b.mu.Lock()
-	b.shed++
-	b.mu.Unlock()
-}
-
 // wake hands the lock-free waiters a fresh channel while the caller still holds
 // the mutex.
 func (b *budget) wake() {
@@ -113,9 +117,15 @@ func (b *budget) wake() {
 	b.changed = make(chan struct{})
 }
 
-// snapshot is what the capacity panel and /metrics read.
-func (b *budget) snapshot() (count, maxCount, bytes, maxBytes, shed int64) {
+// budgetState is what the capacity panel and /metrics read.
+type budgetState struct {
+	count, maxCount, bytes, maxBytes, queued int64
+	shedBytes, shedQueue                     int64
+}
+
+func (b *budget) snapshot() budgetState {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.count, b.maxCount, b.bytes, b.maxBytes, b.shed
+	return budgetState{count: b.count, maxCount: b.maxCount, bytes: b.bytes, maxBytes: b.maxBytes,
+		queued: b.queued, shedBytes: b.shedBytes, shedQueue: b.shedQueue}
 }

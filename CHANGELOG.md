@@ -59,6 +59,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   with an access gate or a WAF mode other than block/detect, so it cannot quietly disable a
   control the operator asked for. On the test host a cached 1 KiB asset served 38,459 rps against
   8,720 rps when every hit was inspected.
+- **Capacity is visible instead of guessed.** `GET /api/capacity` reports what the node is holding
+  and what it refused: requests in flight against the cap, the queue, buffered bytes, refusals split
+  by reason (`bytes`, `queue`, `site`, `client`), the cache's bytes, hits and misses per site, the
+  number of upstream pools, and heap and GC counters. `/metrics` exports the same numbers as
+  `wafproxy_inflight_requests`, `wafproxy_queued_requests`, `wafproxy_buffer_bytes`,
+  `wafproxy_shed_total{reason}`, `wafproxy_cache_{bytes,hits_total,misses_total}{site}`,
+  `wafproxy_heap_bytes` and `wafproxy_gc_cycles_total`. The dashboard gains a Capacity card with the
+  in-flight meter, the queue, the cache hit rate and a link to the setting to raise when anything was
+  shed. A tenant console sees its own routes only; the budget itself is process-wide. Refusals already
+  logged `stage=capacity`, and the report is the aggregate of them.
 - **A capacity number instead of a guess.** `cmd/perftool -proxy` runs the real proxy — TLS
   listener, routing, cache and event writer — against stub upstreams with a keep-alive client
   fan-out, and records requests, rps, p50/p95/p99, shed count and peak RSS per mode in
