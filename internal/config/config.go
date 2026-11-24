@@ -23,10 +23,10 @@ type Config struct {
 	// ListenHTTP serves ACME HTTP-01 and redirects to HTTPS; empty disables it.
 	ListenHTTP string
 	ListenWAN  string
-	ListenGUI  string
 	// HTTP3 serves HTTP/3 over QUIC on the WAN port over UDP, beside the TCP
-	// listener. Off by default; Alt-Svc is only advertised when it is on.
-	HTTP3 bool
+	// listener. Off by default; Alt-Svc is advertised only while it is bound.
+	HTTP3     bool
+	ListenGUI string
 	// ListenGUITLS serves the console over HTTPS using the certificate that
 	// matches GUIHost from the certificate manager.
 	ListenGUITLS   bool

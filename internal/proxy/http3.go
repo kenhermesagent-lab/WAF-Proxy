@@ -40,40 +40,35 @@ const (
 	h3LimiterEntries = 4096
 )
 
-// EnableHTTP3 serves HTTP/3 on port and advertises it with Alt-Svc. Zero leaves
-// it off, which is the default and the only behaviour until an operator sets
-// WAFPROXY_HTTP3=1. The wanted port survives a failed bind, so the next
-// promotion tries again; only the advertisement is cleared.
+// EnableHTTP3 serves HTTP/3 on port. Zero leaves it off, which is the default
+// and the only behaviour until an operator sets WAFPROXY_HTTP3=1. Binding is a
+// promotion step, so the configured port is kept separately from the one
+// Alt-Svc advertises.
 func (s *Server) EnableHTTP3(port int) {
 	if port > 0 {
 		s.h3Want.Store(int64(port))
-		s.h3Port.Store(int64(port))
 	}
 }
-
-// http3Port is the port Alt-Svc currently advertises: zero while no QUIC
-// socket is bound.
-func (s *Server) http3Port() int { return int(s.h3Port.Load()) }
 
 // http3Want is the configured port, which is what a listener binds.
 func (s *Server) http3Want() int { return int(s.h3Want.Load()) }
 
+// http3Live is the port Alt-Svc advertises: zero while no QUIC socket is bound.
+func (s *Server) http3Live() int { return int(s.h3Live.Load()) }
+
 // setAltSvc announces the QUIC alternative on responses that arrived over TLS
 // on HTTP/1.1 or HTTP/2. A request that already came over HTTP/3 needs no
-// advertisement, and so does one to the plain-HTTP redirector: that client is
-// about to be sent to HTTPS and cannot use h3 from there.
+// advertisement, and the plain-HTTP redirector cannot serve it.
 func (s *Server) setAltSvc(w http.ResponseWriter, r *http.Request) {
-	port := s.http3Port()
+	port := s.http3Live()
 	if port == 0 || r.TLS == nil || r.ProtoMajor >= 3 {
 		return
 	}
 	w.Header().Set("Alt-Svc", fmt.Sprintf(`h3=":%d"; ma=%d`, port, h3AltSvcMaxAge))
 }
 
-// h3TLSConfig reuses the certificate resolver of the TCP listener, so an h3
-// handshake picks the same certificate for the same SNI. QUIC requires TLS 1.3
-// and an h3-only ALPN; http3.Server sets that ALPN again, and the explicit
-// value documents what this socket may negotiate.
+// h3TLSConfig is the TCP config with the h3 ALPN and TLS 1.3, which QUIC
+// requires, so a handshake picks the same certificate for the same SNI.
 func (s *Server) h3TLSConfig() *tls.Config {
 	c := s.tlsConfig()
 	c.NextProtos = []string{"h3"}
@@ -101,9 +96,9 @@ func (s *Server) h3QUICConfig() *quic.Config {
 	return cfg
 }
 
-// h3Attempts is a per-source fixed window for connection attempts. It is a
-// plain guarded map: at handshake rate the lock is free, and a QUIC connection
-// does not exist yet when the decision is made.
+// h3Attempts is a per-source fixed window for connection attempts. A plain
+// guarded map is enough: decisions happen once per handshake, before a
+// connection exists.
 type h3Attempts struct {
 	mu   sync.Mutex
 	seen map[string]*h3Window
@@ -144,7 +139,7 @@ func (a *h3Attempts) allow(addr net.Addr) bool {
 	return w.n <= h3HandshakeBurst
 }
 
-// prune drops windows that closed at least a full window ago.
+// prune drops windows older than two windows.
 func (a *h3Attempts) prune(now time.Time) {
 	for src, w := range a.seen {
 		if now.Sub(w.start) >= 2*h3HandshakeWindow {
@@ -177,9 +172,8 @@ func (h *h3Listener) close() {
 }
 
 // listenHTTP3 binds the UDP socket beside the first TCP listener and serves the
-// same handler. It runs before the TCP listeners accept, so a UDP port that is
-// already taken fails the promotion with an error instead of leaving HTTP/3
-// silently absent while HTTP/2 keeps working.
+// same handler. The caller decides what a failed bind means: the data plane
+// keeps HTTPS serving and stops advertising the alternative.
 func (l *Listeners) listenHTTP3(port int) error {
 	host, _, err := net.SplitHostPort(l.bound[0])
 	if err != nil {
@@ -198,10 +192,13 @@ func (l *Listeners) listenHTTP3(port int) error {
 		Logger:         l.s.d.Log,
 	}
 	l.h3 = &h3Listener{srv: srv, conn: pc}
-	l.s.h3Port.Store(int64(port))
+	l.s.h3Live.Store(int64(port))
 	go func() {
 		l.s.d.Log.Info("http/3 listening", "addr", addr)
 		if err := srv.Serve(pc); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			// Do not keep advertising a listener that has stopped, but leave a
+			// newer listener's port alone.
+			l.s.h3Live.CompareAndSwap(int64(port), 0)
 			l.s.d.Log.Error("http/3 listener stopped", "err", err)
 		}
 	}()

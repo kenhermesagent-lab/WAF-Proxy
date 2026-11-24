@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -178,9 +179,9 @@ func TestHTTP3ServesACacheHit(t *testing.T) {
 	}
 }
 
-// Alt-Svc is the only thing that points a client at QUIC. It appears on a TLS
-// response on HTTP/1.1 and HTTP/2, never when h3 is off, on a plain-HTTP
-// request, or on an answer that already came over h3.
+// Alt-Svc is the only thing that points a client at QUIC, and it follows the
+// socket: absent when h3 is off or no socket is bound, present on TLS responses
+// on HTTP/1.1 and HTTP/2 while it is, gone again after a drain.
 func TestAltSvcOnlyWhenHTTP3IsOn(t *testing.T) {
 	h := newHarness(t)
 	rec := h.request(http.MethodGet, testHost, "/", "", nil)
@@ -188,9 +189,10 @@ func TestAltSvcOnlyWhenHTTP3IsOn(t *testing.T) {
 		t.Fatalf("Alt-Svc = %q with HTTP/3 off", got)
 	}
 
-	h.px.EnableHTTP3(8443)
+	port := freeUDPPort(t)
+	_, lns := startHTTP3(t, h.px, port)
 	rec = h.request(http.MethodGet, testHost, "/", "", nil)
-	if got, want := rec.Header().Get("Alt-Svc"), `h3=":8443"; ma=86400`; got != want {
+	if got, want := rec.Header().Get("Alt-Svc"), fmt.Sprintf(`h3=":%d"; ma=86400`, port); got != want {
 		t.Fatalf("Alt-Svc = %q, want %q", got, want)
 	}
 
@@ -212,6 +214,13 @@ func TestAltSvcOnlyWhenHTTP3IsOn(t *testing.T) {
 	h.px.ServeHTTP(rec3, over3)
 	if got := rec3.Header().Get("Alt-Svc"); got != "" {
 		t.Fatalf("Alt-Svc = %q on an HTTP/3 request", got)
+	}
+
+	// A node that has stood down no longer offers an alternative.
+	lns.DrainTimeout(time.Second)
+	rec = h.request(http.MethodGet, testHost, "/", "", nil)
+	if got := rec.Header().Get("Alt-Svc"); got != "" {
+		t.Fatalf("Alt-Svc = %q after the QUIC socket closed", got)
 	}
 }
 
@@ -251,6 +260,9 @@ func TestHTTP3BindFailureFallsBackToTCP(t *testing.T) {
 	}
 	defer held.Close()
 	px.EnableHTTP3(held.LocalAddr().(*net.UDPAddr).Port)
+	if got := px.http3Live(); got != 0 {
+		t.Fatalf("Alt-Svc advertised %d before a QUIC socket was bound", got)
+	}
 
 	addr := freeAddr(t)
 	lns, err := px.Listen(context.Background(), addr)
@@ -262,7 +274,7 @@ func TestHTTP3BindFailureFallsBackToTCP(t *testing.T) {
 	if err := waitDial(addr); err != nil {
 		t.Fatalf("tcp listener stopped when h3 could not bind: %v", err)
 	}
-	if got := px.http3Port(); got != 0 {
+	if got := px.http3Live(); got != 0 {
 		t.Fatalf("http3 port still advertised as %d after a failed bind", got)
 	}
 }

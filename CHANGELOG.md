@@ -51,7 +51,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   the Cloudflare Tunnel page states that the connector reaches the origin over HTTP/2, so h3 is a
   direct-path feature.
 
-## [1.63.0] — unreleased
+## [1.63.0] — 2026-11-24
 
 ### Added
 

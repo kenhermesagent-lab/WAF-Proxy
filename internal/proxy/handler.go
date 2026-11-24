@@ -20,8 +20,8 @@ import (
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	// Every answer points an HTTP/1.1 or HTTP/2 client at the QUIC listener; a
-	// refusal or an error page is the best place to learn the alternative.
+	// An HTTP/1.1 or HTTP/2 client learns about the QUIC listener from the
+	// answer it already receives; setAltSvc decides whether there is one.
 	s.setAltSvc(w, r)
 	// One trusted-proxy decision per request, taken before any forwarding header
 	// is stripped: the access lists, the ban engine, GeoIP, the access log and

@@ -133,10 +133,10 @@ type Server struct {
 	listenMu  sync.Mutex
 	listenErr map[string]string
 
-	// h3Want is the configured UDP port for HTTP/3; 0 leaves it off. h3Port is
-	// what Alt-Svc advertises, cleared while no socket is bound.
+	// h3Want is the configured UDP port for HTTP/3; 0 leaves it off. h3Live is
+	// what Alt-Svc advertises, set when the socket binds and cleared with it.
 	h3Want atomic.Int64
-	h3Port atomic.Int64
+	h3Live atomic.Int64
 	h3Rate h3Attempts
 }
 
@@ -528,7 +528,7 @@ func (l *Listeners) Serve() error {
 	// does not exist. A forwarder on the same port is caught at boot instead.
 	if port := l.s.http3Want(); port > 0 {
 		if err := l.listenHTTP3(port); err != nil {
-			l.s.h3Port.Store(0)
+			l.s.h3Live.Store(0)
 			l.s.d.Log.Error("http/3 not started", "err", err)
 		}
 	}
@@ -554,6 +554,9 @@ func (l *Listeners) Drain(ctx context.Context) {
 	// socket is released so a promoted peer can bind the UDP port immediately.
 	l.h3.shutdown(ctx)
 	l.h3.close()
+	if l.h3 != nil {
+		l.s.h3Live.Store(0)
+	}
 	for _, srv := range l.servers {
 		_ = srv.Shutdown(ctx)
 	}
@@ -572,7 +575,10 @@ func (l *Listeners) DrainTimeout(d time.Duration) {
 // Close releases the sockets immediately. It is safe on a partially bound set
 // and on a listener that never served.
 func (l *Listeners) Close() {
-	l.h3.close()
+	if l.h3 != nil {
+		l.h3.close()
+		l.s.h3Live.Store(0)
+	}
 	for _, srv := range l.servers {
 		_ = srv.Close()
 	}
