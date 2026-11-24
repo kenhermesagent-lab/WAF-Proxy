@@ -838,10 +838,11 @@ func (g *Gateway) getStreamStatus(_ callInfo, args map[string]any) (map[string]a
 			listed = listed[:limit]
 		}
 		out = append(out, map[string]any{
-			"id": st.ID, "label": st.Label, "bound": st.Bound, "listen_addr": st.ListenAddr,
-			"protocol": st.Protocol, "port": st.Port, "upstream_base": st.UpstreamBase,
-			"active": st.Active, "active_sessions": st.ActiveSessions, "total": st.Total,
-			"blocked": st.Blocked, "banned": st.Banned, "refused": st.Refused,
+			"id": st.ID, "label": st.Label, "enabled": st.Enabled, "bound": st.Bound,
+			"listen_addr": st.ListenAddr, "protocol": st.Protocol, "port": st.Port,
+			"upstream_base": st.UpstreamBase,
+			"active":        st.Active, "active_sessions": st.ActiveSessions, "total": st.Total,
+			"blocked": st.Blocked, "banned": st.Banned, "refused": st.Refused, "dropped": st.Dropped,
 			"bytes_in": st.BytesIn, "bytes_out": st.BytesOut, "last_error": st.LastError,
 			"session_count": len(st.Sessions), "sessions": listed,
 		})
