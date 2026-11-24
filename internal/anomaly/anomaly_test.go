@@ -156,24 +156,24 @@ func TestMuteSuppressesExpectedEgress(t *testing.T) {
 	}
 }
 
-// A whitelisted source can be muted too. A window made only of its bytes is
-// expected, while a window another client contributed to still raises a spike.
+// A whitelisted source can be muted too, and a subnet mute covers the clients
+// inside it. A window made only of their bytes is expected, while a window
+// another client contributed to still raises a spike.
 func TestMuteSourceSuppressesOnlyItsOwnEgress(t *testing.T) {
 	m, st, met, rec := newDetector(t)
 	if err := st.ReplaceUpstreams(1, []model.Upstream{{ProxyID: 1, URL: "http://10.9.9.9:8080", Enabled: true}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.AddMute(1, MuteSource, "203.0.113.7"); err != nil {
+	if err := m.AddMute(1, MuteSource, "203.0.113.0/24"); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
 	met.Count(1, 1, 0, 0, 0)
-	met.CountSource(1, "203.0.113.7", 0)
 	if err := m.Tick(now); err != nil {
 		t.Fatal(err)
 	}
 
-	// Six megabytes, all of them from the muted source, are expected.
+	// Six megabytes, all of them from a client inside the muted subnet.
 	met.Count(1, 1, 0, 0, 6<<20)
 	met.CountSource(1, "203.0.113.7", 6<<20)
 	if err := m.Tick(now.Add(Window)); err != nil {
@@ -183,8 +183,8 @@ func TestMuteSourceSuppressesOnlyItsOwnEgress(t *testing.T) {
 		t.Fatalf("a spike from the muted source still raised %v", rec.kinds)
 	}
 
-	// A second client moved most of the next window, so the spike stands even
-	// though the muted source is still part of it.
+	// A client outside the subnet moved most of the next window, so the spike
+	// stands even though the muted source is still part of it.
 	met.Count(1, 1, 0, 0, 36<<20)
 	met.CountSource(1, "203.0.113.7", 6<<20)
 	met.CountSource(1, "198.51.100.9", 30<<20)

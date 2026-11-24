@@ -4,6 +4,8 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
 
 func TestPresetsAreConsistent(t *testing.T) {
@@ -27,6 +29,27 @@ func TestPresetsAreConsistent(t *testing.T) {
 		}
 		if len(p.Notes) == 0 {
 			t.Errorf("%s has no guidance notes for the dialog", p.ID)
+		}
+		if p.ProxyMaxBody < 0 || p.ProxyMaxBody > model.MaxBodyCeiling {
+			t.Errorf("%s suggests an out-of-range site ceiling %d", p.ID, p.ProxyMaxBody)
+		}
+		if len(p.BodySkipPaths) > 0 && len(p.Steps) == 0 {
+			t.Errorf("%s skips body inspection without telling the operator the steps", p.ID)
+		}
+		for _, line := range p.BodySkipPaths {
+			method, prefix, ok := strings.Cut(strings.TrimSpace(line), " ")
+			if !ok || prefix == "" {
+				t.Errorf("%s has a malformed skip path %q", p.ID, line)
+				continue
+			}
+			switch method {
+			case "POST", "PUT", "PATCH":
+			default:
+				t.Errorf("%s skips %s %q, but only POST, PUT and PATCH may be exempt", p.ID, method, prefix)
+			}
+			if !strings.HasPrefix(prefix, "/") || prefix == "/" {
+				t.Errorf("%s skips the unsafe prefix %q", p.ID, prefix)
+			}
 		}
 		for _, part := range strings.Split(p.AdminIPs, ",") {
 			part = strings.TrimSpace(part)

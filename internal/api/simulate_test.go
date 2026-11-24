@@ -83,6 +83,14 @@ func TestSimulateEndpoint(t *testing.T) {
 // The body is cut at the profile limit and the response says so.
 func TestSimulateTruncatesTheBody(t *testing.T) {
 	srv, token, csrf := newSettingsServer(t)
+	// A small limit keeps the simulated body small too; the default is large
+	// enough that the request itself would exceed the API's own body ceiling.
+	if err := srv.st.SetSetting("max_body", "4096"); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.policy.Reload(); err != nil {
+		t.Fatal(err)
+	}
 	id, err := srv.st.CreateProxy(&model.Proxy{Hostname: "sim-body.example.com", Enabled: true})
 	if err != nil {
 		t.Fatal(err)

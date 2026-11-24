@@ -14,7 +14,7 @@ Behavioural detections: patterns across requests that a single-request rule woul
 Click an event to open its detail: the value, the baseline it was measured against, where the site's outbound traffic goes, and the sources its IP whitelists allow.
 
 - **Where the outbound traffic goes** — the site's upstreams and the addresses they resolve to. **Mute destination** marks one as expected.
-- **Where it comes from** — the entries of the enabled IP whitelist policies that apply to the site. **Mute source** marks a trusted client as expected, so an upload from that public IP is no longer a spike.
+- **Where it comes from** — the entries of the enabled IP whitelist policies that apply to the site. **Mute source** marks a trusted client as expected, so an upload from that public IP is no longer a spike; a subnet entry covers the clients inside it.
 - A mute acknowledges the open outbound spikes for the site. A new spike is still suppressed only while every enabled upstream is a muted destination, or every byte in the window came from muted sources: one unexpected destination or one other client still raises one.
 - Muted rows are listed under **Muted traffic** until they are unmuted.
 - Muting covers outbound spikes only. Request-rate spikes, login-failure bursts and their notifications are unaffected.

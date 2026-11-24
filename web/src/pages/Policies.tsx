@@ -1042,7 +1042,7 @@ export default function Policies({
             <input
               type="number"
               min={1024}
-              max={8388608}
+                                    max={1073741824}
               value={profile.max_body}
               onChange={(e) => setProfile({ ...profile, max_body: Number(e.target.value) })}
             />

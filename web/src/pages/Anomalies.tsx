@@ -105,7 +105,7 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
     const subject = kind === "source" ? `Traffic from ${address} to ${site}` : `Traffic from ${site} to ${address}`;
     const ok = await confirmDialog(
       `${subject} is expected. Muting records it as expected and acknowledges the open outbound spikes for this site; ` +
-        "a spike is only suppressed once every upstream, or every whitelisted source, is muted.",
+        "traffic from an unmuted source, or to an unmuted upstream, still raises one.",
       { title: kind === "source" ? "Mute source" : "Mute destination", confirmLabel: "Mute" },
     );
     if (!ok) return;
@@ -237,8 +237,8 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
       {mutes.length > 0 && (
         <Card title={`Muted traffic (${mutes.length})`}>
           <p className="faint small-text" style={{ marginTop: 0 }}>
-            Outbound spikes are expected while every upstream, or every whitelisted source, of a site is muted.
-            Unmute a row to detect its traffic again.
+            A site raises no outbound spike while every upstream is muted, or when a window's bytes all came from
+            muted sources. Unmute a row to detect its traffic again.
           </p>
           {mutes.map((m) => (
             <div className="bar-row" key={`${m.proxy_id}-${m.kind}-${m.address}`}>

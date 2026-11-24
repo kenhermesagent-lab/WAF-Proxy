@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"net/url"
 	"sort"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/netmatch"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
@@ -263,13 +265,18 @@ func (m *Manager) expectedEgress(proxyID, total int64, bySource map[string]int64
 		m.log.Warn("anomaly mute lookup failed", "err", err)
 		return false
 	}
-	dest, src := map[string]bool{}, map[string]bool{}
+	dest := map[string]bool{}
+	muted := []netip.Prefix{}
 	for _, mu := range mutes {
 		if mu.ProxyID != proxyID {
 			continue
 		}
 		if mu.Kind == MuteSource {
-			src[mu.Address] = true
+			// A whitelist entry may be a subnet, so it matches the clients
+			// inside it and not only the address it was written as.
+			if p, err := netmatch.ParsePrefix(mu.Address); err == nil {
+				muted = append(muted, p)
+			}
 			continue
 		}
 		dest[mu.Address] = true
@@ -277,23 +284,27 @@ func (m *Manager) expectedEgress(proxyID, total int64, bySource map[string]int64
 	if len(dest) > 0 && m.allDestinationsMuted(proxyID, dest) {
 		return true
 	}
-	if len(src) == 0 || total <= 0 {
+	if len(muted) == 0 {
 		return false
 	}
 	var accounted, fromMuted int64
 	for addr, bytes := range bySource {
 		accounted += bytes
-		if src[addr] {
-			fromMuted += bytes
+		a, err := netip.ParseAddr(addr)
+		if err != nil {
+			continue
+		}
+		for _, p := range muted {
+			if p.Contains(a) {
+				fromMuted += bytes
+				break
+			}
 		}
 	}
 	// Bytes no source accounts for could be anyone's, so they are never
-	// expected; the same goes for a window that only partly came from a muted
-	// source.
-	if accounted != total {
-		return false
-	}
-	return fromMuted == total
+	// expected; the same goes for a window that only partly came from muted
+	// sources.
+	return accounted == total && fromMuted == total
 }
 
 // allDestinationsMuted reports whether every enabled upstream of a proxy is a

@@ -148,7 +148,9 @@ func TestConfigYAMLRoundTripsIntoEmptyInstall(t *testing.T) {
 	}
 	host := model.Proxy{Hostname: "round.example.com", Enabled: true, GateMode: "off",
 		Fingerprint: "strict", BotLevel: "light", WAFMode: "inherit",
-		ProfileID: &prof.ID, ProtectionProfileID: &protection.ID, AccessProfileID: &bundle.ID}
+		ProfileID: &prof.ID, ProtectionProfileID: &protection.ID, AccessProfileID: &bundle.ID,
+		MaxBody:  256 << 20,
+		BodySkip: []model.BodySkip{{Method: "POST", Prefix: "/api/assets", ListIDs: []int64{list.ID}}}}
 	hostID, err := src.st.CreateProxy(&host)
 	if err != nil {
 		t.Fatal(err)
@@ -165,7 +167,7 @@ func TestConfigYAMLRoundTripsIntoEmptyInstall(t *testing.T) {
 	}
 
 	before := exportConfigYAML(t, src, token, csrf)
-	for _, numeric := range []string{"profile_id:", "proxy_id:", "access_profile_id:", "waf_profile_id:"} {
+	for _, numeric := range []string{"profile_id:", "proxy_id:", "access_profile_id:", "waf_profile_id:", "list_ids:"} {
 		if strings.Contains(before, numeric) {
 			t.Fatalf("the export still carries %q:\n%s", numeric, before)
 		}
@@ -203,6 +205,21 @@ func TestConfigYAMLRoundTripsIntoEmptyInstall(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the proxy does not point at the imported WAF profile: %+v", proxy)
+	}
+	if proxy.MaxBody != 256<<20 {
+		t.Fatalf("the site body ceiling did not round-trip: %d", proxy.MaxBody)
+	}
+	importedLists, _ := dst.st.ListAccessLists()
+	var officeID int64
+	for _, l := range importedLists {
+		if l.Name == "custom-office" {
+			officeID = l.ID
+		}
+	}
+	if len(proxy.BodySkip) != 1 || proxy.BodySkip[0].Method != "POST" ||
+		proxy.BodySkip[0].Prefix != "/api/assets" || len(proxy.BodySkip[0].ListIDs) != 1 ||
+		proxy.BodySkip[0].ListIDs[0] != officeID || officeID == 0 {
+		t.Fatalf("body_skip did not resolve to the imported list: %+v (list id %d)", proxy.BodySkip, officeID)
 	}
 	bundles, _ := dst.st.ListAccessProfiles()
 	if len(bundles) != 1 || bundles[0].Name != "custom-bundle" || bundles[0].ID != *proxy.AccessProfileID {
@@ -243,5 +260,80 @@ func TestConfigYAMLRejectsGarbage(t *testing.T) {
 	rec := authed(t, srv, token, csrf, http.MethodPost, "/api/config/import.yaml", "proxies: [oops\n")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid YAML = %d, want 400", rec.Code)
+	}
+}
+
+// A body-skip entry names its lists, so the import binds it to this install's
+// rows. An entry that cannot be resolved fails closed: it is dropped and
+// reported, never stored as one that trusts every source.
+func TestConfigYAMLBodySkipResolvesListNames(t *testing.T) {
+	srv, token, csrf := newSettingsServer(t)
+
+	doc := `version: "1.0"
+access_lists:
+  - kind: whitelist
+    name: skip-office
+    ips: "198.51.100.7"
+proxies:
+  - hostname: skip.example.com
+    enabled: true
+    gate_mode: "off"
+    fingerprint: strict
+    bot_level: light
+    waf_mode: inherit
+    max_body: 268435456
+    body_skip:
+      - method: POST
+        prefix: /api/assets
+        lists: [skip-office]
+      - method: PUT
+        prefix: /dav
+        lists: [gone-office]
+      - method: POST
+        prefix: /
+    upstreams:
+      - url: http://127.0.0.1:18080
+        weight: 1
+        enabled: true
+    routes: []
+`
+	rec := authed(t, srv, token, csrf, http.MethodPost, "/api/config/import.yaml", doc)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("import = %d: %s", rec.Code, rec.Body.String())
+	}
+	var imported struct {
+		Problems []string `json:"problems"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &imported); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(imported.Problems, "\n")
+	if !strings.Contains(joined, "unknown list gone-office") {
+		t.Fatalf("the missing trust list was not reported: %v", imported.Problems)
+	}
+	if !strings.Contains(joined, "must start with / and not be the root") {
+		t.Fatalf("the unsafe root prefix was not reported: %v", imported.Problems)
+	}
+
+	proxy, err := srv.st.ProxyByHost("skip.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lists, err := srv.st.ListAccessLists()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var officeID int64
+	for _, l := range lists {
+		if l.Name == "skip-office" {
+			officeID = l.ID
+		}
+	}
+	if len(proxy.BodySkip) != 1 || proxy.BodySkip[0].Prefix != "/api/assets" ||
+		len(proxy.BodySkip[0].ListIDs) != 1 || proxy.BodySkip[0].ListIDs[0] != officeID || officeID == 0 {
+		t.Fatalf("body_skip = %+v, want only the entry bound to list %d", proxy.BodySkip, officeID)
+	}
+	if proxy.MaxBody != 268435456 {
+		t.Fatalf("max_body = %d, want 268435456", proxy.MaxBody)
 	}
 }

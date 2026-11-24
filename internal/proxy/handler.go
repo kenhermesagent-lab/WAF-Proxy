@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botfilter"
@@ -243,61 +244,111 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// A body that cannot fit in the buffer is refused now rather than queued
-	// behind a full budget: the answer is 413 either way, and the client should
-	// hear it without a wait.
-	if r.ContentLength > s.hardBody {
-		blocked = true
-		event.Stage, event.RuleID = "body-limit", "too-large"
-		uniformError(rw, http.StatusRequestEntityTooLarge)
-		return
+	limit := s.hardBody
+	if e.proxy.MaxBody > 0 {
+		limit = e.proxy.MaxBody
 	}
-	release, reason := s.budget.reserve(r.Context(), estimateBody(r, s.hardBody), e.queue)
-	if release == nil {
-		blocked = true
-		event.Stage, event.RuleID = "capacity", "queue-timeout"
-		if reason == "bytes" {
-			event.RuleID = "budget-too-large"
-		}
-		rw.Header().Set("Retry-After", "1")
-		uniformError(rw, http.StatusServiceUnavailable)
-		return
-	}
-	// The body deadline is the client's: it starts once the request owns a
-	// budget slot and is cleared before the forward, so a slow upstream is
-	// governed by its own timeout instead.
-	rc := http.NewResponseController(rw)
-	// A request that cannot carry a body has nothing to wait for, so a GET
-	// avoids the two deadline syscalls.
-	hasBody := r.ContentLength != 0 || len(r.TransferEncoding) > 0
-	if e.bodyTimeout > 0 && hasBody {
-		_ = rc.SetReadDeadline(time.Now().Add(e.bodyTimeout))
-	}
-	read, tooLarge, err := readBody(r, s.hardBody)
-	if e.bodyTimeout == 0 || hasBody {
-		_ = rc.SetReadDeadline(time.Time{})
-	}
-	body := read
-	defer release()
-	if tooLarge {
-		blocked = true
-		event.Stage, event.RuleID = "body-limit", "too-large"
-		uniformError(rw, http.StatusRequestEntityTooLarge)
-		return
-	}
-	if err != nil {
-		blocked = true
-		event.Stage = "protocol"
-		if errors.Is(err, os.ErrDeadlineExceeded) {
-			event.RuleID, event.RuleMsg = "body-timeout", "request body deadline exceeded"
-			uniformError(rw, http.StatusRequestTimeout)
+	// A skip path streams its body to the upstream: the WAF cannot inspect bytes
+	// it never holds, so the exemption is recorded on the event and the rest of
+	// the pipeline still applies. An entry may name lists to trust only those
+	// sources.
+	skipBody := bodySkipped(e.proxy.BodySkip, r.Method, r.URL.Path, func(ids []int64) bool {
+		return s.d.Policy.InList(preq, ids)
+	})
+	if skipBody {
+		event.Stage, event.RuleID = "body-skip", "path"
+		event.RuleMsg = "request body is streamed without inspection"
+		cr := newStallReader(r.Body, s.skipStall, http.NewResponseController(rw))
+		r.Body = cr
+		defer func() {
+			event.BytesIn = cr.bytes()
+			// Clear the deadline so the connection is usable again, and say why the
+			// upload ended when the client simply stopped sending.
+			_ = cr.rc.SetReadDeadline(time.Time{})
+			if cr.didStall() {
+				event.Stage, event.RuleID = "body-skip", "stalled"
+				event.RuleMsg = "the client sent nothing for " + s.skipStall.String()
+			}
+		}()
+		preq.Body = nil
+	} else {
+		// A body that cannot fit in the buffer is refused now rather than queued
+		// behind a full budget: the answer is 413 either way, and the client
+		// should hear it without a wait.
+		if r.ContentLength > limit {
+			blocked = true
+			event.Stage, event.RuleID = "body-limit", "too-large"
+			uniformError(rw, http.StatusRequestEntityTooLarge)
 			return
 		}
-		uniformError(rw, http.StatusBadRequest)
-		return
+		reserved := estimateBody(r, limit)
+		release, reason := s.budget.reserve(r.Context(), reserved, e.queue)
+		if release == nil {
+			blocked = true
+			event.Stage, event.RuleID = "capacity", "queue-timeout"
+			if reason == "bytes" {
+				event.RuleID = "budget-too-large"
+			}
+			rw.Header().Set("Retry-After", "1")
+			uniformError(rw, http.StatusServiceUnavailable)
+			return
+		}
+		// The body deadline is the client's: it starts once the request owns a
+		// budget slot and is cleared before the forward, so a slow upstream is
+		// governed by its own timeout instead.
+		rc := http.NewResponseController(rw)
+		// A request that cannot carry a body has nothing to wait for, so a GET
+		// avoids the two deadline syscalls.
+		hasBody := r.ContentLength != 0 || len(r.TransferEncoding) > 0
+		if e.bodyTimeout > 0 && hasBody {
+			_ = rc.SetReadDeadline(time.Now().Add(e.bodyTimeout))
+		}
+		// Bytes past the reservation are charged as they arrive: a body with no
+		// declared length would otherwise be read up to the ceiling while only
+		// its 64 KiB estimate is accounted for.
+		var over int64
+		read, tooLarge, err := readBody(r, limit, reserved, func(n int64) bool {
+			if !s.budget.charge(n) {
+				return false
+			}
+			over += n
+			return true
+		})
+		if e.bodyTimeout == 0 || hasBody {
+			_ = rc.SetReadDeadline(time.Time{})
+		}
+		body := read
+		defer func() {
+			release()
+			s.budget.uncharge(over)
+		}()
+		if errors.Is(err, errBudgetFull) {
+			blocked = true
+			event.Stage, event.RuleID = "capacity", "budget-too-large"
+			rw.Header().Set("Retry-After", "1")
+			uniformError(rw, http.StatusServiceUnavailable)
+			return
+		}
+		if tooLarge {
+			blocked = true
+			event.Stage, event.RuleID = "body-limit", "too-large"
+			uniformError(rw, http.StatusRequestEntityTooLarge)
+			return
+		}
+		if err != nil {
+			blocked = true
+			event.Stage = "protocol"
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				event.RuleID, event.RuleMsg = "body-timeout", "request body deadline exceeded"
+				uniformError(rw, http.StatusRequestTimeout)
+				return
+			}
+			uniformError(rw, http.StatusBadRequest)
+			return
+		}
+		event.BytesIn = int64(len(body))
+		preq.Body = body
 	}
-	event.BytesIn = int64(len(body))
-	preq.Body = body
 
 	if s.d.Gate.Handle(rw, r, &e.proxy, ip) {
 		event.Stage = "access-gate"
@@ -387,8 +438,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out = cap
 	}
 
+	// A streamed upload is exempt from the whole-exchange timeout, as it is from
+	// the body deadline: the bytes are the client's to send at its own pace. The
+	// transport's response-header timeout still bounds the wait afterwards, and
+	// the response ceiling still bounds the answer.
 	timeout := e.timeout
-	if route.Timeout > 0 {
+	if skipBody {
+		timeout = 0
+	} else if route.Timeout > 0 {
 		timeout = time.Duration(route.Timeout) * time.Second
 	}
 	ctx := r.Context()
@@ -669,7 +726,144 @@ func estimateBody(r *http.Request, hardBody int64) int64 {
 	return min(hardBody, 64<<10)
 }
 
-func readBody(r *http.Request, limit int64) ([]byte, bool, error) {
+// bodySkipped reports whether this request's body is exempt from inspection.
+// The prefix matches whole path segments, so "/api/assets" does not exempt
+// "/api/assetsfoo". inLists is consulted only when an entry names lists.
+func bodySkipped(entries []model.BodySkip, method, path string, inLists func([]int64) bool) bool {
+	for _, e := range entries {
+		if !strings.EqualFold(strings.TrimSpace(e.Method), method) {
+			continue
+		}
+		if !pathPrefix(path, e.Prefix) {
+			continue
+		}
+		if len(e.ListIDs) > 0 && (inLists == nil || !inLists(e.ListIDs)) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// pathPrefix matches a configured prefix as whole path segments.
+func pathPrefix(path, prefix string) bool {
+	if prefix == "" || prefix == "/" {
+		return false
+	}
+	if path == prefix {
+		return true
+	}
+	if strings.HasSuffix(prefix, "/") {
+		return strings.HasPrefix(path, prefix)
+	}
+	return strings.HasPrefix(path, prefix+"/")
+}
+
+// stallReader streams a body to the upstream and drops a client that stops
+// sending. A transfer that keeps sending is never cut off, however long it
+// takes, so this bounds silence rather than the upload.
+//
+// On HTTP/1 the deadline lives on the connection and is refreshed on every
+// read. HTTP/2 has no per-request read deadline, so a watchdog closes the body
+// instead, which unblocks the read that would otherwise wait forever.
+type stallReader struct {
+	r     io.ReadCloser
+	rc    *http.ResponseController
+	limit time.Duration
+
+	mu      sync.Mutex
+	n       int64
+	last    time.Time
+	stalled bool
+	// useDeadline is decided once, when the body is wrapped.
+	useDeadline bool
+
+	once sync.Once
+	done chan struct{}
+}
+
+func newStallReader(r io.ReadCloser, limit time.Duration, rc *http.ResponseController) *stallReader {
+	s := &stallReader{r: r, rc: rc, limit: limit, last: time.Now(), done: make(chan struct{})}
+	if limit <= 0 {
+		return s
+	}
+	if rc.SetReadDeadline(time.Now().Add(limit)) == nil {
+		s.useDeadline = true
+	} else {
+		go s.watch()
+	}
+	return s
+}
+
+// watch closes the body when no byte has arrived for the whole guard window,
+// for the protocols whose connection deadline cannot be set.
+func (s *stallReader) watch() {
+	t := time.NewTicker(max(s.limit/4, 10*time.Millisecond))
+	defer t.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case now := <-t.C:
+			s.mu.Lock()
+			fire := !s.stalled && now.Sub(s.last) >= s.limit
+			if fire {
+				s.stalled = true
+			}
+			s.mu.Unlock()
+			if fire {
+				_ = s.r.Close()
+				return
+			}
+		}
+	}
+}
+
+func (s *stallReader) Read(p []byte) (int, error) {
+	if s.useDeadline {
+		_ = s.rc.SetReadDeadline(time.Now().Add(s.limit))
+	}
+	n, err := s.r.Read(p)
+	if n > 0 {
+		s.mu.Lock()
+		s.last = time.Now()
+		s.n += int64(n)
+		s.mu.Unlock()
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		s.mu.Lock()
+		s.stalled = true
+		s.mu.Unlock()
+	}
+	return n, err
+}
+
+func (s *stallReader) Close() error {
+	s.once.Do(func() { close(s.done) })
+	return s.r.Close()
+}
+
+func (s *stallReader) bytes() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.n
+}
+
+func (s *stallReader) didStall() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stalled
+}
+
+// errBudgetFull is returned when a body with no declared length grows past what
+// the buffer budget can hold. The reservation only covers the declared length,
+// or 64 KiB when there is none, so the read has to charge for the rest.
+var errBudgetFull = errors.New("request body exceeded the buffered byte budget")
+
+// readBody buffers a request body up to limit bytes. credit is what the budget
+// already reserved for this body; anything past it is charged as it is read, so
+// a chunked body cannot allocate more than the budget allows.
+func readBody(r *http.Request, limit, credit int64, charge func(int64) bool) ([]byte, bool, error) {
 	if r.Body == nil || r.Method == http.MethodGet || r.Method == http.MethodHead {
 		_ = r.Body.Close()
 		r.Body = http.NoBody
@@ -678,19 +872,41 @@ func readBody(r *http.Request, limit int64) ([]byte, bool, error) {
 	if r.ContentLength > limit {
 		return nil, true, nil
 	}
-	buf, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
-	_ = r.Body.Close()
-	if err != nil {
-		return nil, false, err
+	var buf bytes.Buffer
+	chunk := make([]byte, 32<<10)
+	var read int64
+	for {
+		n, rerr := r.Body.Read(chunk)
+		if n > 0 {
+			read += int64(n)
+			if read > limit {
+				_ = r.Body.Close()
+				return nil, true, nil
+			}
+			claimed := min(int64(n), credit)
+			credit -= claimed
+			if extra := int64(n) - claimed; extra > 0 && charge != nil && !charge(extra) {
+				_ = r.Body.Close()
+				return nil, false, errBudgetFull
+			}
+			_, _ = buf.Write(chunk[:n])
+		}
+		if rerr != nil {
+			_ = r.Body.Close()
+			if errors.Is(rerr, io.EOF) {
+				break
+			}
+			return nil, false, rerr
+		}
 	}
-	if int64(len(buf)) > limit {
-		return nil, true, nil
-	}
-	r.Body = io.NopCloser(bytes.NewReader(buf))
+	body := buf.Bytes()
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	// A buffered body is sent with its real length, not as a chunked stream.
+	r.TransferEncoding = nil
 	// A buffered body can be replayed by the retry transport.
-	r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
-	r.ContentLength = int64(len(buf))
-	return buf, false, nil
+	r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
+	r.ContentLength = int64(len(body))
+	return body, false, nil
 }
 
 func clientAddr(r *http.Request) netip.Addr {

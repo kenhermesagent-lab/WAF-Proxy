@@ -385,6 +385,14 @@ export interface IntelLookup {
   ban: { cidr: string; reason: string; source: string; permanent: boolean; expires_at?: string } | null;
 }
 
+// BodySkip is a request path whose body streams to the upstream without being
+// buffered or inspected. list_ids narrows the exemption to those lists.
+export interface BodySkip {
+  method: string;
+  prefix: string;
+  list_ids?: number[];
+}
+
 export interface Proxy {
   id: number;
   hostname: string;
@@ -400,6 +408,10 @@ export interface Proxy {
   bot_level: string;
   maintenance: boolean;
   waf_mode: string;
+  // max_body is this site's buffered-body ceiling in bytes; 0 inherits the host
+  // setting. body_skip paths are streamed without buffering or inspection.
+  max_body: number;
+  body_skip?: BodySkip[];
   created_at: string;
   upstreams: Upstream[];
   routes: Route[];
@@ -516,6 +528,11 @@ export interface Preset {
   gate: string;
   exceptions: string;
   notes: string[];
+  // proxy_max_body and body_skip_paths ("METHOD /prefix") prefill the site
+  // drawer; steps is the ordered setup guide it shows.
+  proxy_max_body: number;
+  body_skip_paths: string[];
+  steps: string[];
 }
 
 export interface Policy {

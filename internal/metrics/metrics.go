@@ -65,14 +65,7 @@ type Counters struct {
 	BytesOut int64 `json:"bytes_out"`
 }
 
-// sourceCounters is one client's contribution to a proxy, kept so the anomaly
-// detector can tell a spike from a muted source apart from anyone else's.
-type sourceCounters struct {
-	Requests int64
-	BytesOut int64
-}
-
-// maxSourcesPerProxy bounds the per-source map. A host under a spray of
+// maxSourcesPerProxy bounds the per-source byte map. A host under a spray of
 // addresses keeps its largest contributors instead of growing without limit;
 // the bytes of a dropped source stay in the proxy total, which is why an
 // unattributed spike is never treated as expected.
@@ -121,7 +114,7 @@ type Collector struct {
 	history          []Point
 	sessions         Sessions
 	proxies          map[int64]*Counters
-	sources          map[int64]map[string]*sourceCounters
+	sources          map[int64]map[string]int64
 	last             map[string]ifSample
 
 	wireIn, wireOut atomic.Uint64
@@ -149,7 +142,7 @@ func New(wanName, lanName string) *Collector {
 		lanName: lanName,
 		history: make([]Point, 0, 3600),
 		proxies: map[int64]*Counters{},
-		sources: map[int64]map[string]*sourceCounters{},
+		sources: map[int64]map[string]int64{},
 		last:    map[string]ifSample{},
 		load:    Load{Cores: runtime.NumCPU()},
 	}
@@ -622,47 +615,36 @@ func (c *Collector) Count(proxyID int64, requests, blocked, bytesIn, bytesOut in
 	}
 }
 
-// CountSource adds one request's outbound bytes to its client, so the anomaly
-// detector can attribute a window to the sources that moved it.
+// CountSource adds one response's outbound bytes to its client, so the detector
+// can attribute a window to the sources that moved it. A request that wrote
+// nothing is not a source worth remembering.
 func (c *Collector) CountSource(proxyID int64, src string, bytesOut int64) {
-	if c == nil || proxyID == 0 || src == "" {
+	if c == nil || proxyID == 0 || src == "" || bytesOut <= 0 {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	bySrc := c.sources[proxyID]
 	if bySrc == nil {
-		bySrc = map[string]*sourceCounters{}
+		bySrc = map[string]int64{}
 		c.sources[proxyID] = bySrc
 	}
-	sc := bySrc[src]
-	if sc == nil {
-		if len(bySrc) >= maxSourcesPerProxy && !evictSource(bySrc) {
-			return
-		}
-		sc = &sourceCounters{}
-		bySrc[src] = sc
+	if _, seen := bySrc[src]; !seen && len(bySrc) >= maxSourcesPerProxy {
+		evictSource(bySrc)
 	}
-	atomic.AddInt64(&sc.Requests, 1)
-	if bytesOut != 0 {
-		atomic.AddInt64(&sc.BytesOut, bytesOut)
-	}
+	bySrc[src] += bytesOut
 }
 
 // evictSource drops the smallest contributor, so a flood of distinct addresses
 // cannot push out a source that is actually moving traffic.
-func evictSource(bySrc map[string]*sourceCounters) bool {
+func evictSource(bySrc map[string]int64) {
 	worst, smallest := "", int64(0)
-	for addr, sc := range bySrc {
-		if n := atomic.LoadInt64(&sc.BytesOut); worst == "" || n < smallest {
+	for addr, n := range bySrc {
+		if worst == "" || n < smallest {
 			worst, smallest = addr, n
 		}
 	}
-	if worst == "" {
-		return false
-	}
 	delete(bySrc, worst)
-	return true
 }
 
 // EgressBySource returns the outbound bytes each client of a proxy has moved so
@@ -671,8 +653,8 @@ func (c *Collector) EgressBySource(proxyID int64) map[string]int64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	out := make(map[string]int64, len(c.sources[proxyID]))
-	for addr, sc := range c.sources[proxyID] {
-		out[addr] = atomic.LoadInt64(&sc.BytesOut)
+	for addr, n := range c.sources[proxyID] {
+		out[addr] = n
 	}
 	return out
 }

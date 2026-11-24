@@ -12,6 +12,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/anomaly"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/netmatch"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
@@ -347,7 +348,7 @@ func (s *Server) whitelistedSources(r *http.Request, proxyID int64) ([]whitelist
 			if part == "" || seen[part] {
 				continue
 			}
-			if _, ok := parsePrefix(part); !ok {
+			if _, err := netmatch.ParsePrefix(part); err != nil {
 				continue
 			}
 			seen[part] = true
@@ -359,22 +360,6 @@ func (s *Server) whitelistedSources(r *http.Request, proxyID int64) ([]whitelist
 		}
 	}
 	return out, nil
-}
-
-// parsePrefix accepts one address or CIDR, the two forms a whitelist entry takes.
-func parsePrefix(s string) (netip.Prefix, bool) {
-	if s == "" {
-		return netip.Prefix{}, false
-	}
-	if strings.Contains(s, "/") {
-		p, err := netip.ParsePrefix(s)
-		return p, err == nil
-	}
-	a, err := netip.ParseAddr(s)
-	if err != nil {
-		return netip.Prefix{}, false
-	}
-	return netip.PrefixFrom(a, a.BitLen()), true
 }
 
 // resolveHost turns an upstream host into the addresses it points at: a literal
