@@ -5,12 +5,12 @@ services:
     build:
       context: ..
       args:
-        VERSION: ${VERSION:-1.66.0}
+        VERSION: ${VERSION:-1.66.1}
         COMMIT: ${COMMIT:-unknown}
         BUILD_DATE: ${BUILD_DATE:-unknown}
         # A fork sets REPO so the Updates page accepts its own checkout.
         REPO: ${REPO:-kenhermesagent-lab/WAF-Proxy}
-    image: wafproxy:${VERSION:-1.66.0}
+    image: wafproxy:${VERSION:-1.66.1}
     container_name: wafproxy
     # Host networking is required: the proxy binds the WAN/LAN addresses chosen
     # in the setup wizard, sees real client IPs, and manages nftables directly.

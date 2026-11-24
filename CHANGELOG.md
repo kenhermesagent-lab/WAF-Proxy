@@ -12,6 +12,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.66.1] — 2026-11-24
+
+### Fixed
+
+- **The release job installs QEMU on Node 24 instead of the deprecated Node 20.** `docker/setup-qemu-action`
+  was pinned to v3.7.0, whose `action.yml` declares `node20`; runners force that onto Node 24 and
+  annotate every release run with the deprecation warning. The pin moves to v4.4.0 (`9901266`), whose
+  `action.yml` declares `node24`, and stays a full 40-character commit: the pin check still refuses
+  tags, branches and short SHAs.
+
 ## [1.66.0] — 2026-11-24
 
 ### Added
