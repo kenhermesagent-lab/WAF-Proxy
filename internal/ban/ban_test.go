@@ -130,3 +130,104 @@ func TestAddForRecordsTheBanOnTheObservingSite(t *testing.T) {
 		t.Fatal("the kernel set does not hold the ban")
 	}
 }
+
+// A ban the one-shot CLI deleted must stop dropping traffic without a restart,
+// or an operator who lifts a ban sees it still enforced.
+func TestReconcileDropsABanDeletedBehindTheEngine(t *testing.T) {
+	engine, st := newTestEngine(t)
+	rec, err := engine.Add("198.51.100.7", "test", "manual", "tester", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := netip.MustParseAddr("198.51.100.7")
+	if _, err := st.DeleteBanByCIDR(rec.CIDR); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := engine.Match(addr); !ok {
+		t.Fatal("the ban was dropped before Reconcile, so the test proves nothing")
+	}
+	engine.Reconcile()
+	if _, ok := engine.Match(addr); ok {
+		t.Fatal("Reconcile kept a ban the database no longer has")
+	}
+}
+
+// Removing a CrowdSec decision must not lift a manual or WAF ban.
+func TestRemoveIfSourceLeavesAnotherSourcesBan(t *testing.T) {
+	engine, _ := newTestEngine(t)
+	rec, err := engine.Add("198.51.100.8", "crowdsec decision", "crowdsec", "crowdsec", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := netip.MustParseAddr("198.51.100.8")
+	engine.RemoveIfSource(rec.CIDR, "manual")
+	if _, ok := engine.Match(addr); !ok {
+		t.Fatal("a crowdsec removal lifted a ban another source created")
+	}
+	engine.RemoveIfSource(rec.CIDR, "crowdsec")
+	if _, ok := engine.Match(addr); ok {
+		t.Fatal("the owning source's removal left the ban in place")
+	}
+}
+
+// A temporary refresh must not shorten a permanent ban.
+func TestAddKeepsAPermanentBan(t *testing.T) {
+	engine, st := newTestEngine(t)
+	rec, err := engine.Add("198.51.100.9", "manual", "manual", "tester", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := engine.Add(rec.CIDR, "rate limit", "ratelimit", "policy", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !refreshed.Permanent || refreshed.ExpiresAt != nil {
+		t.Fatalf("a permanent ban was downgraded to %+v", refreshed)
+	}
+	row, err := st.BanByCIDR(rec.CIDR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !row.Permanent || row.ExpiresAt != nil {
+		t.Fatalf("the stored ban was downgraded to %+v", row)
+	}
+}
+
+func TestDemoteShortensAPermanentBan(t *testing.T) {
+	engine, st := newTestEngine(t)
+	rec, err := engine.Add("198.51.100.10", "manual", "manual", "tester", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Demote(rec.CIDR, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.BanByCIDR(rec.CIDR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Permanent || row.ExpiresAt == nil {
+		t.Fatalf("demoted ban is still permanent: %+v", row)
+	}
+	if got, ok := engine.Match(netip.MustParseAddr("198.51.100.10")); !ok || got.Permanent {
+		t.Fatalf("in-memory record after demote = %+v (%v)", got, ok)
+	}
+}
+
+// The sweeper must drop both the enforcing entry and the row, or an expired
+// cool-down keeps dropping traffic and stays in the console forever.
+func TestPurgeExpiredRemovesRowsAndMemory(t *testing.T) {
+	engine, st := newTestEngine(t)
+	rec, err := engine.Add("198.51.100.11", "cool-down", "ratelimit", "policy", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	engine.purgeExpired()
+	if n := engine.Count(); n != 0 {
+		t.Fatalf("expired bans still enforced: %d", n)
+	}
+	if _, err := st.BanByCIDR(rec.CIDR); err == nil {
+		t.Fatal("the expired row is still in the database")
+	}
+}

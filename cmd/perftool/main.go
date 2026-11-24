@@ -47,7 +47,7 @@ type baseline struct {
 	Benchmarks      map[string]sample `json:"benchmarks"`
 }
 
-const benchPattern = "BenchmarkInspectBenign|BenchmarkInspectSQLi|BenchmarkMix"
+const benchPattern = "BenchmarkInspectBenign|BenchmarkInspectSQLi|BenchmarkMix|BenchmarkPipeline"
 
 var benchLine = regexp.MustCompile(`^(\w+)(?:-\d+)?\s+\d+\s+([0-9.]+) ns/op\s+([0-9.]+) B/op\s+([0-9.]+) allocs/op`)
 
@@ -111,7 +111,7 @@ func main() {
 
 func runBench(dir, benchtime string) (map[string]sample, error) {
 	cmd := exec.Command("go", "test", "-run", "^$", "-bench", benchPattern,
-		"-benchmem", "-count=1", "-benchtime", benchtime, "./internal/waf", "./internal/perf")
+		"-benchmem", "-count=1", "-benchtime", benchtime, "./internal/waf", "./internal/perf", "./internal/proxy")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

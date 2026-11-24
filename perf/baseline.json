@@ -1,5 +1,5 @@
 {
-  "recorded": "2026-11-22",
+  "recorded": "2026-11-24",
   "go": "go1.27.4",
   "allocs_tolerance": 0.25,
   "time_tolerance": 2,
@@ -15,6 +15,10 @@
     "BenchmarkMix": {
       "ns_op": 844576,
       "allocs_op": 2510
+    },
+    "BenchmarkPipeline": {
+      "ns_op": 213661,
+      "allocs_op": 170
     }
   }
 }

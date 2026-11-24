@@ -158,6 +158,12 @@ fi
 # fix this check itself recommends, so it must not read as a late release.
 commit_time() {
   local tag=$1 commit
+  # A checkout carries the tags that existed when it ran, not the one this push
+  # just created; without this the order rule cannot read that tag and exits
+  # without saying why.
+  if [[ $mode == remote ]] && ! git -C "$root" rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
+    git -C "$root" fetch --quiet --no-tags "$remote" "+refs/tags/${tag}:refs/tags/${tag}" >/dev/null 2>&1 || return 1
+  fi
   if ! commit=$(git -C "$root" rev-parse -q --verify "refs/tags/$tag^{}" 2>/dev/null); then
     return 1
   fi
@@ -199,10 +205,13 @@ if [[ ${#kept[@]} -gt 0 ]]; then
   done
 
   newest=$(printf '%s\n' "${kept[@]}" | sort -V | tail -1)
-  newest_time=$(commit_time "v$newest")
+  if ! newest_time=$(commit_time "v$newest"); then
+    fail "$newest" "cannot read the release commit of v$newest on $remote" \
+      "fetch the tag and re-run: git fetch $remote refs/tags/v$newest"
+  fi
   while IFS= read -r v; do
     [[ -z $v || $v == "$newest" ]] && continue
-    when=$(commit_time "v$v")
+    when=$(commit_time "v$v") || continue
     # A release whose own commit is newer than the newest release was cut late,
     # whatever its tag date says. An older tag re-cut onto its original commit
     # keeps its old commit date, so it stays ordinary history.

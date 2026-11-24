@@ -54,6 +54,13 @@ describe("High availability page", () => {
     cleanup();
   });
 
+  it("marks high availability experimental and names what has not run", async () => {
+    renderPage(status({ paired: true, cluster_id: "cluster-abc", role: "active", state: "active" }));
+    expect(await screen.findByText("Experimental")).toBeTruthy();
+    expect(screen.getByText(/two-VM hardware gates and the chaos soak have not run/i)).toBeTruthy();
+    expect(screen.getByText(/not cleared to carry production traffic/i)).toBeTruthy();
+  });
+
   it("offers create or join while unpaired and disables the other actions", async () => {
     renderPage(status());
     expect(await screen.findByRole("button", { name: "Create a pair" })).toBeTruthy();

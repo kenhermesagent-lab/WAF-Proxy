@@ -45,7 +45,7 @@ type harness struct {
 	cancel context.CancelFunc
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t testing.TB) *harness {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -212,6 +212,10 @@ func newHarness(t *testing.T) *harness {
 func boxKey() []byte { return bytes.Repeat([]byte{0x42}, 32) }
 
 func (h *harness) request(method, host, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
+	return h.requestFrom(testIP, method, host, path, body, hdr)
+}
+
+func (h *harness) requestFrom(src, method, host, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
 	var rdr io.Reader
 	if body != "" {
 		rdr = strings.NewReader(body)
@@ -221,7 +225,7 @@ func (h *harness) request(method, host, path, body string, hdr map[string]string
 	req.URL.Scheme = "https"
 	req.URL.Host = host
 	req.TLS = &tls.ConnectionState{}
-	req.RemoteAddr = testIP + ":43210"
+	req.RemoteAddr = src + ":43210"
 	for k, v := range hdr {
 		req.Header.Set(k, v)
 	}

@@ -176,24 +176,33 @@ func (m *Map[T]) Len() int {
 	return m.n
 }
 
-// Range calls fn for every stored prefix. Returning false stops iteration.
+// Range calls fn for every stored prefix. Returning false stops iteration. The
+// entries are copied first, so fn may add or remove prefixes: holding the read
+// lock across the callback deadlocked the ban sweeper, which removes the
+// entries it walks.
 func (m *Map[T]) Range(fn func(netip.Prefix, T) bool) {
+	type entry struct {
+		p netip.Prefix
+		v T
+	}
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	entries := make([]entry, 0, m.n)
 	for bits, set := range m.v4 {
 		for key, v := range set {
 			var b [4]byte
 			binary.BigEndian.PutUint32(b[:], key)
-			if !fn(netip.PrefixFrom(netip.AddrFrom4(b), bits), v) {
-				return
-			}
+			entries = append(entries, entry{netip.PrefixFrom(netip.AddrFrom4(b), bits), v})
 		}
 	}
 	for bits, set := range m.v6 {
 		for key, v := range set {
-			if !fn(netip.PrefixFrom(netip.AddrFrom16(key), bits), v) {
-				return
-			}
+			entries = append(entries, entry{netip.PrefixFrom(netip.AddrFrom16(key), bits), v})
+		}
+	}
+	m.mu.RUnlock()
+	for _, e := range entries {
+		if !fn(e.p, e.v) {
+			return
 		}
 	}
 }

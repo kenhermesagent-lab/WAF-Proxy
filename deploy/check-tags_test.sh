@@ -266,4 +266,27 @@ if ! check --remote --branch main; then
   exit 1
 fi
 
+# CI checks out main without tags, so the tag a push has just created exists only
+# on origin. The order rule has to read it from there; before it did, the loop
+# in ci.yml retried for two minutes and exited without printing a reason.
+seed
+git init -q --bare -b main "$work/origin6.git"
+git -C "$root" remote add origin "$work/origin6.git"
+git -C "$root" push -q origin main --follow-tags
+git clone -q --no-tags "$work/origin6.git" "$work/ci-clone"
+if ! ( cd "$work/ci-clone" && env -u GITHUB_REF bash deploy/check-tags.sh --remote --branch main >/dev/null 2>&1 ); then
+  echo "a freshly pushed tag failed the remote check from a clone without tags" >&2
+  exit 1
+fi
+# The same clone shape must still go red for a real backlog, or the fix would
+# have traded the failure for a blind pass.
+changelog 1.61.2 1.61.1 1.61.0 1.60.1
+commit "1.61.2"
+git -C "$root" push -q origin main
+git clone -q --no-tags "$work/origin6.git" "$work/ci-clone-backlog"
+if ( cd "$work/ci-clone-backlog" && env -u GITHUB_REF bash deploy/check-tags.sh --remote --branch main >/dev/null 2>&1 ); then
+  echo "an untagged section passed the remote check from a clone without tags" >&2
+  exit 1
+fi
+
 echo "tag check rejects every missing, lightweight, misplaced, unpushed, misnumbered or unmerged tag"

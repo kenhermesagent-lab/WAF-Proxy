@@ -12,6 +12,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.6] — 2026-11-24
+
+### Fixed
+
+- **Expired bans no longer wedge the ban sweeper.** `netmatch.Map.Range` held its read lock
+  while calling the callback, and the sweeper removes the ban it is handed, so the first ban to
+  expire deadlocked the goroutine: the ban stayed enforced indefinitely, batched hit counters
+  stopped flushing and reconcile stopped running. `Range` now copies the entries before calling
+  back, which fixes every caller; two tests pin a mutating callback and early stop.
+- **CI sees a tag that landed during its own retry loop.** The remote tag check read each tag's
+  commit from the local clone, which carries only the tags that existed at checkout. Once the tag
+  appeared on origin the order rule could not read it, `set -e` ended the script silently and the
+  release-metadata job failed after its full two-minute retry window, needing a manual re-run.
+  Remote mode now fetches the tag it is missing, and an unreadable newest tag fails with a named
+  reason. A test clones without tags and requires a fresh tag to pass and a real backlog to fail.
+
+### Added
+
+- **The perf gate now measures the whole pipeline.** `BenchmarkPipeline` drives routing, the
+  admission budget, the upstream copy and the response filters through the real handler, and its
+  number is in `perf/baseline.json` alongside the three WAF benchmarks, so the uncached path cannot
+  regress unnoticed behind the rule-engine gate again.
+- **The console marks high availability experimental.** The HA page states that the two-VM
+  hardware gates and the chaos soak have not run, instead of leaving that fact in the docs alone.
+- **Tests for the packages that drop traffic and separate tenants.** `internal/urlguard` went from
+  no tests to 95.5 % coverage of its policy matrix, `internal/ban` from 19.0 % to 37.6 % including
+  the sweeper, and `internal/siteres` from none to 25.0 % for per-site scoping and fallback.
+
+### Changed
+
+- **The memory number under load is measured and documented.** Peak RSS is 141.8 MiB relayed,
+  127.9 MiB cached and 327.5 MiB under CRS inspection on the 50-client run; the inspected figure is
+  GC headroom, and `GOMEMLIMIT=160MiB` brings it to 174.5 MiB at the same p95. `docs/BENCHMARKS.md`
+  records the measurements and the supported knob; no limit is hard-coded, because one below the
+  operator's live cache would only burn CPU.
+
 ## [1.65.5] — 2026-11-24
 
 ### Changed

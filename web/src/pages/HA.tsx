@@ -186,6 +186,11 @@ export default function HAPage({
         {role.toUpperCase()} — {state}. {st?.reason ?? ""}
       </div>
 
+      <div className="faint small-text" style={{ marginBottom: 10 }}>
+        <Badge tone="warn">Experimental</Badge> The two-VM hardware gates and the chaos soak have not
+        run, so a pair is not cleared to carry production traffic.
+      </div>
+
       {st.runtime_error && (
         <div className="card" role="alert" style={{ borderLeft: "4px solid var(--bad, #c0392b)" }}>
           <div className="section-head">

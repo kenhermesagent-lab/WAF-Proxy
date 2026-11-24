@@ -329,3 +329,33 @@ go test ./internal/waf -run '^$' -bench BenchmarkInspect -benchtime=2000x -bench
 Then measure end-to-end with a client on a separate host, WAF on and off, and record the CPU model,
 request mix, response size, WAF mode and profile. A projected row above is not a substitute for that
 test.
+
+## Uncached pipeline and memory under load (2026-11-24)
+
+Measured with `perftool -proxy -duration 5s -clients 50 -sites 1` on a second
+host than the environment table above (AMD EPYC 7003, 8 vCPU shared), one site,
+1 KiB upstream bodies. Peak RSS is the process high-water mark for the run.
+
+| Mode | rps | p50 | p95 | Peak RSS |
+|---|---:|---:|---:|---:|
+| relayed (`-cache=off -waf=off`) | 21,006 | 1.98 ms | 5.12 ms | 141.8 MiB |
+| cached (`-cache=on`) | 44,696 | 0.90 ms | 2.55 ms | 127.9 MiB |
+| inspected (`-waf=block`) | 7,211 | 5.54 ms | 14.16 ms | 327.5 MiB |
+
+The inspected peak is GC headroom rather than live data. On the same load:
+
+| Setting | Peak RSS | p95 |
+|---|---:|---:|
+| default `GOGC=100` | 314.6 MiB | 15.76 ms |
+| `GOGC=50` | 222.5 MiB | 15.89 ms |
+| `GOMEMLIMIT=160MiB` | 174.5 MiB | 14.03 ms |
+| `GOMEMLIMIT=160MiB GOGC=off` | 170.6 MiB | 13.38 ms |
+
+`GOMEMLIMIT` is the supported knob: set it in the unit or compose file, sized
+above the operator's live cache plus profiles. No limit is hard-coded, because a
+value below the live heap only trades memory for CPU in the collector.
+
+`BenchmarkPipeline` (`internal/proxy`) now runs in `make perf-gate` with the three
+WAF benchmarks and is recorded in `perf/baseline.json` (213,661 ns/op, 170
+allocations), so the uncached path is gated end to end rather than only around
+the rule engine.
