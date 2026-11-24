@@ -193,8 +193,8 @@ observed in the distribution tests.
 
 ### Deliberately deferred
 
-- HTTP/2 and HTTP/3 on the client side, pipelining, and full gRPC trailer
-  semantics (documented as unsupported in the table).
+- Pipelining and full gRPC trailer semantics (documented as unsupported in
+  the table).
 - Rewrite rules that execute scripts or templates; only literal and regex
   replacement.
 - Per-route WAF profile overrides — the policy pipeline already has profile
@@ -252,8 +252,7 @@ configurable per route with the documented error codes.
 ### Deliberately deferred
 
 - Shared or tiered cache across nodes, cache warm-up, and request collapsing.
-- QUIC/UDP-based application protocols beyond raw UDP forwarding (HTTP/3 is a
-  separate protocol decision).
+- QUIC/UDP-based application protocols beyond HTTP/3 and raw UDP forwarding.
 - Dynamic upstream discovery (DNS SRV, Consul, Docker labels).
 - Connection multiplexing (HTTP/2 to upstreams).
 
@@ -435,7 +434,7 @@ tested; the docs cover install through troubleshooting without a 700-line page.
 
 - **HA / multi-node**: shared configuration, distributed bans and rate limits,
   leader-elected ACME, shared cache, cluster health. See below.
-- **HTTP/3 and QUIC.**
+- **HTTP/3 and QUIC** — delivered in 1.64.0.
 - **Config importers** (NPM, Traefik, Caddyfile, HAProxy).
 - **Dynamic upstream discovery** and container-label routing.
 - **Hosted docs site, SSO, mTLS.**
@@ -509,7 +508,7 @@ Every item in the review maps to exactly one phase or to an explicit deferral.
 | A8 | Per-upstream transports and connection reuse across reload, DNS TTL, Happy Eyeballs, drain readiness | 1.32 (Phase 3) |
 | A9 | Cache: one global LRU, per-host quota, Vary/Set-Cookie correctness, purge | 1.32 (Phase 3) |
 | A10 | Protocol conformance: Expect/100-continue, HEAD, Range, framing, smuggling; published table | 1.31 (Phase 2), table extended through 1.32 |
-| A10b | Pipelining, gRPC trailers, HTTP/3 | Deferred beyond 1.34 |
+| A10b | Pipelining, gRPC trailers, HTTP/3 | Deferred beyond 1.34; HTTP/3 delivered in 1.64.0 |
 
 ### Setup
 
@@ -573,7 +572,7 @@ Every item in the review maps to exactly one phase or to an explicit deferral.
 
 ### Deferred beyond 1.34 (whole features)
 
-HA/multi-node clustering, HTTP/3, third-party config importers, dynamic upstream
+HA/multi-node clustering, third-party config importers, dynamic upstream
 discovery, shared cache, hosted docs site, SSO, site mTLS, contributor
 docs. None of them are required by a single-node deployment.
 
@@ -583,7 +582,7 @@ docs. None of them are required by a single-node deployment.
 - **1.31.0–1.34.0 — Phase 2: delivered.** Per-site upstream timeout, bounded idempotent
   retries, 502/504 taxonomy, ordered header rewriting, method/header/query/regex route matchers
   with priority, per-rule upstreams and timeouts, redirect status choice, and
-  `docs/CONFORMANCE.md`. Unsupported by design: pipelining, gRPC trailers, HTTP/3.
+  `docs/CONFORMANCE.md`. Unsupported by design: pipelining, gRPC trailers.
 - **1.32.0–1.34.0 — Phase 3: delivered, except three items.** Shared cache with per-host
   quotas, eviction and purge; warm connections across reload; drain readiness; generic TCP
   forwarding through the Custom TCP stream service (with bans, allow lists and caps). Not
