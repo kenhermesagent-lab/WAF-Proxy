@@ -111,6 +111,8 @@ jobs:
         run: bash deploy/check-tags.sh --remote
       - name: The tag check rejects missing, lightweight and misplaced tags
         run: bash deploy/check-tags_test.sh
+      - name: The runbook describes every tag rejection
+        run: bash deploy/check-tags-docs_test.sh
       - name: Workflow actions are pinned to commits
         run: bash deploy/check-workflow-pins.sh
       - name: The pin check rejects tags, branches and short SHAs

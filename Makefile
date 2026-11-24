@@ -46,6 +46,7 @@ fmt:
 verify-release:
 	bash deploy/check-version.sh
 	bash deploy/check-tags.sh
+	bash deploy/check-tags-docs_test.sh
 	bash deploy/check-workflow-pins.sh
 	bash deploy/check-image-pins.sh
 
