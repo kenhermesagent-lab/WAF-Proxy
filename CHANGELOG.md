@@ -64,6 +64,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   receives — is caught in both modes. A section still marked `unreleased` needs no tag yet. The rule
   is enforced on `main` only, so a release branch can write its section before the tag exists;
   `--branch main` forces it from anywhere.
+- **A tag has to name a version the CHANGELOG ships, and to have been cut in order.** A `vX.Y.Z`
+  tag with no dated section fails — a `v1.62.4` tag on a commit that reached `main`, say — as does a
+  tag created after a newer one shipped, so an out-of-order release is caught even when its commit
+  is merged. Tags below 1.61.0 predate the rule and are left alone.
 - **The tag check reads `VERSION` at the tagged commit too.** A `vX.Y.Z` tag whose commit carries
   another version fails as surely as a missing tag — in the clone, and on origin where the remote
   run fetches the tag a shallow checkout does not have — so a tag can never name a version the
