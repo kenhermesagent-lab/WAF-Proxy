@@ -5,7 +5,7 @@ import { COFFEE_URL, DOCS_URL } from "../links";
 import { NAV } from "../nav";
 import { Badge, Field, PageHead, PageTabs, SaveBar, Switch, TableWrap, confirmDialog, errText, fmtAgo, fmtTime } from "../ui";
 import type { AuditEntry, CrowdSecStatus, GeoIPStatus, IntelStatus, Me } from "../types";
-import { describePlan, quotaView } from "../threatintel";
+import { describePlan, quotaTone, quotaView } from "../threatintel";
 import BackupCard from "../components/BackupCard";
 import UpdatesPage from "./Updates";
 import Readiness from "./Readiness";
@@ -325,6 +325,8 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   // A deep link to a tab this console may not show falls back to the first one.
   const shown = sections.some((sec) => sec.id === active) ? active : sections[0]?.id ?? "network";
   const intelQuota = quotaView(intel?.quota);
+  // The last check is the only evidence the card has that the key still works.
+  const intelProblem = intel?.problem_kind === "refused" ? "key refused" : intel?.problem_kind === "quota" ? "quota spent" : intel?.problem_kind ? "check failed" : "";
   const select = (id: string) => {
     setActive(id);
     onTab?.(id);
@@ -644,7 +646,9 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
               <div className="faint small-text">Confidence score, report count and the abuse categories other operators reported.</div>
             </div>
             <div>
-              {intel?.configured ? (
+              {intelProblem ? (
+                <Badge tone="bad">{intelProblem}</Badge>
+              ) : intel?.configured ? (
                 <Badge tone="ok">connected · {intel.key_tail}</Badge>
               ) : (
                 <Badge tone="warn">no key</Badge>
@@ -678,9 +682,12 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
                   </span>
                 )}
               </div>
+              {intel.problem && (
+                <p className="faint small-text" style={{ margin: "0 0 6px" }}>{intel.problem}</p>
+              )}
               {intelQuota && (
                 <div className="intel-meter" role="img" aria-label={`${intelQuota.used.toLocaleString()} of ${intelQuota.limit.toLocaleString()} checks used today`}>
-                  <i style={{ width: `${intelQuota.percent}%` }} />
+                  <i style={{ width: `${intelQuota.percent}%`, background: quotaTone(intelQuota.percent) }} />
                 </div>
               )}
               <div className="row between" style={{ marginTop: 8 }}>

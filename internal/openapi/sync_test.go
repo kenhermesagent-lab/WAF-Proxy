@@ -51,6 +51,7 @@ func routes() {
 	for _, want := range []string{
 		"Proxy:", "Ban:", "BanRequest:", "Cert:", "CertUpload:",
 		"NotificationSettings:", "NotificationReport:", "NotificationTest:", "AnomalyConfig:", "AnomalyReport:",
+		"AnomalyEventDetail:", "AnomalyMutes:",
 		"application/x-pem-file:", "Alert:",
 		"requestBody:", "/components/schemas/Proxy",
 	} {

@@ -4,11 +4,14 @@ package anomaly
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +23,17 @@ import (
 // Window is the detection period: one minute of counters, compared with the
 // same proxy's recent windows.
 const Window = time.Minute
+
+// MutesKey stores the destinations an operator expects outbound traffic to.
+const MutesKey = "anomaly_mutes"
+
+// Mute is one destination whose traffic is expected, so an outbound spike
+// toward it is not a detection. Address is the upstream host, without a port.
+type Mute struct {
+	ProxyID int64     `json:"proxy_id"`
+	Address string    `json:"address"`
+	At      time.Time `json:"at"`
+}
 
 // Notifier is the slice of notify.Manager the detector needs.
 type Notifier interface {
@@ -141,6 +155,108 @@ func (m *Manager) Save(c Config) error {
 	return nil
 }
 
+// Mutes lists the destinations traffic is expected to reach.
+func (m *Manager) Mutes() ([]Mute, error) {
+	kv, err := m.st.Settings()
+	if err != nil {
+		return nil, err
+	}
+	out := []Mute{}
+	if raw := strings.TrimSpace(kv[MutesKey]); raw != "" {
+		// An unreadable row loses the mutes, not the whole page.
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+			return []Mute{}, nil
+		}
+	}
+	return out, nil
+}
+
+// AddMute records a destination as expected. The same destination twice is one
+// entry, so muting from two events cannot leave stale copies behind.
+func (m *Manager) AddMute(proxyID int64, address string) error {
+	address = strings.TrimSpace(address)
+	if proxyID == 0 || address == "" {
+		return errors.New("a mute needs a proxy and a destination")
+	}
+	mutes, err := m.Mutes()
+	if err != nil {
+		return err
+	}
+	for _, mu := range mutes {
+		if mu.ProxyID == proxyID && mu.Address == address {
+			return nil
+		}
+	}
+	mutes = append(mutes, Mute{ProxyID: proxyID, Address: address, At: m.now().UTC()})
+	return m.saveMutes(mutes)
+}
+
+// RemoveMute forgets one destination, so its spikes are detected again.
+func (m *Manager) RemoveMute(proxyID int64, address string) error {
+	mutes, err := m.Mutes()
+	if err != nil {
+		return err
+	}
+	kept := mutes[:0]
+	for _, mu := range mutes {
+		if mu.ProxyID == proxyID && mu.Address == address {
+			continue
+		}
+		kept = append(kept, mu)
+	}
+	return m.saveMutes(kept)
+}
+
+func (m *Manager) saveMutes(mutes []Mute) error {
+	if mutes == nil {
+		mutes = []Mute{}
+	}
+	blob, err := json.Marshal(mutes)
+	if err != nil {
+		return err
+	}
+	return m.st.SetSetting(MutesKey, string(blob))
+}
+
+// muted reports whether every enabled destination of a proxy is expected, which
+// is what makes an outbound spike unremarkable. Without upstreams there is
+// nothing to match, so the event is raised.
+func (m *Manager) muted(proxyID int64) bool {
+	mutes, err := m.Mutes()
+	if err != nil {
+		m.log.Warn("anomaly mute lookup failed", "err", err)
+		return false
+	}
+	expected := map[string]bool{}
+	for _, mu := range mutes {
+		if mu.ProxyID == proxyID {
+			expected[mu.Address] = true
+		}
+	}
+	if len(expected) == 0 {
+		return false
+	}
+	ups, err := m.st.ListUpstreams(proxyID)
+	if err != nil || len(ups) == 0 {
+		return false
+	}
+	for _, up := range ups {
+		if !up.Enabled || !expected[upstreamHost(up.URL)] {
+			return false
+		}
+	}
+	return true
+}
+
+// upstreamHost is the host an upstream URL sends traffic to, without its port.
+func upstreamHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
 // Start evaluates a window every minute until the context is cancelled.
 func (m *Manager) Start(ctx context.Context) {
 	ticker := time.NewTicker(Window)
@@ -200,7 +316,7 @@ func (m *Manager) Tick(now time.Time) error {
 		m.rates[id] = append(rateHist, float64(reqs)/Window.Seconds())
 
 		floor := float64(cfg.EgressMB) * (1 << 20)
-		if float64(out) >= floor && float64(out) >= cfg.EgressFactor*egressBase {
+		if float64(out) >= floor && float64(out) >= cfg.EgressFactor*egressBase && !m.muted(id) {
 			m.raise(cfg, model.AnomalyEvent{
 				Kind: "egress_spike", ProxyID: id, WindowStart: now.Add(-Window), WindowSeconds: int(Window.Seconds()),
 				Value: float64(out), Baseline: egressBase,

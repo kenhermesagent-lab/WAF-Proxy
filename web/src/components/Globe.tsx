@@ -334,6 +334,7 @@ function drawCityLabels(
   points: GlobePoint[],
   focus: string | null,
   picked: string | null,
+  zoom: number,
 ) {
   const top = [...points].sort((a, b) => b.count - a.count).slice(0, 12);
   const taken: { x: number; y: number; w: number; h: number }[] = [];
@@ -346,7 +347,11 @@ function drawCityLabels(
     const dim = focus && pt.country !== focus;
     const label = `${pt.city || countryName(pt.country)}  ${pt.count.toLocaleString()}`;
     const width = Math.ceil(ctx.measureText(label).width) + 12;
-    const box = { x: p.x + 9, y: p.y - 9, w: width, h: 18 };
+    // Clear the dot's halo, which shrinks as the camera zooms in: at city zoom
+    // a fixed offset left the selected city's label sitting on its own dot.
+    const weight = Math.min(1, Math.log10(1 + pt.count) / 3);
+    const radius = (3 + weight * 11) / Math.sqrt(Math.max(1, zoom));
+    const box = { x: p.x + 7, y: p.y - radius * 2.1 - 8 - 18, w: width, h: 18 };
     if (box.x + box.w > w - 6 || box.y < 6) continue;
     if (taken.some((b) => box.x < b.x + b.w + 3 && box.x + box.w + 3 > b.x && box.y < b.y + b.h + 3 && box.y + box.h + 3 > b.y)) continue;
     taken.push(box);
@@ -815,7 +820,7 @@ const Globe = forwardRef<GlobeHandle, {
 
       if (variant === "expanded") {
         if (cam.zoom >= 1.7) {
-          drawCityLabels(ctx, project, r, cssW, cssH, shown, focus, viewRef.current.city);
+          drawCityLabels(ctx, project, r, cssW, cssH, shown, focus, viewRef.current.city, cam.zoom);
         }
         if (cam.zoom < 2.4) {
           drawCountryLabels(ctx, project, r, cssW, cssH, countryCounts, focus);

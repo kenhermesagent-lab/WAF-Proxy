@@ -9,7 +9,9 @@ export function describePlan(plan: IntelPlan | undefined, quota: IntelQuota | un
   if (quota && quota.limit > 0) {
     return `allowance ${quota.limit.toLocaleString()}/day · plan not recognised`;
   }
-  return "checking the key…";
+  // Nothing has reported headers yet: a probe that failed never will, so the
+  // card must not claim a check is still running.
+  return "allowance not reported yet";
 }
 
 export type QuotaView = {
@@ -33,6 +35,14 @@ export function quotaView(quota: IntelQuota | undefined): QuotaView | null {
     percent: Math.round((used / quota.limit) * 1000) / 10,
     reset: quota.reset_at ? quota.reset_at.slice(11, 16) + " UTC" : "unknown",
   };
+}
+
+// quotaTone colours the allowance bar by how much of it is spent: a gradient
+// squeezed into the filled width made an almost untouched allowance look red.
+export function quotaTone(percent: number): string {
+  if (percent >= 90) return "#ef4444";
+  if (percent >= 70) return "#f59e0b";
+  return "#14b8a6";
 }
 
 // abuseTone follows the score thresholds AbuseIPDB documents: under 25 is

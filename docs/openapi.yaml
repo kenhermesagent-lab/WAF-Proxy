@@ -133,6 +133,44 @@ components:
         events:
           type: array
           items: {$ref: '#/components/schemas/AnomalyEvent'}
+        mutes:
+          type: array
+          items: {$ref: '#/components/schemas/AnomalyMute'}
+    AnomalyMute:
+      type: object
+      properties:
+        proxy_id: {type: integer}
+        address: {type: string}
+        at: {type: string, format: date-time}
+    AnomalyDestination:
+      type: object
+      properties:
+        url: {type: string}
+        address: {type: string}
+        port: {type: string}
+        resolved:
+          type: array
+          items: {type: string}
+        whitelist: {type: string}
+        muted: {type: boolean}
+    AnomalyEventDetail:
+      type: object
+      properties:
+        event: {$ref: '#/components/schemas/AnomalyEvent'}
+        destinations:
+          type: array
+          items: {$ref: '#/components/schemas/AnomalyDestination'}
+    AnomalyMutes:
+      type: object
+      properties:
+        mutes:
+          type: array
+          items: {$ref: '#/components/schemas/AnomalyMute'}
+    MuteRequest:
+      type: object
+      required: [address]
+      properties:
+        address: {type: string}
     NotificationReport:
       type: object
       properties:
@@ -480,6 +518,28 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+  /api/anomaly/events/{id}:
+    get:
+      operationId: getApiAnomalyEventsId
+      tags: [anomaly]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnomalyEventDetail'}
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/anomaly/events/{id}/ack:
     post:
       operationId: postApiAnomalyEventsIdAck
@@ -498,6 +558,50 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Status'}
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/anomaly/events/{id}/mute:
+    post:
+      operationId: postApiAnomalyEventsIdMute
+      tags: [anomaly]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MuteRequest'}
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnomalyMutes'}
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/anomaly/mutes:
+    delete:
+      operationId: deleteApiAnomalyMutes
+      tags: [anomaly]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnomalyMutes'}
         "401":
           description: Missing or expired session
         "400":

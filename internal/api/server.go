@@ -361,6 +361,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/anomaly", s.authed(s.getAnomaly))
 	m.HandleFunc("PUT /api/anomaly/settings", s.authed(s.putAnomalySettings))
 	m.HandleFunc("POST /api/anomaly/events/{id}/ack", s.authed(s.acknowledgeAnomaly))
+	m.HandleFunc("GET /api/anomaly/events/{id}", s.authed(s.getAnomalyEvent))
+	m.HandleFunc("POST /api/anomaly/events/{id}/mute", s.authed(s.muteAnomaly))
+	m.HandleFunc("DELETE /api/anomaly/mutes", s.authed(s.unmuteAnomaly))
 
 	m.HandleFunc("GET /api/intel/lookup", s.authed(s.lookupIP))
 	m.HandleFunc("GET /api/threat-intel", s.authed(s.getThreatIntel))

@@ -345,6 +345,21 @@ export interface AnomalyEvent {
   acknowledged_at?: string;
 }
 
+export interface AnomalyDestination {
+  url: string;
+  address: string;
+  port?: string;
+  resolved?: string[];
+  whitelist?: string;
+  muted: boolean;
+}
+
+export interface AnomalyMute {
+  proxy_id: number;
+  address: string;
+  at: string;
+}
+
 export interface AnomalyConfig {
   enabled: boolean;
   egress_mb: number;
@@ -1073,6 +1088,8 @@ export interface IntelStatus {
   key_tail?: string;
   quota?: IntelQuota;
   plan?: IntelPlan;
+  problem?: string;
+  problem_kind?: string;
   cache_hours: number;
 }
 
@@ -1096,6 +1113,7 @@ export interface IntelAbuse {
   domain?: string;
   country?: string;
   error?: string;
+  kind?: string;
 }
 
 export interface ThreatLookup {

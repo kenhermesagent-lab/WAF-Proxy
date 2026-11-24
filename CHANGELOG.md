@@ -59,6 +59,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   connection allocate it all. Reads now charge the budget as bytes arrive, and the request is
   refused with a 503 when the budget is full.
 
+## [1.69.0] — 2026-11-24
+
+### Added
+
+- **An anomaly now shows where its outbound traffic went.** Clicking an event opens a panel with the value, the
+  baseline it was measured against, and the site's upstreams with the addresses they resolve to — plus the IP
+  whitelist that covers each one. A whitelisted destination is expected traffic, so **Mute destination** stops
+  outbound-spike detections for that site and acknowledges the ones already open; muted destinations are listed on
+  the page until they are unmuted. A site is only muted once every enabled upstream is muted, so one unexpected
+  destination still raises a spike.
+
+### Fixed
+
+- **A failed key probe left the card saying "checking the key…" for good.** The line now reads "allowance not
+  reported yet", which is what actually happened.
+- **A refused key or a spent allowance still read as connected.** The last failed check is remembered, so the
+  Settings card shows *key refused* or *quota spent* with the reason, and the source drawer labels the AbuseIPDB
+  result the same way instead of a generic *unavailable*.
+
+## [1.68.1] — 2026-11-24
+
+### Fixed
+
+- **The attack map's city label sat on its own hotspot.** Labels were drawn a fixed nine pixels from the dot, so at
+  city zoom the selected city's label covered the marker it named. The offset now clears the dot's halo, which shrinks
+  as the camera zooms in.
+- **A barely used AbuseIPDB allowance looked spent.** The quota bar's gradient was squeezed into the filled width, so a
+  4%-used bar rendered red. The fill is now one colour chosen by usage — teal under 70%, amber under 90%, red above —
+  and the plan line has room above it.
+
 ## [1.68.0] — 2026-11-24
 
 ### Added
