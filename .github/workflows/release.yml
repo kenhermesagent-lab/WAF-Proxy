@@ -221,6 +221,14 @@ jobs:
         run: |-
           set -euo pipefail
           version=$(cat VERSION)
+          # A failure has to name its cause: the job's log needs credentials, so
+          # the container's own last words are what lands in the annotation.
+          report() {
+            local detail
+            detail=$(docker logs wafproxy-smoke 2>&1 | tail -n 12 | tr '\n' ' ') || true
+            echo "::error::$1: ${detail//%/%25}" >&2
+            exit 1
+          }
           docker run -d --name wafproxy-smoke \
             -p 18080:8080 \
             -e WAFPROXY_LISTEN_GUI=0.0.0.0:8080 \
@@ -229,15 +237,13 @@ jobs:
           for _ in $(seq 1 30); do
             if body=$(curl -fsS http://127.0.0.1:18080/api/health 2>/dev/null); then
               echo "health: $body"
-              [[ $body == *'"status":"ok"'* ]] || { echo "health is not ok" >&2; exit 1; }
-              [[ $body == *"\"version\":\"${version}\""* ]] || { echo "the image reports another version" >&2; exit 1; }
+              [[ $body == *'"status":"ok"'* ]] || report "health is not ok"
+              [[ $body == *"\"version\":\"${version}\""* ]] || report "the image reports another version"
               exit 0
             fi
             sleep 2
           done
-          echo "the image never answered /api/health" >&2
-          docker logs wafproxy-smoke >&2 || true
-          exit 1
+          report "the image never answered /api/health"
       - name: Push to ghcr.io
         run: |-
           set -euo pipefail
@@ -290,6 +296,13 @@ jobs:
           set -euo pipefail
           version=$(cat VERSION)
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wafproxy"
+          # Same reason as the smoke test above: the annotation is what survives.
+          report() {
+            local detail
+            detail=$(docker logs wafproxy-pulled 2>&1 | tail -n 12 | tr '\n' ' ') || true
+            echo "::error::$1: ${detail//%/%25}" >&2
+            exit 1
+          }
           docker rm -f wafproxy-pulled >/dev/null 2>&1 || true
           docker pull "${image}:${version}"
           docker run -d --name wafproxy-pulled \
@@ -300,15 +313,13 @@ jobs:
           for _ in $(seq 1 40); do
             if body=$(curl -fsS http://127.0.0.1:18081/api/health 2>/dev/null); then
               echo "published image health: $body"
-              [[ $body == *'"status":"ok"'* ]] || { echo "the published image is not healthy" >&2; exit 1; }
-              [[ $body == *"\"version\":\"${version}\""* ]] || { echo "the published image reports another version" >&2; exit 1; }
+              [[ $body == *'"status":"ok"'* ]] || report "the published image is not healthy"
+              [[ $body == *"\"version\":\"${version}\""* ]] || report "the published image reports another version"
               exit 0
             fi
             sleep 2
           done
-          echo "the published image never answered /api/health" >&2
-          docker logs wafproxy-pulled >&2 || true
-          exit 1
+          report "the published image never answered /api/health"
       - name: Remove the smoke containers
         if: always()
         run: docker rm -f wafproxy-smoke wafproxy-pulled || true
