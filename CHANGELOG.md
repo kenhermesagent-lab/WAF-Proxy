@@ -16,10 +16,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
-- **The release-tag rules cannot drift from the runbook.** `deploy/check-tags-docs_test.sh` maps every
-  failure `deploy/check-tags.sh` can print to the sentence `docs/OPERATIONS.md` uses for it, and runs
-  in `make verify-release` and the `release` job, so a rule that lands in the check without a runbook
-  line fails the gate instead of being found later.
+- **The release-tag rules cannot drift from the runbook.** `deploy/check-tags-docs_test.sh` maps
+  every refusal `deploy/check-tags.sh` and `scripts/release.sh` can print to the sentence
+  `docs/OPERATIONS.md` uses for it, and runs in `make verify-release` and first in the `release` job,
+  so it still runs while tags on origin are behind. A rule that lands without a runbook line fails
+  the gate instead of being found later.
 - **A release tag publishes the container image too.** The `image` job builds `wafproxy:<version>`,
   boots it and asks `/api/health` for its own version before it pushes
   `ghcr.io/<owner>/wafproxy:<version>`, so a tag delivers the binaries and the image that matches
@@ -31,6 +32,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **The example env file names the release it ships with.** `VERSION` in `.env.example` still read
   `1.20.0`, so a fresh `deploy/.env` tagged the image and the compose service after a release from
   months ago.
+- **A tag backlog no longer hides the rest of the release job.** The tag check still turns red, but the
+  job carries on through the pin checks, the SBOM and its upload and fails at the end, so the rest of
+  the release metadata is still produced and attached while the tags are behind.
 - **The Backup card stops repeating the daily file.** Each tier reports its own last run, so a
   recent daily copy no longer appears as both the last run and the last daily copy; leaving the
   daily tier on adds its own last and next rows instead.

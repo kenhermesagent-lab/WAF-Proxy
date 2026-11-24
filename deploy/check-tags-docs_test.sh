@@ -1,62 +1,82 @@
 #!/usr/bin/env bash
-# Keeps docs/OPERATIONS.md in step with deploy/check-tags.sh: every rejection the
-# check can print has to be described in the runbook, so a new rule cannot land
-# undocumented the way the stray-tag and out-of-order rules did.
+# Keeps docs/OPERATIONS.md in step with the release tooling: every refusal that
+# deploy/check-tags.sh or scripts/release.sh can print has to be described in the
+# runbook, so a rule cannot land undocumented the way the stray-tag and
+# out-of-order rules did.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-script=$root/deploy/check-tags.sh
 runbook=$root/docs/OPERATIONS.md
+tags=$root/deploy/check-tags.sh
+release=$root/scripts/release.sh
 
-# Each row is: kind | phrase the check prints | phrase the runbook uses for it.
-# `guard` rows are defensive read failures rather than release rules, so they
-# only have to be recognised here, not explained in the runbook.
+# Each row is: kind | source | phrase the tool prints | phrase the runbook uses.
+# `guard` rows are bad invocations rather than release rules, so they only have
+# to be recognised here, not explained in the runbook.
 table=(
-  'rule|names a version CHANGELOG.md does not ship|does not date'
-  'rule|so the release went out of order|newer than the newest release'
-  'rule|has a section but|has no annotated tag'
-  'rule|is lightweight, not annotated|lightweight'
-  'rule|which does not carry the .* section|does not carry that section'
-  'rule|cannot read VERSION|`VERSION` at that commit is missing'
-  'rule|whose VERSION is|not the version the tag names'
-  'rule|is not an ancestor of HEAD|not reachable from the branch you are on'
-  'rule|which is not on main|not on `main`'
+  'rule|tags|names a version CHANGELOG.md does not ship|does not date'
+  'rule|tags|so the release went out of order|newer than the newest release'
+  'rule|tags|has a section but|has no annotated tag'
+  'rule|tags|is lightweight, not annotated|lightweight'
+  'rule|tags|which does not carry the .* section|does not carry that section'
+  'rule|tags|cannot read VERSION|`VERSION` at that commit is missing'
+  'rule|tags|whose VERSION is|not the version the tag names'
+  'rule|tags|is not an ancestor of HEAD|not reachable from the branch you are on'
+  'rule|tags|which is not on main|not on `main`'
+  'rule|release|working tree is dirty|working tree with uncommitted changes'
+  'rule|release|already exists|tag that already exists'
+  'rule|release|newest tag; a release has to be newer|older than the newest tag'
+  'rule|release|has no section for|no `CHANGELOG.md` section'
+  'rule|release|the tag check failed|removes its own tag again when the check fails'
+  'guard|release|usage:|'
 )
 
-if [[ ! -f $script || ! -f $runbook ]]; then
-  echo "expected deploy/check-tags.sh and docs/OPERATIONS.md under ${root}" >&2
-  exit 2
-fi
+for file in "$runbook" "$tags" "$release"; do
+  [[ -f $file ]] || { echo "expected ${file} to exist" >&2; exit 2; }
+done
 
-mapfile -t messages < <(sed -n 's/^[[:space:]]*fail "\$v" "\([^"]*\)".*/\1/p' "$script")
-if [[ ${#messages[@]} -eq 0 ]]; then
-  echo "found no failure messages in deploy/check-tags.sh: has its shape changed?" >&2
-  exit 1
-fi
+messages_of() {
+  case $1 in
+    tags) sed -n 's/^[[:space:]]*fail "\$v" "\([^"]*\)".*/\1/p' "$tags" ;;
+    release) sed -nE 's/^[[:space:]]*echo "(refusing: [^"]*|usage: [^"]*)" >&2.*/\1/p' "$release" ;;
+    *) echo "unknown source $1" >&2 ; exit 2 ;;
+  esac
+}
 
-for message in "${messages[@]}"; do
-  phrase=""
-  for row in "${table[@]}"; do
-    IFS='|' read -r _ pattern candidate <<<"$row"
-    if [[ $message =~ $pattern ]]; then
-      phrase=$candidate
-      break
-    fi
-  done
-  if [[ -z $phrase ]]; then
-    echo "check-tags.sh can reject with '${message}'" >&2
-    echo "  add a row for it to the table in $(basename "${BASH_SOURCE[0]}") and say it in docs/OPERATIONS.md" >&2
+# Line wrapping must not decide whether a sentence is present.
+runbook_text=$(tr '\n' ' ' <"$runbook" | tr -s ' ')
+
+for source in tags release; do
+  mapfile -t messages < <(messages_of "$source")
+  if [[ ${#messages[@]} -eq 0 ]]; then
+    echo "found no messages in ${source}: has its shape changed?" >&2
     exit 1
   fi
+  for message in "${messages[@]}"; do
+    matched=""
+    for row in "${table[@]}"; do
+      IFS='|' read -r _ row_source pattern candidate <<<"$row"
+      [[ $row_source == "$source" ]] || continue
+      if [[ $message =~ $pattern ]]; then
+        matched=1
+        break
+      fi
+    done
+    if [[ -z $matched ]]; then
+      echo "${source} can refuse with '${message}'" >&2
+      echo "  add a row for it to the table in $(basename "${BASH_SOURCE[0]}") and say it in docs/OPERATIONS.md" >&2
+      exit 1
+    fi
+  done
 done
 
 for row in "${table[@]}"; do
-  IFS='|' read -r kind pattern phrase <<<"$row"
+  IFS='|' read -r kind _ pattern phrase <<<"$row"
   [[ $kind == rule ]] || continue
-  if ! grep -qF "$phrase" "$runbook"; then
-    echo "docs/OPERATIONS.md does not mention '${phrase}', which check-tags.sh enforces ('${pattern}')" >&2
+  if [[ $runbook_text != *"$phrase"* ]]; then
+    echo "docs/OPERATIONS.md does not mention '${phrase}', which the release tooling enforces ('${pattern}')" >&2
     exit 1
   fi
 done
 
-echo "every failure in check-tags.sh is described in docs/OPERATIONS.md"
+echo "every refusal in check-tags.sh and release.sh is described in docs/OPERATIONS.md"
