@@ -984,19 +984,12 @@ func (s *Server) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	// enabled and priority are optional on update: an omitted field keeps the
-	// stored value instead of silently switching the list off or resetting it.
-	var body struct {
-		Scope    string `json:"scope"`
-		ProxyID  *int64 `json:"proxy_id"`
-		Kind     string `json:"kind"`
-		Value    string `json:"value"`
-		Action   string `json:"action"`
-		Priority *int   `json:"priority"`
-		Enabled  *bool  `json:"enabled"`
-		Note     string `json:"note"`
-	}
-	if err := decode(r, &body); err != nil {
+	// Every field is optional on update: only the keys the payload names are
+	// written, so pausing a policy keeps its scope, kind and value instead of
+	// failing on an empty kind or silently returning it to global.
+	var patch model.Policy
+	sent, err := decodeSent(r, &patch)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
@@ -1010,16 +1003,38 @@ func (s *Server) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := *current
-	in.Scope, in.ProxyID, in.Kind = body.Scope, body.ProxyID, body.Kind
-	in.Value, in.Action, in.Note = body.Value, body.Action, body.Note
-	if body.Priority != nil {
-		in.Priority = *body.Priority
+	in.ID = id
+	if _, ok := sent["scope"]; ok {
+		in.Scope = patch.Scope
 	}
-	if body.Enabled != nil {
-		in.Enabled = *body.Enabled
+	if _, ok := sent["proxy_id"]; ok {
+		in.ProxyID = patch.ProxyID
+	}
+	if _, ok := sent["kind"]; ok {
+		in.Kind = patch.Kind
+	}
+	if _, ok := sent["value"]; ok {
+		in.Value = patch.Value
+	}
+	if _, ok := sent["action"]; ok {
+		in.Action = patch.Action
+	}
+	if _, ok := sent["priority"]; ok {
+		in.Priority = patch.Priority
+	}
+	if _, ok := sent["enabled"]; ok {
+		in.Enabled = patch.Enabled
+	}
+	if _, ok := sent["note"]; ok {
+		in.Note = patch.Note
 	}
 	if in.Scope == "" {
 		in.Scope = "global"
+	}
+	if in.Scope != "proxy" {
+		// The scope decides; a host left over from proxy scope would describe a
+		// policy that no longer applies to it.
+		in.ProxyID = nil
 	}
 	if !policyKinds[in.Kind] {
 		writeError(w, http.StatusBadRequest, "unknown policy kind")

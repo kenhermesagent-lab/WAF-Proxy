@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -207,6 +208,69 @@ func TestFeedPartialUpdateKeepsUrlAndAction(t *testing.T) {
 	}
 	if stored.URL != "https://example.com/abuse.txt" || stored.Name != "Abuse" || stored.Action != "challenge" || stored.IntervalS != 900 {
 		t.Fatalf("pausing the feed cleared the rest: %+v", stored)
+	}
+}
+
+func TestPolicyToggleKeepsScopeAndValue(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	if err := srv.st.SetSetting("base_domain", "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	rec := authed(t, srv, token, csrf, http.MethodPost, "/api/proxies",
+		`{"hostname":"shop.example.com","upstreams":[{"url":"http://10.0.0.1:8080","enabled":true}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create proxy = %d: %s", rec.Code, rec.Body.String())
+	}
+	var proxy model.Proxy
+	if err := json.Unmarshal(rec.Body.Bytes(), &proxy); err != nil {
+		t.Fatal(err)
+	}
+
+	body := fmt.Sprintf(`{"scope":"proxy","proxy_id":%d,"kind":"country_blacklist","value":"RU","action":"block","note":"demo"}`,
+		proxy.ID)
+	rec = authed(t, srv, token, csrf, http.MethodPost, "/api/policies", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create policy = %d: %s", rec.Code, rec.Body.String())
+	}
+	var created model.Policy
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/policies/" + strconv.FormatInt(created.ID, 10)
+
+	// Pausing a policy is the reason this exists: the toggle alone used to fail
+	// on the empty kind, and had it passed it would have made the policy global.
+	rec = authed(t, srv, token, csrf, http.MethodPut, path, `{"enabled":false}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT enabled = %d: %s", rec.Code, rec.Body.String())
+	}
+	stored, err := st.GetPolicy(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Enabled {
+		t.Fatal("the policy was not paused")
+	}
+	if stored.Scope != "proxy" || stored.ProxyID == nil || *stored.ProxyID != proxy.ID {
+		t.Fatalf("pausing the policy reset its scope: %+v", stored)
+	}
+	if stored.Kind != "country_blacklist" || stored.Value != "RU" || stored.Action != "block" || stored.Note != "demo" {
+		t.Fatalf("pausing the policy cleared the rest: %+v", stored)
+	}
+
+	// A named key is still written, and still validated.
+	rec = authed(t, srv, token, csrf, http.MethodPut, path, `{"value":"CN"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT value = %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Value != "CN" || stored.Scope != "proxy" || stored.Enabled {
+		t.Fatalf("a value edit lost the rest: %+v", stored)
+	}
+	if rec := authed(t, srv, token, csrf, http.MethodPut, path, `{"value":""}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("an emptied value was accepted: %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
