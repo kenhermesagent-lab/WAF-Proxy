@@ -30,7 +30,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `--branch main` forces it from anywhere.
 - **`scripts/release.sh` cuts the tag itself.** It commits the `VERSION` stamp and the rebuilt
   console bundle, creates the annotated tag on that commit, and runs the tag check before printing
-  the push commands, so a release made through the script cannot ship untagged.
+  the push commands, so a release made through the script cannot ship untagged. It refuses a
+  version older than the newest tag, and removes its own tag again when that check fails.
 
 ### Fixed
 
