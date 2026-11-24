@@ -5,7 +5,6 @@ Owner: a second agent, on its own branch, in parallel with Plan A. Window: **thr
 weeks** for the relay (14.5 task-days), then one review-and-merge pass; HTTP/3 is
 the next slice. Releases: **1.63.0**, **1.64.0**. Build loop: the roadmap's
 [Post-1.60 scale track](../../ROADMAP.md).
-Companion plan: [Plan A — fat node](2026-11-23-scale-plan-a-fat-node.md).
 
 ## Why this plan exists
 

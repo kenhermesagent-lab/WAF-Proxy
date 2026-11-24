@@ -24,7 +24,7 @@ that run in parallel on separate branches and separate files:
 
 | Plan | What it buys | Owner | Releases | Plan |
 | --- | --- | --- | --- | --- |
-| **A — fat node** | One box absorbs the rack without falling over: byte budget + bounded queue, memory ceiling, slow-client deadlines, brotli, precompressed cache variants, opt-in cache-first, per-upstream transports | agent 1 | 1.61.0–1.62.2 (**delivered**) | [Plan A](superpowers/plans/2026-11-23-scale-plan-a-fat-node.md) |
+| **A — fat node** | One box absorbs the rack without falling over: byte budget + bounded queue, memory ceiling, slow-client deadlines, brotli, precompressed cache variants, opt-in cache-first, per-upstream transports | agent 1 | 1.61.0–1.62.2 (**delivered**) | — (delivered; see the 1.62.0 entry below) |
 | **C — game streaming** | UDP relay, port ranges, TCP+UDP pairing, game presets, per-session visibility, UDP safety limits, HA lifecycle; HTTP/3 as the follow-on release | agent 2 | 1.63.0 (relay), 1.64.0 (HTTP/3), **not started** | [Plan C](superpowers/plans/2026-11-23-scale-plan-c-game-streaming.md) |
 
 Timeline: each plan is **three weeks of build** — Plan A 15 task-days, Plan C
@@ -632,8 +632,7 @@ docs. None of them are required by a single-node deployment.
   deadlines, brotli with one compressed cache variant per encoding, per-upstream transports that
   survive a reload with a caching resolver, opt-in cache-first for un-gated sites, and capacity
   counters on `/metrics`, `/api/capacity` and the dashboard. Harness numbers are in
-  [BENCHMARKS.md](BENCHMARKS.md); the task list is
-  [Plan A](superpowers/plans/2026-11-23-scale-plan-a-fat-node.md).
+  [BENCHMARKS.md](BENCHMARKS.md).
 - **1.62.1–1.62.2 — HA hardening and console recovery.** A failed activation drains the plane and
   rolls back instead of serving under a promoting role, a control socket that cannot be bound
   reports HA as stopped, tenant consoles no longer offer host-wide pages, and the HA page gained
