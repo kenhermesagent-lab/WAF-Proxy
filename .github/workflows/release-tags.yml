@@ -138,6 +138,21 @@ jobs:
       # an event the token may raise, so publishing starts here. A tag that has a
       # release already is left alone, and it runs after a refused tag too,
       # because the other releases do not depend on that one.
+      # A release made for an older tag has taken the badge even after asking to
+      # leave it alone, and nothing else runs often enough to put it back. The
+      # release job repairs this too; doing it here as well means a version
+      # landing is enough to correct the badge.
+      - name: Keep the Latest badge on the newest release
+        if: ${{ always() && inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |-
+          set -euo pipefail
+          newest=$(git tag --list 'v*' --sort=v:refname | tail -1)
+          [[ -n $newest ]] || exit 0
+          gh release view "$newest" >/dev/null 2>&1 || exit 0
+          gh release edit "$newest" --latest
+          echo "Latest badge: ${newest}"
       - name: Publish the releases those tags never triggered
         if: ${{ always() && inputs.dry_run != true && env.WIDE_TOKEN != 'true' }}
         env:

@@ -132,9 +132,12 @@ jobs:
             echo "origin's newest release is ${newest:-none}, so ${TAG} leaves the Latest badge alone"
             echo "latest=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "newest=${newest:-}" >> "$GITHUB_OUTPUT"
       - name: Attach the binaries, bundles and checksums
         env:
           GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.latest.outputs.latest }}
+          NEWEST: ${{ steps.latest.outputs.newest }}
         run: |-
           set -euo pipefail
           # The written CHANGELOG section is the release body; GitHub's generated
@@ -159,7 +162,15 @@ jobs:
             gh release upload "$TAG" dist/* --clobber
           else
             gh release create "$TAG" dist/* --verify-tag --notes-file "$notes" \
-              --title "WAF-Proxy ${TAG#v}" --latest="${{ steps.latest.outputs.latest }}"
+              --title "WAF-Proxy ${TAG#v}" --latest="$LATEST"
+          fi
+          # Publishing an older release has taken the badge anyway, so asking for
+          # it to be left alone is not enough: the newest tag is marked here, and
+          # a run for the newest tag is the no-op case of this.
+          if [[ $LATEST == false && -n $NEWEST ]]; then
+            gh release view "$NEWEST" >/dev/null 2>&1 &&
+              gh release edit "$NEWEST" --latest &&
+              echo "Latest badge: ${NEWEST}"
           fi
 
   image:

@@ -51,6 +51,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   annotation instead of a bare git exit code, and the wider token goes in as an authorization header
   with the checkout's own credential stripped from the remote first, because one request carries one
   credential and sending both is what made the first attempt die on a `git ls-remote`.
+- **The Latest badge is put back, not just asked to stay.** Publishing `v1.62.3`'s release took the
+  badge off `v1.65.0` even though the job asked for it to be left alone, so an older release now ends
+  by marking the newest tag, and the tag job does the same whenever a version lands.
 - **A wider token lets the job push every tag.** `TAG_PUSH_TOKEN`, when the repository sets it, is
   preferred over the App's token for the tag push and the API calls, so a tag whose range touches
   `.github/workflows/` — the case the App refuses — lands without anyone pushing it by hand. Its push
