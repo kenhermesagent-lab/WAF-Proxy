@@ -170,8 +170,9 @@ both files land; a scheduled run that fails is retried until it succeeds, for up
 If a destination refuses the directory listing or a delete, the copy is still reported as written and
 the prune failure is only logged, so a good upload never reads as a broken backup. Retention applies to the local, git, SFTP and FTP destinations.
 
-**Back up now** writes one scheduled copy immediately. Status shows the last run, file, target, next
-run, the daily tier's last and next run, and the last error.
+**Back up now** writes one scheduled copy immediately. Status shows the scheduled tier's last run,
+file, target and next run, the daily tier's own last and next run, and the last error; each tier
+reports separately, so one file is never named twice.
 
 ### Runtime status
 

@@ -290,6 +290,34 @@ func TestScheduledTierWaitsForARunInFlight(t *testing.T) {
 	}
 }
 
+// A daily run reports itself under the daily fields and leaves the scheduled
+// tier's last run alone, so the console never names one file twice.
+func TestDailyRunLeavesTheScheduledLastRunAlone(t *testing.T) {
+	dir := t.TempDir()
+	m := testManager(t, func() ([]byte, error) { return []byte("{}\n"), nil })
+	clock := time.Date(2026, 3, 1, 3, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { return clock }
+	if err := m.Save(Config{Transport: "local", LocalDir: dir, Schedule: "weekly", Time: "03:00",
+		Keep: 2, DailyEnabled: true, DailyTime: "04:00", DailyKeep: 7}); err != nil {
+		t.Fatal(err)
+	}
+	scheduled, err := m.RunNow()
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Hour)
+	daily, err := m.RunDaily()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if daily.LastDailyFile == "" || daily.LastDailyFile == scheduled.LastFile {
+		t.Fatalf("daily status = %+v", daily)
+	}
+	if daily.LastFile != scheduled.LastFile {
+		t.Fatalf("the daily run replaced the scheduled last file: %q -> %q", scheduled.LastFile, daily.LastFile)
+	}
+}
+
 // A failed scheduled run must leave its slot pending for the next tick, and the
 // slot must eventually be released so a dead destination is not retried forever.
 func TestFailedRunKeepsItsSlotForARetry(t *testing.T) {

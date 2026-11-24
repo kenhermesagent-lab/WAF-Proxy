@@ -94,6 +94,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **The AI Agent Access page wraps instead of running off the card.** Every tool's description and
   the token scope list wrap inside their cells, so the 21-tool catalog reads in full at 1440 px
   without a sideways scroll.
+- **The Backup card stops repeating the daily file.** Each tier reports its own last run, so a
+  recent daily copy no longer appears as both the last run and the last daily copy; leaving the
+  daily tier on adds its own last and next rows instead.
 - **A fresh single-node install serves again.** With high availability off the boot normalises a
   leftover standby to `standalone`, but a data directory that never held a role file has no node id
   and the save was refused. The node stayed a standby, bound the WAN address and never accepted a
@@ -110,6 +113,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Documentation
 
+- The Settings help explains the two backup counts: the schedule keeps its own number of files,
+  the optional daily tier keeps a second count, and each prunes independently.
 - `docs/screenshots/agent.png` is retaken on a 1.64.0 build, now showing the tool catalog the
   page reads from `GET /api/mcp`, and the screenshot index says which capture is newer than the
   v1.62.2 set.
