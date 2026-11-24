@@ -248,6 +248,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/setup/status", s.setupStatus)
 	m.HandleFunc("POST /api/setup", s.setup)
 	m.HandleFunc("POST /api/login", s.login)
+	m.HandleFunc("GET /api/login/device", s.loginDevice)
 	m.HandleFunc("GET /api/password/forgot", s.forgotAvailable)
 	m.HandleFunc("POST /api/password/forgot", s.forgotPassword)
 	m.HandleFunc("POST /api/password/reset", s.resetPassword)

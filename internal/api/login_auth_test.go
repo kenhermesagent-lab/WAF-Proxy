@@ -136,6 +136,49 @@ func TestPasswordResetTokenIsSingleUse(t *testing.T) {
 	}
 }
 
+// deviceInfo asks the public endpoint what this browser is, the way the sign-in
+// form does before it draws its fields.
+func deviceInfo(t *testing.T, h *accountHarness, cookies ...*http.Cookie) bool {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "https://gui.local/api/login/device", nil)
+	req.Host = "gui.local"
+	req.RemoteAddr = "10.0.0.10:5000"
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	h.srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("device status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Trusted bool `json:"trusted"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out.Trusted
+}
+
+func TestLoginDeviceReportsRememberedBrowser(t *testing.T) {
+	h := newAccountHarness(t)
+	if deviceInfo(t, h) {
+		t.Fatal("a browser without a device cookie was reported as trusted")
+	}
+
+	first := h.public(t, "/api/login", map[string]any{
+		"username": "admin", "password": "correct horse battery",
+		"totp": totp(h.secret), "remember": true,
+	})
+	device := deviceCookieFrom(t, first)
+	if device == nil {
+		t.Fatal("remembered login did not set a device cookie")
+	}
+	if !deviceInfo(t, h, device) {
+		t.Fatal("a browser holding a live device cookie was not reported as trusted")
+	}
+}
+
 func TestForgotPasswordNeedsEmailChannel(t *testing.T) {
 	h := newAccountHarness(t)
 	req := httptest.NewRequest(http.MethodGet, "https://gui.local/api/password/forgot", nil)

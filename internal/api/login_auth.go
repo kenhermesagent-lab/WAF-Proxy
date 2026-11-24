@@ -55,6 +55,34 @@ func (s *Server) rememberDevice(w http.ResponseWriter, r *http.Request, userID i
 	})
 }
 
+// loginDevice tells the signed-out form whether this browser already carries a
+// remembered-device cookie, so it can leave the authenticator field out. The
+// cookie is the only input: a browser without one learns nothing.
+func (s *Server) loginDevice(w http.ResponseWriter, r *http.Request) {
+	body := map[string]any{"trusted": false}
+	if !s.adminAddressAllowed(clientIP(r)) {
+		writeJSON(w, http.StatusOK, body)
+		return
+	}
+	c, err := r.Cookie(deviceCookie)
+	if err != nil || c.Value == "" {
+		writeJSON(w, http.StatusOK, body)
+		return
+	}
+	userID, ok := s.db(r).TrustedDeviceUser(tokenDigest(c.Value))
+	if !ok {
+		writeJSON(w, http.StatusOK, body)
+		return
+	}
+	user, err := s.db(r).UserByID(userID)
+	if err != nil || user == nil || !user.TOTPEnabled {
+		writeJSON(w, http.StatusOK, body)
+		return
+	}
+	body["trusted"] = true
+	writeJSON(w, http.StatusOK, body)
+}
+
 // requestOrigin is the console origin as the browser reached it, used to build
 // the link in a reset email.
 func requestOrigin(r *http.Request) string {

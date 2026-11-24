@@ -25,6 +25,9 @@ const (
 	// HelperActionAppConfigure records the checkout the helper rebuilds, for a
 	// host whose install lives outside the path install.sh recorded.
 	HelperActionAppConfigure = "app-configure"
+	// HelperActionAppProgress reads the stage the running self-update script
+	// last wrote, so the console can draw a progress bar from the host.
+	HelperActionAppProgress = "app-progress"
 	// CrowdSec actions: install the engine and configure the bouncer, then
 	// enroll the engine in the operator's CrowdSec account.
 	HelperActionCrowdSecInstall = "crowdsec-install"
@@ -121,6 +124,9 @@ type HelperResponse struct {
 	Mode           string   `json:"mode,omitempty"`
 	CheckoutExists bool     `json:"checkout_exists,omitempty"`
 	MissingScripts []string `json:"missing_scripts,omitempty"`
+	// The app-progress reply is the stage the updater last wrote.
+	Percent int    `json:"percent"`
+	Stage   string `json:"stage,omitempty"`
 }
 
 var consoleKeyRE = regexp.MustCompile(`^[A-Za-z0-9+/=_-]{16,256}$`)

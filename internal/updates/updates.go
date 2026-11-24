@@ -146,6 +146,8 @@ type AppUpdateStatus struct {
 	Updating bool   `json:"updating"`
 	Error    string `json:"error,omitempty"`
 	Output   string `json:"output,omitempty"`
+	Percent  int    `json:"percent"`
+	Stage    string `json:"stage,omitempty"`
 }
 
 // Package is one managed host package.
@@ -808,10 +810,21 @@ func (m *Manager) ConfigureApp(ctx context.Context, dir string) error {
 }
 
 // AppUpdateStatus reports the background rebuild without hitting the network.
+// The stage comes from the helper, which shares the host with the updater; the
+// console may be inside a container and cannot read that file itself.
 func (m *Manager) AppUpdateStatus() AppUpdateStatus {
 	m.appRunMu.Lock()
-	defer m.appRunMu.Unlock()
-	return AppUpdateStatus{Updating: m.appRunActive, Error: m.appRunErr, Output: m.appRunOutput}
+	st := AppUpdateStatus{Updating: m.appRunActive, Error: m.appRunErr, Output: m.appRunOutput}
+	m.appRunMu.Unlock()
+	if !st.Updating {
+		return st
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if resp, err := m.callHelper(ctx, HelperRequest{Action: HelperActionAppProgress}); err == nil && resp.OK {
+		st.Percent, st.Stage = resp.Percent, resp.Stage
+	}
+	return st
 }
 
 func tailText(s string, n int) string {

@@ -118,6 +118,37 @@ describe("Updates page", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: /Update to/ })).toBeNull());
   });
 
+  it("shows the updater's own stage while the rebuild runs", async () => {
+    let polls = 0;
+    get.mockImplementation(async (path: string) => {
+      if (path === "/api/updates") {
+        return {
+          ...base,
+          app_update_available: true,
+          app_remote_version: "1.2.1",
+          app_remote_commit: "def4567890abcdef",
+        };
+      }
+      if (path === "/api/updates/app") {
+        polls++;
+        return polls === 1
+          ? { updating: true, percent: 45, stage: "building the binaries" }
+          : { updating: false };
+      }
+      return { enabled: false, time: "04:00" };
+    });
+    post.mockResolvedValue({});
+    renderPage();
+
+    (await screen.findByRole("button", { name: "Update to v1.2.1" })).click();
+    (await screen.findByRole("button", { name: "Confirm" })).click();
+
+    await screen.findByText("building the binaries", {}, { timeout: 4000 });
+    const bar = screen.getByRole("progressbar", { name: /application update progress/i });
+    expect(bar.getAttribute("aria-valuenow")).toBe("45");
+    expect(screen.getByText("45%")).toBeTruthy();
+  });
+
   it("checks application updates but keeps host packages read-only in a container", async () => {
     get.mockResolvedValue({
       ...base,

@@ -492,7 +492,9 @@ export default function App() {
                   canShareViews={can(me?.permissions, "traffic.write")}
                 />
               )}
-              {page === "settings" && <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} onMeChanged={reloadMe} />}
+              {page === "settings" && (
+                <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} onMeChanged={reloadMe} {...tabProps("settings")} />
+              )}
               {page === "ha" && <HAPage me={me} version={me?.version ?? ""} onError={onError} onOK={onOK} />}
               {page === "sites" && <SitesPage onError={onError} onOK={onOK} me={me} />}
               {page === "account" && (
@@ -731,11 +733,20 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
   const [codes, setCodes] = useState<string[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // A browser that already passed the authenticator leaves the field out. The
+  // server still checks the device cookie, so this only shapes the form.
+  const [device, setDevice] = useState<{ trusted: boolean; username?: string }>({ trusted: false });
+  const [showTOTP, setShowTOTP] = useState(false);
+  const skipTOTP = device.trusted && !showTOTP;
 
   useEffect(() => {
     api
       .get<{ available: boolean }>("/api/password/forgot")
       .then((r) => setEmailAvailable(r.available))
+      .catch(() => undefined);
+    api
+      .get<{ trusted: boolean; username?: string }>("/api/login/device")
+      .then(setDevice)
       .catch(() => undefined);
   }, []);
 
@@ -903,20 +914,31 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
                   <label>Password</label>
                   <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="current-password" />
                 </div>
-                <div className="field">
-                  <label>Authenticator code</label>
-                  <input value={form.totp} onChange={(e) => setForm({ ...form, totp: e.target.value })} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" />
-                </div>
+                {skipTOTP ? (
+                  <p className="sub">
+                    This browser is remembered, so no authenticator code is needed.{" "}
+                    <button type="button" className="link-button" onClick={() => setShowTOTP(true)}>
+                      Use the authenticator instead
+                    </button>
+                  </p>
+                ) : (
+                  <div className="field">
+                    <label>Authenticator code</label>
+                    <input value={form.totp} onChange={(e) => setForm({ ...form, totp: e.target.value })} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" />
+                  </div>
+                )}
                 {showRecovery ? (
                   <div className="field">
                     <label>Recovery code</label>
                     <input autoFocus value={recovery} onChange={(e) => setRecovery(e.target.value)} autoComplete="off" placeholder="ABCDE-12345" />
                   </div>
                 ) : null}
-                <label className="checkbox" style={{ marginBottom: 12 }}>
-                  <input type="checkbox" checked={form.remember} onChange={(e) => setForm({ ...form, remember: e.target.checked })} />
-                  Remember this device for 30 days
-                </label>
+                {!skipTOTP && (
+                  <label className="checkbox" style={{ marginBottom: 12 }}>
+                    <input type="checkbox" checked={form.remember} onChange={(e) => setForm({ ...form, remember: e.target.checked })} />
+                    Remember this device for 30 days
+                  </label>
+                )}
                 <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
                   <button
                     type="button"
