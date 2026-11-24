@@ -14,6 +14,9 @@ Environment=WAFPROXY_DATA_DIR=/var/lib/waf-proxy/data
 Environment=WAFPROXY_ACCESS_LOG=/var/log/wafproxy/access.log
 Environment=HOME=/var/lib/waf-proxy/data
 ExecStart=/var/lib/waf-proxy/bin/wafproxy
+# One descriptor per streaming connection or UDP session, plus a socket per
+# listener; the default 1024 is below the 256-session cap on several cards.
+LimitNOFILE=8192
 Restart=always
 RestartSec=5
 TimeoutStopSec=15

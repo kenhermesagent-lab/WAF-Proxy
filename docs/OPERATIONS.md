@@ -140,6 +140,37 @@ The uniform error page hides upstream details by design; the reason is in the co
 proxy's up/down badge. Health checks probe `GET /` every 10 seconds and eject after three
 failures.
 
+### A game server does not connect
+
+Work from the card outward; each step names what to look at.
+
+1. **Protocol.** The card's protocol must match what the client sends. A UDP game behind a `tcp`
+   card, or the reverse, sends nothing the listener sees, so nothing appears in the log. Test
+   from a client with `nc -zvu <wan> <port>` (UDP) and `nc -zv <wan> <port>` (TCP), and confirm
+   the host holds the socket with `ss -lunp` / `ss -ltnp`.
+2. **Port range.** A card listens on `port` … `port + count - 1` and forwards that range 1:1 onto
+   `upstream_port` (or the port in **Server**). Valheim's 2456–2458 needs count `3` and a
+   port-range rule on the router; a range that would run past 65535 is refused when you save.
+3. **Allow list and bans.** An empty allow list accepts any client the firewall lets in, but
+   **Refuse sources that are not on an allow list** with no list attached refuses everyone. A
+   whitelist attached under **Blocklists and whitelists** narrows the card further, a banned source
+   is refused at the listener, and country entries match nothing without GeoIP. Refusals appear in
+   **Logs** under `stream-ban`, `stream-list`, `stream-allow` or `stream-cap`, with the listen port
+   that was hit.
+4. **Upstream and its firewall.** **Server** is the game host and port on the LAN. The game must
+   listen on an address the proxy can reach, not only `127.0.0.1`, and its firewall must allow the
+   proxy's source address. Test from the proxy host with `nc -zv <server> <port>` (TCP) or
+   `nc -zvu <server> <port>` (UDP).
+5. **Router.** Forward TCP and UDP as separate rules for a `both` card, DNAT only and no SNAT, and
+   use a port-range rule for a range. A client inside the LAN needs NAT loopback (hairpin) to
+   reach the WAN address; without it, connect to the server directly.
+6. **File descriptors and sessions.** The cap is per card (default 256 sessions, 8 per source). If
+   `ss -u -a` keeps climbing while the game is idle, the idle timeout is not reclaiming sessions;
+   `cat /proc/$(pidof wafproxy)/limits` shows the descriptor limit the unit set (`8192`).
+7. **High availability.** Only the serving node binds the port; a standby holding no game port is
+   correct. `wafproxy ha status` names the serving node, and a failover drops live sessions by
+   design.
+
 ### Kernel bans unavailable
 
 The GUI shows `kernel: nftables unavailable` with a reason. Userspace bans still work, but
