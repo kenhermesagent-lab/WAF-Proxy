@@ -253,6 +253,34 @@ jobs:
           fi
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker buildx imagetools create -t "${image}:latest" "${image}:${version}"
-      - name: Remove the smoke container
+      # The image that was just built is not the image a user gets: a truncated
+      # upload, a missing blob or a package the token can write but not read all
+      # look like a green job and a broken pull. So fetch it from the registry
+      # and boot that copy instead.
+      - name: Pull the published image back and re-check it
+        run: |-
+          set -euo pipefail
+          version=$(cat VERSION)
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wafproxy"
+          docker rm -f wafproxy-pulled >/dev/null 2>&1 || true
+          docker pull "${image}:${version}"
+          docker run -d --name wafproxy-pulled \
+            -p 18081:8080 \
+            -e WAFPROXY_LISTEN_GUI=0.0.0.0:8080 \
+            -e WAFPROXY_GUI_PRIVATE_ONLY=false \
+            "${image}:${version}"
+          for _ in $(seq 1 40); do
+            if body=$(curl -fsS http://127.0.0.1:18081/api/health 2>/dev/null); then
+              echo "published image health: $body"
+              [[ $body == *'"status":"ok"'* ]] || { echo "the published image is not healthy" >&2; exit 1; }
+              [[ $body == *"\"version\":\"${version}\""* ]] || { echo "the published image reports another version" >&2; exit 1; }
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the published image never answered /api/health" >&2
+          docker logs wafproxy-pulled >&2 || true
+          exit 1
+      - name: Remove the smoke containers
         if: always()
-        run: docker rm -f wafproxy-smoke || true
+        run: docker rm -f wafproxy-smoke wafproxy-pulled || true
