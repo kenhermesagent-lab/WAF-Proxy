@@ -10,9 +10,20 @@ if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
-top=$(grep -m1 '^## \[' "$root/CHANGELOG.md" | sed -E 's/^## \[([^]]+)\].*/\1/')
+# An `Unreleased` heading holds work that is not a release yet and never carries
+# a version, so the newest section that has to agree with VERSION is the first
+# one that names a version.
+top=""
+while IFS= read -r section; do
+  name=$(sed -E 's/^## \[([^]]+)\].*/\1/' <<<"$section")
+  if [[ ${name,,} == unreleased ]]; then
+    continue
+  fi
+  top=$name
+  break
+done < <(grep '^## \[' "$root/CHANGELOG.md")
 if [[ $top != "$version" ]]; then
-  echo "CHANGELOG.md newest section is '${top:-none}', VERSION is ${version}" >&2
+  echo "CHANGELOG.md newest released section is '${top:-none}', VERSION is ${version}" >&2
   exit 1
 fi
 
