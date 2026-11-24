@@ -12,6 +12,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.67.5] — 2026-11-24
+
+### Changed
+
+- **The console sends only what a switch changes.** Now that the policy update takes a partial body, the
+  policy row's Disable/Enable sends `{"enabled":false}` alone rather than the whole record, and the
+  Intel feed switch and action picker do the same. The Disable proxy quick action also sends the flag
+  by itself: it used to rebuild the host from a list row, which handed the server an empty upstream
+  pool whenever that row carried none. The editors that show every field (protection profile, access
+  profile, list, feed form, proxy drawer, WAF profile) still send the whole object, because that is
+  exactly what the dialog displays.
+
 ## [1.67.4] — 2026-11-24
 
 ### Fixed

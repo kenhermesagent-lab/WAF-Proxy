@@ -65,7 +65,7 @@ describe("palette command actions", () => {
     expect(onOK).toHaveBeenCalledWith("198.51.100.4/32 unbanned");
   });
 
-  it("disables the chosen proxy through the full update payload", async () => {
+  it("disables the chosen proxy by sending only the switch", async () => {
     get.mockResolvedValue([
       {
         id: 4,
@@ -90,7 +90,10 @@ describe("palette command actions", () => {
     const confirm = await screen.findByRole("dialog", { name: "Disable proxy" });
     fireEvent.click(within(confirm).getByRole("button", { name: "Disable" }));
 
-    await waitFor(() => expect(put).toHaveBeenCalledWith("/api/proxies/4", expect.objectContaining({ enabled: false, hostname: "app.example.com" })));
+    // The upstream pool is not in the request at all: the update merges, so an
+    // omitted field keeps its stored value instead of being replaced by this
+    // row's copy.
+    await waitFor(() => expect(put).toHaveBeenCalledWith("/api/proxies/4", { enabled: false }));
     expect(onOK).toHaveBeenCalledWith("app.example.com disabled");
   });
 
