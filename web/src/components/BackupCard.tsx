@@ -9,6 +9,9 @@ type Config = {
   time: string;
   weekday: number;
   keep: number;
+  daily_enabled: boolean;
+  daily_time: string;
+  daily_keep: number;
   local_dir: string;
   git_dir: string;
   git_remote: string;
@@ -25,7 +28,16 @@ type Config = {
   has_passphrase: boolean;
 };
 
-type Status = { last_run?: string; last_error?: string; last_file?: string; last_target?: string; next_run?: string };
+type Status = {
+  last_run?: string;
+  last_error?: string;
+  last_file?: string;
+  last_target?: string;
+  next_run?: string;
+  last_daily_run?: string;
+  last_daily_file?: string;
+  next_daily_run?: string;
+};
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -127,10 +139,42 @@ export default function BackupCard({ onError, onOK }: { onError: (m: string) => 
             <Field label="Time (HH:MM)">
               <input value={cfg.time} onChange={(e) => set({ time: e.target.value })} placeholder="03:00" />
             </Field>
-            <Field label="Keep">
+            <Field label="Keep (copies)">
               <input type="number" min={1} max={365} value={cfg.keep} onChange={(e) => set({ keep: Number(e.target.value) })} />
             </Field>
           </div>
+
+          <div className="bar-row">
+            <div>
+              Daily copies <span className="faint small-text">an extra, complete copy every day, kept separately from the
+              {cfg.schedule} copies above</span>
+            </div>
+            <div>
+              <input
+                type="checkbox"
+                aria-label="Daily copies"
+                style={{ width: "auto" }}
+                checked={cfg.daily_enabled}
+                onChange={(e) => set({ daily_enabled: e.target.checked })}
+              />
+            </div>
+          </div>
+          {cfg.daily_enabled && (
+            <div className="row grow">
+              <Field label="Daily time (HH:MM)">
+                <input value={cfg.daily_time} onChange={(e) => set({ daily_time: e.target.value })} />
+              </Field>
+              <Field label="Daily copies to keep">
+                <input type="number" min={1} max={365} value={cfg.daily_keep} onChange={(e) => set({ daily_keep: Number(e.target.value) })} />
+              </Field>
+            </div>
+          )}
+          {cfg.daily_enabled && (
+            <p className="faint small-text">
+              Daily files (<span className="mono">wafproxy-daily-…</span>) prune by their own count, so an expired daily copy never
+              deletes a {cfg.schedule} one. Both still run on a day the times coincide.
+            </p>
+          )}
 
           {cfg.transport === "local" && (
             <Field label="Directory (absolute, on this host)">
@@ -233,6 +277,21 @@ export default function BackupCard({ onError, onOK }: { onError: (m: string) => 
             <div>Next run</div>
             <div className="muted">{status.next_run ? fmtTime(status.next_run) : "not scheduled"}</div>
           </div>
+          {cfg.daily_enabled && (
+            <>
+              <div className="bar-row" style={{ borderBottom: 0 }}>
+                <div>Last daily copy</div>
+                <div className="muted">
+                  {status.last_daily_run ? fmtTime(status.last_daily_run) : "never"}
+                  {status.last_daily_file && <span className="mono"> · {status.last_daily_file}</span>}
+                </div>
+              </div>
+              <div className="bar-row" style={{ borderBottom: 0 }}>
+                <div>Next daily copy</div>
+                <div className="muted">{status.next_daily_run ? fmtTime(status.next_daily_run) : "not scheduled"}</div>
+              </div>
+            </>
+          )}
           {status.last_error && <p className="err-text" style={{ fontSize: 12 }}>{status.last_error}</p>}
         </>
       )}

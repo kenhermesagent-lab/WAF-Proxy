@@ -22,6 +22,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   ALPN, 0-RTT refused because a replayed request would skip the address check, at most 100
   incoming streams per connection, and at most ten handshakes a second from one source until its
   address is verified.
+- **Backups keep two retention tiers.** The Backup schedule gains a daily copy beside its weekly or
+  daily run: each tier writes its own file names (`wafproxy-daily-*` and `wafproxy-backup-*`) and
+  prunes by its own count, so a weekly schedule with 52 copies holds a year while the last seven
+  daily copies age out independently. Every file is still a complete export, and retention now
+  applies to SFTP and FTP destinations too, which previously kept everything forever. When both
+  tiers fall due in the same minute, the scheduler queues the second one behind the first and
+  retries a run that fails, so a copy is never skipped for the whole period. A destination that
+  refuses the prune's listing or delete now leaves the copy reported as written instead of failing
+  the run.
 - **Alt-Svc is advertised only where it can be used.** HTTP/1.1 and HTTP/2 answers over TLS carry
   `h3=":<port>"; ma=86400` while the QUIC socket is bound; the plain-HTTP redirector, an answer
   that already came over h3, and a node whose h3 bind failed advertise nothing.
