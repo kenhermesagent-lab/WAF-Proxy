@@ -12,6 +12,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.68.0] — 2026-11-24
+
+### Added
+
+- **The attack map has a camera.** Scroll over the globe, or use the new zoom buttons, to move from the
+  world down to a city. Country shapes and borders stay drawn at every level and city labels appear once the
+  dots are far enough apart to read, so a hotspot never becomes a dot on a blank sphere. Clicking a hotspot
+  flies the camera to that source and Escape walks back one level at a time — city, then country, then the
+  world — before it closes the map. `city` is now stored with every event; an existing database fills it in
+  as new traffic arrives.
+- **Third-party lookups for a source.** The source drawer shows the registry's record for the address —
+  network, organisation, abuse contact and registration date from RDAP — and, when a key is configured, the
+  AbuseIPDB confidence score with its report and reporter counts.
+- **Settings → Threat intel.** An AbuseIPDB key is sealed with the console master key and checked against the
+  API before it is saved, so a refused key is never stored. The card shows the real allowance from the key's
+  own `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers, with the plan tier
+  inferred from the ceiling because the API does not name it. The page only ever receives a masked key tail,
+  and answers are cached per address for six hours so a busy map does not spend the allowance.
+
+### Notes
+
+- RDAP needs no key. A lookup spends one AbuseIPDB check per address per six hours, and the last reported
+  allowance is kept in the database so the card still shows it after a restart.
+- `/api/threat-intel` reads need the sources permission; saving a key is host-console only and audited as
+  `threatintel.key`.
+
 ## [1.67.2] — 2026-11-24
 
 ### Fixed

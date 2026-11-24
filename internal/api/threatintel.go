@@ -89,7 +89,7 @@ func (s *Server) putThreatIntel(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	probe, _ := s.threat.Lookup(ctx, threatintel.LocalIP(), key)
+	probe, _ := s.threat.Lookup(ctx, threatintel.LocalIP, key)
 	if probe.Abuse != nil && strings.Contains(probe.Abuse.Error, "refused the key") {
 		writeError(w, http.StatusBadRequest, "AbuseIPDB refused that key; copy it again from your account's API page")
 		return

@@ -1,12 +1,7 @@
-import type { IntelAbuse, IntelPlan, IntelQuota, IntelStatus } from "./types";
+import type { IntelAbuse, IntelPlan, IntelQuota } from "./types";
 
 // The plan comes from the key's rate-limit ceiling. The API never names it, so
 // the card says which tier the ceiling belongs to and how many checks it carries.
-export function planLabel(status: IntelStatus | null): string {
-  if (!status?.configured) return "no key saved";
-  return describePlan(status.plan, status.quota);
-}
-
 export function describePlan(plan: IntelPlan | undefined, quota: IntelQuota | undefined): string {
   if (plan) {
     return `${plan.name} · ${plan.checks_per_day.toLocaleString()} checks/day`;

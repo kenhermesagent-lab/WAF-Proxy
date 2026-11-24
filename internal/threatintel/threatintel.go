@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -623,4 +622,4 @@ type abuseDoc struct {
 
 // LocalIP is the loopback address used for a "check the key" probe: it costs
 // one lookup and cannot describe any real visitor.
-func LocalIP() string { return net.IPv4(127, 0, 0, 1).String() }
+const LocalIP = "127.0.0.1"

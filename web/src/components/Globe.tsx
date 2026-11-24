@@ -4,6 +4,7 @@ import type { GlobeHit, GlobePoint } from "../types";
 import { countryName } from "../countries";
 import { COUNTRY_LABELS, COUNTRY_SHAPES } from "../countries-geo";
 import Icon from "./Icon";
+import { type Screen, type V3, DEG, HOME_PITCH, PITCH_LIMIT, ZOOM_MAX, ZOOM_MIN, cameraFor, clamp, makeProjector, unitVec } from "../globe-camera";
 
 const COLORS: Record<string, string> = {
   waf: "#ef4444",
@@ -70,8 +71,6 @@ function colorFor(category: string): string {
   return COLORS[category] ?? "#ef4444";
 }
 
-const DEG = Math.PI / 180;
-
 // Severity ramp: a handful of hits is amber, a sustained burst burns red. The
 // dot radius uses the same weight, so volume reads before the colour does.
 const HEAT: [number, string][] = [
@@ -103,14 +102,6 @@ function heatColor(weight: number): string {
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
-type V3 = { x: number; y: number; z: number };
-
-function unitVec(lat: number, lon: number): V3 {
-  const phi = lat * DEG;
-  const lambda = lon * DEG;
-  return { x: Math.cos(phi) * Math.sin(lambda), y: Math.sin(phi), z: Math.cos(phi) * Math.cos(lambda) };
-}
-
 // Country rings and the graticule never change, so their unit vectors are built
 // once at import time instead of running two trig calls per vertex per frame.
 type Country = { code: string; rings: V3[][]; label: V3 };
@@ -137,32 +128,6 @@ const GRID: V3[][] = (() => {
   }
   return lines;
 })();
-
-type Screen = (v: V3, radius: number) => { x: number; y: number; z: number };
-
-// The camera turns around the poles first (yaw) and then tilts (pitch), so a
-// click can put any city in the middle of the sphere instead of only bringing
-// its meridian to the front.
-function makeProjector(yaw: number, pitch: number, cx: number, cy: number): Screen {
-  const a = yaw * DEG;
-  const ca = Math.cos(a);
-  const sa = Math.sin(a);
-  const b = pitch * DEG;
-  const cb = Math.cos(b);
-  const sb = Math.sin(b);
-  return (v, radius) => {
-    const x = v.x * ca + v.z * sa;
-    const z = v.z * ca - v.x * sa;
-    const y = v.y * cb - z * sb;
-    const zz = z * cb + v.y * sb;
-    return { x: cx + x * radius, y: cy - y * radius, z: zz };
-  };
-}
-
-const ZOOM_MIN = 1;
-const ZOOM_MAX = 4.5;
-const PITCH_LIMIT = 1.15;
-const HOME_PITCH = 0.05;
 
 // Great-circle samples in unrotated space, cached by the endpoint pair. The
 // rotation is applied per frame, so the cache survives the whole animation.
@@ -871,13 +836,12 @@ const Globe = forwardRef<GlobeHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-
   // flyToAngle points the camera at a coordinate. The pitch is clamped short of
   // the poles: beyond that the country shapes fold onto themselves.
   const flyToAngle = (lat: number, lon: number, zoom: number) => {
-    goalRef.current.yaw = -lon;
-    goalRef.current.pitch = clamp(lat * DEG, -PITCH_LIMIT, PITCH_LIMIT);
+    const at = cameraFor(lat, lon);
+    goalRef.current.yaw = at.yaw;
+    goalRef.current.pitch = at.pitch;
     goalRef.current.zoom = clamp(zoom, ZOOM_MIN, ZOOM_MAX);
   };
 
@@ -915,7 +879,7 @@ const Globe = forwardRef<GlobeHandle, {
         resetCamera();
         return true;
       }
-      if (goalRef.current.zoom > 1.02 || Math.abs(goalRef.current.pitch - HOME_PITCH) > 0.02) {
+      if (goalRef.current.zoom > 1.02 || Math.abs(goalRef.current.pitch - HOME_PITCH) > 0.5) {
         resetCamera();
         return true;
       }

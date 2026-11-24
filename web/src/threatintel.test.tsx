@@ -1,14 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { abuseSummary, abuseTone, describePlan, planLabel, quotaView } from "./threatintel";
-import type { IntelStatus } from "./types";
-
-const status = (over: Partial<IntelStatus> = {}): IntelStatus => ({
-  rdap: true,
-  configured: true,
-  cache_hours: 6,
-  ...over,
-});
-
+import { abuseSummary, abuseTone, describePlan, quotaView } from "./threatintel";
 describe("plan detection", () => {
   it("names the plan the rate-limit ceiling belongs to", () => {
     expect(describePlan({ name: "Individual (free)", checks_per_day: 1000 }, { limit: 1000, remaining: 871 })).toBe(
@@ -26,10 +17,6 @@ describe("plan detection", () => {
     expect(describePlan(undefined, undefined)).toBe("checking the key…");
   });
 
-  it("reports a missing key", () => {
-    expect(planLabel(status({ configured: false }))).toBe("no key saved");
-    expect(planLabel(null)).toBe("no key saved");
-  });
 });
 
 describe("quota view", () => {
