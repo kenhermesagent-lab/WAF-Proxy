@@ -2,7 +2,7 @@
 
 ## Daily checks
 
-![Dashboard: needs-attention queue, live rates and the attack globe](screenshots/dashboard.png)
+![Dashboard: live rates, the host's CPU and memory dials and the attack globe](screenshots/dashboard.png)
 
 *The dashboard of the demo install these pages were checked against; its sites, bans and events
 are sample data.*

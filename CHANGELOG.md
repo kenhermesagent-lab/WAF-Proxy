@@ -12,6 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.66.3] — 2026-11-24
+
+### Changed
+
+- **The README shows the dashboard as it is now.** The hero capture at the top of the README and the
+  `dashboard.png` gallery image were both retaken against a 1.66.2 console with demo data, so they
+  carry the CPU and memory dials, the four-up strip and the reached-endpoint counters instead of the
+  1.62.2 layout with an empty "Needs attention" card. The alt text in `docs/OPERATIONS.md`, the
+  gallery index and the README caption follow the new page: the queue is described as conditional
+  rather than as something every dashboard shows.
+
 ## [1.66.2] — 2026-11-24
 
 ### Added

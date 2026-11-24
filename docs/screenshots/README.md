@@ -7,14 +7,15 @@ page looks like before you open it.
 
 They were captured from the **v1.62.2** console (the version in the About card of each
 capture), with two tenant sites, nine proxies, certificates, bans, threat feeds and a week of
-traffic shaped by a daily curve. `agent.png` is the exception: it was retaken on a **1.64.0**
+traffic shaped by a daily curve. Two are the exception: `agent.png` was retaken on a **1.64.0**
 build, the first version whose AI Agent Access page renders the gateway's tool catalog from
-`GET /api/mcp`. Everybody sees the full gallery in the
+`GET /api/mcp`, and `dashboard.png` on a **1.66.2** build, which added the host CPU and memory
+dials and the three/four-up strip. Everybody sees the full gallery in the
 [README console tour](../../README.md#console-tour); the guides below reuse the same files.
 
 | Image | Page | Also used in |
 | --- | --- | --- |
-| [dashboard.png](dashboard.png) | Dashboard: needs-attention queue, live rates, attack globe, per-site traffic | [Operations](../OPERATIONS.md), [Docker install](../install/01-docker.md) |
+| [dashboard.png](dashboard.png) | Dashboard: live rates, the host's CPU and memory dials, the attack globe with reached endpoints (1.66.2) | [Operations](../OPERATIONS.md), [Docker install](../install/01-docker.md), [README](../../README.md#console-tour) hero |
 | [statistics.png](statistics.png) | Statistics: outcomes, per-site series, countries, uptime | [Configuration reference](../CONFIGURATION.md) |
 | [proxies.png](proxies.png) | Proxies: hostnames, upstream health, per-site settings | [First site](../install/03-first-site.md), [Configuration reference](../CONFIGURATION.md) |
 | [policies.png](policies.png) | Policies: bans, global profile, WAF and protection profiles | [Configuration reference](../CONFIGURATION.md) |

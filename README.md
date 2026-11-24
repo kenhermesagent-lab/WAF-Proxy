@@ -24,9 +24,9 @@ Linux, amd64 and arm64.
 
 </div>
 
-<img src="docs/assets/hero.png" width="100%" alt="The WAF-Proxy console: live throughput, the attack map, and the stage and rule behind every blocked request" />
+<img src="docs/assets/hero.png" width="100%" alt="The WAF-Proxy console: live throughput, host CPU and memory dials, the attack map, and the stage and rule behind every blocked request" />
 
-<p align="center"><em>One screen for the whole edge: throughput, the attack map, and the stage and rule behind every blocked request.</em></p>
+<p align="center"><em>One screen for the whole edge: throughput, the host's own CPU and memory, the attack map, and the stage and rule behind every blocked request.</em></p>
 
 ## Quickstart
 
