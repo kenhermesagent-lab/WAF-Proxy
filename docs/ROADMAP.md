@@ -586,8 +586,8 @@ docs. None of them are required by a single-node deployment.
 - **1.32.0–1.34.0 — Phase 3: delivered, except three items.** Shared cache with per-host
   quotas, eviction and purge; warm connections across reload; drain readiness; generic TCP
   forwarding through the Custom TCP stream service (with bans, allow lists and caps). Not
-  delivered: per-upstream transports with DNS TTL, explicit Happy Eyeballs tuning, UDP
-  forwarding.
+  delivered: per-upstream transports with DNS TTL and explicit Happy Eyeballs tuning; UDP
+  forwarding arrived later, with the 1.63.0 game relay.
 - **1.37.0–1.40.0 — Phase 4: delivered.** Certificate upload with source tracking, the internal
   CA and its downloadable trust anchor, HTTP-01 served by the gateway's own listener, renewal
   backoff with jitter, per-site minimum TLS version, certificate revocation, and console HTTPS
