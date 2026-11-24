@@ -12,6 +12,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.10] — 2026-11-24
+
+### Tests
+
+- **The Settings form has to survive its own read.** `TestSettingsRoundTripKeepsTheFormSaveable`
+  GETs `/api/settings`, PUTs that whole payload straight back and requires a `200` with the form
+  unchanged, so any key that reads back empty and is refused on save — the 1.65.9 bug — fails in CI
+  instead of on someone's click on Save. Against the code before that fix it fails with
+  `ha_enabled must be 0 or 1`.
+
 ## [1.65.9] — 2026-11-24
 
 ### Fixed

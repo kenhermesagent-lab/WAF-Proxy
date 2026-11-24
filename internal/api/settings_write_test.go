@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -204,6 +205,48 @@ func TestSettingsSaveAcceptsEmptySwitches(t *testing.T) {
 	// A value that is not a switch is still refused.
 	if rec := authed(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"2"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("ha_enabled=2 = %d, want 400", rec.Code)
+	}
+}
+
+// The console saves the whole form, so one key that reads back empty and is
+// refused on the way in breaks every other change with it. Round-tripping the
+// payload the API itself served catches that for every key in
+// publicSettingKeys, including ones added later, without a browser.
+func TestSettingsRoundTripKeepsTheFormSaveable(t *testing.T) {
+	srv, token, csrf := newSettingsServer(t)
+	// The wizard writes the bind addresses and ports before the page is
+	// reachable, and a save cannot invent them, so seed what an install serves.
+	if err := srv.st.SetSettings(map[string]string{
+		"wan_ip": "192.168.1.2", "wan_port": "443",
+		"lan_ip": "10.0.0.2", "gui_port": "8443",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	read := func() map[string]string {
+		t.Helper()
+		rec := authed(t, srv, token, csrf, http.MethodGet, "/api/settings", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /api/settings = %d: %s", rec.Code, rec.Body.String())
+		}
+		var form map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &form); err != nil {
+			t.Fatal(err)
+		}
+		return form
+	}
+
+	form := read()
+	body, err := json.Marshal(form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := authed(t, srv, token, csrf, http.MethodPut, "/api/settings", string(body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/settings with the form it served = %d: %s", rec.Code, rec.Body.String())
+	}
+	if after := read(); !reflect.DeepEqual(form, after) {
+		t.Fatalf("a save that changed nothing changed the form:\nbefore %v\nafter  %v", form, after)
 	}
 }
 
