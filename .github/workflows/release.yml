@@ -30,6 +30,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+      # The build stamps VERSION into every binary and the release takes its name
+      # from the tag, so a tag that disagrees with VERSION would publish 1.2.3
+      # artifacts under a v9.8.7 release. Fail before anything is built or signed.
+      - name: Check the tag matches VERSION
+        run: |-
+          set -euo pipefail
+          version=$(cat VERSION)
+          if [[ ${TAG#v} != "$version" ]]; then
+            echo "tag '${TAG}' does not match VERSION ${version} at ${GITHUB_SHA}" >&2
+            echo "  a release tag must name the version VERSION holds at the commit it points at" >&2
+            exit 1
+          fi
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod

@@ -28,6 +28,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Over h3 the pipeline behaves as it does over HTTP/2: a GET, HEAD and POST reach the upstream, a
   policy block answers `403` without touching it, and a cacheable response is served from the
   cache. A demotion releases the UDP socket with the TCP listener.
+- **A release tag that disagrees with `VERSION` fails the build.** The `assets` job compares
+  `$TAG` with the version at the tagged commit before anything is compiled, attested or signed,
+  so a `v1.62.4` tag on a commit holding 1.64.0 fails instead of uploading 1.64.0 binaries to a
+  1.62.4 release; a `workflow_dispatch` run against an existing tag is checked the same way.
 
 ### Changed
 
