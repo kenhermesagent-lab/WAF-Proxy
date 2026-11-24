@@ -155,4 +155,32 @@ if check --remote; then
   exit 1
 fi
 
-echo "tag check rejects every missing, lightweight, misplaced, unpushed or misnumbered tag"
+# A tag on a branch that never reached main is a release nobody receives, which
+# is what a v1.62.4 tag pointed at.
+seed
+git init -q --bare "$work/origin2.git"
+git -C "$root" remote add origin "$work/origin2.git"
+git -C "$root" push -q origin main --follow-tags
+git -C "$root" checkout -q -b release/1.61.2
+changelog 1.61.2 1.61.1 1.61.0 1.60.1
+commit "1.61.2"
+git -C "$root" tag -a v1.61.2 -m "Release 1.61.2"
+git -C "$root" push -q origin release/1.61.2 refs/tags/v1.61.2
+if check --remote --branch main; then
+  echo "a tag on an unmerged branch passed the remote tag check" >&2
+  exit 1
+fi
+if check --branch main; then
+  echo "a tag on an unmerged branch passed the local tag check" >&2
+  exit 1
+fi
+# Once that branch lands, the same tag is a release people receive.
+git -C "$root" checkout -q main
+git -C "$root" merge -q --no-ff release/1.61.2 -m "land 1.61.2"
+git -C "$root" push -q origin main
+if ! check --remote --branch main; then
+  echo "a tag on a branch merged into main failed the remote tag check" >&2
+  exit 1
+fi
+
+echo "tag check rejects every missing, lightweight, misplaced, unpushed, misnumbered or unmerged tag"

@@ -47,12 +47,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
-- **A released section must carry its annotated tag on origin.** `deploy/check-tags.sh` requires a
-  `vX.Y.Z` tag for every dated CHANGELOG section from 1.61.0 up, refuses a lightweight tag or one
-  on a commit that does not carry the section, and the `release` job runs it on origin with
-  `--remote`, so a release cannot ship untagged and the backlog cannot build up again. A section
-  still marked `unreleased` needs no tag yet. The rule is enforced on `main` only, so a release
-  branch can write its section before the tag exists; `--branch main` forces it from anywhere.
+- **A released section must carry its annotated tag on origin, and on main.** `deploy/check-tags.sh`
+  requires a `vX.Y.Z` tag for every dated CHANGELOG section from 1.61.0 up, refuses a lightweight
+  tag or one on a commit that does not carry the section, and the `release` job runs it on origin
+  with `--remote`, so a release cannot ship untagged and the backlog cannot build up again. It also
+  refuses a tag whose commit is not on `main`, so a tag on an unmerged branch — a release nobody
+  receives — is caught in both modes. A section still marked `unreleased` needs no tag yet. The rule
+  is enforced on `main` only, so a release branch can write its section before the tag exists;
+  `--branch main` forces it from anywhere.
 - **The tag check reads `VERSION` at the tagged commit too.** A `vX.Y.Z` tag whose commit carries
   another version fails as surely as a missing tag — in the clone, and on origin where the remote
   run fetches the tag a shallow checkout does not have — so a tag can never name a version the

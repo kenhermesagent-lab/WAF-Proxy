@@ -6,7 +6,9 @@
 # was enforced and were never tagged, so checking them would report history
 # forever instead of a mistake. Local mode (the default) reads the tags in this
 # clone and proves each one sits on the commit that carries its section; a
-# checkout does not fetch tags, so CI asks origin with --remote instead.
+# checkout does not fetch tags, so CI asks origin with --remote instead. Both
+# modes also prove the tagged commit is on main, because a tag on an unmerged
+# branch is a release nobody receives.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -79,6 +81,45 @@ fail() {
   exit 1
 }
 
+# The main tip every release tag has to sit under. A shallow clone cannot prove
+# ancestry, so say that instead of reporting a tag as unmerged.
+if [[ $(git -C "$root" rev-parse --is-shallow-repository 2>/dev/null) == true ]]; then
+  echo "this clone is shallow, so it cannot prove a tag is on main: run 'git fetch --unshallow origin' (CI: actions/checkout with fetch-depth: 0)" >&2
+  exit 2
+fi
+main_sha=""
+if [[ $mode == remote ]]; then
+  main_sha=$(git -C "$root" ls-remote "$remote" refs/heads/main 2>/dev/null | cut -f1 || true)
+  if [[ -z $main_sha ]]; then
+    echo "cannot read main from '${remote}'" >&2
+    exit 2
+  fi
+  if ! git -C "$root" cat-file -e "${main_sha}^{commit}" 2>/dev/null; then
+    git -C "$root" fetch --quiet --no-tags "$remote" "+refs/heads/main:refs/remotes/origin/main" >/dev/null 2>&1 || true
+  fi
+  if ! git -C "$root" cat-file -e "${main_sha}^{commit}" 2>/dev/null; then
+    echo "this clone does not have main's commit ${main_sha:0:7}: run 'git fetch origin main'" >&2
+    exit 2
+  fi
+else
+  # Refresh main from origin first: a stale main reports a tag that did land as
+  # unmerged, which is the one verdict this rule must not get wrong.
+  if git -C "$root" remote get-url origin >/dev/null 2>&1; then
+    git -C "$root" fetch --quiet --no-tags origin "+refs/heads/main:refs/remotes/origin/main" >/dev/null 2>&1 ||
+      echo "cannot refresh origin/main; comparing against the last fetched copy" >&2
+    main_sha=$(git -C "$root" rev-parse -q --verify refs/remotes/origin/main 2>/dev/null || true)
+  else
+    main_sha=$(git -C "$root" rev-parse -q --verify refs/heads/main 2>/dev/null || true)
+  fi
+  if [[ -z $main_sha ]]; then
+    echo "this clone has no main to compare against: skipped the on-main rule" >&2
+  fi
+fi
+
+# With no main to compare against the rule cannot be answered here; CI's
+# --remote run is the one that proves it.
+on_main() { [[ -z $main_sha ]] || git -C "$root" merge-base --is-ancestor "$1" "$main_sha"; }
+
 # The tag names the release, so VERSION at its commit has to agree: a tag on a
 # commit stamped with another version publishes misnumbered binaries. Remote
 # mode lists tags without their commits, so it fetches the one tag it needs.
@@ -127,6 +168,10 @@ if [[ $mode == local ]]; then
       fail "$v" "$tag is not an ancestor of HEAD" \
         "check out the branch that carries the release, or fetch the tag's commit"
     fi
+    if ! on_main "$commit"; then
+      fail "$v" "$tag points at ${commit:0:7}, which is not on main" \
+        "land the branch that carries $v first: a tag on an unmerged branch is a release nobody receives"
+    fi
   done
   echo "release tags match the CHANGELOG.md sections from $floor (${#versions[@]} releases)"
 else
@@ -153,6 +198,10 @@ else
     if [[ $tagver != "$v" ]]; then
       fail "$v" "v$v on ${remote} points at ${commit:0:7}, whose VERSION is ${tagver}" \
         "tag the commit that stamped VERSION $v"
+    fi
+    if ! on_main "$commit"; then
+      fail "$v" "v$v on ${remote} points at ${commit:0:7}, which is not on main" \
+        "land the branch that carries $v first: a tag on an unmerged branch is a release nobody receives"
     fi
   done
   echo "release tags on ${remote} match the CHANGELOG.md sections from $floor (${#versions[@]} releases)"
