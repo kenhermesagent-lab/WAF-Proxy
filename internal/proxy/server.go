@@ -367,14 +367,20 @@ func (s *Server) Reload(ctx context.Context) error {
 		if _, keep := next[host]; !keep && prev.cancel != nil {
 			prev.cancel()
 		}
-		for _, u := range prev.ups {
-			if u.transport != nil {
-				s.pool.release(u.tkey)
-			}
-		}
+		s.releasePools(prev.ups)
 	}
 	s.d.Log.Info("routes reloaded", "proxies", len(next))
 	return nil
+}
+
+// releasePools gives back every pool a route acquired; the last user of one
+// closes its idle connections.
+func (s *Server) releasePools(ups []*upstream) {
+	for _, u := range ups {
+		if u.transport != nil {
+			s.pool.release(u.tkey)
+		}
+	}
 }
 
 func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
@@ -399,6 +405,8 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 	}
 	routes, err := s.d.Store.ListRoutes(p.ID)
 	if err != nil {
+		// Nothing else will hold these pools: the edge is never built.
+		s.releasePools(ups)
 		return nil, err
 	}
 	child, cancel := context.WithCancel(ctx)

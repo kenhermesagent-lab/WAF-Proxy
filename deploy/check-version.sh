@@ -39,6 +39,14 @@ if [[ $npm != "$version" ]]; then
   exit 1
 fi
 
+# The lockfile records the package version twice at its head; a stale copy is
+# what `npm ci` and a release audit read.
+lock=$(sed -n '1,12p' "$root/web/package-lock.json" | sed -nE 's/^[[:space:]]*"version": "([^"]+)".*/\1/p' | sort -u)
+if [[ $lock != "$version" ]]; then
+  echo "web/package-lock.json records '${lock:-none}', VERSION is ${version}" >&2
+  exit 1
+fi
+
 pins=$(grep -oE 'VERSION:-[0-9]+\.[0-9]+\.[0-9]+' "$root/deploy/docker-compose.yml" || true)
 if [[ -z $pins ]]; then
   echo "deploy/docker-compose.yml does not pin a VERSION" >&2

@@ -628,3 +628,10 @@ docs. None of them are required by a single-node deployment.
   signature bundles with providers; saved log views keyed per site; and the ban and saved-view
   migration merges that let a rolled-back install start again. See `CHANGELOG.md` for each
   release.
+- **1.61.0–1.62.0 — Plan A (fat node): built, merged.** Admission bounded by bytes as well as a
+  count, a queue that absorbs a short burst, a memory ceiling checked at boot, per-site body
+  deadlines, brotli with one compressed cache variant per encoding, per-upstream transports that
+  survive a reload with a caching resolver, opt-in cache-first for un-gated sites, and capacity
+  counters on `/metrics`, `/api/capacity` and the dashboard. Harness numbers are in
+  [BENCHMARKS.md](BENCHMARKS.md); the task list is
+  [Plan A](superpowers/plans/2026-11-23-scale-plan-a-fat-node.md).

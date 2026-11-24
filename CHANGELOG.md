@@ -14,6 +14,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [1.62.0] — 2026-11-24
 
+### Fixed
+
+- **A cached DNS answer no longer stalls a connection on a dead family.** The resolver cache had
+  replaced `net.Dialer`'s own fallback, so an answer whose first address was IPv6 on a host with no
+  IPv6 route burned the whole five-second dial timeout before IPv4 was tried. Both families are now
+  dialled at once and the first success wins, while addresses inside a family stay in order.
+- **A route that fails to build gives its upstream pool back.** A reload that failed after the
+  connection pool was acquired held a reference forever, so the pool could never close its idle
+  connections.
+- **The lockfile names the release it belongs to.** `web/package-lock.json` still said 1.60.1 while
+  `package.json` moved on, which is what `npm ci` and a release audit read; it is updated, and
+  `deploy/check-version.sh` now fails when the two disagree.
+
 ### Changed
 
 - **Capacity is visible instead of guessed.** `GET /api/capacity` reports what the node is holding

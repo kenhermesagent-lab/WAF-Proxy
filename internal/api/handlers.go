@@ -2041,32 +2041,32 @@ func (s *Server) prometheusMetrics(w http.ResponseWriter, r *http.Request) {
 	// Capacity counters: what the node holds, what it refused and how much of
 	// the response cache each site is using.
 	if s.proxy != nil {
-		cap := s.proxy.CapacityReport()
+		report := s.proxy.CapacityReport()
 		heapBytes, gcCycles := runtimeTotals()
 		fmt.Fprintf(&b, "# HELP wafproxy_inflight_requests Requests holding a budget slot.\n")
-		fmt.Fprintf(&b, "# TYPE wafproxy_inflight_requests gauge\nwafproxy_inflight_requests %d\n", cap.Inflight)
+		fmt.Fprintf(&b, "# TYPE wafproxy_inflight_requests gauge\nwafproxy_inflight_requests %d\n", report.Inflight)
 		fmt.Fprintf(&b, "# HELP wafproxy_queued_requests Requests waiting for a budget slot.\n")
-		fmt.Fprintf(&b, "# TYPE wafproxy_queued_requests gauge\nwafproxy_queued_requests %d\n", cap.Queued)
+		fmt.Fprintf(&b, "# TYPE wafproxy_queued_requests gauge\nwafproxy_queued_requests %d\n", report.Queued)
 		fmt.Fprintf(&b, "# HELP wafproxy_buffer_bytes Request memory in use.\n")
-		fmt.Fprintf(&b, "# TYPE wafproxy_buffer_bytes gauge\nwafproxy_buffer_bytes %d\n", cap.BufferBytes)
+		fmt.Fprintf(&b, "# TYPE wafproxy_buffer_bytes gauge\nwafproxy_buffer_bytes %d\n", report.BufferBytes)
 		fmt.Fprintf(&b, "# HELP wafproxy_shed_total Requests refused, by reason.\n")
 		fmt.Fprintf(&b, "# TYPE wafproxy_shed_total counter\n")
 		for _, reason := range []string{"bytes", "queue", "site", "client"} {
-			fmt.Fprintf(&b, "wafproxy_shed_total{reason=%q} %d\n", reason, cap.Shed[reason])
+			fmt.Fprintf(&b, "wafproxy_shed_total{reason=%q} %d\n", reason, report.Shed[reason])
 		}
 		fmt.Fprintf(&b, "# HELP wafproxy_cache_bytes Response cache bytes, by site.\n")
 		fmt.Fprintf(&b, "# TYPE wafproxy_cache_bytes gauge\n")
-		for _, site := range cap.Sites {
+		for _, site := range report.Sites {
 			fmt.Fprintf(&b, "wafproxy_cache_bytes{site=%q} %d\n", site.Host, site.CacheBytes)
 		}
 		fmt.Fprintf(&b, "# HELP wafproxy_cache_hits_total Cache hits, by site.\n")
 		fmt.Fprintf(&b, "# TYPE wafproxy_cache_hits_total counter\n")
-		for _, site := range cap.Sites {
+		for _, site := range report.Sites {
 			fmt.Fprintf(&b, "wafproxy_cache_hits_total{site=%q} %d\n", site.Host, site.CacheHits)
 		}
 		fmt.Fprintf(&b, "# HELP wafproxy_cache_misses_total Cache misses, by site.\n")
 		fmt.Fprintf(&b, "# TYPE wafproxy_cache_misses_total counter\n")
-		for _, site := range cap.Sites {
+		for _, site := range report.Sites {
 			fmt.Fprintf(&b, "wafproxy_cache_misses_total{site=%q} %d\n", site.Host, site.CacheMisses)
 		}
 		fmt.Fprintf(&b, "# HELP wafproxy_heap_bytes Heap memory in use.\n")

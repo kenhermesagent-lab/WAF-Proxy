@@ -355,8 +355,6 @@ func (c *responseCache) evictOldestLocked() {
 	}
 }
 
-// purge drops every cached response for a host, or everything when host is
-// empty, and returns how many entries were removed.
 // cacheHostStats is one hostname's share of the cache.
 type cacheHostStats struct {
 	Bytes, Hits, Misses int64
@@ -383,6 +381,8 @@ func (c *responseCache) snapshot() (bytes, max int64, hosts map[string]cacheHost
 	return c.bytes, c.maxSize, hosts
 }
 
+// purge drops every cached response for a host, or everything when host is
+// empty, and returns how many entries were removed.
 func (c *responseCache) purge(host string) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
