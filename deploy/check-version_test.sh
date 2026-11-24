@@ -32,6 +32,27 @@ if ! check; then
   exit 1
 fi
 
+# An `Unreleased` heading is not a release, so the version below it is the one
+# that has to agree with VERSION.
+unreleased_top() {
+  printf '# Changelog\n\n## [Unreleased]\n\n- next\n\n## [1.2.3] - 2026-01-01\n\n- test\n' >"$root/CHANGELOG.md"
+}
+unreleased_over_stale() {
+  printf '# Changelog\n\n## [Unreleased]\n\n- next\n\n## [1.2.2] - 2026-01-01\n\n- test\n' >"$root/CHANGELOG.md"
+}
+seed
+unreleased_top
+if ! check; then
+  echo "an Unreleased heading failed the release check" >&2
+  exit 1
+fi
+seed
+unreleased_over_stale
+if check; then
+  echo "a stale section under Unreleased passed the release check" >&2
+  exit 1
+fi
+
 set_version() { printf '1.2.4\n' >"$root/VERSION"; }
 set_bad_version() { printf '1.2\n' >"$root/VERSION"; }
 set_changelog() { printf '## [1.2.2] - 2026-01-01\n' >"$root/CHANGELOG.md"; }
