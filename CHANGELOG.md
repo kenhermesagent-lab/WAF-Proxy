@@ -12,6 +12,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.11] — 2026-11-24
+
+### Fixed
+
+- **`:latest` on ghcr moves to the newest release instead of lagging behind it.** The image job asked
+  whether its tag was the newest on origin, but a tag exists for the whole fifteen-minute image push
+  before its image does: 1.65.7 and 1.65.8 each found a newer tag when they finished, left the tag on
+  1.65.6 and reported success, and the same guard would have frozen it for good if the newer release
+  had failed. The job now asks the registry which versions it has an image for and moves `:latest`
+  only when this version is the highest of them, so a tag with no image cannot hold it back and an
+  older tag dispatched later still cannot move it backwards. When the registry does not answer it
+  falls back to the tag guard rather than guessing. `deploy/latest-tag.sh` holds the comparison,
+  `deploy/latest-tag_test.sh` pins it in CI, and the runbook says which rule applies.
+
 ## [1.65.10] — 2026-11-24
 
 ### Tests
