@@ -214,6 +214,44 @@ const schemaBlock = `    Proxy:
         events:
           type: array
           items: {$ref: '#/components/schemas/AnomalyEvent'}
+        mutes:
+          type: array
+          items: {$ref: '#/components/schemas/AnomalyMute'}
+    AnomalyMute:
+      type: object
+      properties:
+        proxy_id: {type: integer}
+        address: {type: string}
+        at: {type: string, format: date-time}
+    AnomalyDestination:
+      type: object
+      properties:
+        url: {type: string}
+        address: {type: string}
+        port: {type: string}
+        resolved:
+          type: array
+          items: {type: string}
+        whitelist: {type: string}
+        muted: {type: boolean}
+    AnomalyEventDetail:
+      type: object
+      properties:
+        event: {$ref: '#/components/schemas/AnomalyEvent'}
+        destinations:
+          type: array
+          items: {$ref: '#/components/schemas/AnomalyDestination'}
+    AnomalyMutes:
+      type: object
+      properties:
+        mutes:
+          type: array
+          items: {$ref: '#/components/schemas/AnomalyMute'}
+    MuteRequest:
+      type: object
+      required: [address]
+      properties:
+        address: {type: string}
     NotificationReport:
       type: object
       properties:
@@ -291,6 +329,12 @@ func shapeFor(r route) shape {
 			return shape{request: "AnomalyConfig", response: "Status"}
 		case strings.HasSuffix(r.path, "/ack"):
 			return shape{response: "Status"}
+		case strings.HasSuffix(r.path, "/mute"):
+			return shape{request: "MuteRequest", response: "AnomalyMutes"}
+		case r.path == "/api/anomaly/mutes":
+			return shape{response: "AnomalyMutes"}
+		case r.method == "GET" && strings.Contains(r.path, "/events/"):
+			return shape{response: "AnomalyEventDetail"}
 		default:
 			return shape{response: "AnomalyReport"}
 		}

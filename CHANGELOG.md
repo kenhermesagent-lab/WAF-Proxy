@@ -12,6 +12,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.69.0] — 2026-11-24
+
+### Added
+
+- **An anomaly now shows where its outbound traffic went.** Clicking an event opens a panel with the value, the
+  baseline it was measured against, and the site's upstreams with the addresses they resolve to — plus the IP
+  whitelist that covers each one. A whitelisted destination is expected traffic, so **Mute destination** stops
+  outbound-spike detections for that site and acknowledges the ones already open; muted destinations are listed on
+  the page until they are unmuted. A site is only muted once every enabled upstream is muted, so one unexpected
+  destination still raises a spike.
+
+### Fixed
+
+- **A failed key probe left the card saying "checking the key…" for good.** The line now reads "allowance not
+  reported yet", which is what actually happened.
+- **A refused key or a spent allowance still read as connected.** The last failed check is remembered, so the
+  Settings card shows *key refused* or *quota spent* with the reason, and the source drawer labels the AbuseIPDB
+  result the same way instead of a generic *unavailable*.
+
 ## [1.68.1] — 2026-11-24
 
 ### Fixed

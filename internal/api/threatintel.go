@@ -13,12 +13,14 @@ import (
 // threatIntelView is the Settings card: whether RDAP is on, whether a key is
 // saved, and the allowance the key's own response headers reported.
 type threatIntelView struct {
-	RDAP       bool               `json:"rdap"`
-	Configured bool               `json:"configured"`
-	KeyTail    string             `json:"key_tail,omitempty"`
-	Quota      *threatintel.Quota `json:"quota,omitempty"`
-	Plan       *threatintel.Plan  `json:"plan,omitempty"`
-	CacheHours int                `json:"cache_hours"`
+	RDAP        bool               `json:"rdap"`
+	Configured  bool               `json:"configured"`
+	KeyTail     string             `json:"key_tail,omitempty"`
+	Quota       *threatintel.Quota `json:"quota,omitempty"`
+	Plan        *threatintel.Plan  `json:"plan,omitempty"`
+	Problem     string             `json:"problem,omitempty"`
+	ProblemKind string             `json:"problem_kind,omitempty"`
+	CacheHours  int                `json:"cache_hours"`
 }
 
 func (s *Server) getThreatIntel(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +45,11 @@ func (s *Server) getThreatIntel(w http.ResponseWriter, r *http.Request) {
 	}
 	if quota != nil {
 		view.Plan = threatintel.PlanFor(quota.Limit)
+	}
+	// A key that was refused or has spent its allowance must not read as
+	// connected: the last check is the only evidence the card has.
+	if kind, message := s.threat.Failure(); kind != "" {
+		view.Problem, view.ProblemKind = message, kind
 	}
 	writeJSON(w, http.StatusOK, view)
 }
@@ -90,7 +97,7 @@ func (s *Server) putThreatIntel(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	probe, _ := s.threat.Lookup(ctx, threatintel.LocalIP, key)
-	if probe.Abuse != nil && strings.Contains(probe.Abuse.Error, "refused the key") {
+	if probe.Abuse != nil && probe.Abuse.Kind == "refused" {
 		writeError(w, http.StatusBadRequest, "AbuseIPDB refused that key; copy it again from your account's API page")
 		return
 	}

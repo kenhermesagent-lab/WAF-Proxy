@@ -102,6 +102,18 @@ func (s *Store) AcknowledgeAnomalyEvent(id int64, user string) error {
 	return err
 }
 
+// AcknowledgeOpenAnomalies marks every open event of a kind for one proxy as
+// seen, so muting an expected destination also clears what it already raised.
+func (s *Store) AcknowledgeOpenAnomalies(kind string, proxyID int64, user string) (int64, error) {
+	res, err := s.db.Exec(`UPDATE anomaly_events SET state = 'acknowledged', acknowledged_by = ?, acknowledged_at = ?
+		WHERE kind = ? AND proxy_id = ? AND state = 'open' AND (? = 0 OR site_id = ?)`,
+		truncate(user, 64), stamp(time.Now()), kind, proxyID, s.site, s.site)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // GateFailuresSince counts failed gate logins per proxy inside a window.
 func (s *Store) GateFailuresSince(since time.Time) (map[int64]int, error) {
 	rows, err := s.db.Query(`SELECT proxy_id, COUNT(*) FROM gate_failures

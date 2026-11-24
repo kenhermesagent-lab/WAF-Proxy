@@ -13,8 +13,8 @@ describe("plan detection", () => {
     );
   });
 
-  it("waits rather than guessing before the first check reports headers", () => {
-    expect(describePlan(undefined, undefined)).toBe("checking the key…");
+  it("says nothing has reported the allowance rather than claiming a check", () => {
+    expect(describePlan(undefined, undefined)).toBe("allowance not reported yet");
   });
 
 });

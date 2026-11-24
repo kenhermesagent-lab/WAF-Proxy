@@ -13,8 +13,8 @@ database schema and the unit files.
 
 | Version | Supported |
 |---|---|
-| 1.68.x | Yes |
-| 1.66.x | Yes — until 1.68.0 ships |
+| 1.69.x | Yes |
+| 1.68.x | Yes — until 1.69.0 ships |
 | 1.65.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
 | 1.64.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
 | 1.63.x and older | No — upgrade first (`deploy/install.sh`, or the Update button) |

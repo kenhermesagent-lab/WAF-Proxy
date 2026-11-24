@@ -9,7 +9,9 @@ export function describePlan(plan: IntelPlan | undefined, quota: IntelQuota | un
   if (quota && quota.limit > 0) {
     return `allowance ${quota.limit.toLocaleString()}/day · plan not recognised`;
   }
-  return "checking the key…";
+  // Nothing has reported headers yet: a probe that failed never will, so the
+  // card must not claim a check is still running.
+  return "allowance not reported yet";
 }
 
 export type QuotaView = {

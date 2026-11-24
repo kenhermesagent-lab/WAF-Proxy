@@ -306,7 +306,9 @@ export default function SourceDrawer({
                     {!third.abuse ? (
                       <Badge tone="warn">no key</Badge>
                     ) : third.abuse.error ? (
-                      <Badge tone="warn">unavailable</Badge>
+                      <Badge tone={third.abuse.kind === "error" || !third.abuse.kind ? "warn" : "bad"}>
+                        {third.abuse.kind === "quota" ? "quota spent" : third.abuse.kind === "refused" ? "key refused" : "unavailable"}
+                      </Badge>
                     ) : (
                       <Badge tone={abuseTone(third.abuse.score)}>{third.abuse.score}% confidence</Badge>
                     )}

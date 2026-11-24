@@ -62,6 +62,7 @@ type Abuse struct {
 	Domain       string `json:"domain,omitempty"`
 	Country      string `json:"country,omitempty"`
 	Error        string `json:"error,omitempty"`
+	Kind         string `json:"kind,omitempty"` // quota | refused | error, when Error is set
 }
 
 // Quota is the rate-limit block AbuseIPDB answers with on every check. The API
@@ -99,10 +100,12 @@ type Client struct {
 	TTL        time.Duration
 	Now        func() time.Time
 
-	mu       sync.Mutex
-	cache    map[string]entry
-	inflight map[string]chan struct{}
-	quota    *Quota
+	mu        sync.Mutex
+	cache     map[string]entry
+	inflight  map[string]chan struct{}
+	quota     *Quota
+	failKind  string
+	failCause string
 }
 
 // New returns a client with production endpoints.
@@ -134,6 +137,22 @@ func (c *Client) Reset() {
 	c.mu.Lock()
 	c.cache = map[string]entry{}
 	c.quota = nil
+	c.failKind, c.failCause = "", ""
+	c.mu.Unlock()
+}
+
+// Failure is why the last check did not produce a report: "" (fine), "quota",
+// "refused" or "error". The console shows it instead of claiming the key works.
+func (c *Client) Failure() (kind, message string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.failKind, c.failCause
+}
+
+// fail records the reason for the last failed check.
+func (c *Client) fail(kind, message string) {
+	c.mu.Lock()
+	c.failKind, c.failCause = kind, message
 	c.mu.Unlock()
 }
 
@@ -203,7 +222,8 @@ func (c *Client) Lookup(ctx context.Context, ip string, key string) (Result, err
 		if err != nil {
 			// A transport or quota failure is not a lookup worth caching: the
 			// next open should try again.
-			res.Abuse = &Abuse{Error: err.Error()}
+			kind, _ := c.Failure()
+			res.Abuse = &Abuse{Error: err.Error(), Kind: kind}
 		}
 	}
 
@@ -288,6 +308,7 @@ func (c *Client) abuse(ctx context.Context, ip, key string) (*Abuse, *Quota, err
 	q.Set("maxAgeInDays", fmt.Sprint(abuseMaxAge))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.LookupBase+"?"+q.Encode(), nil)
 	if err != nil {
+		c.fail("error", "cannot build the AbuseIPDB request")
 		return nil, nil, errors.New("cannot build the AbuseIPDB request")
 	}
 	req.Header.Set("Key", key)
@@ -295,6 +316,7 @@ func (c *Client) abuse(ctx context.Context, ip, key string) (*Abuse, *Quota, err
 	req.Header.Set("User-Agent", "WAF-Proxy")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
+		c.fail("error", "AbuseIPDB did not answer")
 		return nil, nil, errors.New("AbuseIPDB did not answer")
 	}
 	defer resp.Body.Close()
@@ -306,19 +328,27 @@ func (c *Client) abuse(ctx context.Context, ip, key string) (*Abuse, *Quota, err
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
+		c.fail("error", "cannot read the AbuseIPDB answer")
 		return nil, quota, errors.New("cannot read the AbuseIPDB answer")
 	}
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusTooManyRequests:
-		return nil, quota, errors.New("AbuseIPDB daily quota is spent; it resets at " + quotaClock(quota))
+		msg := "AbuseIPDB daily quota is spent; it resets at " + quotaClock(quota)
+		c.fail("quota", msg)
+		return nil, quota, errors.New(msg)
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return nil, quota, errors.New("AbuseIPDB refused the key; save a valid key in Settings")
+		msg := "AbuseIPDB refused the key; save a valid key in Settings"
+		c.fail("refused", msg)
+		return nil, quota, errors.New(msg)
 	default:
-		return nil, quota, fmt.Errorf("AbuseIPDB answered HTTP %d", resp.StatusCode)
+		msg := fmt.Sprintf("AbuseIPDB answered HTTP %d", resp.StatusCode)
+		c.fail("error", msg)
+		return nil, quota, errors.New(msg)
 	}
 	var doc abuseDoc
 	if err := json.Unmarshal(body, &doc); err != nil {
+		c.fail("error", "AbuseIPDB sent an unexpected answer")
 		return nil, quota, errors.New("AbuseIPDB sent an unexpected answer")
 	}
 	d := doc.Data
@@ -331,6 +361,7 @@ func (c *Client) abuse(ctx context.Context, ip, key string) (*Abuse, *Quota, err
 		Domain:    d.Domain,
 		Country:   d.CountryCode,
 	}
+	c.fail("", "")
 	if d.LastReportedAt != "" {
 		if at, err := time.Parse(time.RFC3339, d.LastReportedAt); err == nil {
 			out.LastReported = at.UTC().Format(time.RFC3339)
