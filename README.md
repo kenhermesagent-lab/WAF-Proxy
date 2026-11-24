@@ -6,7 +6,7 @@ passphrase or per-site accounts, forwards streaming services without inspection,
 it — traffic, decisions, bans and certificates — in one console.
 
 Written in Go with an embedded SQLite database and a React console; ships as a container or a
-systemd service. Version 1.62.2.
+systemd service. Version 1.62.3.
 
 ## Contents
 
@@ -479,7 +479,7 @@ make sbom           # CycloneDX document of the build graph into dist/
 make verify-release # VERSION and the newest CHANGELOG section agree
 ```
 
-Go 1.27 and Node 22 are what CI uses. CI runs gofmt, `go vet`, race tests, the Go build, the
+Go 1.27 and Node 26 are what CI uses. CI runs gofmt, `go vet`, race tests, the Go build, the
 console typecheck/build and its component tests, a production dependency audit, release metadata
 and SBOM checks, the performance gate, and a container image build.
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) is the source of truth. `make perf-record`

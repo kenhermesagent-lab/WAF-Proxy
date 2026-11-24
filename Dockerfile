@@ -9,8 +9,8 @@
 # package root. Keep the package at /src/web so that lands in /src/internal,
 # where the Go stage copies it from: flattening web/ into /src would write the
 # bundle to /internal instead and leave //go:embed dist with an empty directory.
-# node:22-alpine
-FROM node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS ui
+# node:26-alpine
+FROM node:26-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS ui
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -38,8 +38,8 @@ RUN CGO_ENABLED=0 go build -trimpath \
     -o /out/wafproxy ./cmd/wafproxy \
     && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/wafproxy-updated ./cmd/wafproxy-updated
 
-# alpine:3.21
-FROM alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab
+# alpine:3.24
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 RUN apk add --no-cache ca-certificates tzdata nftables libcap \
     && addgroup -g 10001 wafproxy \
     && adduser -D -H -u 10001 -G wafproxy -s /sbin/nologin wafproxy \

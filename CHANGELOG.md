@@ -12,6 +12,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.62.3] — 2026-11-24
+
+### Changed
+
+- **The console toolchain moved to Vite 8, Vitest 5, jsdom 31, TypeScript 7 and
+  `@vitejs/plugin-react` 6.** They land together because their peer requirements overlap:
+  plugin-react 6 needs Vite 8, and jsdom 31 needs Node 22.22.2 or newer. The production build,
+  the typecheck and all 112 component tests pass under the new toolchain, and the embedded
+  console was rebuilt with it.
+- **Go dependencies refreshed.** `kin-openapi` 0.133 → 0.153 (the generated OpenAPI document is
+  unchanged) and `miekg/dns` 1.1.72 → 1.1.73.
+- **Actions and base images.** `actions/setup-go` 7.1.0, `actions/setup-node` 7.1.0 and
+  `actions/upload-artifact` 7.0.2, still pinned by commit; Alpine 3.24 and Node 26 in the image
+  build, still pinned by digest. CI now runs the console job on Node 26, the version that builds
+  the shipped bundle.
+
+### Fixed
+
+- **Dependabot's console majors could not pass one at a time.** The five open PRs were
+  interdependent — `@vitejs/plugin-react` 6 requires Vite 8, so on Vite 6 it failed the peer
+  check — and each branch was dozens of commits behind. `dependabot.yml` now groups those majors
+  into one PR, and this release applies them as one reviewed upgrade.
+
 ## [1.62.2] — 2026-11-24
 
 ### Added

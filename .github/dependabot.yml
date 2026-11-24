@@ -21,6 +21,16 @@ updates:
       console-dependencies:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      # These majors depend on each other: plugin-react 6 requires Vite 8, so a
+      # lone major PR cannot pass the console build and tests.
+      console-build-toolchain:
+        patterns:
+          - vite
+          - "@vitejs/plugin-react"
+          - vitest
+          - jsdom
+          - typescript
+        update-types: ["major"]
 
   - package-ecosystem: docker
     directory: "/"

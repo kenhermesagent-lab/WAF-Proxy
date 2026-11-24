@@ -114,7 +114,7 @@ excluded).
 
 - Native: the Updates page shows the captured pull/build output; `journalctl -u
   wafproxy-updates -n 100` shows the helper's start/stop and timeout errors. Check `git`, `make`,
-  Go 1.27 and Node 22 are available to the checkout owner
+  Go 1.27 and Node 26 are available to the checkout owner
   (`/usr/local/go/bin` and `$HOME/toolchain/go/bin` are included). A dirty checkout is
   refused; commit or stash local changes first. The public repository needs no credentials;
   a private fork needs the owner's git credential helper or SSH key.
