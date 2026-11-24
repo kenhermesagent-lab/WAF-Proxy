@@ -14,6 +14,9 @@ on:
     paths:
       - CHANGELOG.md
       - VERSION
+      # Changing how the tags are cut is also a reason to run it.
+      - deploy/create-release-tags.sh
+      - .github/workflows/release-tags.yml
   workflow_dispatch:
     inputs:
       versions:
@@ -92,6 +95,15 @@ jobs:
               git config --local --add 'http.https://github.com/.extraheader' \
                 "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$token" | base64 -w0)"
               echo "TAG_PUSH_TOKEN accepted, scopes: ${scopes:-none reported}"
+              # The API accepting the token does not prove git can use it, and a
+              # silent git exit code leaves nothing to act on. Say what happened
+              # and put the App credential back rather than lose the repository.
+              if ! git_probe=$(git ls-remote --heads origin refs/heads/main 2>&1); then
+                echo "::error::git cannot read origin with TAG_PUSH_TOKEN: ${git_probe//$token/<token>}" >&2
+                git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+                git config --local --unset-all 'http.https://github.com/.extraheader' || true
+                export GH_TOKEN=$GITHUB_TOKEN
+              fi
             else
               echo "::warning::TAG_PUSH_TOKEN is not accepted by GitHub (HTTP $code); using the App token, which cannot push a tag that spans a workflow change" >&2
             fi
