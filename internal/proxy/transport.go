@@ -121,7 +121,7 @@ func (t upstreamTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 // window, so a resolver blip does not take every upstream down with it.
 type dnsCache struct {
 	resolve func(ctx context.Context, host string) ([]string, error)
-	dialer  *net.Dialer
+	dial    func(ctx context.Context, network, addr string) (net.Conn, error)
 	now     func() time.Time
 	ttl     time.Duration
 	stale   time.Duration
@@ -140,9 +140,10 @@ type dnsEntry struct {
 }
 
 func newDNSCache() *dnsCache {
+	d := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
 	return &dnsCache{
 		resolve: net.DefaultResolver.LookupHost,
-		dialer:  &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second},
+		dial:    d.DialContext,
 		now:     time.Now,
 		ttl:     dnsTTL,
 		stale:   dnsStale,
@@ -183,32 +184,78 @@ func (c *dnsCache) lookup(ctx context.Context, host string) ([]string, error) {
 }
 
 // dialContext dials through the cache, so a burst of connections costs one
-// lookup rather than one per connection.
+// lookup rather than one per connection. The cached answers are walked in order
+// within each family and both families are dialled at once: that is the
+// fallback net.Dialer does itself, so a broken IPv6 route does not cost an IPv4
+// request its full dial timeout.
 func (c *dnsCache) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
 	}
 	if net.ParseIP(host) != nil {
-		return c.dialer.DialContext(ctx, network, addr)
+		return c.dial(ctx, network, addr)
 	}
 	addrs, err := c.lookup(ctx, host)
 	if err != nil {
 		return nil, fmt.Errorf("resolve %s: %w", host, err)
 	}
-	var lastErr error
+	var v4, v6 []string
 	for _, a := range addrs {
-		conn, err := c.dialer.DialContext(ctx, network, net.JoinHostPort(a, port))
-		if err == nil {
-			return conn, nil
-		}
-		lastErr = err
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+		if ip := net.ParseIP(a); ip != nil && ip.To4() == nil {
+			v6 = append(v6, a)
+		} else {
+			v4 = append(v4, a)
 		}
 	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("resolve %s: no addresses", host)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type attempt struct {
+		conn net.Conn
+		err  error
+	}
+	ch := make(chan attempt, 2)
+	launched := 0
+	for _, list := range [][]string{v4, v6} {
+		if len(list) == 0 {
+			continue
+		}
+		launched++
+		go func(list []string) {
+			var lastErr error
+			for _, a := range list {
+				conn, err := c.dial(ctx, network, net.JoinHostPort(a, port))
+				if err == nil {
+					ch <- attempt{conn: conn}
+					return
+				}
+				lastErr = err
+				if ctx.Err() != nil {
+					break
+				}
+			}
+			ch <- attempt{err: lastErr}
+		}(list)
+	}
+	if launched == 0 {
+		return nil, fmt.Errorf("resolve %s: no addresses", host)
+	}
+	var conn net.Conn
+	var lastErr error
+	for i := 0; i < launched; i++ {
+		r := <-ch
+		switch {
+		case r.err != nil:
+			lastErr = r.err
+		case conn == nil:
+			conn = r.conn
+			cancel() // the other family is no longer wanted
+		default:
+			_ = r.conn.Close()
+		}
+	}
+	if conn != nil {
+		return conn, nil
 	}
 	return nil, lastErr
 }

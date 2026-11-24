@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -168,6 +169,35 @@ func TestDNSCacheServesTheLastGoodAnswerThroughAnOutage(t *testing.T) {
 	now = now.Add(6 * time.Minute)
 	if _, err := c.lookup(context.Background(), "origin.test"); err == nil {
 		t.Fatal("the stale answer outlived its five-minute window")
+	}
+}
+
+// A cached answer with both families must not wait for a dead IPv6 address: the
+// two families are dialled at once, the way net.Dialer falls back.
+func TestDNSDialRacesFamiliesSoABrokenIPv6StallsNothing(t *testing.T) {
+	c := newTestDNSCache(func(context.Context, string) ([]string, error) {
+		return []string{"2001:db8::1", "198.51.100.7"}, nil
+	}, time.Now)
+	local, peer := net.Pipe()
+	defer local.Close()
+	defer peer.Close()
+	c.dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if strings.HasPrefix(addr, "[2001:db8::1]") {
+			select {
+			case <-ctx.Done():
+			case <-time.After(2 * time.Second):
+			}
+			return nil, errors.New("no route to host")
+		}
+		return local, nil
+	}
+	start := time.Now()
+	conn, err := c.dialContext(context.Background(), "tcp", "origin.test:8080")
+	if err != nil || conn != local {
+		t.Fatalf("dial = %v, %v; want the IPv4 connection", conn, err)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("the broken IPv6 address held the dial for %s", elapsed)
 	}
 }
 
