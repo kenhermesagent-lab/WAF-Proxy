@@ -219,6 +219,13 @@ that has since been succeeded is tagged at the commit that cut it, because a lat
 stamp the old number again and that tag would look cut after the release that followed it. A version
 whose section was dated while `VERSION` stayed on an older number fails the job instead
 of being tagged somewhere nearby. Tags origin already has are skipped, so a re-run only fills gaps.
+A tag whose commit changed a file under `.github/workflows/` cannot be pushed with the runner's
+token: GitHub refuses to let an App create a ref that carries a workflow change, even when the
+commit is already on `main`. The script creates that tag through the API instead — the tag object and
+its ref, with no commits travelling — and only fails if the API refuses as well, which needs a token
+with the `workflow` scope in place of `GITHUB_TOKEN`. One refused tag no longer hides the ones after
+it: every version is attempted and the job ends red naming each one that failed.
+
 The same work is available locally as `bash deploy/create-release-tags.sh --dry-run`, then without
 `--dry-run` to push. A tag that exists only in the local checkout makes the script stop: it points
 at a commit nobody receives, so delete it with `git tag -d v1.2.3` and re-run.

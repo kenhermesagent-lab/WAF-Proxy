@@ -128,7 +128,44 @@ while IFS= read -r c; do
   oldest_when[$v]=$t
 done < <(git rev-list "$main")
 
+# push_tag TAG COMMIT -> puts the annotated tag on the remote.
+#
+# GITHUB_TOKEN is a GitHub App, and an App may not push a tag whose commit changed
+# a file under .github/workflows: "refusing to allow a GitHub App to create or
+# update workflow ... without `workflows` permission", even though that commit is
+# already on main. A tag created through the API sends no commits at all, which is
+# not the operation that rule guards, so the refusal falls back to it.
+push_tag() {
+  local tag=$1 commit=$2 out sha
+  if out=$(git push --quiet "$remote" "refs/tags/${tag}:refs/tags/${tag}" 2>&1); then
+    echo "tagged ${tag} at ${commit:0:12} and pushed it to ${remote}"
+    return 0
+  fi
+  if [[ $out != *"without \`workflows\` permission"* ]]; then
+    echo "${tag} was tagged at ${commit:0:12} but ${remote} refused the push:" >&2
+    printf '%s\n' "$out" >&2
+    return 1
+  fi
+  if [[ -z ${GITHUB_REPOSITORY:-} ]] || ! command -v gh >/dev/null; then
+    echo "${tag}: ${remote} refused a tag whose commit changes a workflow file, and the API fallback needs GITHUB_REPOSITORY and gh" >&2
+    return 1
+  fi
+  if ! sha=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/tags" \
+    -f tag="$tag" -f message="Release ${tag#v}" -f object="$commit" -f type=commit --jq .sha 2>/dev/null) ||
+    [[ -z $sha ]]; then
+    echo "${tag}: ${remote} refused the push and git/tags refused the tag object; the job needs a token with the workflow scope" >&2
+    return 1
+  fi
+  if ! gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+    -f ref="refs/tags/${tag}" -f sha="$sha" >/dev/null 2>&1; then
+    echo "${tag}: created the tag object ${sha:0:12} but git/refs refused the ref; the job needs a token with the workflow scope" >&2
+    return 1
+  fi
+  echo "tagged ${tag} at ${commit:0:12} through the API (the push carries a workflow change an App may not push)"
+}
+
 created=0
+failed=()
 for v in "${versions[@]}"; do
   if grep -qE "^[0-9a-f]+[[:space:]]+refs/tags/v${v}$" <<<"$listing"; then
     echo "v$v already on $remote"
@@ -154,11 +191,20 @@ for v in "${versions[@]}"; do
 delete it with: git tag -d v$v, then re-run"
   fi
   git tag -a "v$v" "$commit" -m "Release $v"
-  git push --quiet "$remote" "refs/tags/v$v:refs/tags/v$v" ||
-    die "v$v was tagged at ${commit:0:12} but $remote refused the push"
-  echo "tagged v$v at ${commit:0:12} ($when) and pushed it to $remote"
+  # One tag the remote refuses must not hide the ones after it.
+  if ! push_tag "v$v" "$commit"; then
+    git tag -d "v$v" >/dev/null
+    failed+=("${v} (${commit:0:12}, $when)")
+    continue
+  fi
   created=$((created + 1))
 done
+
+if ((${#failed[@]} > 0)); then
+  printf 'create-release-tags: %d tag(s) could not be created on %s:\n' "${#failed[@]}" "$remote" >&2
+  printf '  v%s\n' "${failed[@]}" >&2
+  exit 1
+fi
 
 if ((dry_run)); then
   echo "dry run: $((${#versions[@]} - created)) version(s) checked, nothing pushed"

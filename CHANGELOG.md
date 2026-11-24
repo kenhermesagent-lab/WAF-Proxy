@@ -43,6 +43,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   would otherwise look green. `ghcr.io/<owner>/wafproxy:latest` moves only when the tag is the
   newest on `origin`, so dispatching an older tag republishes its own version and leaves the alias
   where it is.
+- **The tag helper gets past the workflow-file refusal.** A tag whose commit changed
+  `.github/workflows/` cannot be pushed by the runner's token, and the tag run stopped on the first
+  one — `v1.62.3` points at a merge that touched `ci.yml`. The helper now creates that tag through the
+  API (tag object plus ref, no commits travelling) and carries on past a refusal, failing at the end
+  with the versions it could not create instead of hiding the rest.
 - **A release tag lands on the release that actually shipped.** `deploy/create-release-tags.sh` tagged
   the oldest commit that stamped `VERSION`, so a run would publish the notes and the binaries of a
   first draft and leave out every fix added before the version was cut. The version still in `VERSION`

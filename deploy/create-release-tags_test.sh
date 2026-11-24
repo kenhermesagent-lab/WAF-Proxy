@@ -98,4 +98,48 @@ grep -q "no commit on main carries the dated 1.99.0 section" <<<"$out" ||
   fail "the refusal did not explain itself: $out"
 [[ -z $(git ls-remote --tags origin "refs/tags/v1.99.0") ]] || fail "v1.99.0 was pushed"
 
+# A tag whose commit changed a workflow file is refused by a GitHub App token.
+# The script creates that tag through the API instead, which sends no commits.
+git tag -d v1.61.0 >/dev/null
+git push -q origin :refs/tags/v1.61.0
+cat >"$tmp/origin.git/hooks/pre-receive" <<'HOOK'
+#!/usr/bin/env bash
+while read -r _ _ ref; do
+  if [[ $ref == refs/tags/v1.61.0 ]]; then
+    echo 'remote: error: refusing to allow a GitHub App to create or update workflow `.github/workflows/ci.yml` without `workflows` permission' >&2
+    exit 1
+  fi
+done
+HOOK
+chmod +x "$tmp/origin.git/hooks/pre-receive"
+GIT_DIR=$tmp/origin.git git config user.email test@example.com
+GIT_DIR=$tmp/origin.git git config user.name Test
+mkdir -p "$tmp/bin"
+cat >"$tmp/bin/gh" <<'GH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GH_LOG"
+path= tag= obj=
+for a in "$@"; do
+  case $a in
+    repos/*) path=$a ;;
+    tag=*) tag=${a#tag=} ;;
+    object=*) obj=${a#object=} ;;
+  esac
+done
+case $path in
+  */git/tags)
+    GIT_DIR=$ORIGIN git tag -f -a "$tag" "$obj" -m "Release ${tag#v}" >/dev/null
+    GIT_DIR=$ORIGIN git rev-parse "$tag"
+    ;;
+esac
+GH
+chmod +x "$tmp/bin/gh"
+export GH_LOG="$tmp/gh.log" ORIGIN="$tmp/origin.git" GITHUB_REPOSITORY=test/repo
+out=$(PATH="$tmp/bin:$PATH" bash "$script" --remote origin 1.61.0)
+grep -q "through the API" <<<"$out" || fail "the refusal did not fall back to the API: $out"
+[[ $(GIT_DIR=$tmp/origin.git git cat-file -t v1.61.0 2>/dev/null) == tag ]] ||
+  fail "the fallback did not leave an annotated tag on origin"
+grep -q "git/tags" "$GH_LOG" || fail "the fallback never called git/tags"
+rm -f "$tmp/origin.git/hooks/pre-receive"
+
 echo "create-release-tags_test: ok"

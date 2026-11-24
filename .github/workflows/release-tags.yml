@@ -45,6 +45,9 @@ jobs:
         env:
           VERSIONS: ${{ inputs.versions }}
           DRY_RUN: ${{ inputs.dry_run }}
+          # The API fallback in the script needs a token, and the repository name.
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |-
           set -euo pipefail
           args=()
