@@ -144,6 +144,8 @@ jobs:
         run: bash deploy/check-image-pins_test.sh
       - name: The dispatch helper covers 1.61.0 to VERSION and refuses an unpushed tag
         run: bash deploy/redispatch-tags_test.sh
+      - name: :latest moves only to the highest published image
+        run: bash deploy/latest-tag_test.sh
       - name: Module SBOM
         run: make sbom
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

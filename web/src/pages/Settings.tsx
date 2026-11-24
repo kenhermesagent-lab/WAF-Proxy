@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import { COFFEE_URL, DOCS_URL } from "../links";
-import { Badge, Field, PageHead, SaveBar, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
+import { NAV } from "../nav";
+import { Badge, Field, PageHead, PageTabs, SaveBar, Switch, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
 import type { AuditEntry, CrowdSecStatus, GeoIPStatus, Me } from "../types";
 import BackupCard from "../components/BackupCard";
 import UpdatesPage from "./Updates";
@@ -37,27 +38,21 @@ function editable(s: Settings): Settings {
   return out;
 }
 
-const SECTIONS = [
-  { id: "network", label: "Network" },
-  { id: "updates", label: "Updates" },
-  { id: "protection", label: "Protection" },
-  { id: "retention", label: "Retention & ACME" },
-  { id: "ha", label: "High availability" },
-  { id: "backup", label: "Backup" },
-  { id: "runtime", label: "Runtime status" },
-  { id: "geoip", label: "GeoIP database" },
-  { id: "activity", label: "Administrator activity" },
-  { id: "readiness", label: "Readiness" },
-  { id: "about", label: "About" },
-];
+// The tab strip is the nav's own list, so a label cannot drift between them.
+const SECTIONS = NAV.find((n) => n.id === "settings")?.tabs ?? [];
 
-export default function SettingsPage({ onError, onOK, version = "", me, onMeChanged }: {
+export default function SettingsPage({ onError, onOK, version = "", me, onMeChanged, tab, tabs, onTab }: {
   onError: (m: string) => void;
   onOK: (m: string) => void;
   version?: string;
   me?: Me | null;
   // Called after a save that changes the HA switch, so the nav follows /api/me.
   onMeChanged?: () => void;
+  // The page's tab is its route, as on every other tabbed page. The local copy
+  // keeps the switch instant and lets the page stand alone without a router.
+  tab?: string;
+  tabs?: { id: string; label: string }[];
+  onTab?: (id: string) => void;
 }) {
   const [s, setS] = useState<Settings>({});
   const [saved, setSaved] = useState<Settings>({});
@@ -73,7 +68,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   // Set while the supervisor restarts the process for the first HA enable, so
   // the page waits for the service instead of firing requests at it.
   const [restart, setRestart] = useState<"idle" | "restarting" | "lost">("idle");
-  const [activeSection, setActiveSection] = useState("network");
+  const [active, setActive] = useState(tab ?? "network");
   const [iface, setIface] = useState<{ wan: string; lan: string; wanAuto: boolean; lanAuto: boolean; available: string[] }>({
     wan: "", lan: "", wanAuto: false, lanAuto: false, available: [],
   });
@@ -124,26 +119,8 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   }, [geo?.installing]);
 
   useEffect(() => {
-    // Nearest section head to the top of the viewport, so the last short
-    // sections still highlight when the page cannot scroll them any higher.
-    const onScroll = () => {
-      let current = SECTIONS[0].id;
-      let best = Infinity;
-      for (const sec of SECTIONS) {
-        const el = document.getElementById(sec.id);
-        if (!el) continue;
-        const distance = Math.abs(el.getBoundingClientRect().top - 140);
-        if (distance < best) {
-          best = distance;
-          current = sec.id;
-        }
-      }
-      setActiveSection(current);
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    if (tab) setActive(tab);
+  }, [tab]);
 
   const dirty = useMemo(() => {
     const a = editable(s);
@@ -265,7 +242,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
       if ("ha_enabled" in posted) setHaConfirm("");
       if (res?.restart_required) {
         setRestart("restarting");
-        document.getElementById("ha")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+        select("ha");
         onOK("High availability is enabled; the service is restarting");
         if (!(await waitForRestart())) {
           setRestart("lost");
@@ -307,6 +284,14 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   // A tenant console cannot change the host-wide switch, so the control says
   // which console owns it instead of failing on save.
   const mayToggleHA = !hostWide && me?.role !== "host_admin";
+  const sections = (tabs?.length ? tabs : SECTIONS).filter((sec) => !(hostWide && sec.id === "ha"));
+  // A deep link to a tab this console may not show falls back to the first one.
+  const shown = sections.some((sec) => sec.id === active) ? active : sections[0]?.id ?? "network";
+  const select = (id: string) => {
+    setActive(id);
+    onTab?.(id);
+    window.scrollTo({ top: 0 });
+  };
 
   return (
     <>
@@ -318,22 +303,9 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
       }
       actions={<Badge tone="info">Site: {siteName}</Badge>}
     />
-    <div className="settings-layout">
-      <nav className="settings-nav" aria-label="Settings sections">
-        {SECTIONS.filter((sec) => !(hostWide && sec.id === "ha")).map((sec) => (
-          <button
-            key={sec.id}
-            type="button"
-            className={activeSection === sec.id ? "active" : ""}
-            onClick={() => document.getElementById(sec.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          >
-            {sec.label}
-          </button>
-        ))}
-      </nav>
-
-      <div className="settings-sections">
-        <section id="network" className="settings-section card">
+    <div className="settings-sections">
+      <PageTabs tabs={sections} active={shown} onSelect={select} />
+        <section id="network" hidden={shown !== "network"} className="settings-section card">
           <div className="section-head">
             <h2>Network</h2>
             <p>Listener addresses are read from the database at boot. Only 443 needs to be forwarded from the WAN.</p>
@@ -370,7 +342,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
           </fieldset>
         </section>
 
-        <section id="updates" className="settings-section">
+        <section id="updates" hidden={shown !== "updates"} className="settings-section">
           <div className="section-head">
             <h2>Updates</h2>
             <p>Console and host package versions, with the restart that applies a rebuild.</p>
@@ -381,7 +353,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
           </fieldset>
         </section>
 
-        <section id="protection" className="settings-section card">
+        <section id="protection" hidden={shown !== "protection"} className="settings-section card">
           <div className="section-head">
             <h2>Protection</h2>
             <p>
@@ -441,7 +413,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
           </Field>
         </section>
 
-        <section id="retention" className="settings-section card">
+        <section id="retention" hidden={shown !== "retention"} className="settings-section card">
           <div className="section-head">
             <h2>Retention &amp; ACME</h2>
             <p>Event storage and certificate issuance defaults.</p>
@@ -454,7 +426,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
         </section>
 
         {!hostWide && (
-        <section id="ha" className="settings-section card">
+        <section id="ha" hidden={shown !== "ha"} className="settings-section card">
           <div className="section-head">
             <h2>High availability</h2>
             <p>Two nodes, one service address. Off by default, and the data plane does not change until a move.</p>
@@ -493,11 +465,11 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
         </section>
         )}
 
-        <section id="backup" className="settings-section">
+        <section id="backup" hidden={shown !== "backup"} className="settings-section">
           <BackupCard onError={onError} onOK={onOK} />
         </section>
 
-        <section id="runtime" className="settings-section card">
+        <section id="runtime" hidden={shown !== "runtime"} className="settings-section card">
           <div className="section-head">
             <h2>Runtime status</h2>
             <p>Live state of the enforcement and integration layers.</p>
@@ -563,7 +535,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
           </p>
         </section>
 
-        <section id="geoip" className="settings-section card">
+        <section id="geoip" hidden={shown !== "geoip"} className="settings-section card">
           {hostWide && hostWideNote}
           <fieldset disabled={hostWide} style={{ border: 0, padding: 0, margin: 0 }}>
           <div className="card-head">
@@ -607,7 +579,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
           </fieldset>
         </section>
 
-        <section id="activity" className="settings-section card">
+        <section id="activity" hidden={shown !== "activity"} className="settings-section card">
           <div className="card-head">
             <h2>Recent administrator activity</h2>
             <div className="actions">
@@ -643,7 +615,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
           </p>
         </section>
 
-        <section id="readiness" className="settings-section">
+        <section id="readiness" hidden={shown !== "readiness"} className="settings-section">
           <div className="section-head">
             <h2>Readiness</h2>
             <p>What a hardened install has that a working one may not. Every row links to the control that fixes it.</p>
@@ -651,7 +623,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
           <Readiness me={me ?? null} onError={onError} head={false} />
         </section>
 
-        <section id="about" className="settings-section card">
+        <section id="about" hidden={shown !== "about"} className="settings-section card">
           <div className="section-head">
             <h2>About</h2>
             <p>WAF-Proxy is a self-hosted web application firewall and reverse proxy.</p>
@@ -682,7 +654,6 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             onSave={save}
           />
         )}
-      </div>
     </div>
     </>
   );

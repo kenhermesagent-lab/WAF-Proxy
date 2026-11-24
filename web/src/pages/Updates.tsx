@@ -43,6 +43,9 @@ export default function UpdatesPage({
   const [updating, setUpdating] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [appOutput, setAppOutput] = useState("");
+  // The host helper reports the stage its updater script last wrote, so the bar
+  // follows the real build rather than a timer.
+  const [progress, setProgress] = useState({ percent: 0, stage: "" });
   const [sourceDir, setSourceDir] = useState("");
   const [savingDir, setSavingDir] = useState(false);
   const [output, setOutput] = useState("");
@@ -77,16 +80,19 @@ export default function UpdatesPage({
     }
   };
 
+  type AppStatus = { updating: boolean; error?: string; output?: string; percent?: number; stage?: string };
+
   const waitForAppUpdate = async (target: string) => {
     for (let i = 0; i < 800; i++) {
       await new Promise((r) => setTimeout(r, 1500));
-      let st: { updating: boolean; error?: string; output?: string };
+      let st: AppStatus;
       try {
-        st = await api.get<{ updating: boolean; error?: string; output?: string }>("/api/updates/app");
+        st = await api.get<AppStatus>("/api/updates/app");
       } catch {
         // Docker recreates this container; wait for the new one to listen.
         continue;
       }
+      if (st.updating) setProgress({ percent: st.percent ?? 0, stage: st.stage ?? "" });
       if (st.output) setAppOutput(st.output);
       if (st.updating) continue;
       if (st.error) {
@@ -121,6 +127,7 @@ export default function UpdatesPage({
     if (!(await confirmDialog("Pull the tracked branch, rebuild the application, then restart or recreate WAF-Proxy? The console will be unavailable for a short time."))) return;
     setApplying(true);
     setAppOutput("");
+    setProgress({ percent: 0, stage: "starting the update helper" });
     const target = (snap.app_remote_commit || "").slice(0, 12);
     try {
       await api.post("/api/updates/app");
@@ -208,6 +215,24 @@ export default function UpdatesPage({
           </>
         }
       >
+        {applying && (
+          <div style={{ marginBottom: 6 }}>
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <span className="muted small-text">{progress.stage || "waiting for the update helper"}</span>
+              <span className="mono small-text">{progress.percent}%</span>
+            </div>
+            <div
+              className="bar-track"
+              role="progressbar"
+              aria-label="Application update progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress.percent}
+            >
+              <div className="bar-fill" style={{ width: `${progress.percent}%` }} />
+            </div>
+          </div>
+        )}
         <div className="bar-row">
           <div>Running</div>
           <div className="mono">v{snap.app_version || "?"}{snap.app_commit ? ` · ${snap.app_commit}` : ""}</div>

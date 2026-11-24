@@ -21,9 +21,12 @@ const backupConfig = {
   encrypt: false, passphrase: "", has_passphrase: false,
 };
 
-function renderPage() {
-  return render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} />);
+function renderPage(tab = "network") {
+  return render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} tab={tab} />);
 }
+
+// Hidden sections stay in the DOM, so the tab check reads the attribute.
+const visible = (id: string) => document.getElementById(id)?.hasAttribute("hidden") === false;
 
 describe("Settings configuration transport", () => {
   beforeEach(() => {
@@ -88,7 +91,7 @@ describe("Settings configuration transport", () => {
       }
     });
     const me = { username: "ops", site: "bravo", site_name: "Bravo", permissions: [] } as unknown as Me;
-    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} me={me} />);
+    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} me={me} tab="retention" />);
 
     const retention = (await screen.findByText(/Event retention/)).parentElement?.querySelector("input");
     if (!retention) throw new Error("retention field not found");
@@ -105,7 +108,7 @@ describe("Settings configuration transport", () => {
 
   it("hides the host-only HA section on a tenant console", async () => {
     const me = { username: "ops", site: "bravo", site_name: "Bravo", permissions: [] } as unknown as Me;
-    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} me={me} />);
+    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} me={me} tab="ha" />);
 
     await screen.findByText(/Event retention/);
     expect(document.getElementById("ha")).toBeNull();
@@ -142,7 +145,7 @@ describe("Settings configuration transport", () => {
     // The console itself is the default site's; only the request is scoped to
     // the tenant, which is what the switcher does.
     const me = { username: "admin", site: "default", site_name: "Default", permissions: [] } as unknown as Me;
-    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} me={me} />);
+    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} me={me} tab="retention" />);
 
     expect(await screen.findByText("Site: Tenant")).toBeTruthy();
     const retention = (await screen.findByText(/Event retention/)).parentElement?.querySelector("input");
@@ -167,11 +170,12 @@ describe("Settings configuration transport", () => {
     });
   };
 
-  it("puts the HA switch directly above Backup and saves it with the page", async () => {
-    renderPage();
+  it("opens one section per tab and saves the HA switch from its own", async () => {
+    renderPage("ha");
     const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
     expect((toggle as HTMLInputElement).checked).toBe(false);
-    expect(document.getElementById("ha")?.nextElementSibling?.id).toBe("backup");
+    expect(visible("ha")).toBe(true);
+    expect(visible("network")).toBe(false);
 
     fireEvent.click(toggle);
     fireEvent.click(screen.getByText("Save settings"));
@@ -192,7 +196,7 @@ describe("Settings configuration transport", () => {
       return base ? base(path) : {};
     });
     const onMeChanged = vi.fn();
-    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} onMeChanged={onMeChanged} />);
+    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} onMeChanged={onMeChanged} tab="ha" />);
     const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
     fireEvent.click(toggle);
     fireEvent.click(screen.getByText("Save settings"));
@@ -203,7 +207,7 @@ describe("Settings configuration transport", () => {
   it("shows the restart and reconnects after the first HA enable", async () => {
     put.mockResolvedValue({ restart_required: true });
     const onOK = vi.fn();
-    render(<SettingsPage onError={vi.fn()} onOK={onOK} />);
+    render(<SettingsPage onError={vi.fn()} onOK={onOK} tab="ha" />);
     const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
     fireEvent.click(toggle);
     fireEvent.click(screen.getByText("Save settings"));
@@ -229,7 +233,7 @@ describe("Settings configuration transport", () => {
       storedHA = "0";
       return undefined;
     });
-    renderPage();
+    renderPage("ha");
     const toggle = await screen.findByRole("switch", { name: /enable high availability/i });
     expect((toggle as HTMLInputElement).checked).toBe(true);
     fireEvent.click(toggle);
@@ -246,12 +250,12 @@ describe("Settings configuration transport", () => {
 
   it("distinguishes a paired node from one that still needs pairing", async () => {
     mockHA({ enabled: true, paired: true });
-    renderPage();
+    renderPage("ha");
     await screen.findByText(/This node is paired/);
     cleanup();
 
     mockHA({ enabled: true, paired: false });
-    renderPage();
+    renderPage("ha");
     await screen.findByText(/not paired yet/);
   });
 
@@ -260,7 +264,7 @@ describe("Settings configuration transport", () => {
     URL.createObjectURL = vi.fn(() => "blob:file");
     URL.revokeObjectURL = vi.fn();
     download.mockResolvedValue({ blob: new Blob(["sealed"]), name: "wafproxy.yaml.enc" });
-    renderPage();
+    renderPage("runtime");
     await screen.findByText("Configuration backup");
 
     fireEvent.click(screen.getByText("Download JSON"));
@@ -280,7 +284,7 @@ describe("Settings configuration transport", () => {
 
   it("imports a YAML file and reports the result", async () => {
     const onOK = vi.fn();
-    render(<SettingsPage onError={vi.fn()} onOK={onOK} />);
+    render(<SettingsPage onError={vi.fn()} onOK={onOK} tab="runtime" />);
     await screen.findByText("Import YAML");
 
     postRaw.mockResolvedValue({ imported: { waf_profiles: 1 }, problems: [] });
@@ -301,7 +305,7 @@ describe("Settings configuration transport", () => {
   });
 
   it("restores an encrypted backup as bytes", async () => {
-    renderPage();
+    renderPage("runtime");
     await screen.findByText("Configuration backup");
 
     postRaw.mockResolvedValue({ imported: { proxies: 1 }, problems: [] });
@@ -318,9 +322,20 @@ describe("Settings configuration transport", () => {
     expect(postRaw.mock.calls[0][1]).toBeInstanceOf(Blob);
   });
 
+  it("switches tabs and reports the chosen one", async () => {
+    const onTab = vi.fn();
+    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} onTab={onTab} />);
+    await screen.findByText(/Home latitude/);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Updates" }));
+    expect(onTab).toHaveBeenCalledWith("updates");
+    expect(visible("updates")).toBe(true);
+    expect(visible("network")).toBe(false);
+  });
+
   it("surfaces an import error through the page handler", async () => {
     const onError = vi.fn();
-    render(<SettingsPage onError={onError} onOK={vi.fn()} />);
+    render(<SettingsPage onError={onError} onOK={vi.fn()} tab="runtime" />);
     await screen.findByText("Import YAML");
 
     postRaw.mockRejectedValue(new Error("invalid configuration file"));

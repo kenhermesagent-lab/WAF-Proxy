@@ -968,24 +968,9 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 }
 
 /* ---------- settings ---------- */
-.settings-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 22px; align-items: start; }
-.settings-nav { position: sticky; top: 80px; display: flex; flex-direction: column; gap: 1px; scrollbar-width: none; }
-.settings-nav::-webkit-scrollbar { display: none; }
-.settings-sections { padding-bottom: 72px; }
-.settings-nav a, .settings-nav button {
-  padding: 6px 9px; border-radius: 6px; color: var(--muted);
-  font-size: 12.5px; text-decoration: none;
-}
-/* These are scroll targets, not routes: a real button cannot be opened in a
-   new tab as a hash the router would rewrite. */
-.settings-nav button {
-  min-height: 0; border: 0; background: transparent; text-align: left;
-  font-weight: 400; justify-content: flex-start;
-}
-.settings-nav a:hover, .settings-nav button:hover { background: var(--bg-hover); color: var(--text); }
-.settings-nav a.active, .settings-nav button.active { background: #182130; color: var(--text); }
-.settings-sections { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.settings-section { scroll-margin-top: 76px; }
+/* One tab per section, so only the selected card is in flow. */
+.settings-sections { padding-bottom: 72px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.settings-section[hidden] { display: none; }
 .section-head { margin-bottom: 12px; }
 .section-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
 .section-head p { margin: 2px 0 0; color: var(--faint); font-size: 11.5px; }
@@ -1025,9 +1010,6 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
      chip a shorter select and drop the name, as a phone already does. */
   .site-switch select { max-width: 110px; }
   .user-btn .user-name { display: none; }
-  .settings-layout { grid-template-columns: 1fr; }
-  .settings-nav { position: static; flex-direction: row; overflow: auto; gap: 2px; padding-bottom: 6px; }
-  .settings-nav a, .settings-nav button { white-space: nowrap; }
   .login-split { grid-template-columns: 1fr; }
   .search-trigger { min-width: 30px; width: 30px; padding: 0; justify-content: center; }
   .search-trigger span, .search-trigger kbd { display: none; }

@@ -207,6 +207,21 @@ its anomaly score, and **Why?** replays it against the current rules without tou
 | **Traefik** | container-first edge router | plugin only | read-only dashboard | automatic |
 | **CrowdSec** | detection engine + bouncers | behavioural, no CRS | yes (console) | not a proxy |
 
+Measured here, one host, same demo site, same certificate, same 50 keep-alive clients, two alternating
+rounds. Full method, the products that could not be run, and what their vendors claim:
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
+| Proxy | rps | p50 | p95 | Peak RSS | Inspects every request |
+|---|---:|---:|---:|---:|---|
+| HAProxy 2.8.30 | 44,700 | 0.97 ms | 2.4 ms | 25 MiB | no |
+| Traefik 3.8.0 | 24,000 | 1.71 ms | 4.9 ms | 144 MiB | no |
+| Caddy 2.11.9 | 19,400 | 1.97 ms | 6.7 ms | 69 MiB | no |
+| **WAF-Proxy 1.65.6+** | 7,100 | 5.44 ms | 17.8 ms | 148 MiB | **yes, full CRS** |
+
+That gap is the price of running the ruleset on the request instead of routing it. Purpose-weighted
+rating, 1–10: WAF-Proxy **8**, HAProxy 7, Traefik 7, Caddy 7 (measured); SafeLine 7, Nginx Proxy
+Manager 5, Zoraxy 5 (vendor documentation only — none of the three could run on the benchmark host).
+
 **WAF-Proxy fits** a single host or a small edge — a homelab, a home office, a small business, a NAS
 or a rack with a handful of services behind one public IP — where you want TLS, rule-based blocking,
 bans and a UI without assembling a proxy, a WAF module, a log pipeline and a dashboard, and where a

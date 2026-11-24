@@ -335,25 +335,133 @@ test.
 Measured with `perftool -proxy -duration 5s -clients 50 -sites 1` on a second
 host than the environment table above (AMD EPYC 7003, 8 vCPU shared), one site,
 1 KiB upstream bodies. Peak RSS is the process high-water mark for the run.
+Re-measured on 1.65.6; the host is shared, so rps moves about 10 % between runs
+and only same-session comparisons are meaningful.
 
 | Mode | rps | p50 | p95 | Peak RSS |
 |---|---:|---:|---:|---:|
-| relayed (`-cache=off -waf=off`) | 21,006 | 1.98 ms | 5.12 ms | 141.8 MiB |
-| cached (`-cache=on`) | 44,696 | 0.90 ms | 2.55 ms | 127.9 MiB |
-| inspected (`-waf=block`) | 7,211 | 5.54 ms | 14.16 ms | 327.5 MiB |
+| relayed (`-cache=off -waf=off`) | 20,502 | 1.93 ms | 5.72 ms | 178.0 MiB |
+| cached (`-cache=on`) | 40,351 | 0.94 ms | 2.91 ms | 128.1 MiB |
+| inspected (`-waf=block`) | 6,803 | 5.64 ms | 18.00 ms | 199.6 MiB |
+| inspected, second run | 6,416 | 5.85 ms | 18.44 ms | 243.7 MiB |
 
 The inspected peak is GC headroom rather than live data. On the same load:
 
-| Setting | Peak RSS | p95 |
-|---|---:|---:|
-| default `GOGC=100` | 314.6 MiB | 15.76 ms |
-| `GOGC=50` | 222.5 MiB | 15.89 ms |
-| `GOMEMLIMIT=160MiB` | 174.5 MiB | 14.03 ms |
-| `GOMEMLIMIT=160MiB GOGC=off` | 170.6 MiB | 13.38 ms |
+| Setting | rps | Peak RSS | p95 |
+|---|---:|---:|---:|
+| default `GOGC=100` | 6,803 | 199.6 MiB | 18.00 ms |
+| `GOGC=50` | 5,588 | 205.8 MiB | 21.74 ms |
+| `GOMEMLIMIT=160MiB` | 7,402 | 169.1 MiB | 13.92 ms |
+| `GOMEMLIMIT=160MiB GOGC=off` | — | 170.6 MiB | 13.38 ms |
+
+`GOGC=50` is not a win here: it collects more often, costs about 18 % of the
+throughput and does not lower the peak, because live data rather than the GC
+target dominates at this concurrency. `GOMEMLIMIT` is the setting to use.
 
 `GOMEMLIMIT` is the supported knob: set it in the unit or compose file, sized
 above the operator's live cache plus profiles. No limit is hard-coded, because a
 value below the live heap only trades memory for CPU in the collector.
+
+### 1.65.1 against 1.65.6
+
+Both tags built from source and alternated in one session. Two rigs, because
+they answer different questions: `perftool` isolates the proxy and shows what the
+handler costs, while the demo rig adds TLS, a separate upstream and a separate
+client, which is what an operator runs.
+
+`perftool -proxy -duration 5s -clients 50 -sites 1`, two alternating runs each:
+
+| Path | 1.65.1 rps (run 1 / 2) | 1.65.6 rps (run 1 / 2) | Change | p95 1.65.1 → 1.65.6 | Peak RSS |
+|---|---:|---:|---:|---:|---:|
+| inspected (`-waf=block`) | 3,322 / 3,493 | 7,157 / 7,378 | **+113 %** | 31.5 → 14.1 ms | 259 → 291 MiB |
+| relayed (`-waf=off`) | 5,603 | 23,584 | **+321 %** | 21.2 → 4.5 ms | 175 → 149 MiB |
+| cached (`-cache=on`) | 47,082 | 46,492 | −1 % | 2.38 → 2.48 ms | 113 → 116 MiB |
+
+Almost all of that landed in 1.65.5 (pooled compressor, no dead buffering,
+cheaper admission timer, one cache-key computation); 1.65.6 itself changed no
+request-path code. The cached path is flat because it was already answered from
+memory before the WAF.
+
+Demo rig, real demo data, TLS on `:8443`, 1 KiB echo upstream, 50 keep-alive
+clients, 10 s, two alternating rounds:
+
+| Target | rps (round 1 / 2) | p50 | p95 | p99 | Peak RSS |
+|---|---:|---:|---:|---:|---:|
+| wafproxy 1.65.1, full CRS | 7,320 / 6,973 | 5.50 ms | 17.5 ms | 25.6 ms | 143 MiB |
+| wafproxy 1.65.6, full CRS | 7,350 / 6,926 | 5.44 ms | 17.8 ms | 25.8 ms | 148 MiB |
+
+1.65.7 changes documentation only, so every row measured on 1.65.6 applies to it
+unchanged.
+
+On this rig the two versions are indistinguishable. The client, the TLS stacks
+and the echo upstream share the same eight vCPUs, so the run saturates at about
+7.1k rps either way and hides the handler gain that `perftool` shows at 2.1×.
+That is why both rigs are reported instead of picking the flattering one.
+
+### Against other reverse proxies
+
+Same demo site (`demo.local` → `127.0.0.1:9000`, 1 KiB body), same self-signed
+certificate, same port `:8443`, same client, 50 keep-alive clients for 10 s, two
+alternating rounds in one session. Each product serves its own native config
+format with a single host route; the WAF-Proxy column runs its full CRS because
+that is what it is for.
+
+| Proxy | Version | rps (round 1 / 2) | p50 | p95 | Peak RSS | Inline WAF |
+|---|---|---:|---:|---:|---:|---|
+| HAProxy | 2.8.30 | 45,007 / 44,450 | 0.97 ms | 2.4 ms | 25 MiB | No |
+| Traefik | 3.8.0 | 24,543 / 23,450 | 1.71 ms | 4.9 ms | 144 MiB | No |
+| Caddy | 2.11.9 | 19,846 / 18,894 | 1.97 ms | 6.7 ms | 69 MiB | No |
+| WAF-Proxy | 1.65.6 | 7,350 / 6,926 | 5.44 ms | 17.8 ms | 148 MiB | **Yes, CRS + libinjection** |
+
+Why Nginx Proxy Manager, Zoraxy and SafeLine are not in that table:
+
+- **Nginx Proxy Manager and SafeLine ship as Docker images only.** This host's
+  Docker socket is root-owned with no sudo and no group access, so neither could
+  be started. Substituting plain nginx for NPM would measure a different product.
+- **Zoraxy** starts headless, but reverse-proxy rules live in its web UI and
+  internal database with no documented config-file rule format; fabricating one
+  would not be an honest comparison, so it is left unmeasured rather than guessed.
+
+Read the throughput column as the cost of inspection, not a ranking: 6.3× slower
+than HAProxy is what running the full CRS on every request costs on this host,
+and the WAF-Proxy path is the only one in the table that blocks the same request
+it serves, with `TestBypassCorpus` (`make waf-corpus`) gating that in CI.
+
+### Not measured: what the three others document
+
+Everything in this table is the vendor's own documentation or their own
+published benchmark — **claims, not measurements from this host**. None of the
+three publishes a requests-per-second figure to compare against the table above.
+
+| Product | Deployment | Documented security | Documented resources | Published performance claim |
+|---|---|---|---|---|
+| Nginx Proxy Manager (v2.17 docs) | Docker image plus a database; generates nginx config | Access lists (IP/CIDR allow-deny plus basic auth), per-host and per-path, user management and audit log; **no request inspection or WAF documented** | no published floor; "only requires a database" | none |
+| Zoraxy (3.3.5) | single Go binary or Docker image | Per-host access rules with country/IP black and white lists, basic auth, rate limiting, forward-auth, reCAPTCHA and a plugin system; **no CRS or WAF documented** | no published floor | none |
+| SafeLine (Chaitin) | Docker Compose; Linux x86_64/arm64, SSSE3 | Own semantic-analysis engine and rule set (not ModSecurity CRS); anti-bot and rate limiting in the commercial editions | 1 core / 1 GB RAM / 5 GB disk minimum, 2 core / 4 GB recommended | on its own 33,669-sample corpus: 71.65 % detection at 0.07 % false positives in Balance mode, 76.17 % / 0.22 % in Strict; it reports ModSecurity CRS level 1 at 69.74 % / 17.58 % on the same set |
+
+Treat the SafeLine numbers as the vendor grading its own exam: the corpus, the
+labels and the tuning are theirs, and the comparison row is the CRS default they
+chose. It is still the only other product here that inspects requests, which is
+why it is rated on capability rather than speed.
+
+### Ratings
+
+Purpose-weighted for a self-hosted WAF, 1–10, and only the first four rest on
+numbers measured here.
+
+| Product | Overall | Security | Speed | Latency | Memory | Basis |
+|---|---:|---:|---:|---:|---:|---|
+| **WAF-Proxy 1.65.6** | **8** | 9 | 4 | 5 | 6 | measured, full CRS on every request |
+| HAProxy 2.8.30 | 7 | 2 | 10 | 10 | 10 | measured, ACLs only |
+| Traefik 3.8.0 | 7 | 2 | 8 | 8 | 5 | measured, no inspection |
+| Caddy 2.11.9 | 7 | 2 | 7 | 6 | 8 | measured, no inspection |
+| SafeLine | 7* | 8* | ? | ? | ? | vendor claims only |
+| Nginx Proxy Manager | 5* | 2 | ? | ? | ? | documented capability |
+| Zoraxy | 5* | 3 | ? | ? | ? | documented capability |
+
+`*` claim-based, not evidence-based. The overall score weights blocking quality
+over raw throughput because that is the reason to put one of these in front of
+an application; on throughput alone WAF-Proxy would rank last.
 
 `BenchmarkPipeline` (`internal/proxy`) now runs in `make perf-gate` with the three
 WAF benchmarks and is recorded in `perf/baseline.json` (213,661 ns/op, 170

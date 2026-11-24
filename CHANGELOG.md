@@ -20,7 +20,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   as zero risk when everything is working, which says nothing about exposure. `GET /api/reach` returns
   the same window and site scope as the globe with the other half: requests that were allowed and
   landed on an authentication or administration endpoint — login, sign-in, auth, SSO/SAML, admin,
-  wp-login, phpMyAdmin, token, session, setup, actuator and server-status paths — each with   the status
+  wp-login, phpMyAdmin, token, session, setup, actuator and server-status paths — each with the status
   the application answered, the source country and the last time it happened. The map draws those as
   teal dashed arcs to the node and lists them in a **Reached** tab beside the blocked ones, with
   the source addresses that got in and a link to the IP explorer for each.
@@ -51,6 +51,108 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `2xx`–`4xx` answer from the application, so a request the proxy blocked, banned or challenged never
   appears there. Like the globe, it is scoped to the caller's site and reachable only with dashboard
   read permission.
+
+## [1.65.12] — 2026-11-24
+
+### Tests
+
+- **The settings round trip has to prove the save writes.** It now flips `dos_rps` in the payload and
+  requires the stored row to change, so a save that answers `200` and writes nothing fails instead of
+  passing on an unchanged form. A second case does the same for a tenant console's reduced payload —
+  runtime and host-wide keys stripped, as the console sends it — and requires its `retention_days` to
+  land in that site's store and not the default site's. Both fail against a save that only answers,
+  and against the pre-1.65.9 validator.
+
+## [1.65.11] — 2026-11-24
+
+### Fixed
+
+- **`:latest` on ghcr moves to the newest release instead of lagging behind it.** The image job asked
+  whether its tag was the newest on origin, but a tag exists for the whole fifteen-minute image push
+  before its image does: 1.65.7 and 1.65.8 each found a newer tag when they finished, left the tag on
+  1.65.6 and reported success, and the same guard would have frozen it for good if the newer release
+  had failed. The job now asks the registry which versions it has an image for and moves `:latest`
+  only when this version is the highest of them, so a tag with no image cannot hold it back and an
+  older tag dispatched later still cannot move it backwards. When the registry does not answer it
+  falls back to the tag guard rather than guessing. `deploy/latest-tag.sh` holds the comparison,
+  `deploy/latest-tag_test.sh` pins it in CI, and the runbook says which rule applies.
+
+## [1.65.10] — 2026-11-24
+
+### Tests
+
+- **The Settings form has to survive its own read.** `TestSettingsRoundTripKeepsTheFormSaveable`
+  GETs `/api/settings`, PUTs that whole payload straight back and requires a `200` with the form
+  unchanged, so any key that reads back empty and is refused on save — the 1.65.9 bug — fails in CI
+  instead of on someone's click on Save. Against the code before that fix it fails with
+  `ha_enabled must be 0 or 1`.
+
+## [1.65.9] — 2026-11-24
+
+### Fixed
+
+- **A fresh install can save Settings again.** `GET /api/settings` serves the HA and cache-first
+  switches as an empty string until something writes them, and the form posts back every field it
+  was served, so the save refused the whole payload with `ha_enabled must be 0 or 1` — or
+  `cache_pre_waf`, whichever the map reached first — although neither switch had been touched. An
+  empty value now means "still unset": the key is left alone instead of written, a value that is
+  not `0` or `1` is still refused, and the cache-first guard still runs for `1`. A test saves the
+  form with both switches empty and checks the rest of it landed.
+- **The update progress bar belongs to the update this page started.** A console reloaded while a
+  rebuild was running drew a bar that could never move, because only the click polls the helper.
+
+### Changed
+
+- **The Settings tabs take their labels from the navigation list**, so the page and the sidebar
+  entry cannot drift apart the way `Retention & ACME` and `Retention` already had.
+
+## [1.65.8] — 2026-11-24
+
+### Docs
+
+- **The benchmark doc now answers "how does this compare" with numbers instead of adjectives.**
+  WAF-Proxy 1.65.1 and 1.65.6 were built from source and alternated on two rigs: `perftool` shows the
+  inspected path going from 3,408 to 7,268 rps with p95 down from 31.5 ms to 14.1 ms, and the demo
+  rig adds HAProxy 2.8.30, Traefik 3.8.0 and Caddy 2.11.9 on the same site, certificate, port and
+  50-client load. Nginx Proxy Manager, Zoraxy and SafeLine could not run on the benchmark host; their
+  rows cite the vendors' own documentation and published corpus numbers, labelled as claims, and the
+  1–10 ratings say which scores rest on measurement. The README carries the short version, including
+  that HAProxy is 6.3× faster because it does not inspect requests.
+
+## [1.65.7] — 2026-11-24
+
+### Fixed
+
+- **A remembered browser no longer looks like it needs an authenticator code.** The sign-in form
+  always drew the field, and the server skipped the check only after the form was submitted, so a
+  browser with a live device cookie still had to be told it was remembered. `GET /api/login/device`
+  now answers for the cookie the browser presents; the form leaves the field out, says the browser
+  is remembered, offers **Use the authenticator instead** for another account on the same browser,
+  and hides the remember checkbox once it is set. The endpoint answers `trusted: false` for a
+  browser without a cookie and for an address the admin allowlist refuses, so it names no account
+  it does not already hold.
+
+### Added
+
+- **Settings is a set of tabs instead of one long page.** Network, Updates, Protection, Retention,
+  High availability, Backup, Runtime, GeoIP, Activity, Readiness and About each open on their own at
+  `#/settings/<tab>`; the old `#/updates` and `#/readiness` links land on their tab. The HA tab and
+  section stay absent on a tenant console, and a deep link to a tab this console may not show opens
+  the first one it can. The page keeps its unsaved changes across tabs and still saves them
+  together from the bar at the bottom.
+- **The application update shows its progress.** The fixed updater writes each stage to
+  `/run/wafproxy-updates/progress`, the root helper reads it for the console (the only path that
+  works when the console runs in a container), and the Updates card draws a percentage bar with the
+  stage beside it — refreshing the checkout, rebuilding the console, building the binaries,
+  installing, restarting. The helper clears the previous run's file when a new update starts, so the
+  bar cannot open at 100 %.
+
+### Documentation
+
+- The configuration reference describes the Settings tabs, adds the Updates tab with the stages the
+  progress bar reports, and says the sign-in form leaves the authenticator out on a remembered
+  browser. The operations runbook uses the stage name to tell a Node failure from a Go one before
+  anyone opens the log.
 
 ## [1.65.6] — 2026-11-24
 

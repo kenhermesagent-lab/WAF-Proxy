@@ -280,21 +280,49 @@ jobs:
           if missing:
               raise SystemExit('the published manifest is missing ' + ', '.join(sorted(missing)))
           PY
-      # 1.61.0 through 1.65.0 shipped without an image, so a new tag is not
-      # automatically the newest image: only move latest when this tag is the
-      # newest on origin.
-      - name: Point latest at the newest release
+      # 1.61.0 through 1.65.0 shipped without an image, and a tag exists for the
+      # whole image push before its image does, so "newest tag on origin" is not
+      # "newest image". Gating on tags made every release defer to whichever tag
+      # appeared during its ~15-minute push: :latest stayed on 1.65.6 through
+      # 1.65.7 and 1.65.8 while both reported success, and would freeze there for
+      # good if the newer release failed. Ask the registry which versions it has
+      # an image for and move latest only when this version is the highest of
+      # them, so a tag without an image cannot hold it back and an old tag
+      # dispatched later still cannot move it backwards.
+      - name: Point latest at the newest published image
         run: |-
           set -euo pipefail
           version=$(cat VERSION)
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wafproxy"
+          path="${GITHUB_REPOSITORY_OWNER,,}/wafproxy"
+          move_latest() {
+            echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+            docker buildx imagetools create -t "${image}:latest" "${image}:${version}"
+          }
+          # The package may be private, and an anonymous listing would answer 401
+          # and look like an empty registry, so read it with the token that just
+          # pushed to it.
+          if token=$(curl -fsSL -u "${GITHUB_ACTOR}:${GITHUB_TOKEN}" \
+               "https://ghcr.io/token?scope=repository:${path}:pull" \
+               | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])') &&
+             tags=$(curl -fsSL -H "Authorization: Bearer ${token}" \
+               "https://ghcr.io/v2/${path}/tags/list?n=1000"); then
+            if printf '%s\n' "$tags" \
+                 | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin).get("tags") or []))' \
+                 | ./deploy/latest-tag.sh "$version"; then
+              move_latest
+            fi
+            exit 0
+          fi
+          # No answer from the registry: fall back to the tag guard instead of
+          # guessing, so a registry outage cannot move the tag backwards.
+          echo "the registry did not list its tags, so the tag guard decides"
           newest=$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/||' | sort -V | tail -1)
           if [[ $newest != "$TAG" ]]; then
             echo "${TAG} is not the newest tag on origin ('${newest}'), so latest stays where it is"
             exit 0
           fi
-          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-          docker buildx imagetools create -t "${image}:latest" "${image}:${version}"
+          move_latest
       # The image that was just built is not the image a user gets: a truncated
       # upload, a missing blob or a package the token can write but not read all
       # look like a green job and a broken pull. So fetch it from the registry

@@ -2105,6 +2105,17 @@ paths:
           description: Success
         "400":
           description: Invalid request
+  /api/login/device:
+    get:
+      operationId: getApiLoginDevice
+      tags: [login]
+      summary: Login device
+      security: []
+      responses:
+        "200":
+          description: Success
+        "400":
+          description: Invalid request
   /api/logout:
     post:
       operationId: postApiLogout

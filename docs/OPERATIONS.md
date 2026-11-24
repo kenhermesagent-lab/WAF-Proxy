@@ -112,6 +112,9 @@ excluded).
 
 ### Application update fails
 
+- The progress bar names the stage the updater reached, so a run that stalls on `rebuilding the
+  console` is a Node problem and one that stalls on `building the binaries` is a Go toolchain
+  problem, without reading the log first.
 - Native: the Updates page shows the captured pull/build output; `journalctl -u
   wafproxy-updates -n 100` shows the helper's start/stop and timeout errors. Check `git`, `make`,
   Go 1.27 and Node 26 are available to the checkout owner
@@ -633,7 +636,12 @@ of publishing an empty release. The same push builds the container image, boots 
 and checks `/api/health` reports the same version, then pushes
 `ghcr.io/<owner>/wafproxy:<version>` for `linux/amd64` and `linux/arm64`; an image
 that fails the boot is never published, a manifest missing either architecture
-fails the job, and `:latest` moves only when the tag is the newest on origin.
+fails the job, and `:latest` moves only when the version being released is the
+highest one the registry holds an image for. Published images, not tags, decide
+that: a tag exists for the whole push before its image does, so gating on tags
+made each release defer to whichever tag appeared during its push and left
+`:latest` behind. A tag whose image failed never counts, and an older tag
+dispatched later cannot move `:latest` backwards.
 After the push the job pulls the tag back from the registry and boots that copy,
 so a truncated upload or a package the workflow can write but not read fails the
 release instead of a user's first `docker pull`. Dispatching the workflow for an existing tag builds its image the same

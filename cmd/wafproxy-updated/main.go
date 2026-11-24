@@ -166,10 +166,19 @@ func serve(conn net.Conn, gid, uid int) {
 		resp := runFixedScript(updates.AppCheckScript, 90*time.Second)
 		writeResponse(conn, resp)
 	case updates.HelperActionAppUpdate:
+		// A finished run leaves its last stage behind; drop it so the first
+		// poll of this run cannot report the previous one.
+		updates.ClearAppProgress()
+		// The script writes the stages this helper then reports, so it is told
+		// the exact path instead of repeating the default.
+		stageFile := map[string]string{"WAFPROXY_UPDATE_PROGRESS": updates.ProgressFile()}
 		aptMu.Lock()
-		resp := runFixedScript(updates.AppSelfUpdateScript, 20*time.Minute)
+		resp := runFixedScriptEnv(updates.AppSelfUpdateScript, 20*time.Minute, stageFile)
 		aptMu.Unlock()
 		writeResponse(conn, resp)
+	case updates.HelperActionAppProgress:
+		percent, stage := updates.ReadAppProgress()
+		writeResponse(conn, updates.HelperResponse{OK: true, Percent: percent, Stage: stage})
 	case updates.HelperActionAppConfigure:
 		writeResponse(conn, configureApp(req.Path))
 	case updates.HelperActionCrowdSecInstall:
