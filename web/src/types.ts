@@ -192,9 +192,11 @@ export interface Me {
   ha_enabled?: boolean;
   ha_role?: string;
   // The site this console was reached on, and the sites its role may switch
-  // between. A host_admin has no list and no switcher.
+  // between. A host_admin has no list and no switcher. site_host is that
+  // site's console hostname, empty when it has none.
   site?: string;
   site_name?: string;
+  site_host?: string;
   can_switch?: boolean;
   sites?: { slug: string; name: string; console_host: string }[];
 }

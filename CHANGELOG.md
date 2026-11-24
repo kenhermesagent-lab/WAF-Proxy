@@ -31,6 +31,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `>=26` and `web/.npmrc` sets `engine-strict`, so `npm ci` in `web/` stops with an `EBADENGINE`
   message on an older runtime instead of installing a tree jsdom 31 and Vite 8 cannot run. The
   lockfile's root package entry carries the same range, so `npm ci` stays in sync with it.
+- **The topbar site chip names the console host, not the site's label.** The switcher, the
+  single-site chip and the account menu's site list read `acme.example.com` instead of `Acme`, so
+  the site a page answers for is visible at a glance. A site with no console host still shows its
+  name. `GET /api/me` now carries `site_host` for the current site.
 
 ### Fixed
 
