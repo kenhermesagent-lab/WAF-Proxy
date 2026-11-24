@@ -41,13 +41,13 @@ export default function CapacityCard({ capacity }: { capacity: Capacity | null }
             <small> / {capacity.max_inflight}</small>
           </div>
           <div className="kpi-sub">
-            {capacity.queued.toLocaleString()} queued · {capacity.pools} upstream pool{capacity.pools === 1 ? "" : "s"}
+            {capacity.queued.toLocaleString()} queued · {capacity.pools} pool{capacity.pools === 1 ? "" : "s"}
           </div>
         </div>
         <div>
           <div className="kpi-dir">Cache</div>
           <div className="kpi-value">{fmtBytes(capacity.cache.bytes)}</div>
-          <div className="kpi-sub">{lookups ? `${hitRate}% of ${lookups.toLocaleString()} lookups hit` : "no lookups yet"}</div>
+          <div className="kpi-sub">{lookups ? `${hitRate}% hit · ${lookups.toLocaleString()} lookups` : "no lookups yet"}</div>
         </div>
       </div>
       <div className="kpi-meter" aria-hidden="true">

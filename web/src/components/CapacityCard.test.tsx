@@ -23,7 +23,7 @@ describe("capacity card", () => {
     render(<CapacityCard capacity={base} />);
     expect(screen.getByText(/3 queued/)).toBeTruthy();
     expect(screen.getByText(/Shed 8 at capacity/)).toBeTruthy();
-    expect(screen.getByText(/75% of 40 lookups hit/)).toBeTruthy();
+    expect(screen.getByText(/75% hit · 40 lookups/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "raise the budget or add a site cap" }).getAttribute("href")).toBe("#/settings");
   });
 

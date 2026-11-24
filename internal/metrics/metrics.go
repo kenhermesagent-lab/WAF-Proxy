@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,6 +65,14 @@ type Counters struct {
 	BytesOut int64 `json:"bytes_out"`
 }
 
+// Load is the host's CPU use, core count and memory.
+type Load struct {
+	CPUPercent float64 `json:"cpu_percent"`
+	Cores      int     `json:"cores"`
+	MemUsed    uint64  `json:"mem_used"`
+	MemTotal   uint64  `json:"mem_total"`
+}
+
 // Snapshot is the payload served to the dashboard.
 type Snapshot struct {
 	TS       time.Time            `json:"ts"`
@@ -83,6 +92,7 @@ type Snapshot struct {
 	Inflight    int   `json:"inflight"`
 	MaxInflight int   `json:"max_inflight"`
 	Shed        int64 `json:"shed"`
+	Load        Load  `json:"load"`
 }
 
 type ifSample struct {
@@ -103,6 +113,13 @@ type Collector struct {
 	wireIn, wireOut atomic.Uint64
 	proxy, host     Flow
 	lastWire        wireSample
+
+	load    Load
+	lastCPU cpuTicks
+}
+
+type cpuTicks struct {
+	busy, total uint64
 }
 
 type wireSample struct {
@@ -119,6 +136,7 @@ func New(wanName, lanName string) *Collector {
 		history: make([]Point, 0, 3600),
 		proxies: map[int64]*Counters{},
 		last:    map[string]ifSample{},
+		load:    Load{Cores: runtime.NumCPU()},
 	}
 	c.autodetect()
 	return c
@@ -280,6 +298,7 @@ func (c *Collector) sample() {
 	c.wan = c.readLocked(c.wanName, now)
 	c.lan = c.readLocked(c.lanName, now)
 	c.splitLocked(now)
+	c.loadLocked()
 	p := Point{
 		TS:    now.Unix(),
 		WANRx: c.wan.RxBps, WANTx: c.wan.TxBps,
@@ -413,6 +432,92 @@ func (c *Collector) splitLocked(now time.Time) {
 	}
 }
 
+// loadLocked samples the host's CPU and memory. A one-second CPU window on a
+// quiet host flips between 0% and a few percent, which a needle shows as a
+// twitch, so the reading is smoothed over the last few frames.
+//
+// shortcut: /proc reports the whole machine, not a cgroup limit; read
+// /sys/fs/cgroup/memory.max and cpu.max when per-container limits matter.
+func (c *Collector) loadLocked() {
+	if busy, total, ok := readCPU(); ok {
+		if total > c.lastCPU.total {
+			used := float64(busy-c.lastCPU.busy) / float64(total-c.lastCPU.total) * 100
+			c.load.CPUPercent = c.load.CPUPercent*0.5 + used*0.5
+		}
+		c.lastCPU = cpuTicks{busy: busy, total: total}
+	}
+	if used, total, ok := readMem(); ok {
+		c.load.MemUsed, c.load.MemTotal = used, total
+	}
+}
+
+func readCPU() (busy, total uint64, ok bool) {
+	f, err := os.Open("/proc/stat")
+	if err != nil {
+		return 0, 0, false
+	}
+	defer f.Close()
+	return parseProcStat(f)
+}
+
+// parseProcStat sums the aggregate cpu line. Idle and iowait are time the host
+// spent doing nothing, so they count towards the total but not towards busy.
+func parseProcStat(r io.Reader) (busy, total uint64, ok bool) {
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 5 || fields[0] != "cpu" {
+			continue
+		}
+		var t [8]uint64 // user nice system idle iowait irq softirq steal
+		for i := range t {
+			if i+1 < len(fields) {
+				t[i], _ = strconv.ParseUint(fields[i+1], 10, 64)
+			}
+		}
+		busy = t[0] + t[1] + t[2] + t[5] + t[6] + t[7]
+		total = busy + t[3] + t[4]
+		return busy, total, total > 0
+	}
+	return 0, 0, false
+}
+
+func readMem() (used, total uint64, ok bool) {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0, 0, false
+	}
+	defer f.Close()
+	return parseMeminfo(f)
+}
+
+// parseMeminfo reports MemTotal against MemAvailable: the gap is what the
+// kernel would not hand out, which is what people mean by memory in use.
+func parseMeminfo(r io.Reader) (used, total uint64, ok bool) {
+	var avail uint64
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 2 {
+			continue
+		}
+		kb, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		switch fields[0] {
+		case "MemTotal:":
+			total = kb * 1024
+		case "MemAvailable:":
+			avail = kb * 1024
+		}
+	}
+	if total == 0 || avail > total {
+		return 0, 0, false
+	}
+	return total - avail, total, true
+}
+
 func nonNegative(v float64) float64 {
 	if v < 0 {
 		return 0
@@ -528,5 +633,6 @@ func (c *Collector) Snapshot() Snapshot {
 		DualNIC:  c.wanName != "" && c.lanName != "" && c.wanName != c.lanName,
 		Proxy:    c.proxy,
 		Host:     c.host,
+		Load:     c.load,
 	}
 }

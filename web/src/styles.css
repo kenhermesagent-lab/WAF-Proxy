@@ -338,6 +338,22 @@ code, .mono, kbd {
 .kpi-meter { height: 4px; margin-top: 8px; overflow: hidden; border-radius: 999px; background: #141b24; }
 .kpi-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 
+/* The dashboard strip: narrower cards, same numbers, smaller type. Four to a
+   row only from 1400: below that the sidebar leaves ~254px a card at 1280,
+   which crowds the in/out pair. */
+.kpi-grid-dash { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (min-width: 1400px) { .kpi-grid-dash { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kpi-grid-dash .kpi { padding: 12px 13px; }
+.kpi-grid-dash .kpi-value { font-size: 21px; }
+.kpi-grid-dash .kpi-pair > div + div { padding-left: 10px; }
+.usage-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; margin-top: 2px; }
+.usage-pair .gauge { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.usage-pair svg { display: block; max-width: 100%; height: auto; }
+.gauge-cap { color: var(--faint); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+@keyframes gauge-flow { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+.gauge-flow { animation: gauge-flow 3.2s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .gauge-flow { animation: none; opacity: .5; } }
+
 .stat .v { font-size: 22px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .stat .k { color: var(--muted); font-size: 11.5px; }
 .stat .sub { color: var(--faint); font-size: 11.5px; margin-top: 3px; }
@@ -998,7 +1014,7 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 @media (max-width: 1180px) {
   .env-chip .env-domain { display: none; }
   .search-trigger { min-width: 160px; }
-  .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi-grid, .kpi-grid-dash { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .split { grid-template-columns: 1fr; }
@@ -1041,7 +1057,7 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   .search-trigger span, .search-trigger kbd { display: none; }
   .env-chip { display: none; }
   .content { padding: 16px 14px 48px; }
-  .kpi-grid, .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
+  .kpi-grid, .kpi-grid-dash, .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
   .field-grid, .field-grid.three { grid-template-columns: 1fr; }
   .card { padding: 13px 13px; }
   .modal-backdrop { padding: 12px; }

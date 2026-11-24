@@ -7,6 +7,7 @@ import Icon from "../components/Icon";
 import { countryFlag, countryName } from "../countries";
 import { Badge, Card, Empty, Info, PageHead, Skeleton, TableWrap, fmtAgo, fmtBps, fmtBytes, fmtTime } from "../ui";
 import CapacityCard, { Capacity } from "../components/CapacityCard";
+import UsageCard from "../components/UsageCard";
 import { AnomalyEvent, Cert, Event, Feed, GlobeHit, GlobePoint, Metrics, Proxy, Reach, UpdatesSnapshot, Uptime } from "../types";
 import { nearMissTotal, reachedGlobePoints } from "../reach";
 
@@ -405,21 +406,11 @@ export default function Dashboard({
         }
       />
 
-      <Card
-        title="Needs attention"
-        actions={
-          attention.length ? (
-            <Badge tone={attention.some((a) => a.tone === "bad") ? "bad" : "warn"}>{attention.length} open</Badge>
-          ) : (
-            <span className="faint small-text">checked every minute</span>
-          )
-        }
-      >
-        {attention.length === 0 ? (
-          <Empty title="Nothing needs you" icon="check">
-            Backends, certificates, threat feeds and updates are all healthy.
-          </Empty>
-        ) : (
+      {attention.length > 0 && (
+        <Card
+          title="Needs attention"
+          actions={<Badge tone={attention.some((a) => a.tone === "bad") ? "bad" : "warn"}>{attention.length} open</Badge>}
+        >
           <div className="grid" style={{ gap: 8 }}>
             {attention.map((a) => (
               <div className={`banner ${a.tone}`} role="status" key={a.id}>
@@ -434,12 +425,12 @@ export default function Dashboard({
               </div>
             ))}
           </div>
-        )}
-      </Card>
+        </Card>
+      )}
 
-      <div className="kpi-grid">
+      <div className="kpi-grid kpi-grid-dash">
         {!metrics ? (
-          Array.from({ length: 6 }).map((_, i) => <div className="skeleton kpi" key={i} />)
+          Array.from({ length: 8 }).map((_, i) => <div className="skeleton kpi" key={i} />)
         ) : (
           <>
             <div className="kpi">
@@ -447,7 +438,7 @@ export default function Dashboard({
                 Proxy traffic
                 <Info label="How byte accounting works">
                   Every byte on the HTTPS listener, headers and TLS included, so it matches what the WAN interface
-                  sees for proxied hosts. “Server &amp; other” is the rest of the interface: SSH, this console, OS
+                  sees for proxied hosts. “Server traffic” is the rest of the interface: SSH, this console, OS
                   updates and upstream legs.
                 </Info>
               </div>
@@ -490,7 +481,7 @@ export default function Dashboard({
             </div>
             <div className="kpi">
               <div className="kpi-label">
-                Server &amp; other
+                Server traffic
                 <Info label="What server traffic means">
                   Actual host traffic outside the proxy listeners: SSH, this console, OS updates and the upstream legs
                   of proxied requests. It is not proxy traffic.
@@ -526,6 +517,7 @@ export default function Dashboard({
           </>
         )}
         <CapacityCard capacity={capacity} />
+        <UsageCard load={metrics?.load ?? null} />
       </div>
 
       <Card

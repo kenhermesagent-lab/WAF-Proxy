@@ -769,6 +769,13 @@ export interface MetricsHistoryPoint {
   host_tx: number;
 }
 
+export interface Load {
+  cpu_percent: number;
+  cores: number;
+  mem_used: number;
+  mem_total: number;
+}
+
 export interface Metrics {
   ts: string;
   wan: Iface;
@@ -782,6 +789,7 @@ export interface Metrics {
   inflight: number;
   max_inflight: number;
   shed: number;
+  load: Load;
 }
 
 export interface GateUser {

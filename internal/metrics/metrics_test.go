@@ -124,3 +124,19 @@ func TestIsVirtualInterface(t *testing.T) {
 		}
 	}
 }
+
+func TestParseProcStatCountsBusyOnly(t *testing.T) {
+	const stat = "cpu  100 20 30 800 50 5 5 0 0 0\ncpu0 1 2 3 4 5 6 7 8\nintr 7\n"
+	busy, total, ok := parseProcStat(strings.NewReader(stat))
+	if !ok || busy != 160 || total != 1010 {
+		t.Fatalf("parseProcStat = %d/%d ok=%v, want 160/1010", busy, total, ok)
+	}
+}
+
+func TestParseMeminfoSubtractsAvailable(t *testing.T) {
+	const mem = "MemTotal:        8000000 kB\nMemFree:         1000000 kB\nMemAvailable:    3000000 kB\n"
+	used, total, ok := parseMeminfo(strings.NewReader(mem))
+	if !ok || total != 8000000*1024 || used != 5000000*1024 {
+		t.Fatalf("parseMeminfo = %d/%d ok=%v, want 5000000/8000000 kB", used, total, ok)
+	}
+}

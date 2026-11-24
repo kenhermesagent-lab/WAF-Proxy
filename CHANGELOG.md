@@ -12,6 +12,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.66.2] — 2026-11-24
+
+### Added
+
+- **CPU and memory on the dashboard.** Two dials in the KPI strip show the host's core count and live
+  CPU, and its RAM total against what is in use, from `/proc/stat` and `/proc/meminfo` on the second
+  the collector already samples — so they ride the existing metrics frame instead of a second timer.
+  CPU is the busy tick delta with a short smoothing window, because a raw one-second window makes a
+  needle twitch, and memory is `MemTotal − MemAvailable`. The dial is a segmented ring with a light
+  streak lapping the filled arc, a redline on the last eighth, and amber/red once it is hot; the
+  streak is CSS inside the SVG and stops under `prefers-reduced-motion`.
+
+### Changed
+
+- **The dashboard strip only shows four to a row when there is room for it.** Four across needs about
+  294px a card, and with the sidebar a 1280 window leaves 254px, which crowds the in/out pair — so the
+  strip is three across below 1400 and four from 1400 up, with no wrapped or clipped lines at 1280,
+  1366 or 1440. "Server & other" is now "Server traffic", and two capacity captions lost a word each
+  to fit: "3 queued · 1 pool" and "74% hit · 1,204 lookups".
+- **"Needs attention" only appears when something needs attention.** A healthy node no longer carries
+  an empty card saying so; the list renders only when it has an item.
+
 ## [1.66.1] — 2026-11-24
 
 ### Fixed
