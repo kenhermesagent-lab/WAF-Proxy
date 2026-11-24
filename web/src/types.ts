@@ -919,6 +919,8 @@ export interface MCPStatus {
   env_token: boolean;
   token_count: number;
   tokens: MCPToken[];
+  // The gateway's tool catalog, so the page never carries its own copy.
+  tools: { name: string; description: string }[];
   protocols: string[];
 }
 

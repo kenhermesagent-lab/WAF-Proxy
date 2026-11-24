@@ -32,6 +32,7 @@ func (s *Server) getMCP(w http.ResponseWriter, r *http.Request) {
 		"env_token":   s.cfg.MCPToken != "",
 		"token_count": active,
 		"tokens":      tokens,
+		"tools":       mcp.Catalog(),
 		"protocols":   []string{"2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"},
 	})
 }

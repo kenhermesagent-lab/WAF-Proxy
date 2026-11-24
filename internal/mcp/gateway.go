@@ -20,6 +20,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/version"
 )
 
@@ -59,6 +60,7 @@ type Gateway struct {
 	limiter  *auth.Limiter
 	tools    []tool
 	byName   map[string]tool
+	streams  *streaming.Manager
 	now      func() time.Time
 }
 
@@ -80,6 +82,11 @@ func New(st *store.Store, bans *ban.Engine, log *slog.Logger, opts Options) *Gat
 	}
 	return g
 }
+
+// SetStreaming attaches the media relay so an agent can read its live state and
+// cut a stream. A nil manager keeps both tools present and reporting that no
+// relay is attached, so the catalog does not change with the host's features.
+func (g *Gateway) SetStreaming(m *streaming.Manager) { g.streams = m }
 
 // Start prunes expired per-IP rate-limit buckets. Without it a long-running
 // gateway accumulates one map entry per source address.

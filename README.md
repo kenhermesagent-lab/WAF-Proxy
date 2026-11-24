@@ -425,7 +425,9 @@ state machine and the lab checklist are in [docs/HA.md](docs/HA.md).
   roll back on failure. A Docker host can install `deploy/install-docker-updater.sh` for the same
   action without exposing the Docker socket to the console.
 - **Agent gateway.** The MCP endpoint is documented in [docs/MCP.md](docs/MCP.md); tokens are
-  limited per tool and can be revoked from **Agent access**.
+  limited per tool and can be revoked from **Agent access**. An agent can read the tenant list,
+  a host's posture, certificate expiry, WAF profiles, the media relay and the audit log, block
+  or revoke visitors, and cut a relay stream; it still cannot change configuration.
 - **Sites.** The **Sites** page lists every tenant with its console host, its hostnames, its
   retention and its administrator count, and creates, edits and removes them. The console topbar
   carries a **site switcher**: the choice rides on every request (`X-WAF-Site`) and is kept in

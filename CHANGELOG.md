@@ -28,6 +28,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Over h3 the pipeline behaves as it does over HTTP/2: a GET, HEAD and POST reach the upstream, a
   policy block answers `403` without touching it, and a cacheable response is served from the
   cache. A demotion releases the UDP socket with the TCP listener.
+- **The agent gateway reaches the console's newer surfaces.** `/mcp` adds read tools for the
+  tenant list (`list_sites`), one host's full posture (`get_proxy`), certificate expiry
+  (`list_certificates`), WAF profiles (`list_waf_profiles`), the media relay's live state
+  (`get_stream_status`) and the administrator audit log (`query_audit`), plus one containment
+  action, `cut_stream_ip`, which ends every relay stream from an address and audits the cut.
+  `GET /api/mcp` now returns the catalog in `tools`, and the console's AI Agent Access page
+  renders it from there instead of a hardcoded list.
 
 ### Changed
 
@@ -42,6 +49,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **The agent gateway stayed on one site.** It was built on an unscoped store, so one token
+  could read every tenant's events, gate sessions and gate users, and its audit rows were
+  written without a site and stayed invisible in the console. The gateway now uses the default
+  site's store, the same rows the console that mints tokens shows; `list_sites` still names
+  every tenant.
 - **A fresh single-node install serves again.** With high availability off the boot normalises a
   leftover standby to `standalone`, but a data directory that never held a role file has no node id
   and the save was refused. The node stayed a standby, bound the WAN address and never accepted a
