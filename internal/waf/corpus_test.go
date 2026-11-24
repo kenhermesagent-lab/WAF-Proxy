@@ -87,6 +87,10 @@ var bypassCorpus = []corpusCase{
 		`/?p0=x&p1=x&p2=x&p3=x&p4=x&p5=x&p6=x&p7=x&p8=x&p9=x&p10=x&p11=x&p12=x&p13=x&p14=x&p15=x&p16=x&p17=x&p18=x&p19=x&p20=x&p21=x&p22=x&p23=x&p24=x&p25=x&p26=x&p27=x&p28=x&p29=x&p30=x&p31=x&p32=x&p33=x&p34=x&p35=x&p36=x&p37=x&p38=x&p39=x&p40=x&p41=x&p42=x&p43=x&p44=x&p45=x&p46=x&p47=x&p48=x&p49=x&p50=x&p51=x&p52=x&p53=x&p54=x&p55=x&p56=x&p57=x&p58=x&p59=x&p60=x&p61=x&p62=x&p63=x&p64=x&p65=x&p66=x&p67=x&p68=x&p69=x&p70=x&p71=x&p72=x&p73=x&p74=x&p75=x&p76=x&p77=x&p78=x&p79=x&p80=x&p81=x&p82=x&p83=x&p84=x&p85=x&p86=x&p87=x&p88=x&p89=x&id=1%27%20OR%201%3D1--`,
 		nil, "", true, 0},
 
+	// A payload the application decodes a second time still arrives as "%27"
+	// after the one decode the path gets, so the rule decodes it too.
+	{"SQLI-36", "SQLi", "double-encoded path SQLi", "GET", `/search/1%2527%2520OR%25201%253D1--`, nil, "", true, 900111},
+
 	// ---- XSS -------------------------------------------------------------
 	{"XSS-01", "XSS", "plain script tag", "GET", `/?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E`, nil, "", true, 0},
 	{"XSS-02", "XSS", "mixed case", "GET", `/?q=%3CScRiPt%3Ealert(1)%3C%2FScRiPt%3E`, nil, "", true, 0},
@@ -108,6 +112,8 @@ var bypassCorpus = []corpusCase{
 	{"XSS-17", "XSS", "multipart field", "POST", `/comment`, map[string]string{"Content-Type": multCT},
 		"--XX\r\nContent-Disposition: form-data; name=\"c\"\r\n\r\n<script>alert(1)</script>\r\n--XX--\r\n", true, 0},
 	{"XSS-18", "XSS", "path segment", "GET", `/user/%3Csvg%2Fonload%3Dalert(1)%3E`, nil, "", true, 0},
+	{"XSS-19", "XSS", "multipart filename", "POST", `/upload`, map[string]string{"Content-Type": multCT},
+		"--XX\r\nContent-Disposition: form-data; name=\"f\"; filename=\"<script>alert(1)</script>\"\r\n\r\nx\r\n--XX--\r\n", true, 900114},
 
 	// ---- path traversal --------------------------------------------------
 	{"PATH-01", "Path traversal", "plain ../", "GET", `/?file=../../etc/passwd`, nil, "", true, 0},
@@ -140,6 +146,7 @@ var bypassCorpus = []corpusCase{
 	{"XXE-05", "XXE", "internal entity stays allowed", "POST", `/api/data`, map[string]string{"Content-Type": xmlCT},
 		`<?xml version="1.0"?><!DOCTYPE d [<!ENTITY e "text">]><d>&e;</d>`, false, 0},
 	{"SSRF-01", "SSRF", "cloud metadata URL", "GET", `/?url=http%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data%2F`, nil, "", true, 0},
+	{"SSRF-03", "SSRF", "metadata URL in the path", "GET", `/fetch/http://169.254.169.254/latest/meta-data/`, nil, "", true, 900113},
 	{"SSRF-02", "SSRF", "file:// scheme", "GET", `/?url=file%3A%2F%2F%2Fetc%2Fpasswd`, nil, "", true, 0},
 
 	// ---- protocol and encoding, as the engine sees them ------------------
@@ -213,10 +220,10 @@ func TestBypassCorpusIsComplete(t *testing.T) {
 			t.Errorf("no %s probes in the corpus", want)
 		}
 	}
-	// 78 rows: the 70 review probes this layer decides, plus four XXE variants
-	// beyond the single review probe, and four URL controls that must stay
-	// allowed.
-	if len(bypassCorpus) != 78 {
-		t.Errorf("corpus has %d probes, want 78", len(bypassCorpus))
+	// 81 rows: the 70 review probes this layer decides, plus four XXE variants
+	// and three round-two bypasses beyond them, and four URL controls that must
+	// stay allowed.
+	if len(bypassCorpus) != 81 {
+		t.Errorf("corpus has %d probes, want 81", len(bypassCorpus))
 	}
 }

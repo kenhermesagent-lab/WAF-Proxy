@@ -244,14 +244,25 @@ SecAction "id:9001004,phase:3,nolog,pass,t:none,setvar:tx.blocking_paranoia_leve
 	// "/etc/passwd-docs" out of the rule.
 	directives += `SecRule REQUEST_FILENAME "@rx (?i)(?:^|/)(?:etc/(?:passwd|shadow|group|gshadow|sudoers)|proc/(?:self|[0-9]+)/(?:environ|cmdline)|\.ssh/(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|authorized_keys))(?:/|$)" "id:900110,phase:1,deny,status:403,log,severity:'CRITICAL',tag:'attack-lfi',msg:'path-style file access probe'"
 `
-	// The same blind spot exists for SQL injection: the CRS SQLi rules
-	// inspect arguments, cookies, headers and the body, so "?id=1' OR 1=1--"
-	// was blocked while the identical payload in a REST path
-	// ("/item/1' OR 1=1--") reached the backend. libinjection is the operator
-	// CRS itself uses for the query string, run here on the path instead, and
-	// it denies outright rather than waiting for the anomaly score to add up:
-	// a database query in a path is never something an operator wants.
-	directives += `SecRule REQUEST_FILENAME "@detectSQLi" "id:900111,phase:1,deny,status:403,log,severity:'CRITICAL',tag:'attack-sqli',msg:'SQL injection in request path'"
+	// The CRS SQLi rules read arguments, cookies, headers and the body, so a
+	// payload in a REST path ("/item/1' OR 1=1--") was forwarded while
+	// "?id=1' OR 1=1--" was blocked. libinjection is the operator CRS uses for
+	// the query string, run here on the path and denying outright. The path
+	// arrives decoded once, so two more decodes catch a payload the application
+	// decodes again ("%2527"); a third layer would need another, which is the
+	// limit of this rule rather than of the payload.
+	directives += `SecRule REQUEST_FILENAME "@detectSQLi" "id:900111,phase:1,deny,status:403,log,severity:'CRITICAL',tag:'attack-sqli',msg:'SQL injection in request path',t:none,t:urlDecodeUni,t:urlDecodeUni"
+`
+	// A URL that names a metadata service or a file/gopher destination is the
+	// SSRF signature, and the CRS rules look for it in arguments only, so
+	// "/fetch/http://169.254.169.254/" was clean. Only the destinations are
+	// matched, not "http://", which a proxy-shaped route uses legitimately.
+	directives += `SecRule REQUEST_FILENAME "@rx (?i)(?:file|gopher|dict|ldap|netdoc)://|169\.254\.169\.254|metadata\.(?:google|azure)\.(?:internal|com)|100\.100\.100\.200" "id:900113,phase:1,deny,status:403,log,severity:'CRITICAL',tag:'attack-ssrf',msg:'SSRF destination in request path'"
+`
+	// The client-supplied file name is application input too. FILES_NAMES holds
+	// the form field name, not the filename, and the XSS rules read neither, so
+	// an HTML payload in "filename=" was forwarded intact.
+	directives += `SecRule MULTIPART_FILENAME "@detectXSS" "id:900114,phase:2,deny,status:403,log,severity:'CRITICAL',tag:'attack-xss',msg:'XSS in uploaded file name'"
 `
 
 	origins := map[int]bundleOrigin{}
@@ -661,6 +672,10 @@ func Label(ruleID int) string {
 		return "sqli"
 	case 900112:
 		return "xxe"
+	case 900113:
+		return "ssrf"
+	case 900114:
+		return "xss"
 	case norm.RuleDuplicate, norm.RuleDoubleEncoded:
 		return "normalization"
 	}

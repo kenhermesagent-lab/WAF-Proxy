@@ -12,6 +12,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.2] — 2026-11-24
+
+### Security
+
+- **Three more payloads that reached the backend are blocked.** A second round of testing, with
+  techniques the first corpus did not cover, found the same class of gap in three more places: a
+  path the application decodes a second time (`/search/1%2527%20OR%201%253D1--`), an SSRF
+  destination in the path (`/fetch/http://169.254.169.254/latest/meta-data/`), and an HTML payload
+  in a multipart `filename=`. The path rule now decodes twice before libinjection runs, rule 900113
+  matches metadata and file/gopher/dict destinations in the path, and rule 900114 runs libinjection
+  on `MULTIPART_FILENAME`, which is where a client file name actually lives — `FILES_NAMES` holds
+  the form field name, which is why the XSS rules never saw it.
+- **Compression is not a way past inspection.** A gzip body is decoded and inspected, and a UTF-16
+  XML body is caught by the entity rule, so neither the encoding nor the content type hides the
+  payload.
+- **The corpus grew to 81 probes.** The three round-two bypasses are rows in the CI corpus, so a
+  later CRS update cannot quietly reopen them.
+
 ## [1.65.1] — 2026-11-24
 
 ### Security
