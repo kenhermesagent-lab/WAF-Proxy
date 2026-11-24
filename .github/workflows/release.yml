@@ -179,6 +179,9 @@ jobs:
     if: github.event_name == 'push' || inputs.tag != ''
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
+      # Actions does not export the workflow token to steps, and the docker
+      # login below reads it: without this line the push fails before it starts.
+      GITHUB_TOKEN: ${{ github.token }}
     permissions:
       contents: read
       packages: write
@@ -309,6 +312,8 @@ jobs:
             exit 1
           }
           docker rm -f wafproxy-pulled >/dev/null 2>&1 || true
+          # A package that is still private would answer 401 to an anonymous pull.
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker pull "${image}:${version}"
           docker run -d --name wafproxy-pulled \
             -p 18081:8080 \

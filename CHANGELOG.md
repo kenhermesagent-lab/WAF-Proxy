@@ -12,6 +12,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.4] — 2026-11-24
+
+### Fixed
+
+- **The release publishes the image it built.** The ghcr push logged in with an empty token: the
+  job declared `packages: write` but never exported the token the `docker login` line reads, so the
+  login failed before the push started. The pull-back check logs in too, so a package that is still
+  private is read with the same credentials.
+
 ## [1.65.3] — 2026-11-24
 
 ### Fixed
