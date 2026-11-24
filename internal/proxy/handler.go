@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botfilter"
@@ -256,9 +257,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if skipBody {
 		event.Stage, event.RuleID = "body-skip", "path"
 		event.RuleMsg = "request body is streamed without inspection"
-		cr := &countingReader{r: r.Body}
+		cr := newStallReader(r.Body, s.skipStall, http.NewResponseController(rw))
 		r.Body = cr
-		defer func() { event.BytesIn = cr.n }()
+		defer func() {
+			event.BytesIn = cr.bytes()
+			// Clear the deadline so the connection is usable again, and say why the
+			// upload ended when the client simply stopped sending.
+			_ = cr.rc.SetReadDeadline(time.Time{})
+			if cr.didStall() {
+				event.Stage, event.RuleID = "body-skip", "stalled"
+				event.RuleMsg = "the client sent nothing for " + s.skipStall.String()
+			}
+		}()
 		preq.Body = nil
 	} else {
 		// A body that cannot fit in the buffer is refused now rather than queued
@@ -748,20 +758,101 @@ func pathPrefix(path, prefix string) bool {
 	return strings.HasPrefix(path, prefix+"/")
 }
 
-// countingReader counts a streamed body so the event can record how many bytes
-// it carried without buffering them.
-type countingReader struct {
-	r io.ReadCloser
-	n int64
+// stallReader streams a body to the upstream and drops a client that stops
+// sending. A transfer that keeps sending is never cut off, however long it
+// takes, so this bounds silence rather than the upload.
+//
+// On HTTP/1 the deadline lives on the connection and is refreshed on every
+// read. HTTP/2 has no per-request read deadline, so a watchdog closes the body
+// instead, which unblocks the read that would otherwise wait forever.
+type stallReader struct {
+	r     io.ReadCloser
+	rc    *http.ResponseController
+	limit time.Duration
+
+	mu      sync.Mutex
+	n       int64
+	last    time.Time
+	stalled bool
+	// useDeadline is decided once, when the body is wrapped.
+	useDeadline bool
+
+	once sync.Once
+	done chan struct{}
 }
 
-func (c *countingReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.n += int64(n)
+func newStallReader(r io.ReadCloser, limit time.Duration, rc *http.ResponseController) *stallReader {
+	s := &stallReader{r: r, rc: rc, limit: limit, last: time.Now(), done: make(chan struct{})}
+	if limit <= 0 {
+		return s
+	}
+	if rc.SetReadDeadline(time.Now().Add(limit)) == nil {
+		s.useDeadline = true
+	} else {
+		go s.watch()
+	}
+	return s
+}
+
+// watch closes the body when no byte has arrived for the whole guard window,
+// for the protocols whose connection deadline cannot be set.
+func (s *stallReader) watch() {
+	t := time.NewTicker(max(s.limit/4, 10*time.Millisecond))
+	defer t.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case now := <-t.C:
+			s.mu.Lock()
+			fire := !s.stalled && now.Sub(s.last) >= s.limit
+			if fire {
+				s.stalled = true
+			}
+			s.mu.Unlock()
+			if fire {
+				_ = s.r.Close()
+				return
+			}
+		}
+	}
+}
+
+func (s *stallReader) Read(p []byte) (int, error) {
+	if s.useDeadline {
+		_ = s.rc.SetReadDeadline(time.Now().Add(s.limit))
+	}
+	n, err := s.r.Read(p)
+	if n > 0 {
+		s.mu.Lock()
+		s.last = time.Now()
+		s.n += int64(n)
+		s.mu.Unlock()
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		s.mu.Lock()
+		s.stalled = true
+		s.mu.Unlock()
+	}
 	return n, err
 }
 
-func (c *countingReader) Close() error { return c.r.Close() }
+func (s *stallReader) Close() error {
+	s.once.Do(func() { close(s.done) })
+	return s.r.Close()
+}
+
+func (s *stallReader) bytes() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.n
+}
+
+func (s *stallReader) didStall() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stalled
+}
 
 // errBudgetFull is returned when a body with no declared length grows past what
 // the buffer budget can hold. The reservation only covers the declared length,

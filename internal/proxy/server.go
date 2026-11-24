@@ -133,6 +133,9 @@ type Server struct {
 
 	hardBody int64
 
+	// skipStall bounds how long a streamed upload may go without a byte.
+	skipStall time.Duration
+
 	// budget bounds the requests buffered at once, by count and by bytes.
 	budget             *budget
 	defaultQueue       time.Duration
@@ -162,6 +165,7 @@ func New(d Deps) (*Server, error) {
 		hardBody:           model.DefaultMaxBody,
 		defaultQueue:       DefaultQueue,
 		defaultBodyTimeout: DefaultBodyTimeout,
+		skipStall:          DefaultSkipStall,
 	}
 	s.budget = newBudget(DefaultMaxInflight, DefaultMaxBufferedBytes)
 	// One cache for the process: 128 MiB total, at most 32 MiB per hostname,
@@ -239,6 +243,11 @@ const DefaultMaxInflight = 256
 
 // DefaultMaxBufferedBytes bounds the request memory held at once.
 const DefaultMaxBufferedBytes = 512 << 20
+
+// DefaultSkipStall is how long a streamed upload may go without sending a byte
+// before the client is dropped. A skip path has no total deadline — an upload
+// may take an hour — but it may not hold an upstream connection in silence.
+const DefaultSkipStall = 2 * time.Minute
 
 // DefaultQueue is how long a request waits for budget before it is shed: long
 // enough to smooth a burst, short enough that a client sees a 503 rather than a

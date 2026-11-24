@@ -273,7 +273,9 @@ These per-site values are editable through the API/YAML (see
 A skipped body is not inspected, so the WAF body rules, the anomaly score, the body deadline and the
 site's whole-exchange upstream timeout do not apply to it; method, path and header rules, bans,
 lists, rate limits and the access gate still do. The transport's response-header timeout still
-bounds the wait once the body has been sent. The prefix matches whole path segments, so `/api/assets` covers `/api/assets/1` but not
+bounds the wait once the body has been sent. The transfer has no total limit, but a client that
+sends nothing for two minutes is disconnected (`body-skip` stage, `stalled` rule), so a dead upload
+cannot hold an upstream connection open. The prefix matches whole path segments, so `/api/assets` covers `/api/assets/1` but not
 `/api/assetsfoo`, and the root cannot be skipped. The drawer holds at most 16 entries, and each
 may name blocklists or whitelists: only their addresses or countries skip, and a deleted list
 matches nobody, so the path fails closed to inspection.

@@ -1,12 +1,16 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -180,6 +184,44 @@ func TestBodySkipIsStillGated(t *testing.T) {
 	}
 }
 
+// A client that stops sending is dropped once the stall guard expires: the
+// transfer itself has no deadline, so this is what keeps a dead upload from
+// holding an upstream connection forever.
+func TestBodySkipDropsAStalledUpload(t *testing.T) {
+	h := newHarness(t)
+	h.px.skipStall = 150 * time.Millisecond
+	attachBodySkip(t, h, 1<<10, []model.BodySkip{{Method: "POST", Prefix: "/upload"}})
+
+	srv := httptest.NewServer(h.px)
+	defer srv.Close()
+	conn, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := fmt.Fprintf(conn, "POST /upload HTTP/1.1\r\nHost: %s\r\n"+
+		"Content-Type: application/octet-stream\r\nContent-Length: 1000000\r\n\r\npartial", testHost); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	start := time.Now()
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("a stalled upload got no answer: %v", err)
+	}
+	defer resp.Body.Close()
+	if waited := time.Since(start); waited > 2*time.Second {
+		t.Fatalf("the stall guard took %s to fire", waited)
+	}
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("a stalled upload = %d, want it dropped", resp.StatusCode)
+	}
+	e := h.waitEvent(t, func(e model.Event) bool { return e.Stage == "body-skip" && e.RuleID == "stalled" })
+	if e.BytesIn != int64(len("partial")) {
+		t.Fatalf("event recorded %d bytes in, want the 7 that arrived", e.BytesIn)
+	}
+}
+
 // The site ceiling replaces the host-wide one, and zero hands the site back to
 // it instead of meaning "no bodies at all".
 func TestSiteBodyCeilingOverridesTheHostSetting(t *testing.T) {
@@ -196,5 +238,47 @@ func TestSiteBodyCeilingOverridesTheHostSetting(t *testing.T) {
 	attachBodySkip(t, h, 0, nil)
 	if rec := h.request(http.MethodPost, testHost, "/index.html", strings.Repeat("x", 2<<20), nil); rec.Code != http.StatusOK {
 		t.Fatalf("2 MiB under the inherited 64 MiB ceiling = %d, want 200", rec.Code)
+	}
+}
+
+// noDeadlineWriter refuses a per-read deadline the way an HTTP/2 response does,
+// so the watchdog path is exercised.
+type noDeadlineWriter struct{}
+
+func (noDeadlineWriter) Header() http.Header         { return http.Header{} }
+func (noDeadlineWriter) Write(p []byte) (int, error) { return len(p), nil }
+func (noDeadlineWriter) WriteHeader(int)             {}
+
+// blockingBody never returns from Read until it is closed.
+type blockingBody struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (b *blockingBody) Read([]byte) (int, error) {
+	<-b.closed
+	return 0, io.ErrClosedPipe
+}
+
+func (b *blockingBody) Close() error {
+	b.once.Do(func() { close(b.closed) })
+	return nil
+}
+
+func TestStallReaderClosesABlockedBodyWithoutADeadline(t *testing.T) {
+	body := &blockingBody{closed: make(chan struct{})}
+	sr := newStallReader(body, 80*time.Millisecond, http.NewResponseController(noDeadlineWriter{}))
+	start := time.Now()
+	if _, err := sr.Read(make([]byte, 16)); err == nil {
+		t.Fatal("a stalled body read returned no error")
+	}
+	if waited := time.Since(start); waited > time.Second {
+		t.Fatalf("the watchdog took %s to close a blocked body", waited)
+	}
+	if !sr.didStall() {
+		t.Fatal("the stalled read was not recorded")
+	}
+	if sr.bytes() != 0 {
+		t.Fatalf("bytes = %d, want 0", sr.bytes())
 	}
 }

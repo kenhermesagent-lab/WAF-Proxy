@@ -518,7 +518,7 @@ export default function Proxies({
                     </Field>
                   </div>
                   <p className="faint small-text" style={{ margin: "8px 0" }}>
-                    A skip path streams its request body to the app without buffering or inspection, so uploads of any size pass. Method, path and header rules, bans, lists, rate limits and the access gate still apply; only the body is unseen, and neither the body deadline nor the site's upstream timeout cuts it short.
+                    A skip path streams its request body to the app without buffering or inspection, so uploads of any size pass. Method, path and header rules, bans, lists, rate limits and the access gate still apply; only the body is unseen, and neither the body deadline nor the site's upstream timeout cuts it short. A client that stops sending for two minutes is dropped.
                   </p>
                   {draft.body_skip.map((s, i) => (
                     <div key={i} style={{ display: "grid", gridTemplateColumns: "100px minmax(0,1fr) minmax(0,1fr) auto", gap: 8, alignItems: "start", marginBottom: 8 }}>

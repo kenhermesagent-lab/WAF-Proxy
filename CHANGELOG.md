@@ -34,6 +34,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   even though the body deadline no longer applied. A skip path now ignores both; the transport's
   60-second response-header timeout still bounds the wait after the body, and the response ceiling
   still bounds the answer.
+- **A stalled skip-path upload is dropped instead of held.** The streamed path has no total deadline —
+  a multi-gigabyte upload may take as long as it needs — but a client that sends nothing for two
+  minutes is disconnected and the event records the `body-skip` stage with the `stalled` rule, so a
+  dead upload cannot keep an upstream connection open forever.
 - **YAML names the trust lists of a skip path.** `body_skip` exports `lists:` by name instead of a
   numeric `list_ids`, so importing into another install binds the entry to that install's lists
   rather than whatever row happens to hold the same id. An entry whose list or prefix cannot be
