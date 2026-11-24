@@ -109,4 +109,36 @@ describe("Readiness", () => {
     expect(screen.queryByText("7 of 7 set up")).toBeNull();
     expect(screen.queryByText(/% complete/)).toBeNull();
   });
+
+  it("leaves the host-wide CrowdSec row off a tenant console", async () => {
+    get.mockImplementation(async (path: string) => {
+      switch (path) {
+        case "/api/settings":
+          return settings();
+        case "/api/certs":
+          return { certs: [] };
+        case "/api/geoip":
+          return geoip();
+        case "/api/backup/schedule":
+          return { config: { enabled: false }, status: {} };
+        case "/api/notifications":
+          return { channels: {} };
+        case "/api/audit/verify":
+          return { ok: true, checked: 0 };
+        case "/api/proxies":
+          return { proxies: [] };
+        case "/api/users":
+          return { users: [] };
+        case "/api/me/prefs":
+          return {};
+        default:
+          return { configured: true, applied: 3 };
+      }
+    });
+
+    render(<Readiness me={{ ...me, site: "bravo" }} onError={vi.fn()} />);
+
+    expect(await screen.findByText("A second administrator exists")).toBeTruthy();
+    expect(screen.queryByText("CrowdSec connected")).toBeNull();
+  });
 });

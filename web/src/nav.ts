@@ -1,7 +1,7 @@
 import type { IconName } from "./components/Icon";
 import { can, type Me } from "./types";
 
-export type NavTab = { id: string; label: string; permission?: string };
+export type NavTab = { id: string; label: string; permission?: string; hostOnly?: boolean };
 export type NavItem = {
   id: string;
   label: string;
@@ -10,6 +10,9 @@ export type NavItem = {
   // Roles that must not see the item even when it holds the permission,
   // because the page would act on the host rather than on its own site.
   hideFor?: string[];
+  // Host-wide pages are absent on a tenant console even when its role has the
+  // wildcard permission.
+  hostOnly?: boolean;
   // A switch this item depends on. The item is absent until /api/me reports it,
   // so a deep link is the only way to reach the page while it is off.
   requires?: "ha_enabled";
@@ -91,8 +94,8 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
           { id: "feeds", label: "Feeds" },
           { id: "lookup", label: "Lookup" },
           { id: "explorer", label: "Sources" },
-          { id: "bundles", label: "Bundles" },
-          { id: "crowdsec", label: "CrowdSec" },
+          { id: "bundles", label: "Bundles", hostOnly: true },
+          { id: "crowdsec", label: "CrowdSec", hostOnly: true },
         ],
       },
       { id: "anomalies", label: "Anomalies", icon: "alert", permission: "traffic.read", hint: "Behavioural detections" },
@@ -135,7 +138,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
           { id: "apps", label: "Apps" },
         ],
       },
-      { id: "ha", label: "High availability", icon: "server", permission: "ha.read", requires: "ha_enabled", hideFor: ["host_admin"], hint: "Pairing, moves and witness state" },
+      { id: "ha", label: "High availability", icon: "server", permission: "ha.read", requires: "ha_enabled", hideFor: ["host_admin"], hostOnly: true, hint: "Pairing, moves and witness state" },
       { id: "sites", label: "Sites", icon: "shield", permission: "sites.read", hint: "Tenants, console hosts and their hostnames" },
     ],
   },
@@ -193,7 +196,15 @@ export function routeFromHash(hash: string): Route {
 export function navAllowed(item: NavItem, me: Me | null): boolean {
   if (item.permission && !can(me?.permissions, item.permission)) return false;
   if ((item.hideFor ?? []).includes(me?.role ?? "")) return false;
+  if (item.hostOnly && me?.site !== "default") return false;
   if (item.requires === "ha_enabled" && me?.ha_enabled !== true) return false;
+  return true;
+}
+
+// tabAllowed applies the same permission and host-console rules to a tab.
+export function tabAllowed(tab: NavTab, me: Me | null): boolean {
+  if (tab.permission && !can(me?.permissions, tab.permission)) return false;
+  if (tab.hostOnly && me?.site !== "default") return false;
   return true;
 }
 

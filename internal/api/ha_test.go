@@ -17,9 +17,9 @@ import (
 )
 
 type fakeHA struct {
-	pairs, joins, syncs, failovers, failbacks, unpairs, notifies int
-	max                                                          int
-	failoverErr                                                  error
+	pairs, joins, syncs, failovers, failbacks, retries, unpairs, notifies int
+	max                                                                   int
+	failoverErr                                                           error
 }
 
 func (f *fakeHA) Pair(context.Context) (string, error) { f.pairs++; return "WAF-AAAA-BBBB", nil }
@@ -39,6 +39,7 @@ func (f *fakeHA) Failback(context.Context, ha.MoveOptions) (ha.Result, error) {
 	f.failbacks++
 	return ha.Result{Epoch: 10}, nil
 }
+func (f *fakeHA) Retry(context.Context) error  { f.retries++; return nil }
 func (f *fakeHA) Unpair(context.Context) error { f.unpairs++; return nil }
 func (f *fakeHA) Notify(context.Context, string) (ha.Result, error) {
 	f.notifies++
@@ -155,6 +156,25 @@ func TestHAActionsNeedFreshCredentialsAndTheClusterID(t *testing.T) {
 	}
 }
 
+func TestHAStatusCarriesTheStartFailure(t *testing.T) {
+	srv, _, _, token, csrf := haServer(t)
+	srv.SetHAStatus(func() HAStatus {
+		return HAStatus{Enabled: true, Role: "active", State: "active", Serving: true,
+			RuntimeError: "ha: control socket: address already in use"}
+	})
+	rec := haCall(t, srv, token, csrf, http.MethodGet, "/api/ha", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/ha = %d: %s", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["runtime_error"] != "ha: control socket: address already in use" {
+		t.Fatalf("runtime_error = %v", got["runtime_error"])
+	}
+}
+
 func TestHAActionsAreRefusedWhileDisabled(t *testing.T) {
 	srv, _, ops, token, csrf := haServer(t)
 	srv.SetHAStatus(func() HAStatus {
@@ -230,6 +250,7 @@ func TestHAEveryActionReachesTheBackend(t *testing.T) {
 		{"join", `{"address":"10.0.0.10:9443","fingerprint":"fp","code":"WAF-X",` + pw + `}`, func() int { return ops.joins }},
 		{"sync", `{` + pw + `}`, func() int { return ops.syncs }},
 		{"failback", `{` + pw + `}`, func() int { return ops.failbacks }},
+		{"retry", `{` + pw + `}`, func() int { return ops.retries }},
 		{"unpair", `{"cluster_id":"cluster-1",` + pw + `}`, func() int { return ops.unpairs }},
 		{"notify", `{"role":"BACKUP",` + pw + `}`, func() int { return ops.notifies }},
 	}

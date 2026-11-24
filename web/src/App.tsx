@@ -10,7 +10,7 @@ import SourceDrawer from "./components/SourceDrawer";
 import AdminsOnline from "./components/AdminsOnline";
 import Icon from "./components/Icon";
 import { Me, SetupStatus, can } from "./types";
-import { NAV, NAV_GROUPS, NAV_UTILITY, href, navAllowed, routeFromHash, type NavItem } from "./nav";
+import { NAV, NAV_GROUPS, NAV_UTILITY, href, navAllowed, routeFromHash, tabAllowed, type NavItem } from "./nav";
 import Dashboard from "./pages/Dashboard";
 import Statistics from "./pages/Statistics";
 import Proxies from "./pages/Proxies";
@@ -174,7 +174,7 @@ export default function App() {
     const item = NAV.find((n) => n.id === page);
     // A tab the role cannot read (or one that no longer exists) opens the
     // first tab it can, so the URL never points at an invisible view.
-    const allowedTabs = (item?.tabs ?? []).filter((t) => !t.permission || can(me.permissions, t.permission));
+    const allowedTabs = (item?.tabs ?? []).filter((t) => tabAllowed(t, me));
     if (allowedTabs.length > 0 && !allowedTabs.some((t) => t.id === tab)) {
       window.location.hash = href(page, allowedTabs[0].id);
     }
@@ -278,7 +278,7 @@ export default function App() {
   // with the same text as the drawer.
   const helpPage = helpPageFromHash(window.location.hash);
   const tabsFor = (id: string) =>
-    (NAV.find((n) => n.id === id)?.tabs ?? []).filter((t) => !t.permission || can(me?.permissions, t.permission));
+    (NAV.find((n) => n.id === id)?.tabs ?? []).filter((t) => tabAllowed(t, me));
   const tabProps = (id: string) => ({ tab, tabs: tabsFor(id), onTab: (next: string) => navigate(id, undefined, next) });
 
   const navButton = (n: NavItem) => (
@@ -450,7 +450,7 @@ export default function App() {
         </header>
 
         <div className="content">
-          {!pageAllowed && page === "ha" && can(me?.permissions, "ha.read") ? (
+          {!pageAllowed && page === "ha" && me?.site === "default" && can(me?.permissions, "ha.read") ? (
             <HAPage me={me} version={me?.version ?? ""} onError={onError} onOK={onOK} />
           ) : !pageAllowed ? (
             <div className="card">

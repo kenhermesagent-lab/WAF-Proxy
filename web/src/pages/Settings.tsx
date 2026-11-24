@@ -320,7 +320,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
     />
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
-        {SECTIONS.map((sec) => (
+        {SECTIONS.filter((sec) => !(hostWide && sec.id === "ha")).map((sec) => (
           <button
             key={sec.id}
             type="button"
@@ -453,6 +453,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
           <Switch label="Use the Let's Encrypt staging directory" help="Issues untrusted certificates for testing; switch off before going live." checked={s.acme_staging === "1"} onChange={(v) => set("acme_staging", v ? "1" : "0")} />
         </section>
 
+        {!hostWide && (
         <section id="ha" className="settings-section card">
           <div className="section-head">
             <h2>High availability</h2>
@@ -490,6 +491,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             Status, pairing and moves live on the <a href="#/ha">High availability page</a>.
           </p>
         </section>
+        )}
 
         <section id="backup" className="settings-section">
           <BackupCard onError={onError} onOK={onOK} />
@@ -514,7 +516,9 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
               {cs?.configured
                 ? <Badge tone="ok">stream · {cs.applied} applied</Badge>
                 : <Badge tone="warn">{cs?.lapi_configured ? "configured, not connected" : "disabled"}</Badge>}
-              <div className="faint small-text">configure under Threat intel → CrowdSec</div>
+              <div className="faint small-text">
+                {hostWide ? "configured on the default site's console" : "configure under Threat intel → CrowdSec"}
+              </div>
             </div>
           </div>
           {cs?.configured && (

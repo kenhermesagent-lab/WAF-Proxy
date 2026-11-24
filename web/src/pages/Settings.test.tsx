@@ -103,6 +103,15 @@ describe("Settings configuration transport", () => {
     expect(body.host_wide_keys).toBeUndefined();
   });
 
+  it("hides the host-only HA section on a tenant console", async () => {
+    const me = { username: "ops", site: "bravo", site_name: "Bravo", permissions: [] } as unknown as Me;
+    render(<SettingsPage onError={vi.fn()} onOK={vi.fn()} me={me} />);
+
+    await screen.findByText(/Event retention/);
+    expect(document.getElementById("ha")).toBeNull();
+    expect(screen.queryByRole("switch", { name: /enable high availability/i })).toBeNull();
+  });
+
   it("saves the site picked in the switcher, not the console's own site", async () => {
     get.mockImplementation(async (path: string) => {
       switch (path) {

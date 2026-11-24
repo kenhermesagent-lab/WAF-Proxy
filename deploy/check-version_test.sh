@@ -17,6 +17,7 @@ seed() {
   printf 'package version\n\nvar (\n\tVersion = "1.2.3"\n\tCommit  = "dev"\n)\n' >"$root/internal/version/version.go"
   printf '| Version | Supported |\n|---|---|\n| 1.2.x | Yes |\n| 1.1.x and older | No |\n' >"$root/SECURITY.md"
   printf '{\n  "name": "ui",\n  "version": "1.2.3"\n}\n' >"$root/web/package.json"
+  printf '{\n  "name": "ui",\n  "version": "1.2.3",\n  "packages": {\n    "": {\n      "name": "ui",\n      "version": "1.2.3"\n    }\n  }\n}\n' >"$root/web/package-lock.json"
   printf 'services:\n  wafproxy:\n    build:\n      args:\n        VERSION: ${VERSION:-1.2.3}\n    image: wafproxy:${VERSION:-1.2.3}\n' >"$root/deploy/docker-compose.yml"
   unset GITHUB_REF_TYPE GITHUB_REF_NAME
 }
@@ -38,6 +39,7 @@ set_default() { printf 'package version\n\nvar (\n\tVersion = "1.2.2"\n)\n' >"$r
 set_tag() { export GITHUB_REF_TYPE=tag GITHUB_REF_NAME=v1.2.4; }
 set_security() { sed -i 's/| 1.2.x | Yes |/| 1.1.x | Yes |/' "$root/SECURITY.md"; }
 set_npm() { sed -i 's/"version": "1.2.3"/"version": "1.2.2"/' "$root/web/package.json"; }
+set_lock() { sed -i 's/"version": "1.2.3"/"version": "1.2.2"/g' "$root/web/package-lock.json"; }
 set_compose() { sed -i 's/VERSION:-1.2.3/VERSION:-1.2.2/' "$root/deploy/docker-compose.yml"; }
 
 expect_fail() {
@@ -56,6 +58,7 @@ expect_fail "a CHANGELOG.md section that disagrees with VERSION" set_changelog
 expect_fail "a stale internal/version/version.go default" set_default
 expect_fail "a SECURITY.md supported version that disagrees with VERSION" set_security
 expect_fail "a web/package.json version that disagrees with VERSION" set_npm
+expect_fail "a web/package-lock.json version that disagrees with VERSION" set_lock
 expect_fail "a Compose default that disagrees with VERSION" set_compose
 expect_fail "a release tag that disagrees with VERSION" set_tag
 

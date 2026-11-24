@@ -91,6 +91,13 @@ type haControl struct {
 	rt       *haRuntime
 }
 
+func (c haControl) Retry(context.Context) error {
+	if c.rt == nil {
+		return errors.New("high availability is not running on this node")
+	}
+	return c.rt.Start()
+}
+
 func (c haControl) manager() (*ha.Manager, error) {
 	if c.rt == nil {
 		return nil, errors.New("high availability is not running on this node")

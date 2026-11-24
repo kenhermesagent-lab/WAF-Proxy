@@ -12,6 +12,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.62.2] — 2026-11-24
+
+### Added
+
+- **An HA startup failure now has a recovery path in the console.** When the stored switch is on
+  but the loops did not come up, the HA page shows a recovery panel with the start failure,
+  **Retry startup** and **Copy diagnostics**. `GET /api/ha` carries `runtime_error`, and the new
+  `POST /api/ha/retry` re-authenticates and runs the same runtime start the boot path uses.
+
+### Fixed
+
+- **A tenant console no longer offers host-wide pages.** Bundles, CrowdSec and High availability are
+  hidden from a tenant's navigation and tabs, and a deep link to a host-only tab opens the first tab
+  that console may read. `#/ha` renders the HA page only on the default site; Settings drops its HA
+  section and the readiness checklist drops its CrowdSec row there, so neither points at a hidden page.
+
 ## [1.62.1] — 2026-11-24
 
 ### Fixed

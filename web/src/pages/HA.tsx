@@ -3,7 +3,7 @@ import { api } from "../api";
 import { Badge, Field, PageHead, TableWrap, errText, fmtAgo, fmtTime } from "../ui";
 import type { HADiagnostics, HAEventItem, HAStatus, Me } from "../types";
 
-type Action = "sync" | "failover" | "failback" | "unpair";
+type Action = "sync" | "failover" | "failback" | "retry" | "unpair";
 
 const ROLE_TONE: Record<string, "ok" | "warn" | "bad" | "info" | ""> = {
   active: "ok",
@@ -15,6 +15,7 @@ const ACTION_LABEL: Record<Action, string> = {
   sync: "Sync now",
   failover: "Fail over",
   failback: "Fail back",
+  retry: "Retry startup",
   unpair: "Unpair",
 };
 
@@ -187,8 +188,29 @@ export default function HAPage({
 
       {st.runtime_error && (
         <div className="card" role="alert" style={{ borderLeft: "4px solid var(--bad, #c0392b)" }}>
-          <strong>HA IS ENABLED BUT NOT RUNNING.</strong> The loops did not start, so moves are unavailable.
-          <p className="small-text" style={{ marginBottom: 0 }}>{st.runtime_error}</p>
+          <div className="section-head">
+            <h2>HA did not start</h2>
+            <p>The stored switch is on, but the loops are not running. Moves stay unavailable until startup succeeds.</p>
+          </div>
+          <p className="small-text" style={{ overflowWrap: "anywhere" }}>{st.runtime_error}</p>
+          <div className="bar-row" style={{ marginTop: 10 }}>
+            <button
+              className="primary"
+              disabled={!canWrite}
+              title={canWrite ? "Start the HA loops again with the saved configuration." : readOnlyReason}
+              onClick={() => setPending("retry")}
+            >
+              Retry startup
+            </button>
+            <button
+              className="secondary"
+              disabled={!diag}
+              title={diag ? "Copy the diagnostics JSON" : "Diagnostics are still loading."}
+              onClick={() => diag && copy("Diagnostics", JSON.stringify(diag, null, 2))}
+            >
+              Copy diagnostics
+            </button>
+          </div>
         </div>
       )}
 
@@ -360,9 +382,11 @@ export default function HAPage({
             <p>
               {pending === "sync"
                 ? "Reconciles configuration with the other node immediately."
-                : pending === "unpair"
-                  ? "This node leaves the pair and stops replicating."
-                  : "Moves the service address between the two nodes."}
+                : pending === "retry"
+                  ? "Starts the HA loops again with the saved configuration."
+                  : pending === "unpair"
+                    ? "This node leaves the pair and stops replicating."
+                    : "Moves the service address between the two nodes."}
             </p>
           </div>
           <div className="field-grid">

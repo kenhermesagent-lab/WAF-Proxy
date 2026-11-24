@@ -23,6 +23,7 @@ type HAOps interface {
 	Sync(ctx context.Context) (ha.SyncResult, error)
 	Failover(ctx context.Context, opts ha.MoveOptions) (ha.Result, error)
 	Failback(ctx context.Context, opts ha.MoveOptions) (ha.Result, error)
+	Retry(context.Context) error
 	Unpair(ctx context.Context) error
 	Notify(ctx context.Context, role string) (ha.Result, error)
 	MaxFailovers() int
@@ -104,6 +105,9 @@ func (s *Server) haRoute(w http.ResponseWriter, r *http.Request) {
 		"peer": st.Peer, "peer_fingerprint": st.PeerFingerprint, "reason": reason,
 		"can_write": canWrite,
 	}
+	if st.RuntimeError != "" {
+		body["runtime_error"] = st.RuntimeError
+	}
 	if s.haOps != nil {
 		body["max_failovers_per_hour"] = s.haOps.MaxFailovers()
 	}
@@ -127,13 +131,13 @@ type haActionRequest struct {
 	Recovery    string `json:"recovery"`
 }
 
-// haAction serves POST /api/ha/{pair,join,sync,failover,failback,unpair,notify}.
+// haAction serves POST /api/ha/{pair,join,sync,failover,failback,retry,unpair,notify}.
 // Every mutation needs ha.write, a fresh credential check and the cluster id for
 // the two actions that change who serves.
 func (s *Server) haAction(w http.ResponseWriter, r *http.Request) {
 	action := strings.ToLower(strings.TrimSpace(r.PathValue("action")))
 	switch action {
-	case "pair", "join", "sync", "failover", "failback", "unpair", "notify":
+	case "pair", "join", "sync", "failover", "failback", "retry", "unpair", "notify":
 	default:
 		writeError(w, http.StatusNotFound, "unknown HA action")
 		return
@@ -217,6 +221,8 @@ func (s *Server) haAction(w http.ResponseWriter, r *http.Request) {
 		res, err = s.haOps.Failover(r.Context(), ha.MoveOptions{DryRun: in.DryRun, Force: in.Force})
 	case "failback":
 		res, err = s.haOps.Failback(r.Context(), ha.MoveOptions{DryRun: in.DryRun, Force: in.Force})
+	case "retry":
+		err = s.haOps.Retry(r.Context())
 	case "unpair":
 		err = s.haOps.Unpair(r.Context())
 	case "notify":

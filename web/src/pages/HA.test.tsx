@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import HAPage from "./HA";
 import type { HAStatus, Me } from "../types";
 
@@ -95,8 +95,11 @@ describe("High availability page", () => {
       runtime_error: "ha: control socket: listen unix /var/lib/wafproxy/ha/control.sock: address already in use",
     }));
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/HA IS ENABLED BUT NOT RUNNING/);
+    expect(alert.textContent).toMatch(/HA did not start/);
     expect(alert.textContent).toMatch(/control socket: listen unix .*address already in use/);
+    expect(within(alert).getByRole("button", { name: "Copy diagnostics" })).toBeTruthy();
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry startup" }));
+    expect(await screen.findByRole("dialog", { name: "Confirm Retry startup" })).toBeTruthy();
   });
 
   it("explains why HA is off and links to Settings", async () => {

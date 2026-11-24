@@ -194,8 +194,11 @@ export default function Readiness({
     },
   ];
 
-  const first = rows.filter((r) => FIRST_RUN.has(r.id));
-  const hardened = rows.filter((r) => !FIRST_RUN.has(r.id));
+  // CrowdSec is a host-wide integration with no page on a tenant console, so
+  // its optional row is left out there.
+  const shown = me?.site && me.site !== "default" ? rows.filter((r) => r.id !== "crowdsec") : rows;
+  const first = shown.filter((r) => FIRST_RUN.has(r.id));
+  const hardened = shown.filter((r) => !FIRST_RUN.has(r.id));
   const firstMet = first.filter((r) => r.ready).length;
   const firstUnknown = first.filter((r) => r.ready === null).length;
   const settled = firstMet === first.length && firstUnknown === 0;
