@@ -61,6 +61,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   check — and each branch was dozens of commits behind. `dependabot.yml` now groups those majors
   into one PR, and this release applies them as one reviewed upgrade.
 
+### Documentation
+
+- **The console gallery is recaptured on a 1.62.2 demo install.** `docs/screenshots/` now shows
+  the current sidebar and pages, and **Sites** and **High availability** are pictured for the
+  first time. The demo data behind the captures covers two tenant sites, nine proxies,
+  certificates, bans, threat feeds and a week of traffic shaped by a daily curve, so the trend,
+  stage and source views show something realistic.
+
 ## [1.62.2] — 2026-11-24
 
 ### Added

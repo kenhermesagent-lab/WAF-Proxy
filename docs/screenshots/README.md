@@ -1,14 +1,13 @@
 # Console screenshots
 
-The images in this directory come from a two-NIC demo install (`demo.home.arpa`) and **contain
+The images in this directory come from a demo install (`demo.home.arpa`) and **contain
 sample data**: the sites, bans, events, feeds and certificates were created for the
 documentation, not taken from a real deployment. They are here so the guides can show what a
 page looks like before you open it.
 
-They were captured from the **v1.48.8** console (the version in the About card of the Settings
-capture), so the sidebar has since gained **Sites**, **High availability**, the tenant switcher
-and a few renamed groups. The pages and their controls are otherwise the ones this release
-serves. Everybody sees the full gallery in the
+They were captured from the **v1.62.2** console (the version in the About card of each
+capture), with two tenant sites, nine proxies, certificates, bans, threat feeds and a week of
+traffic shaped by a daily curve. Everybody sees the full gallery in the
 [README console tour](../../README.md#console-tour); the guides below reuse the same files.
 
 | Image | Page | Also used in |
@@ -30,11 +29,13 @@ serves. Everybody sees the full gallery in the
 | [settings.png](settings.png) | Settings: network, protection, retention, backup, GeoIP | [Configuration reference](../CONFIGURATION.md) |
 | [readiness.png](readiness.png) | Readiness: scored hardening checklist | [Security policy](../../SECURITY.md), [Configuration reference](../CONFIGURATION.md) |
 | [updates.png](updates.png) | Updates: application and host packages | [Configuration reference](../CONFIGURATION.md) |
+| [sites.png](sites.png) | Sites: tenant sites, console hosts and owned hostnames | [README console tour](../../README.md#console-tour) |
+| [ha.png](ha.png) | High availability: cluster state and node pairing | [README console tour](../../README.md#console-tour) |
 
-Not pictured: **Sites**, **High availability**, **Tailscale**, **Cloudflare** and **Account**.
-They were added after these captures; their fields are documented in the
+Not pictured: **Tailscale**, **Cloudflare** and **Account**. Their fields are documented in the
 [configuration reference](../CONFIGURATION.md#sites) instead of here.
 
 To retake them, run the console on a demo data directory against a build whose About card you
-want to show, seed a few sites and a day of events, sign in on the default console host and
-capture each page at 1440 px wide.
+want to show, seed a few sites and a week of events, sign in on the default console host and
+capture each page at 1440 px wide. The High availability capture was taken with HA enabled and
+an unpaired node, which is the state a fresh install shows before pairing.
