@@ -48,8 +48,8 @@ describe("routeFromHash", () => {
     expect(routeFromHash("#/intel/lookup")).toEqual({ page: "intel", tab: "lookup" });
     expect(routeFromHash("#proxies/certs")).toEqual({ page: "proxies", tab: "certs" });
     expect(routeFromHash("#/statistics/gate")).toEqual({ page: "statistics", tab: "gate" });
-    expect(routeFromHash("#/settings/")).toEqual({ page: "settings", tab: "" });
-    expect(routeFromHash("#/settings/readiness")).toEqual({ page: "settings", tab: "" });
+    expect(routeFromHash("#/settings/")).toEqual({ page: "settings", tab: "network" });
+    expect(routeFromHash("#/settings/readiness")).toEqual({ page: "settings", tab: "readiness" });
   });
 
   it("falls back to the default tab for an unknown one", () => {
@@ -61,8 +61,8 @@ describe("routeFromHash", () => {
     expect(routeFromHash("#/crowdsec")).toEqual({ page: "intel", tab: "crowdsec" });
     expect(routeFromHash("#/certs")).toEqual({ page: "proxies", tab: "certs" });
     expect(routeFromHash("#/streaming")).toEqual({ page: "proxies", tab: "streaming" });
-    expect(routeFromHash("#/updates")).toEqual({ page: "settings", tab: "" });
-    expect(routeFromHash("#/readiness")).toEqual({ page: "settings", tab: "" });
+    expect(routeFromHash("#/updates")).toEqual({ page: "settings", tab: "updates" });
+    expect(routeFromHash("#/readiness")).toEqual({ page: "settings", tab: "readiness" });
   });
 
   it("ignores the query string", () => {

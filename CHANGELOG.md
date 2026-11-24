@@ -12,7 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [1.65.7] — 2026-11-24
+## [1.65.8] — 2026-11-24
 
 ### Docs
 
@@ -24,6 +24,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   rows cite the vendors' own documentation and published corpus numbers, labelled as claims, and the
   1–10 ratings say which scores rest on measurement. The README carries the short version, including
   that HAProxy is 6.3× faster because it does not inspect requests.
+
+## [1.65.7] — 2026-11-24
+
+### Fixed
+
+- **A remembered browser no longer looks like it needs an authenticator code.** The sign-in form
+  always drew the field, and the server skipped the check only after the form was submitted, so a
+  browser with a live device cookie still had to be told it was remembered. `GET /api/login/device`
+  now answers for the cookie the browser presents; the form leaves the field out, says the browser
+  is remembered, offers **Use the authenticator instead** for another account on the same browser,
+  and hides the remember checkbox once it is set. The endpoint answers `trusted: false` for a
+  browser without a cookie and for an address the admin allowlist refuses, so it names no account
+  it does not already hold.
+
+### Added
+
+- **Settings is a set of tabs instead of one long page.** Network, Updates, Protection, Retention,
+  High availability, Backup, Runtime, GeoIP, Activity, Readiness and About each open on their own at
+  `#/settings/<tab>`; the old `#/updates` and `#/readiness` links land on their tab. The HA tab and
+  section stay absent on a tenant console, and a deep link to a tab this console may not show opens
+  the first one it can. The page keeps its unsaved changes across tabs and still saves them
+  together from the bar at the bottom.
+- **The application update shows its progress.** The fixed updater writes each stage to
+  `/run/wafproxy-updates/progress`, the root helper reads it for the console (the only path that
+  works when the console runs in a container), and the Updates card draws a percentage bar with the
+  stage beside it — refreshing the checkout, rebuilding the console, building the binaries,
+  installing, restarting. The helper clears the previous run's file when a new update starts, so the
+  bar cannot open at 100 %.
+
+### Documentation
+
+- The configuration reference describes the Settings tabs, adds the Updates tab with the stages the
+  progress bar reports, and says the sign-in form leaves the authenticator out on a remembered
+  browser. The operations runbook uses the stage name to tell a Node failure from a Go one before
+  anyone opens the log.
 
 ## [1.65.6] — 2026-11-24
 

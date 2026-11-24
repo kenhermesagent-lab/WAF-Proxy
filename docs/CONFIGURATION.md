@@ -85,9 +85,11 @@ browser.
 *Settings: network, protection, retention, backup and the GeoIP database. Sample data.*
 
 
-**Settings** holds node-wide defaults. Saving reloads the policy engine, the body limit, the
-stealth rules and the interface sampler without dropping connections. Bind-address changes take
-effect after a restart.
+**Settings** holds node-wide defaults, one tab per section — Network, Updates, Protection,
+Retention, High availability, Backup, Runtime, GeoIP, Activity, Readiness and About — so a tab
+opens on its own section alone at `#/settings/network`, `#/settings/updates` and so on. Saving
+reloads the policy engine, the body limit, the stealth rules and the interface sampler without
+dropping connections. Bind-address changes take effect after a restart.
 
 ### Network
 
@@ -105,6 +107,17 @@ effect after a restart.
 A single-NIC host enters the same address for WAN and LAN and firewalls the GUI port from the WAN
 side. Both addresses are required — an empty bind address would put the console on every
 interface.
+
+### Updates
+
+![Updates: the application version beside the tracked branch](screenshots/updates.png)
+
+The same cards as the **Updates** page: the running console and host-package versions, the check
+against the tracked branch, and the button that pulls, rebuilds and restarts this install. While an
+application update runs, the card draws a progress bar from the stage the root helper reports
+(`refreshing the checkout`, `rebuilding the console`, `building the binaries`, `installing the new
+binaries`, `restarting WAF-Proxy`), so a rebuild that takes minutes is not a spinner with no news.
+The helper reports the stage from the host, which is also how a Docker install sees it.
 
 ### Protection
 
@@ -954,7 +967,7 @@ Settings switch exist only on the default site's console.
 | Authenticator | Rotates the TOTP secret; shows the new secret and `otpauth://` URL once. The current password or a recovery code is required. |
 | Recovery codes | Ten single-use codes issued at setup or rotation; each works once. |
 | Sessions | Lists signed-in administrators; **sign out everywhere** ends all sessions for this account. |
-| Remembered devices | **Remember this device** on the login form skips the authenticator in that browser for 30 days. Changing the password or rotating the authenticator forgets every device. |
+| Remembered devices | **Remember this device** on the login form skips the authenticator in that browser for 30 days, and a remembered browser opens the form without the authenticator field (with a link to the code when another account needs it). Changing the password or rotating the authenticator forgets every device. |
 
 Sign-in is password + TOTP, rate limited per address and per account. A recovery code is requested
 only after **Don't have your authenticator code?** is opened; a successful recovery login offers a

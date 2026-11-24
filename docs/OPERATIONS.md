@@ -112,6 +112,9 @@ excluded).
 
 ### Application update fails
 
+- The progress bar names the stage the updater reached, so a run that stalls on `rebuilding the
+  console` is a Node problem and one that stalls on `building the binaries` is a Go toolchain
+  problem, without reading the log first.
 - Native: the Updates page shows the captured pull/build output; `journalctl -u
   wafproxy-updates -n 100` shows the helper's start/stop and timeout errors. Check `git`, `make`,
   Go 1.27 and Node 26 are available to the checkout owner
