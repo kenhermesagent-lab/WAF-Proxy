@@ -49,7 +49,7 @@ describe("Readiness", () => {
         case "/api/audit/verify":
           return { ok: true, checked: 42 };
         case "/api/proxies":
-          return { proxies: [{ id: 1, hostname: "app.example.com", requests: 4 }] };
+          return [{ id: 1, hostname: "app.example.com", requests: 4 }];
         case "/api/users":
           return { users: [{ id: 1 }, { id: 2 }] };
         case "/api/me/prefs":
@@ -72,6 +72,8 @@ describe("Readiness", () => {
     expect(fixes).toContain("#/settings");
     expect(fixes).toContain("#/notifications");
 
+    expect(screen.getByText("1 hostname configured.")).toBeTruthy();
+    expect(screen.getByText("At least one request reached a proxied hostname.")).toBeTruthy();
     expect(screen.getByText("waf.example.com")).toBeTruthy();
     expect(screen.getByText("Intact across 42 entries.")).toBeTruthy();
   });
@@ -92,7 +94,7 @@ describe("Readiness", () => {
         case "/api/audit/verify":
           return { ok: true, checked: 1 };
         case "/api/proxies":
-          return { proxies: [{ id: 1, hostname: "app.example.com", requests: 4 }] };
+          return [{ id: 1, hostname: "app.example.com", requests: 4 }];
         case "/api/users":
           return { users: [{ id: 1 }, { id: 2 }] };
         case "/api/me/prefs":
@@ -126,7 +128,7 @@ describe("Readiness", () => {
         case "/api/audit/verify":
           return { ok: true, checked: 0 };
         case "/api/proxies":
-          return { proxies: [] };
+          return [];
         case "/api/users":
           return { users: [] };
         case "/api/me/prefs":

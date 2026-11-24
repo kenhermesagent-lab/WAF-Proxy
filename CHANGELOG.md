@@ -12,6 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.67.1] — 2026-11-24
+
+### Fixed
+
+- **Readiness no longer calls a configured hostname, and its traffic, missing.** The checklist read
+  `/api/proxies` as `{proxies: [...]}`, but that endpoint returns the array itself — the shape every
+  other page already used — so "A hostname is proxied" and "Traffic has arrived" were scored missing
+  on an install that was serving. The page now consumes the array, uses the shared `Proxy` type, and
+  its test mocks the real response instead of the broken shape, so the two rows can fail again only
+  if the endpoint changes.
+
 ## [1.67.0] — 2026-11-24
 
 ### Added

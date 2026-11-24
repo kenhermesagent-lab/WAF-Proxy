@@ -3,12 +3,11 @@ import { api } from "../api";
 import Icon from "../components/Icon";
 import { COFFEE_URL } from "../links";
 import { Badge, Card, PageHead, Skeleton, errText, fmtAgo } from "../ui";
-import type { Cert, CrowdSecStatus, GeoIPStatus, Me } from "../types";
+import type { Cert, CrowdSecStatus, GeoIPStatus, Me, Proxy } from "../types";
 
 type Backup = { config: { enabled: boolean }; status: { last_run?: string; last_error?: string } };
 type Chain = { ok: boolean; checked: number; problem?: string };
 type Notifications = { channels: Record<string, boolean> };
-type ProxyRow = { id: number; requests?: number };
 
 type Row = {
   id: string;
@@ -35,7 +34,7 @@ export default function Readiness({
 }) {
   const [settings, setSettings] = useState<Record<string, string> | null>(null);
   const [certs, setCerts] = useState<Cert[] | null>(null);
-  const [proxies, setProxies] = useState<ProxyRow[] | null>(null);
+  const [proxies, setProxies] = useState<Proxy[] | null>(null);
   const [users, setUsers] = useState<unknown[] | null>(null);
   const [geo, setGeo] = useState<GeoIPStatus | null>(null);
   const [backup, setBackup] = useState<Backup | null>(null);
@@ -61,7 +60,7 @@ export default function Readiness({
           onError(errText(e));
         }),
       api.get<{ certs: Cert[] }>("/api/certs").then((v) => alive && setCerts(v.certs ?? [])).catch(() => fail("certs")),
-      api.get<{ proxies: ProxyRow[] }>("/api/proxies").then((v) => alive && setProxies(v.proxies ?? [])).catch(() => fail("proxies")),
+      api.get<Proxy[]>("/api/proxies").then((v) => alive && setProxies(v)).catch(() => fail("proxies")),
       api.get<{ users: unknown[] }>("/api/users").then((v) => alive && setUsers(v.users ?? [])).catch(() => fail("users")),
       api.get<GeoIPStatus>("/api/geoip").then((v) => alive && setGeo(v)).catch(() => fail("geoip")),
       api.get<Backup>("/api/backup/schedule").then((v) => alive && setBackup(v)).catch(() => fail("backup")),
