@@ -43,6 +43,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   would otherwise look green. `ghcr.io/<owner>/wafproxy:latest` moves only when the tag is the
   newest on `origin`, so dispatching an older tag republishes its own version and leaves the alias
   where it is.
+- **The tag job's credential is one line.** The checkout keeps its credential out of git and the
+  remote carries `TAG_PUSH_TOKEN` (or the App token when the repository sets none), so the header
+  probing, purging and fallbacks that grew around the duplicate-header refusal are gone.
 - **The token is checked before it replaces the working one.** `TAG_PUSH_TOKEN` is offered to the
   GitHub API first; only an accepted token takes the place of the checkout's credential in the remote
   and the authorization header, so a typo or an expired token cannot lock the job out of the repository

@@ -59,68 +59,31 @@ jobs:
           # own Authorization header, and a second one is refused as a duplicate by
           # the remote. The step below installs the one credential it needs.
           persist-credentials: false
-      # The tags are annotated, and git refuses a tag without an identity.
-      - name: Give git an identity for the tags
-        run: |-
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-      - name: Create the tags on origin
+      # The tags are annotated, and git refuses a tag without an identity. The
+      # remote carries the wide token here because the App's cannot push a tag
+      # that spans a workflow change; the checkout kept its own credential out of
+      # git, so this is the only one.
+      - name: Give git an identity and a token that may push tags
         env:
-          VERSIONS: ${{ inputs.versions }}
-          DRY_RUN: ${{ inputs.dry_run }}
-          # A tag whose release spans a workflow change is refused to the App, so
-          # TAG_PUSH_TOKEN (a token with the workflow scope) is used when it is
-          # set; the App token stays the fallback for when it is not.
           TAG_PUSH_TOKEN: ${{ secrets.TAG_PUSH_TOKEN }}
-          # The API fallback in the script needs a token, and the repository name.
-          GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |-
           set -euo pipefail
-          # The checkout leaves the App token in origin's URL and in the same
-          # extraheader this uses, and that is the credential that cannot push a
-          # workflow-spanning tag. The wider token replaces it in both places, but
-          # only after GitHub accepts it: a rejected token would otherwise take
-          # the working credential away with it. A stray newline out of the secret
-          # rides inside the header, so it is trimmed first.
-          if [[ -n ${TAG_PUSH_TOKEN:-} ]]; then
-            token=${TAG_PUSH_TOKEN//[[:space:]]/}
-            headers=$(curl -sS -D - -o /dev/null -H "Authorization: Bearer $token" \
-              -H 'Accept: application/vnd.github+json' https://api.github.com/user)
-            code=$(printf '%s\n' "$headers" | awk 'NR==1 {print $2}')
-            scopes=$(printf '%s\n' "$headers" | tr -d '\r' |
-              awk -F': ' 'tolower($1) == "x-oauth-scopes" {print $2}')
-            if [[ $code == 200 ]]; then
-              export GH_TOKEN=$token
-              # Any header git finds, whatever key it is under, would sit beside
-              # this one and be refused, so none survive.
-              git config --local --get-regexp '^http\..*extraheader$' 2>/dev/null |
-                awk '{print $1}' | sort -u |
-                while read -r key; do git config --local --unset-all "$key" || true; done || true
-              git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
-              git config --local --add 'http.https://github.com/.extraheader' \
-                "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$token" | base64 -w0)"
-              echo "TAG_PUSH_TOKEN accepted, scopes: ${scopes:-none reported}"
-              # The API accepting the token does not prove git can use it, and a
-              # silent git exit code leaves nothing to act on. Say what happened
-              # and put the App credential back rather than lose the repository.
-              if ! git_probe=$(git ls-remote --heads origin refs/heads/main 2>&1); then
-                echo "::error::git cannot read origin with TAG_PUSH_TOKEN: ${git_probe//$token/<token>}" >&2
-                git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-                git config --local --unset-all 'http.https://github.com/.extraheader' || true
-                export GH_TOKEN=$GITHUB_TOKEN
-              fi
-            else
-              echo "::warning::TAG_PUSH_TOKEN is not accepted by GitHub (HTTP $code); using the App token, which cannot push a tag that spans a workflow change" >&2
-              # No wide token: the App token in the URL is the only credential.
-              git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            fi
-          else
-            # No secret configured: same single App credential, as before.
-            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          token=${TAG_PUSH_TOKEN:-$GITHUB_TOKEN}
+          token=${token//[[:space:]]/}
+          git remote set-url origin "https://x-access-token:${token}@github.com/${GITHUB_REPOSITORY}.git"
+      - name: Create the tags on origin
+        env:
+          VERSIONS: ${{ inputs.versions }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          # The API fallback in the script needs a token, and the repository name.
+          GH_TOKEN: ${{ secrets.TAG_PUSH_TOKEN || github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |-
+          set -euo pipefail
           args=()
           if [[ $DRY_RUN == true ]]; then
             args+=(--dry-run)
