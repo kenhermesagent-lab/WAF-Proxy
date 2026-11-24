@@ -141,18 +141,28 @@ func (s *Server) updateAccessList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in model.AccessList
-	if err := decode(r, &in); err != nil {
+	sent, err := decodeSent(r, &in)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
 	// The name and kind are fixed once created: a profile points here, and an
 	// edited kind would silently turn a blocklist into an allow list.
 	in.Name, in.Kind = current.Name, current.Kind
-	if msg := normalizeAccessList(&in); msg != "" {
+	// An emptied list is a real setting, so only a named key is written: editing
+	// the addresses must not clear the countries, which would silently widen or
+	// narrow what the list covers.
+	if _, ok := sent["ips"]; ok {
+		current.IPs = in.IPs
+	}
+	if _, ok := sent["countries"]; ok {
+		current.Countries = in.Countries
+	}
+	current.Name, current.Kind = in.Name, in.Kind
+	if msg := normalizeAccessList(current); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	current.IPs, current.Countries = in.IPs, in.Countries
 	before := s.snapshotAccessList(r, current.ID)
 	if err := s.db(r).UpdateAccessList(current); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update list")

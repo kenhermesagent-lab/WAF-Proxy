@@ -105,21 +105,43 @@ func (s *Server) updateProtectionProfile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var in model.ProtectionProfile
-	if err := decode(r, &in); err != nil {
+	sent, err := decodeSent(r, &in)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	p.ForceHTTPS = in.ForceHTTPS
-	p.HSTS = in.HSTS
-	p.HSTSSubdomains = in.HSTSSubdomains
-	p.NoSniff = in.NoSniff
-	p.HideServer = in.HideServer
-	p.FrameOptions = in.FrameOptions
-	p.ReferrerPolicy = in.ReferrerPolicy
-	p.CSP = strings.TrimSpace(in.CSP)
-	p.PermissionsPolicy = strings.TrimSpace(in.PermissionsPolicy)
-	if p.FrameOptions == "" {
-		p.FrameOptions = "off"
+	// Every switch is off by default, so an omitted one cannot be told from an
+	// explicit false: only the keys the payload names are written. A request
+	// turning on HSTS must not silently drop the CSP and nosniff with it.
+	if _, ok := sent["force_https"]; ok {
+		p.ForceHTTPS = in.ForceHTTPS
+	}
+	if _, ok := sent["hsts"]; ok {
+		p.HSTS = in.HSTS
+	}
+	if _, ok := sent["hsts_subdomains"]; ok {
+		p.HSTSSubdomains = in.HSTSSubdomains
+	}
+	if _, ok := sent["nosniff"]; ok {
+		p.NoSniff = in.NoSniff
+	}
+	if _, ok := sent["hide_server"]; ok {
+		p.HideServer = in.HideServer
+	}
+	if _, ok := sent["frame_options"]; ok {
+		p.FrameOptions = in.FrameOptions
+		if p.FrameOptions == "" {
+			p.FrameOptions = "off"
+		}
+	}
+	if _, ok := sent["referrer_policy"]; ok {
+		p.ReferrerPolicy = in.ReferrerPolicy
+	}
+	if _, ok := sent["csp"]; ok {
+		p.CSP = strings.TrimSpace(in.CSP)
+	}
+	if _, ok := sent["permissions_policy"]; ok {
+		p.PermissionsPolicy = strings.TrimSpace(in.PermissionsPolicy)
 	}
 	if msg := validateProtectionProfile(p); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
@@ -237,18 +259,29 @@ func (s *Server) updateAccessProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in model.AccessProfile
-	if err := decode(r, &in); err != nil {
+	sent, err := decodeSent(r, &in)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if msg := s.validateAccessProfile(r, &in); msg != "" {
+	// An empty rule set is a real setting, so presence decides: a request
+	// changing the WAF profile must not empty the lists that grant access.
+	if _, ok := sent["rules"]; ok {
+		current.Rules = in.Rules
+	}
+	if _, ok := sent["list_ids"]; ok {
+		current.ListIDs = in.ListIDs
+	}
+	if _, ok := sent["waf_profile_id"]; ok {
+		current.WAFProfileID = in.WAFProfileID
+	}
+	if _, ok := sent["protection_profile_id"]; ok {
+		current.ProtectionProfileID = in.ProtectionProfileID
+	}
+	if msg := s.validateAccessProfile(r, current); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	current.Rules = in.Rules
-	current.ListIDs = in.ListIDs
-	current.WAFProfileID = in.WAFProfileID
-	current.ProtectionProfileID = in.ProtectionProfileID
 	before := s.snapshotAccessProfile(r, current.ID)
 	if err := s.db(r).UpdateAccessProfile(current); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")

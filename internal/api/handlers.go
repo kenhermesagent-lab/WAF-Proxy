@@ -1333,11 +1333,11 @@ func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in model.Feed
-	if err := decode(r, &in); err != nil {
+	sent, err := decodeSent(r, &in)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	in.ID = id
 	current, err := s.db(r).FeedByID(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "feed not found")
@@ -1347,19 +1347,44 @@ func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	if current.Local {
+	// Merge onto the stored row: a request pausing a feed must not blank its
+	// URL, its action or the fetch state that decides whether it is healthy.
+	merged := *current
+	merged.ID = id
+	if _, ok := sent["name"]; ok {
+		merged.Name = strings.TrimSpace(in.Name)
+	}
+	if _, ok := sent["url"]; ok {
+		merged.URL = strings.TrimSpace(in.URL)
+	}
+	if _, ok := sent["action"]; ok {
+		merged.Action = in.Action
+	}
+	if _, ok := sent["interval_s"]; ok {
+		merged.IntervalS = in.IntervalS
+	}
+	if _, ok := sent["enabled"]; ok {
+		merged.Enabled = in.Enabled
+	}
+	if _, ok := sent["always_block"]; ok {
+		merged.AlwaysBlock = in.AlwaysBlock
+	}
+	if merged.Local {
 		// Uploaded lists are a blocklist; neither the UI nor a crafted request
 		// may downgrade them to challenge or log-only.
-		in.Action = "block"
+		merged.Action = "block"
 	}
-	if in.IntervalS <= 0 {
-		in.IntervalS = 900
+	if merged.IntervalS <= 0 {
+		merged.IntervalS = 900
 	}
-	if err := s.db(r).UpdateFeed(&in); err != nil {
+	if err := s.db(r).UpdateFeed(&merged); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
 	}
-	go s.feeds.Refresh(context.Background(), id)
+	// A server built without the engine (unit tests) has nothing to refresh.
+	if s.feeds != nil {
+		go s.feeds.Refresh(context.Background(), id)
+	}
 	sess := sessionFrom(r)
 	s.db(r).AddAudit(sess.Username, "feed.update", strconv.FormatInt(id, 10), clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
