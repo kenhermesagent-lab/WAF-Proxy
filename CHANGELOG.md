@@ -36,6 +36,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `ghcr.io/<owner>/wafproxy:<version>`, so a tag delivers the binaries and the image that matches
   them. Dispatching the workflow for a tag that already exists builds and publishes its image the
   same way, so a release cut before this rule can still get one.
+- **The release image is published for amd64 and arm64, and `latest` follows the newest tag.** One
+  buildx build publishes both platforms under the documented package name, and the job reads the
+  index back, so a manifest that lost an architecture fails the release instead of one host's pull.
+  It then pulls the tag back from the registry and boots that copy, catching a truncated upload that
+  would otherwise look green. `ghcr.io/<owner>/wafproxy:latest` moves only when the tag is the
+  newest on `origin`, so dispatching an older tag republishes its own version and leaves the alias
+  where it is.
 
 ### Fixed
 
