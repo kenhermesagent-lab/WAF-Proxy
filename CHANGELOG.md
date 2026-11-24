@@ -54,6 +54,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   annotation instead of a bare git exit code, and the wider token goes in as an authorization header
   with the checkout's own credential stripped from the remote first, because one request carries one
   credential and sending both is what made the first attempt die on a `git ls-remote`.
+- **The README is now the front door.** A logo and version badge, a dashboard crop that shows the
+  attack map, grouped feature highlights, a console gallery and the Docker, build, systemd and
+  upgrade steps side by side, in place of the page that opened with a wall of prose.
 - **A drain that races the HTTP/3 bind no longer loses the socket.** `Serve` installed the QUIC
   listener while a demotion could be reading it, which the race detector reported in
   `TestHTTP3DrainReleasesTheUDPPort`; the pointer is now loaded and stored atomically, and a bind that

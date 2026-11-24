@@ -1,0 +1,21 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="WAF-Proxy">
+  <title>WAF-Proxy</title>
+  <defs>
+    <linearGradient id="rim" x1="30" y1="16" x2="98" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7DD3FC" />
+      <stop offset="100%" stop-color="#2563EB" />
+    </linearGradient>
+    <linearGradient id="face" x1="64" y1="20" x2="64" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0A172E" />
+      <stop offset="100%" stop-color="#030712" />
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="124" height="124" rx="30" fill="#050A17" stroke="#1E293B" stroke-width="2" />
+  <path d="M64 19.2L100 32.4V63.2C100 84.8 84.4 100.8 64 109.2C43.6 100.8 28 84.8 28 63.2V32.4L64 19.2Z"
+        fill="url(#face)" stroke="url(#rim)" stroke-width="7.2" stroke-linejoin="round" />
+  <path d="M64 22.4L96.4 34.4V63.2C96.4 82.4 82.4 97.2 64 105.2V22.4Z" fill="#2563EB" fill-opacity="0.14" />
+  <path d="M64 30V98" stroke="#38BDF8" stroke-opacity="0.2" stroke-width="4" stroke-dasharray="4 8" />
+  <path d="M47.2 48.8H80.8" stroke="#E0F2FE" stroke-width="6.8" stroke-linecap="round" />
+  <path d="M50.4 62.4H77.6" stroke="#38BDF8" stroke-width="6.8" stroke-linecap="round" />
+  <path d="M55.2 76H72.8" stroke="#3B82F6" stroke-width="6.8" stroke-linecap="round" />
+</svg>
