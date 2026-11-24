@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -242,6 +243,15 @@ SecAction "id:9001004,phase:3,nolog,pass,t:none,setvar:tx.blocking_paranoia_leve
 	// open. The trailing boundary keeps ordinary files such as
 	// "/etc/passwd-docs" out of the rule.
 	directives += `SecRule REQUEST_FILENAME "@rx (?i)(?:^|/)(?:etc/(?:passwd|shadow|group|gshadow|sudoers)|proc/(?:self|[0-9]+)/(?:environ|cmdline)|\.ssh/(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|authorized_keys))(?:/|$)" "id:900110,phase:1,deny,status:403,log,severity:'CRITICAL',tag:'attack-lfi',msg:'path-style file access probe'"
+`
+	// The same blind spot exists for SQL injection: the CRS SQLi rules
+	// inspect arguments, cookies, headers and the body, so "?id=1' OR 1=1--"
+	// was blocked while the identical payload in a REST path
+	// ("/item/1' OR 1=1--") reached the backend. libinjection is the operator
+	// CRS itself uses for the query string, run here on the path instead, and
+	// it denies outright rather than waiting for the anomaly score to add up:
+	// a database query in a path is never something an operator wants.
+	directives += `SecRule REQUEST_FILENAME "@detectSQLi" "id:900111,phase:1,deny,status:403,log,severity:'CRITICAL',tag:'attack-sqli',msg:'SQL injection in request path'"
 `
 
 	origins := map[int]bundleOrigin{}
@@ -480,6 +490,20 @@ func (e *Engine) InspectAll(r *http.Request, body []byte, clientIP netip.Addr) (
 	tx.AddRequestHeader("Host", r.Host)
 	tx.ProcessRequestHeaders()
 	if len(body) > 0 {
+		// Coraza interrupts on SecRequestBodyLimit with rule 0, which reads
+		// as an unnamed block in the console. Name it here instead, and do it
+		// before any scanning so a large body is never walked.
+		if e.maxBody > 0 && int64(len(body)) > e.maxBody {
+			return Result{Matched: true, Blocked: true, RuleID: 200004, ProfileID: e.id, Paranoia: e.paranoia,
+				Message: "request body rejected by the WAF body limit", Label: "protocol-violation"}, nil
+		}
+		// XXE cannot be a Coraza rule: its XML processor drops the DOCTYPE
+		// directive and nothing populates REQUEST_BODY, so only the raw bytes
+		// here can see it. Internal entities and DTD-less XML still pass.
+		if externalEntityRe.Match(body) {
+			return Result{Matched: true, Blocked: true, RuleID: 900112, ProfileID: e.id, Paranoia: e.paranoia,
+				Message: "XML external entity declaration", Label: "xxe"}, nil
+		}
 		if _, _, err := tx.WriteRequestBody(body); err != nil {
 			// Fail closed: a body the engine could not consume (for example one
 			// above the profile limit) must never be forwarded uninspected.
@@ -621,11 +645,22 @@ func (e *Engine) summarise(res Result, matched []types.MatchedRule, interrupted 
 	return res, found
 }
 
+// externalEntityRe matches an XML declaration that pulls in an external
+// resource. Coraza cannot see one: its XML processor drops the DOCTYPE
+// directive and REQUEST_BODY is never populated, so both XML:/* and
+// REQUEST_BODY are empty of it. The match is bounded so a body full of "<!"
+// cannot make the scan quadratic.
+var externalEntityRe = regexp.MustCompile(`(?is)<!\s*(?:ENTITY|DOCTYPE)\b[^>]{0,300}?\b(?:SYSTEM|PUBLIC)\b`)
+
 // Label maps a CRS rule ID to a short attack category.
 func Label(ruleID int) string {
 	switch ruleID {
 	case 900110:
 		return "lfi"
+	case 900111:
+		return "sqli"
+	case 900112:
+		return "xxe"
 	case norm.RuleDuplicate, norm.RuleDoubleEncoded:
 		return "normalization"
 	}

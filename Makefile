@@ -11,7 +11,7 @@ LDFLAGS := -s -w \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/version.BuildDate=$(BUILD_DATE) \
 	-X github.com/kenhermesagent-lab/waf-proxy-docker/internal/updates.AppRepo=$(REPO)
 
-.PHONY: all ui build run test test-release docs-check vet fmt docker install clean verify-release sbom perf perf-gate perf-record
+.PHONY: all ui build run test test-release waf-corpus docs-check vet fmt docker install clean verify-release sbom perf perf-gate perf-record
 
 all: ui build
 
@@ -30,6 +30,11 @@ docs-check:
 
 test: docs-check
 	go test ./...
+
+# The bypass corpus from the security review, run on its own so a failing
+# technique is readable without the rest of the suite around it.
+waf-corpus:
+	go test -count=1 -run 'TestBypassCorpus' -v ./internal/waf
 
 test-release:
 	bash deploy/check-version_test.sh

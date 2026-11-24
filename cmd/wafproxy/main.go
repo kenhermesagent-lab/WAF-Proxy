@@ -983,9 +983,14 @@ func run() error {
 		return ""
 	}
 
-	var lanHandler http.Handler = gui
+	// The console answers the names it was configured with, plus any address
+	// literal (how it is reached on a host network). A browser page on another
+	// origin cannot reach it through a Host it does not answer to. The tailnet
+	// listener is left alone: it is already gated on the peer address and is
+	// reached by its MagicDNS name.
+	var lanHandler http.Handler = api.ConsoleHosts(append([]string{cfg.GUIHost}, cfg.GUIAllowedHosts...), gui)
 	if cfg.GUIPrivateOnly {
-		lanHandler = api.PrivateNetworksOnly(gui)
+		lanHandler = api.PrivateNetworksOnly(lanHandler)
 	}
 	if msg := listenGUI(cfg.ListenGUI, lanHandler, true); msg != "" {
 		log.Error("admin listener failed", "addr", cfg.ListenGUI, "err", msg)

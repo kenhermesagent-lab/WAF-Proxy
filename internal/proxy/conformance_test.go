@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -80,6 +81,49 @@ func TestRejectsAmbiguousFraming(t *testing.T) {
 				t.Fatalf("the request reached the upstream %d times", after-before)
 			}
 		})
+	}
+}
+
+// TRACE is refused by the policy layer rather than by a rule, and the refusal
+// has to land before the upstream sees anything: a reflective TRACE is how
+// cross-site tracing reads a cookie back out of a request.
+func TestTraceIsRefused(t *testing.T) {
+	h := newHarness(t)
+	rec := serve(h, http.MethodTrace, "/", nil)
+	// Either layer may refuse it first: the protocol stage rejects a method it
+	// does not carry, the policy stage refuses TRACE by name.
+	if rec.Code != http.StatusMethodNotAllowed && rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 or 405: %s", rec.Code, rec.Body.String())
+	}
+	if hits := h.hits.Load(); hits != 0 {
+		t.Fatalf("a TRACE request reached the upstream %d times", hits)
+	}
+}
+
+// HTTP/0.9 has neither headers nor a Host, so a listener that accepted it would
+// forward a request no policy layer can evaluate. The server has to refuse it
+// before the pipeline, and nothing may reach the upstream either way.
+func TestHTTP09RequestIsRefused(t *testing.T) {
+	h := newHarness(t)
+	srv := httptest.NewServer(h.px)
+	defer srv.Close()
+	for _, raw := range []string{"GET /etc/passwd\r\n\r\n", "GET /etc/passwd HTTP/0.9\r\n\r\n"} {
+		conn, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(conn, raw); err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		line, _ := bufio.NewReader(conn).ReadString('\n')
+		_ = conn.Close()
+		if strings.Contains(line, "200") {
+			t.Fatalf("%q was answered with %q", raw, strings.TrimSpace(line))
+		}
+	}
+	if hits := h.hits.Load(); hits != 0 {
+		t.Fatalf("an HTTP/0.9 request reached the upstream %d times", hits)
 	}
 }
 

@@ -42,6 +42,12 @@ jobs:
       - name: Check generated API reference
         run: go run ./tools/openapi -check
       - run: go test -race -count=1 ./...
+      # The bypass corpus from the security review, one row per technique. The
+      # race run above already executes it; this makes the coverage visible in
+      # the log, so a CRS bump or a rule change that loses a technique names the
+      # probe that stopped blocking instead of showing up as a silent pass.
+      - name: WAF bypass corpus
+        run: go test -count=1 -run 'TestBypassCorpus' -v ./internal/waf
       - run: go build ./...
 
   frontend:

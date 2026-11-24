@@ -29,11 +29,14 @@ type Config struct {
 	ListenGUI string
 	// ListenGUITLS serves the console over HTTPS using the certificate that
 	// matches GUIHost from the certificate manager.
-	ListenGUITLS   bool
-	GUIHost        string
-	WANIface       string
-	LANIface       string
-	GUIPrivateOnly bool
+	ListenGUITLS bool
+	GUIHost      string
+	// GUIAllowedHosts are extra names the console answers to, for an operator
+	// that fronts it with a reverse proxy using a hostname of its own.
+	GUIAllowedHosts []string
+	WANIface        string
+	LANIface        string
+	GUIPrivateOnly  bool
 	// TrustedProxies lists the CIDRs whose X-Forwarded-For may name the
 	// client. Empty means nothing is trusted and the socket peer always wins.
 	TrustedProxies []string
@@ -111,6 +114,7 @@ func Load() (*Config, error) {
 		ListenGUI:        envOr("WAFPROXY_LISTEN_GUI", "127.0.0.1:8080"),
 		ListenGUITLS:     envBoolOr("WAFPROXY_LISTEN_GUI_TLS", false),
 		GUIHost:          strings.ToLower(strings.TrimSpace(os.Getenv("WAFPROXY_GUI_HOST"))),
+		GUIAllowedHosts:  splitList(os.Getenv("WAFPROXY_GUI_ALLOWED_HOSTS")),
 		ListenHTTP:       envOr("WAFPROXY_LISTEN_HTTP", ""),
 		HTTP3:            envBoolOr("WAFPROXY_HTTP3", false),
 		WANIface:         strings.TrimSpace(os.Getenv("WAFPROXY_WAN_IFACE")),

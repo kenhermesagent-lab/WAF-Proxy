@@ -12,6 +12,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.1] — 2026-11-24
+
+### Security
+
+- **SQL injection in the URL path is blocked.** A REST route carried the payload where the rule set
+  never looked: `?id=1' OR 1=1--` was refused while `/item;id=1' OR 1=1--` reached the backend,
+  because the CRS SQLi rules inspect arguments, cookies, headers and the body but not the path.
+  Rule 900111 runs libinjection — the operator CRS itself uses for the query string — on
+  `REQUEST_FILENAME` at paranoia level 1 and denies outright, and ordinary paths such as
+  `/blog/it's-a-good-day` still pass.
+- **XXE in an XML body is blocked.** No Coraza rule could catch it: the XML body processor drops
+  the DOCTYPE directive, so `XML:/*` never holds `<!ENTITY … SYSTEM>`, and nothing populates
+  `REQUEST_BODY`. Rule 900112 matches an external entity or external DTD declaration in the raw
+  body, whatever content type it arrives under; internal entities and ordinary XML pass.
+- **A request the WAF cannot judge is refused.** A profile whose engine was missing was allowed
+  through, which made the WAF silently off for that traffic. It is refused with a 503 and rule
+  200010 instead, so an inspection failure fails closed.
+- **The console answers only the names it was configured with.** It replied to any `Host`, so a
+  page on another origin could read it through the operator's browser. The LAN listener now refuses
+  a request unless the Host is an address literal, `localhost`, the console host or an entry in
+  `WAFPROXY_GUI_ALLOWED_HOSTS`. The tailnet listener is unchanged: it is gated on the peer address
+  and reached by its MagicDNS name.
+
+### Added
+
+- **A bypass corpus runs in CI.** Seventy-eight probes cover the techniques from the security
+  review — SQLi, XSS, path traversal, RCE, XXE, SSRF and protocol tricks — at paranoia level 1,
+  plus controls that must stay allowed. `make waf-corpus` runs it alone, and the `backend` job runs
+  it by name, so a CRS update that loses a technique fails the build with the probe that stopped
+  blocking.
+
 ## [1.65.0] — 2026-11-24
 
 ### Added

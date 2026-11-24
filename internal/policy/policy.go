@@ -1193,9 +1193,15 @@ func (e *Engine) inspect(req *Request) (model.Verdict, WAFInfo, []waf.Match) {
 	if mode == "off" {
 		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}, nil
 	}
-	engine := e.wafs.For(p.ProfileID)
+	// Fail closed. Without an engine the request cannot be judged, and an allow
+	// here would be a WAF silently off for every request it could not compile.
+	var engine *waf.Engine
+	if e.wafs != nil {
+		engine = e.wafs.For(p.ProfileID)
+	}
 	if engine == nil {
-		return model.Verdict{Action: "allow", Stage: "waf"}, WAFInfo{}, nil
+		return model.Verdict{Action: "block", Stage: "waf", Rule: "200010", Status: http.StatusServiceUnavailable,
+			Reason: "no WAF engine is compiled for this profile"}, WAFInfo{}, nil
 	}
 	res, matches := engine.InspectAll(req.HTTP, req.Body, req.Addr)
 	info := WAFInfo{Matched: res.Matched, RuleID: res.RuleID, Label: res.Label, Message: res.Message, Profile: engine.Name()}
