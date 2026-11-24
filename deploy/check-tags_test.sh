@@ -135,30 +135,43 @@ expect_fail "a tag for a version CHANGELOG.md does not ship" stray_tag
 
 tag_dated() { GIT_COMMITTER_DATE="$2" git -C "$root" tag -a "v$1" -m "Release $1"; }
 
-# The order is decided by tag dates, so the fixture pins them instead of racing
-# the clock: the older version is cut either before or after the newer one.
+# Order is decided by the release commit's date, so the fixture pins commits
+# rather than tags and does not race the clock: the older version's commit is
+# either before or after the newer release's commit.
 late_fixture() {
-  local newer=$1 older=$2
+  local newer_commit=$1 older_commit=$2
   changelog 1.63.0 1.61.1 1.61.0 1.60.1
-  commit "1.63.0"
-  tag_dated 1.63.0 "$newer"
+  GIT_COMMITTER_DATE="$newer_commit" commit "1.63.0"
+  tag_dated 1.63.0 "$newer_commit"
   printf '# Changelog\n\n## [1.61.2] - 2026-01-02\n\n- test\n\n## [1.63.0] - 2026-01-01\n\n- test\n\n## [1.61.1] - 2026-01-01\n\n- test\n\n## [1.61.0] - 2026-01-01\n\n- test\n' >"$root/CHANGELOG.md"
   printf '1.61.2\n' >"$root/VERSION"
-  commit "1.61.2"
-  tag_dated 1.61.2 "$older"
+  GIT_COMMITTER_DATE="$older_commit" commit "1.61.2"
+  tag_dated 1.61.2 "$older_commit"
 }
 
 seed
 late_fixture "2030-01-01T00:00:00 +0000" "2031-01-01T00:00:00 +0000"
 if check --branch main; then
-  echo "a tag created after a newer release passed the tag check" >&2
+  echo "a release cut after a newer one passed the tag check" >&2
   exit 1
 fi
-# Cut before the newer release, the same tag is ordinary history.
+# Cut before the newer release, the same version is ordinary history.
 seed
 late_fixture "2030-01-01T00:00:00 +0000" "2029-01-01T00:00:00 +0000"
 if ! check --branch main; then
-  echo "tags cut in order failed the tag check" >&2
+  echo "releases cut in order failed the tag check" >&2
+  exit 1
+fi
+
+# Re-cutting a tag onto the commit that really cut its version is the fix this
+# check recommends, so a later tag date must not read as a late release.
+seed
+changelog 1.63.0 1.61.1 1.61.0 1.60.1
+GIT_COMMITTER_DATE="2030-01-01T00:00:00 +0000" commit "1.63.0"
+tag_dated 1.63.0 "2030-01-01T00:00:00 +0000"
+GIT_COMMITTER_DATE="2031-06-01T00:00:00 +0000" git -C "$root" tag -f -a v1.61.1 -m "Release 1.61.1" "$(git -C "$root" rev-parse 'v1.61.1^{}')" >/dev/null
+if ! check --branch main; then
+  echo "re-cutting an older tag failed the tag check" >&2
   exit 1
 fi
 # A tag below the floor predates the rule and is history, not a stray.

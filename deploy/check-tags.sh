@@ -153,12 +153,18 @@ fi
 # above the floor must name a version this CHANGELOG dates, and must have been
 # cut before a newer tag did. A v1.62.4 tag made after 1.63.0 shipped is the
 # second case, and its commit being on main does not make it a release.
-tag_time() {
-  local tag=$1
-  if ! git -C "$root" rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 && [[ $mode == remote ]]; then
-    git -C "$root" fetch --quiet --no-tags "$remote" "+refs/tags/${tag}:refs/tags/${tag}" >/dev/null 2>&1 || true
+# The date that decides order is the release commit's, not the tag's: re-cutting
+# a tag that landed on the wrong commit moves only the tag date, and that is the
+# fix this check itself recommends, so it must not read as a late release.
+commit_time() {
+  local tag=$1 commit
+  if ! commit=$(git -C "$root" rev-parse -q --verify "refs/tags/$tag^{}" 2>/dev/null); then
+    return 1
   fi
-  git -C "$root" for-each-ref --format='%(taggerdate:unix)' "refs/tags/$tag" 2>/dev/null || true
+  if ! git -C "$root" cat-file -e "${commit}^{commit}" 2>/dev/null && [[ $mode == remote ]]; then
+    git -C "$root" fetch --quiet --no-tags "$remote" "+refs/tags/${tag}:refs/tags/${tag}" >/dev/null 2>&1 || return 1
+  fi
+  git -C "$root" log -1 --format=%ct "$commit" 2>/dev/null
 }
 
 tagged=()
@@ -193,14 +199,15 @@ if [[ ${#kept[@]} -gt 0 ]]; then
   done
 
   newest=$(printf '%s\n' "${kept[@]}" | sort -V | tail -1)
-  newest_time=$(tag_time "v$newest")
+  newest_time=$(commit_time "v$newest")
   while IFS= read -r v; do
     [[ -z $v || $v == "$newest" ]] && continue
-    when=$(tag_time "v$v")
-    # A lightweight tag carries no tagger date and its own check already rejects
-    # it, so only an annotated tag can be out of order here.
+    when=$(commit_time "v$v")
+    # A release whose own commit is newer than the newest release was cut late,
+    # whatever its tag date says. An older tag re-cut onto its original commit
+    # keeps its old commit date, so it stays ordinary history.
     if [[ -n $when && -n $newest_time && $when -gt $newest_time ]]; then
-      fail "$v" "tag v$v was created after the newer v$newest, so the release went out of order" \
+      fail "$v" "v$v was cut after the newer v$newest shipped, so the release went out of order" \
         "delete it, and cut the version before a newer one ships: git tag -d v$v"
     fi
   done < <(printf '%s\n' "${kept[@]}")
