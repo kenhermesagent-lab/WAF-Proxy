@@ -46,6 +46,9 @@ type proxyConfig struct {
 	Hosts    int
 	Body     int
 	Cache    bool
+	// Encoding asks the proxy for a compressed body, which is what a cached
+	// hit serves.
+	Encoding string
 	HTTP2    bool
 	WAF      bool
 	Record   bool
@@ -85,6 +88,9 @@ func (c proxyConfig) mode() string {
 	m := "cache-off"
 	if c.Cache {
 		m = "cache-on"
+	}
+	if c.Encoding != "" && c.Encoding != "off" {
+		m += "-" + c.Encoding
 	}
 	if c.HTTP2 {
 		m += "-h2"
@@ -216,7 +222,7 @@ func proxyRun(c proxyConfig) (proxyResult, error) {
 		return proxyResult{}, err
 	}
 
-	body := bytes.Repeat([]byte("abcdefgh"), c.Body/8+1)[:c.Body]
+	body := proxyAsset(c.Body)
 	cacheControl := "no-store"
 	if c.Cache {
 		cacheControl = "max-age=60"
@@ -326,6 +332,17 @@ func proxyRun(c proxyConfig) (proxyResult, error) {
 		}
 	}()
 
+	accept := ""
+	switch c.Encoding {
+	case "", "off":
+	case "br":
+		accept = "gzip, deflate, br"
+	case "gzip":
+		accept = "gzip"
+	default:
+		return proxyResult{}, fmt.Errorf("-encoding %q: want off, br or gzip", c.Encoding)
+	}
+
 	url := "https://" + addr + "/asset"
 	deadline := time.Now().Add(c.Duration)
 	var wg sync.WaitGroup
@@ -347,6 +364,9 @@ func proxyRun(c proxyConfig) (proxyResult, error) {
 					continue
 				}
 				req.Host = host
+				if accept != "" {
+					req.Header.Set("Accept-Encoding", accept)
+				}
 				began := time.Now()
 				res, err := client.Do(req)
 				if err != nil {
@@ -415,6 +435,18 @@ func proxyRun(c proxyConfig) (proxyResult, error) {
 		Errors:       errorsSeen.Load(),
 		PeakRSSBytes: peakRSS(),
 	}, nil
+}
+
+// proxyAsset builds a body shaped like a page a site serves: repeated markup
+// with varying numbers, so compression weighs what it weighs on real HTML
+// instead of the near-zero bytes a repeated string produces.
+func proxyAsset(n int) []byte {
+	var b bytes.Buffer
+	for b.Len() < n {
+		i := b.Len()
+		fmt.Fprintf(&b, "<div class=\"row row-%d\" data-id=\"%d\"><span>cached asset %d</span></div>\n", i, i*7919%100000, i*104729%100000)
+	}
+	return b.Bytes()[:n]
 }
 
 // cpuModel names the machine the numbers belong to.

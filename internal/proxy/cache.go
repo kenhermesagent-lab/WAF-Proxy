@@ -2,12 +2,28 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/andybalholm/brotli"
+)
+
+const (
+	encBrotli   = "br"
+	encGzip     = "gzip"
+	encIdentity = "identity"
+
+	// cachedBrotliQuality trades ratio for CPU on the hit path; the table it
+	// was picked from is in docs/BENCHMARKS.md.
+	cachedBrotliQuality = 4
 )
 
 type cacheEntry struct {
@@ -15,6 +31,11 @@ type cacheEntry struct {
 	header  http.Header
 	body    []byte
 	expires time.Time
+	// One encoded copy per encoding, built by the first hit that asks for it.
+	mu           sync.Mutex
+	encoded      map[string][]byte
+	once         map[string]*sync.Once
+	variantBytes atomic.Int64
 }
 
 // responseCache stores only explicitly cacheable GET responses: no cookies, no
@@ -49,8 +70,138 @@ func cacheHost(key string) string {
 	return key
 }
 
+// cacheKey names one representation of a URL: the identity bytes. Encoded
+// bodies are variants inside the entry, so clients that order or weight
+// Accept-Encoding differently share one upstream fetch.
 func cacheKey(r *http.Request) string {
-	return r.Host + "|" + r.URL.RequestURI() + "|" + r.Header.Get("Accept-Encoding")
+	return r.Host + "|" + r.URL.RequestURI()
+}
+
+// negotiateEncoding picks the body encoding to send. identity is acceptable
+// unless the client excludes it (identity;q=0 or *;q=0), but it ranks below
+// any encoding the client names, so "gzip;q=0.5" gets gzip. br wins a tie
+// with gzip. ok is false when the client accepts nothing we can send.
+func negotiateEncoding(accept string) (enc string, ok bool) {
+	if strings.TrimSpace(accept) == "" {
+		return encIdentity, true
+	}
+	weights := map[string]float64{}
+	for _, part := range strings.Split(accept, ",") {
+		fields := strings.Split(part, ";")
+		name := strings.ToLower(strings.TrimSpace(fields[0]))
+		if name == "" {
+			continue
+		}
+		weight := 1.0
+		for _, param := range fields[1:] {
+			if q, has := strings.CutPrefix(strings.ToLower(strings.TrimSpace(param)), "q="); has {
+				v, err := strconv.ParseFloat(q, 64)
+				if err != nil || v < 0 || v > 1 {
+					weight = 0
+					break
+				}
+				weight = v
+			}
+		}
+		if old, seen := weights[name]; !seen || weight > old {
+			weights[name] = weight
+		}
+	}
+	star, hasStar := weights["*"]
+	weightOf := func(name string, fallback float64) float64 {
+		if v, ok := weights[name]; ok {
+			return v
+		}
+		if hasStar {
+			return star
+		}
+		return fallback
+	}
+	best, bestQ := "", 0.0
+	for _, name := range []string{encBrotli, encGzip} {
+		if q := weightOf(name, 0); q > bestQ {
+			best, bestQ = name, q
+		}
+	}
+	if q := weightOf(encIdentity, 0.001); q > bestQ {
+		return encIdentity, true
+	}
+	if best == "" {
+		return "", false
+	}
+	return best, true
+}
+
+// encodedBodies counts compressions, so a test can prove a variant is built
+// once per entry rather than once per hit.
+var encodedBodies atomic.Int64
+
+var brotliPool = sync.Pool{New: func() any { return brotli.NewWriterLevel(io.Discard, cachedBrotliQuality) }}
+var gzipPool = sync.Pool{New: func() any { return gzip.NewWriter(io.Discard) }}
+
+func encodeBody(enc string, body []byte) []byte {
+	encodedBodies.Add(1)
+	var buf bytes.Buffer
+	switch enc {
+	case encBrotli:
+		w := brotliPool.Get().(*brotli.Writer)
+		w.Reset(&buf)
+		_, _ = w.Write(body)
+		_ = w.Close()
+		brotliPool.Put(w)
+	case encGzip:
+		w := gzipPool.Get().(*gzip.Writer)
+		w.Reset(&buf)
+		_, _ = w.Write(body)
+		_ = w.Close()
+		gzipPool.Put(w)
+	default:
+		return body
+	}
+	return buf.Bytes()
+}
+
+// variant returns the body encoded as enc, built at most once per encoding and
+// counted against the same budget as the identity bytes.
+func (c *responseCache) variant(key string, e *cacheEntry, enc string) []byte {
+	e.mu.Lock()
+	if b, ok := e.encoded[enc]; ok {
+		e.mu.Unlock()
+		return b
+	}
+	once, ok := e.once[enc]
+	if !ok {
+		once = &sync.Once{}
+		e.once[enc] = once
+	}
+	e.mu.Unlock()
+	once.Do(func() {
+		b := encodeBody(enc, e.body)
+		e.mu.Lock()
+		e.encoded[enc] = b
+		e.mu.Unlock()
+		c.countVariant(key, e, int64(len(b)))
+	})
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.encoded[enc]
+}
+
+// countVariant charges an encoded copy to the cache and drops entries until it
+// fits again. An entry evicted while its variant was built is not charged.
+func (c *responseCache) countVariant(key string, e *cacheEntry, size int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries[key] != e {
+		return
+	}
+	host := cacheHost(key)
+	e.variantBytes.Add(size)
+	c.bytes += size
+	c.hostBytes[host] += size
+	for c.bytes > c.maxSize && len(c.entries) > 0 {
+		c.evictOldestLocked()
+	}
 }
 
 // variesBeyondEncoding reports whether a Vary header names a request field
@@ -144,15 +295,18 @@ func (c *responseCache) put(key string, status int, header http.Header, body []b
 		return
 	}
 	c.entries[key] = &cacheEntry{status: status, header: cp, body: body,
-		expires: c.now().Add(time.Duration(maxAge) * time.Second)}
+		expires: c.now().Add(time.Duration(maxAge) * time.Second),
+		encoded: map[string][]byte{}, once: map[string]*sync.Once{}}
 	c.bytes += size
 	c.hostBytes[host] += size
 }
 
 func (c *responseCache) removeLocked(key string, e *cacheEntry) {
 	host := cacheHost(key)
-	c.bytes -= int64(len(e.body))
-	c.hostBytes[host] -= int64(len(e.body))
+	// Variants belong to the entry, so eviction takes them with it.
+	size := int64(len(e.body)) + e.variantBytes.Load()
+	c.bytes -= size
+	c.hostBytes[host] -= size
 	if c.hostBytes[host] <= 0 {
 		delete(c.hostBytes, host)
 	}
@@ -211,7 +365,11 @@ func (w *cacheWriter) WriteHeader(code int) {
 	if !w.decided {
 		w.decided = true
 		w.status = code
-		if code != http.StatusOK || len(w.Header().Get("Cache-Control")) == 0 {
+		// A body the upstream already encoded cannot be stored as identity and
+		// re-encoded later. Read here, before the outer writer changes it.
+		ce := w.Header().Get("Content-Encoding")
+		if code != http.StatusOK || len(w.Header().Get("Cache-Control")) == 0 ||
+			(ce != "" && !strings.EqualFold(ce, encIdentity)) {
 			w.skip = true
 		}
 	}

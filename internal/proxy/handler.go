@@ -311,20 +311,37 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	up.inFlight.Add(1)
 	defer up.inFlight.Add(-1)
 
-	// Cache the uncompressed representation: the cache writer sits outside the
-	// gzip writer so a cache hit is written without a stale Content-Encoding.
+	// Cache the identity representation: the cache writer sits outside the gzip
+	// writer so a hit writes its own body instead of a stale encoding. An
+	// encoded hit is a variant of the one stored entry.
 	gz := newGzipWriter(rw, r.Header.Get("Accept-Encoding"))
 	var out http.ResponseWriter = gz
 	var cw *cacheWriter
 	if cacheableRequest(r) {
 		key := cacheKey(r)
+		enc, acceptable := negotiateEncoding(r.Header.Get("Accept-Encoding"))
+		if !acceptable {
+			blocked = true
+			event.Stage, event.RuleID = "cache", "not-acceptable"
+			rw.Header().Set("Vary", "Accept-Encoding")
+			uniformError(rw, http.StatusNotAcceptable)
+			return
+		}
 		if entry, ok := e.cache.get(key); ok {
-			for k, vals := range entry.header {
+			hdr := entry.header
+			body := entry.body
+			if enc != encIdentity && shouldCompress(entry.status, entry.header) {
+				// The stored header is shared, so the encoded hit writes a copy.
+				hdr = entry.header.Clone()
+				body = e.cache.variant(key, entry, enc)
+				hdr.Set("Content-Encoding", enc)
+				hdr.Set("Vary", "Accept-Encoding")
+			}
+			for k, vals := range hdr {
 				rw.Header()[k] = append([]string(nil), vals...)
 			}
-			rw.Header().Del("Content-Length")
 			rw.WriteHeader(entry.status)
-			_, _ = rw.Write(entry.body)
+			_, _ = rw.Write(body)
 			return
 		}
 		cw = &cacheWriter{ResponseWriter: gz, key: key, cache: e.cache}

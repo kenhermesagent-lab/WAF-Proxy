@@ -23,6 +23,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   200 clients against a 128-request budget refused 162,630 of 345,571 requests with no queue and
   none with it, while completing 17 % more of them. `WAFPROXY_MEMORY_LIMIT` sets the soft heap
   limit and boot refuses a buffer budget that cannot fit under it.
+- **A cached response is compressed once, for every client.** The cache key is now the URL alone:
+  one identity copy per entry, with `br` or `gzip` built on the first hit that asks for it and kept
+  inside the entry. Clients whose `Accept-Encoding` differed only in order or weights used to keep
+  duplicate entries and none of them received a compressed cached body. Negotiation honours
+  q-values (`br` wins a tie), a client that refuses every encoding gets a 406, and a body the
+  upstream already encoded is no longer stored as if it were plain. On the test host a hit on a
+  64 KiB asset served 39,817 rps against 3,667 rps for the same request through the pipeline, with
+  6,366 bytes on the wire instead of 65,536. Brotli is quality 4, chosen from the table in
+  `docs/BENCHMARKS.md`.
 - **A slow client cannot hold a request slot.** A request body now has its own deadline
   (`WAFPROXY_BODY_TIMEOUT`, default 30 s, per-site `body_timeout_s`, `0` disables it) that is cleared
   before the forward: a trickled upload is cut with a 408 and logged as `body-timeout`, while an
@@ -36,7 +45,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   fan-out, and records requests, rps, p50/p95/p99, shed count and peak RSS per mode in
   `perf/proxy-*.json`. The first recorded runs are in `docs/BENCHMARKS.md`: on this sandbox the
   uncached path served 6,080 rps, a cache hit 54,776 rps, and the same hit with the WAF on
-  10,574 rps.
+  10,574 rps. `-cache` and `-encoding` choose what the run asks for, including a compressed 64 KiB
+  asset for measuring the cache's encoded variants.
+- `github.com/andybalholm/brotli` (pure Go, no cgo) for cached response variants.
 
 ## [1.60.1] — 2026-11-23
 

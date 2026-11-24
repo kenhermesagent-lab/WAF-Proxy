@@ -64,6 +64,7 @@ func main() {
 	sites := flag.Int("sites", 4, "-proxy: hostnames behind the proxy")
 	body := flag.Int("body", 1024, "-proxy: upstream response size in bytes")
 	cache := flag.String("cache", "off", "-proxy: off or on (let the upstream response be cacheable)")
+	encoding := flag.String("encoding", "off", "-proxy: request Accept-Encoding: off, br or gzip")
 	h2 := flag.Bool("h2", false, "-proxy: speak HTTP/2 between client and proxy")
 	wafMode := flag.String("waf", "off", "-proxy: off or block (the Generic Web profile)")
 	inflight := flag.Int("inflight", 0, "-proxy: request budget (default twice the client count)")
@@ -86,7 +87,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "-waf: %q is not off or block\n", *wafMode)
 			os.Exit(1)
 		}
-		os.Exit(runProxy(proxyConfig{Root: *dir, Duration: *duration, Clients: *clients,
+		os.Exit(runProxy(proxyConfig{Root: *dir, Duration: *duration, Clients: *clients, Encoding: *encoding,
 			Hosts: *sites, Body: *body, Cache: cacheOn, HTTP2: *h2, WAF: wafOn, Record: *record,
 			Inflight: *inflight, Queue: *queue}))
 	}

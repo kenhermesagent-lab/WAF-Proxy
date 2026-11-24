@@ -87,8 +87,8 @@ What the numbers say, and do not:
   the proxy's own capacity counter.
 - Every client shares one loopback source address, so the run raises `dos_rps`/`dos_burst` out of
   the way. The per-source rate limit has its own tests; it is not what these rows measure.
-- `bytes` in `perf/proxy-*.json` is the body the client received (identity), not the gzip bytes
-  on the wire.
+- `bytes_out` in `perf/proxy-*.json` is what the client read off the wire: identity bytes without
+  `-encoding`, the compressed body with it.
 - One process, no real NIC and no separate client host: this is the pipeline's own ceiling, not a
   network measurement. `perf/proxy-*.json` carries each run's date and CPU, because a shared
   sandbox's neighbours change the numbers between runs.
@@ -114,6 +114,49 @@ shed requests it hides.
 go run ./cmd/perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=off -inflight 128 -queue 0 -record
 go run ./cmd/perftool -proxy -duration 30s -clients 200 -sites 4 -body 1024 -cache=off -inflight 128 -queue 250ms -record
 ```
+
+### Encoded cache hits: one entry, a variant per encoding
+
+A4 stores one identity copy of a cacheable response and builds `br` or `gzip` inside the entry on
+the first hit that asks for it, so two clients whose `Accept-Encoding` differs only in order or
+weights share one upstream fetch. For this run the stub asset is 64 KiB of page-shaped markup:
+the same rows with varying numbers, because a repeated 8-byte string compresses to nothing and
+would flatter both encodings. These rows therefore compare only within this table.
+
+| Run | Requests | rps | p95 | Bytes per response | Peak RSS |
+|---|---:|---:|---:|---:|---:|
+| `-cache=off -encoding br` (miss, gzip on the wire) | 36,792 | 3,667 | 110.6 ms | 9,680 | 399 MiB |
+| `-cache=on -encoding br` (hit, brotli variant) | 398,683 | 39,817 | 11.7 ms | 6,366 | 265 MiB |
+
+```bash
+go run ./cmd/perftool -proxy -duration 10s -clients 200 -sites 4 -body 65536 -inflight 256 -queue 250ms -cache=off -encoding br -record
+go run ./cmd/perftool -proxy -duration 10s -clients 200 -sites 4 -body 65536 -inflight 256 -queue 250ms -cache=on  -encoding br -record
+```
+
+- **A cached asset is 10.9× the same request through the pipeline** (39,817 vs 3,667 rps) and its
+  p95 falls from 110.6 ms to 11.7 ms.
+- **Bytes on the wire for the 64 KiB asset: 6,366 instead of 65,536** — a 90 % drop — and 34 %
+  below the 9,680 B gzip sends on a miss.
+- The miss row is higher in peak RSS because it compresses the 64 KiB body for every request;
+  the hit row pays that once per entry.
+
+Brotli quality on a 64 KiB page-shaped body, one compression per entry:
+
+| Quality | ns/op | Compressed bytes |
+|---|---:|---:|
+| 1 | 321,214 | 7,555 |
+| **4** (cached default) | 942,236 | 6,364 |
+| 9 | 3,118,462 | 6,890 |
+
+The 6,364 B the quality benchmark compresses to is the same body the hit row above puts on the
+wire, which is the check that the cache is serving the variant rather than re-compressing per hit.
+
+```bash
+go test ./internal/proxy -run '^$' -bench BenchmarkBrotliQuality -benchtime 2s
+```
+
+Quality 4 is the knee: 16 % smaller than quality 1 for 0.94 ms once per entry, while quality 9
+costs three times the CPU and ends up larger on this body.
 
 ## Not measured
 
