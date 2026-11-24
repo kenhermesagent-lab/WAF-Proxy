@@ -12,6 +12,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.7] — 2026-11-24
+
+### Docs
+
+- **The benchmark doc now answers "how does this compare" with numbers instead of adjectives.**
+  WAF-Proxy 1.65.1 and 1.65.6 were built from source and alternated on two rigs: `perftool` shows the
+  inspected path going from 3,408 to 7,268 rps with p95 down from 31.5 ms to 14.1 ms, and the demo
+  rig adds HAProxy 2.8.30, Traefik 3.8.0 and Caddy 2.11.9 on the same site, certificate, port and
+  50-client load. Nginx Proxy Manager, Zoraxy and SafeLine could not run on the benchmark host; their
+  rows cite the vendors' own documentation and published corpus numbers, labelled as claims, and the
+  1–10 ratings say which scores rest on measurement. The README carries the short version, including
+  that HAProxy is 6.3× faster because it does not inspect requests.
+
 ## [1.65.6] — 2026-11-24
 
 ### Fixed
