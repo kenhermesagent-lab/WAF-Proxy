@@ -231,6 +231,26 @@ func TestStreamingPutBindsBothProtocolsOverARange(t *testing.T) {
 	}
 }
 
+// An unsaved card opens with the preset's protocol and range, and the upstream
+// address the setup wizard chose.
+func TestStreamingDefaultsComeFromThePreset(t *testing.T) {
+	srv := &Server{}
+	valheim, _ := streaming.Lookup("valheim")
+	got := srv.streamingDefaults(valheim, map[string]string{"wan_ip": "192.168.191.2", "lan_ip": "10.0.0.10"})
+	if got["protocol"] != "udp" || got["port"] != 2456 || got["port_count"] != 3 || got["upstream_port"] != 2456 {
+		t.Fatalf("valheim defaults = %v", got)
+	}
+	if got["upstream"] != "10.0.0.10:2456" || got["listen_ip"] != "192.168.191.2" {
+		t.Fatalf("address defaults = %v", got)
+	}
+
+	// The custom card has no port of its own, so it prefills the bare address.
+	custom, _ := streaming.Lookup("custom")
+	if got := srv.streamingDefaults(custom, map[string]string{"lan_ip": "10.0.0.10"}); got["upstream"] != "10.0.0.10" {
+		t.Fatalf("custom upstream default = %v", got["upstream"])
+	}
+}
+
 // Every key a save writes must load back into the configuration it came from.
 func TestStreamingSettingsRoundTrip(t *testing.T) {
 	def, _ := streaming.Lookup("custom")

@@ -784,6 +784,8 @@ export interface StreamingSession {
 export interface StreamingService {
   id: string;
   label: string;
+  group: string;
+  notes: string;
   default_port: number;
   enabled: boolean;
   listen_ip: string;
@@ -815,7 +817,15 @@ export interface StreamingService {
   refused: number;
   sessions: StreamingSession[];
   last_error: string;
-  default: { listen_ip: string; port: number; upstream: string; max_conns: number };
+  default: {
+    listen_ip: string;
+    protocol: string;
+    port: number;
+    port_count: number;
+    upstream: string;
+    upstream_port: number;
+    max_conns: number;
+  };
 }
 
 export interface CrowdSecStatus {

@@ -40,21 +40,66 @@ const (
 	maxPortCount = 16
 )
 
-// Service is one supported media server.
+// Service is one supported forwarder. A game entry seeds the form and nothing
+// more: its ports are the game's published defaults, which change between
+// builds, so every field stays editable.
 type Service struct {
-	ID          string `json:"id"`
-	Label       string `json:"label"`
-	DefaultPort int    `json:"default_port"`
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Group string `json:"group"`
+	// Protocol is the preset's default: tcp, udp or both.
+	Protocol string `json:"protocol"`
+	// DefaultPort and PortCount seed the listen range; the custom card has no
+	// port of its own, so its DefaultPort is 0.
+	DefaultPort int `json:"default_port"`
+	PortCount   int `json:"port_count"`
+	// Notes is one line shown under the card.
+	Notes string `json:"notes"`
 }
 
-// Catalog lists the services the gateway can forward. Adding an entry here is
+// Groups section the catalog on the Streaming page.
+const (
+	GroupMedia  = "media"
+	GroupGame   = "game"
+	GroupCustom = "custom"
+)
+
+// Catalog lists the forwarders the gateway can offer. Adding an entry here is
 // enough to get a section in the Streaming page and its own settings.
 var Catalog = []Service{
-	{ID: "plex", Label: "Plex", DefaultPort: 32400},
-	{ID: "jellyfin", Label: "Jellyfin", DefaultPort: 8096},
-	// Custom TCP forwards any port to any target, so services without a preset
-	// do not need HAProxy beside the gateway.
-	{ID: "custom", Label: "Custom TCP", DefaultPort: 0},
+	{ID: "plex", Label: "Plex", Group: GroupMedia, Protocol: "tcp", DefaultPort: 32400, PortCount: 1,
+		Notes: "TLS passes through; the server trusts this host's LAN address."},
+	{ID: "jellyfin", Label: "Jellyfin", Group: GroupMedia, Protocol: "tcp", DefaultPort: 8096, PortCount: 1,
+		Notes: "TLS passes through; Jellyfin's known-proxies list takes this host's LAN address."},
+	// Custom forwards any port on either protocol, so an application without a
+	// preset does not need HAProxy beside the gateway.
+	{ID: "custom", Label: "Custom TCP/UDP", Group: GroupCustom, Protocol: "tcp", DefaultPort: 0, PortCount: 1,
+		Notes: "Any port and protocol; set them to match the game."},
+
+	{ID: "minecraft-java", Label: "Minecraft (Java)", Group: GroupGame, Protocol: "tcp", DefaultPort: 25565, PortCount: 1,
+		Notes: "TCP only; Bedrock is its own card."},
+	{ID: "minecraft-bedrock", Label: "Minecraft (Bedrock)", Group: GroupGame, Protocol: "udp", DefaultPort: 19132, PortCount: 1,
+		Notes: "IPv6 clients use 19133; add it as a second card if you need it."},
+	{ID: "source", Label: "Source engine (TF2, CS, Garry's Mod)", Group: GroupGame, Protocol: "both", DefaultPort: 27015, PortCount: 1,
+		Notes: "UDP carries the game; some server tools use TCP."},
+	{ID: "valheim", Label: "Valheim", Group: GroupGame, Protocol: "udp", DefaultPort: 2456, PortCount: 3,
+		Notes: "2456-2458 in one card, mapped 1:1 onto the server."},
+	{ID: "palworld", Label: "Palworld", Group: GroupGame, Protocol: "udp", DefaultPort: 8211, PortCount: 1,
+		Notes: "One UDP port for game and query."},
+	{ID: "fivem", Label: "FiveM", Group: GroupGame, Protocol: "both", DefaultPort: 30120, PortCount: 1,
+		Notes: "The same number on both protocols."},
+	{ID: "factorio", Label: "Factorio", Group: GroupGame, Protocol: "both", DefaultPort: 34197, PortCount: 1,
+		Notes: "UDP carries the game; some tools use TCP."},
+	{ID: "ark", Label: "ARK: Survival Evolved", Group: GroupGame, Protocol: "udp", DefaultPort: 7777, PortCount: 2,
+		Notes: "7777-7778 in one card; the query port is a separate card."},
+	{ID: "ark-query", Label: "ARK query port", Group: GroupGame, Protocol: "udp", DefaultPort: 27015, PortCount: 1,
+		Notes: "Only needed when clients query a separate port."},
+	{ID: "rust", Label: "Rust", Group: GroupGame, Protocol: "both", DefaultPort: 28015, PortCount: 1,
+		Notes: "Game traffic; RCON is a separate card."},
+	{ID: "rust-rcon", Label: "Rust RCON", Group: GroupGame, Protocol: "tcp", DefaultPort: 28016, PortCount: 1,
+		Notes: "TCP only, and only when RCON is enabled on the server."},
+	{ID: "7dtd", Label: "7 Days to Die", Group: GroupGame, Protocol: "both", DefaultPort: 26900, PortCount: 4,
+		Notes: "26900-26903; some servers use only two of them, so trim the count."},
 }
 
 // Lookup returns the catalog entry for an id.
@@ -193,8 +238,8 @@ func ConfigFromSettings(def Service, kv map[string]string) Config {
 	}
 	protocol := strings.ToLower(strings.TrimSpace(get("protocol")))
 	if protocol == "" {
-		// 1.60 wrote no protocol and could only forward TCP.
-		protocol = "tcp"
+		// 1.60 wrote no protocol; a preset that has one seeds it.
+		protocol = def.Protocol
 	}
 	return Config{
 		Enabled:   get("enabled") == "1",
@@ -204,7 +249,7 @@ func ConfigFromSettings(def Service, kv map[string]string) Config {
 		Allow:     allow,
 		MaxConns:  positive("max_conns", DefaultMaxConns),
 		Protocol:  protocol,
-		PortCount: positive("port_count", 1),
+		PortCount: positive("port_count", def.PortCount),
 		// Absent means the upstream string carries the port, which is how 1.60
 		// saved it; Normalize derives the base from there.
 		UpstreamPort: positive("upstream_port", 0),

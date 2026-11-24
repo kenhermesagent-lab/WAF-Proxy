@@ -33,9 +33,12 @@ type streamingPayload struct {
 	ListIDs      []int64 `json:"list_ids"`
 }
 
-// streamingView is a status plus the defaults used to prefill an unsaved form.
+// streamingView is a status plus the catalog seed used to prefill an unsaved
+// form and to group the page.
 type streamingView struct {
 	streaming.Status
+	Group   string         `json:"group"`
+	Notes   string         `json:"notes"`
 	Default map[string]any `json:"default"`
 }
 
@@ -53,7 +56,8 @@ func (s *Server) getStreaming(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			st = streaming.Status{ID: def.ID, Label: def.Label, DefaultPort: def.DefaultPort}
 		}
-		views = append(views, streamingView{Status: st, Default: s.streamingDefaults(def, kv)})
+		views = append(views, streamingView{Status: st, Group: def.Group, Notes: def.Notes,
+			Default: s.streamingDefaults(def, kv)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"services": views,
@@ -61,18 +65,24 @@ func (s *Server) getStreaming(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// streamingDefaults fills a first-visit form from the addresses chosen in the
-// setup wizard.
+// streamingDefaults fills a first-visit form from the preset and the addresses
+// chosen in the setup wizard. The preset only seeds the form.
 func (s *Server) streamingDefaults(def streaming.Service, kv map[string]string) map[string]any {
 	upstream := ""
 	if lan := strings.TrimSpace(kv["lan_ip"]); lan != "" && lan != "0.0.0.0" {
-		upstream = net.JoinHostPort(lan, strconv.Itoa(def.DefaultPort))
+		upstream = lan
+		if def.DefaultPort > 0 {
+			upstream = net.JoinHostPort(lan, strconv.Itoa(def.DefaultPort))
+		}
 	}
 	return map[string]any{
-		"listen_ip": strings.TrimSpace(kv["wan_ip"]),
-		"port":      def.DefaultPort,
-		"upstream":  upstream,
-		"max_conns": streaming.DefaultMaxConns,
+		"listen_ip":     strings.TrimSpace(kv["wan_ip"]),
+		"protocol":      def.Protocol,
+		"port":          def.DefaultPort,
+		"port_count":    def.PortCount,
+		"upstream":      upstream,
+		"upstream_port": def.DefaultPort,
+		"max_conns":     streaming.DefaultMaxConns,
 	}
 }
 

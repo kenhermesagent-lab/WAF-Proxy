@@ -35,6 +35,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   opens several TCP ports is one card.
 - **The relay reports what it moves.** Each service now returns bytes and packets in both
   directions, refusals, oversize drops, live sessions per protocol and the fifty busiest sessions.
+- **Game server presets.** The catalog seeds Minecraft (Java and Bedrock), Source, Valheim,
+  Palworld, FiveM, Factorio, ARK, Rust and 7 Days to Die with a default protocol, port range and
+  a one-line note; ARK's query port and Rust's RCON are separate cards. Every value stays
+  editable, and a test compares the install guide's table with the catalog so the two cannot drift.
 
 ### Changed
 

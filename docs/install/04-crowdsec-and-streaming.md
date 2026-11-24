@@ -28,9 +28,33 @@ HTTP reverse proxy: TLS passes through untouched and the server sees every clien
 from the proxy's LAN address. That single address is what goes in the server's trusted list,
 so “allow only this, refuse everything else” stays intact.
 
-The shipped catalog has a section each for **Plex** (`32400`) and **Jellyfin** (`8096`);
-adding another application is a catalog entry plus a settings row, and unknown entries still
-render with the generic firewall steps.
+The shipped catalog has a section each for **Plex** (`32400`) and **Jellyfin** (`8096`), a
+**Custom** card that forwards any port on either protocol, and the game presets below.
+
+### Game server presets
+
+A game card seeds a protocol, a port range and a one-line note. **Every value stays editable**:
+the preset is a starting point, not a contract, and published ports change between game builds,
+so check the game's current documentation. A listen range maps 1:1 onto the server address you
+enter, so Valheim's `2456-2458` forwards to `2456-2458` on that host.
+
+| Service | ID | Protocol | Ports | Notes |
+| --- | --- | --- | --- | --- |
+| Minecraft (Java) | `minecraft-java` | tcp | 25565 | TCP only; Bedrock is its own card. |
+| Minecraft (Bedrock) | `minecraft-bedrock` | udp | 19132 | IPv6 clients use 19133; add it as a second card if you need it. |
+| Source engine (TF2, CS, Garry's Mod) | `source` | both | 27015 | UDP carries the game; some server tools use TCP. |
+| Valheim | `valheim` | udp | 2456-2458 | Three ports in one card, mapped 1:1 onto the server. |
+| Palworld | `palworld` | udp | 8211 | One UDP port for game and query. |
+| FiveM | `fivem` | both | 30120 | The same number on both protocols. |
+| Factorio | `factorio` | both | 34197 | UDP carries the game; some tools use TCP. |
+| ARK: Survival Evolved | `ark` | udp | 7777-7778 | The query port is a separate card. |
+| ARK query port | `ark-query` | udp | 27015 | Only needed when clients query a separate port. |
+| Rust | `rust` | both | 28015 | Game traffic; RCON is a separate card. |
+| Rust RCON | `rust-rcon` | tcp | 28016 | TCP only, and only when RCON is enabled on the server. |
+| 7 Days to Die | `7dtd` | both | 26900-26903 | Some servers use only two of them, so trim the count. |
+
+A few of these overlap on purpose — ARK's query port `27015` is the Source engine's game port —
+so enable the cards a particular server needs rather than the whole group.
 
 1. GUI → **Streaming** → the application's section → enable.
 2. **Listen address** = an address assigned to this host (`192.168.1.20` in the two-NIC
