@@ -53,7 +53,9 @@ docker build -t "wafproxy:$version" \
 git tag -a "v$version" -m "Release $version"
 
 # A release that leaves this false is the mistake the tag rule exists to catch.
-if ! bash deploy/check-tags.sh --branch main; then
+# This commit is not on main until it is pushed, so the on-main rule is left to
+# the --remote run printed below.
+if ! bash deploy/check-tags.sh --branch main --skip-on-main; then
   git tag -d "v$version"
   echo "refusing: the tag check failed, so v$version was removed again; the release commit stays at HEAD" >&2
   echo "if this clone is missing release history, run 'git fetch --tags origin' and retry" >&2

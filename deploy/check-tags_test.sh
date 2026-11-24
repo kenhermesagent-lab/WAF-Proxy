@@ -128,6 +128,81 @@ expect_fail "a lightweight tag" light_tag
 expect_fail "a tag on a commit that does not carry the section" misplaced_tag
 expect_fail "a tag whose commit carries another VERSION" mismatched_version
 
+# A tag for a version the CHANGELOG does not date is a stray release, even when
+# its commit is on main — the v1.62.4 shape once its branch landed.
+stray_tag() { add_section; git -C "$root" tag -a v1.61.5 -m "Release 1.61.5"; }
+expect_fail "a tag for a version CHANGELOG.md does not ship" stray_tag
+
+tag_dated() { GIT_COMMITTER_DATE="$2" git -C "$root" tag -a "v$1" -m "Release $1"; }
+
+# Order is decided by the release commit's date, so the fixture pins commits
+# rather than tags and does not race the clock: the older version's commit is
+# either before or after the newer release's commit.
+late_fixture() {
+  local newer_commit=$1 older_commit=$2
+  changelog 1.63.0 1.61.1 1.61.0 1.60.1
+  GIT_COMMITTER_DATE="$newer_commit" commit "1.63.0"
+  tag_dated 1.63.0 "$newer_commit"
+  printf '# Changelog\n\n## [1.61.2] - 2026-01-02\n\n- test\n\n## [1.63.0] - 2026-01-01\n\n- test\n\n## [1.61.1] - 2026-01-01\n\n- test\n\n## [1.61.0] - 2026-01-01\n\n- test\n' >"$root/CHANGELOG.md"
+  printf '1.61.2\n' >"$root/VERSION"
+  GIT_COMMITTER_DATE="$older_commit" commit "1.61.2"
+  tag_dated 1.61.2 "$older_commit"
+}
+
+seed
+late_fixture "2030-01-01T00:00:00 +0000" "2031-01-01T00:00:00 +0000"
+if check --branch main; then
+  echo "a release cut after a newer one passed the tag check" >&2
+  exit 1
+fi
+# Cut before the newer release, the same version is ordinary history.
+seed
+late_fixture "2030-01-01T00:00:00 +0000" "2029-01-01T00:00:00 +0000"
+if ! check --branch main; then
+  echo "releases cut in order failed the tag check" >&2
+  exit 1
+fi
+
+# Re-cutting a tag onto the commit that really cut its version is the fix this
+# check recommends, so a later tag date must not read as a late release.
+seed
+changelog 1.63.0 1.61.1 1.61.0 1.60.1
+GIT_COMMITTER_DATE="2030-01-01T00:00:00 +0000" commit "1.63.0"
+tag_dated 1.63.0 "2030-01-01T00:00:00 +0000"
+GIT_COMMITTER_DATE="2031-06-01T00:00:00 +0000" git -C "$root" tag -f -a v1.61.1 -m "Release 1.61.1" "$(git -C "$root" rev-parse 'v1.61.1^{}')" >/dev/null
+if ! check --branch main; then
+  echo "re-cutting an older tag failed the tag check" >&2
+  exit 1
+fi
+# A tag below the floor predates the rule and is history, not a stray.
+seed
+git -C "$root" tag -a v1.60.1 -m "Release 1.60.1"
+if ! check --branch main; then
+  echo "a tag below the floor failed the tag check" >&2
+  exit 1
+fi
+
+# Both stray forms are caught on origin, not only in the clone.
+seed
+git init -q --bare "$work/origin3.git"
+git -C "$root" remote add origin "$work/origin3.git"
+git -C "$root" push -q origin main --follow-tags
+git -C "$root" tag -a v1.61.5 -m "Release 1.61.5"
+git -C "$root" push -q origin refs/tags/v1.61.5
+if check --remote --branch main; then
+  echo "a stray tag on origin passed the remote tag check" >&2
+  exit 1
+fi
+seed
+late_fixture "2030-01-01T00:00:00 +0000" "2031-01-01T00:00:00 +0000"
+git init -q --bare "$work/origin4.git"
+git -C "$root" remote add origin "$work/origin4.git"
+git -C "$root" push -q origin main --follow-tags
+if check --remote --branch main; then
+  echo "an out-of-order tag on origin passed the remote tag check" >&2
+  exit 1
+fi
+
 # A tag the clone has but origin does not is still a broken release.
 seed
 git init -q --bare "$work/origin.git"
@@ -172,6 +247,12 @@ if check --remote --branch main; then
 fi
 if check --branch main; then
   echo "a tag on an unmerged branch passed the local tag check" >&2
+  exit 1
+fi
+# release.sh checks its own tag before it pushes, so it asks for the on-main rule
+# to be left to the post-push --remote run.
+if ! check --branch main --skip-on-main; then
+  echo "the release script's pre-push check failed on the on-main rule" >&2
   exit 1
 fi
 # Once that branch lands, the same tag is a release people receive.
