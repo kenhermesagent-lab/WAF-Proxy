@@ -589,6 +589,22 @@ that fails the boot is never published, a manifest missing either architecture
 fails the job, and `:latest` moves only when the tag is the newest on origin. Dispatching the workflow for an existing tag builds its image the same
 way, so a release cut before this rule can still get one.
 
+GitHub reads the workflow from the tagged commit, so a tag pushed before a job
+existed never runs that job: its release keeps generated notes and it never
+reaches the registry. `deploy/redispatch-tags.sh` dispatches `release.yml` from
+`main` once per tag — every tag from **1.61.0** to `VERSION` when none are named,
+which is the backlog such a change leaves behind — and refuses a tag that is not
+on origin, since there would be nothing to check out:
+
+```sh
+./deploy/redispatch-tags.sh --dry-run   # list the runs first
+./deploy/redispatch-tags.sh             # one run per release tag
+./deploy/redispatch-tags.sh v1.64.0     # a single tag
+```
+
+Every run builds and signs on its own, so a backlog costs a runner each. The
+script only dispatches; `gh run list --workflow release.yml` follows the results.
+
 `make verify-release` runs `deploy/check-tags.sh`, which fails when a
 `CHANGELOG.md` section from **1.61.0** on has no annotated tag, when the tag is
 lightweight, when it sits on a commit that does not carry that section, when
