@@ -12,6 +12,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.62.4] — 2026-11-24
+
+### Added
+
+- **A release section with no annotated tag now fails a check.** `deploy/check-tags.sh` requires
+  an annotated `vX.Y.Z` tag for every `CHANGELOG.md` section from 1.61.0 on, sitting on the commit
+  that carries the section, and rejects a lightweight tag or one whose commit does not carry it.
+  Sections below 1.61.0 shipped before the rule and are skipped. `make verify-release` runs it
+  against the clone, the `release` CI job runs `--remote` against origin, and both are covered by
+  `deploy/check-tags_test.sh`.
+
+### Changed
+
+- **The rule applies on `main` only.** A release branch writes its section before the tag can
+  exist, so the check skips any other branch, pull request or detached head and says so;
+  `--branch main` forces it from anywhere.
+- **`scripts/release.sh` cuts the tag itself.** It commits the `VERSION` stamp and the rebuilt
+  console bundle, creates the annotated tag on that commit, and runs the tag check before printing
+  the push commands, so a release made through the script cannot ship untagged.
+
+### Fixed
+
+- **`make test-release` is green again.** The lockfile guard added to `deploy/check-version.sh` had
+  no fixture in `deploy/check-version_test.sh`, so the suite failed its first assertion.
+
 ## [1.62.3] — 2026-11-24
 
 ### Changed

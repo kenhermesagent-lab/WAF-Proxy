@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Release helper: validates the tree, stamps VERSION and CHANGELOG, and builds.
-# It never commits, tags or pushes; those remain deliberate manual steps.
+# Release helper: validates the tree, stamps VERSION, builds, commits the bump
+# and cuts the annotated tag. It never pushes; that stays a deliberate step.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -28,16 +28,29 @@ fi
 
 echo "$version" > VERSION
 make ui build
+
+# The tag has to sit on the commit that carries the section and the new
+# VERSION, so the bump is committed here rather than left to the operator.
+if [[ -n "$(git status --porcelain)" ]]; then
+  git commit -am "release: $version"
+fi
+
 docker build -t "wafproxy:$version" \
   --build-arg VERSION="$version" \
   --build-arg COMMIT="$(git rev-parse --short HEAD)" \
   --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 
+git tag -a "v$version" -m "Release $version"
+
+# A release that leaves this false is the mistake the tag rule exists to catch.
+if ! bash deploy/check-tags.sh --branch main; then
+  echo "refusing: the release is tagged, but the tag check failed above" >&2
+  exit 1
+fi
+
 cat <<EOF
-Built wafproxy:$version
+Built wafproxy:$version and tagged v$version
 Next:
-  git commit -am "release: $version"
-  git tag -a v$version -m "$version"
   git push origin HEAD:main --follow-tags
   bash deploy/check-tags.sh --remote --branch main   # the tag is on origin, not just here
   docker tag wafproxy:$version ghcr.io/<owner>/wafproxy:latest && docker push ...
