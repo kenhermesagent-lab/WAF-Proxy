@@ -27,6 +27,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `actions/upload-artifact` 7.0.2, still pinned by commit; Alpine 3.24 and Node 26 in the image
   build, still pinned by digest. CI now runs the console job on Node 26, the version that builds
   the shipped bundle.
+- **The console declares Node 26 as its floor.** `web/package.json` pins `engines.node` to
+  `>=26` and `web/.npmrc` sets `engine-strict`, so `npm ci` in `web/` stops with an `EBADENGINE`
+  message on an older runtime instead of installing a tree jsdom 31 and Vite 8 cannot run. The
+  lockfile's root package entry carries the same range, so `npm ci` stays in sync with it.
 
 ### Fixed
 

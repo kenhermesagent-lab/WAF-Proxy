@@ -482,9 +482,12 @@ make sbom           # CycloneDX document of the build graph into dist/
 make verify-release # VERSION and the newest CHANGELOG section agree
 ```
 
-Go 1.27 and Node 26 are what CI uses. CI runs gofmt, `go vet`, race tests, the Go build, the
-console typecheck/build and its component tests, a production dependency audit, release metadata
-and SBOM checks, the performance gate, and a container image build.
+Go 1.27 and Node 26 are what CI uses. `web/package.json` pins `engines.node` to `>=26` and
+`web/.npmrc` sets `engine-strict`, so `npm ci` in `web/` stops with an `EBADENGINE` message on an
+older Node instead of installing a tree the Vite 8 and jsdom 31 toolchain cannot run. CI runs
+gofmt, `go vet`, race tests, the Go build, the console typecheck/build and its component tests, a
+production dependency audit, release metadata and SBOM checks, the performance gate, and a
+container image build.
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) is the source of truth. `make perf-record`
 re-records the performance baseline after a deliberate change.
 
