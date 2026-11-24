@@ -12,6 +12,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.71.1] — 2026-11-24
+
+### Fixed
+
+- **A body-skip path now accepts a raw upload.** A sync or backup client that sent
+  `application/octet-stream` on a skip path was refused with 403 (CRS rule 920420, “request content
+  type is not allowed by policy”) before a byte was read, so the file-sync preset's own WebDAV
+  entry never streamed. A `PUT` or `PATCH` skip entry additionally hit CRS rule 911100, whose
+  default method list holds neither verb. Both rules are written for a body the WAF inspects, and a
+  skip path has none, so they are now removed for that request only. The profile's method allowlist
+  is still enforced before the exemption applies, a buffered path keeps both policies, and every
+  other rule still runs on the skip path.
+
 ## [1.71.0] — 2026-11-24
 
 ### Added

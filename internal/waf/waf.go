@@ -456,6 +456,31 @@ type Match struct {
 	BundleVersion string `json:"bundle_version,omitempty"`
 }
 
+// contentTypePolicyRule is CRS rule 920420, which refuses a request content
+// type outside the profile's allowed list in the header phase, before any body
+// is read. CRS documents ctl:ruleRemoveById for a deployment that accepts
+// another content type; a body the WAF never holds needs the same exclusion.
+const contentTypePolicyRule = 920420
+
+// methodPolicyRule is CRS rule 911100, which refuses a method outside CRS's own
+// default list (GET, HEAD, POST, OPTIONS). The profile's method allowlist is
+// what the operator configures, and the policy layer enforces it before a body
+// is read, so a streamed PUT upload is already admitted when this rule runs.
+const methodPolicyRule = 911100
+
+// InspectOptions tunes one inspection without touching the compiled profile.
+type InspectOptions struct {
+	// BodyStreamed marks a request whose body the caller forwards unread, as a
+	// body-skip path does. Two header-phase CRS policies would otherwise refuse
+	// the upload before a byte is read: 920420 for a content type outside its
+	// list (application/octet-stream is the usual raw upload type) and 911100
+	// for a method outside CRS's defaults (PUT and PATCH are not in them). The
+	// method is already checked against the profile allowlist by the policy
+	// layer, and there is no body to protect here, so both rules are removed
+	// for this transaction and every other rule still runs.
+	BodyStreamed bool
+}
+
 // Inspect evaluates a request. The body must already be read and limited by the
 // caller; nil means no body. It never panics on malformed input.
 func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) Result {
@@ -466,6 +491,12 @@ func (e *Engine) Inspect(r *http.Request, body []byte, clientIP netip.Addr) Resu
 // InspectAll is Inspect plus every attack rule that matched, so the request
 // simulator can list them instead of only the one the log would name.
 func (e *Engine) InspectAll(r *http.Request, body []byte, clientIP netip.Addr) (res Result, matches []Match) {
+	return e.InspectAllWith(r, body, clientIP, InspectOptions{})
+}
+
+// InspectAllWith is InspectAll with the per-request options a site's body-skip
+// path needs.
+func (e *Engine) InspectAllWith(r *http.Request, body []byte, clientIP netip.Addr, opts InspectOptions) (res Result, matches []Match) {
 	if e == nil || e.waf == nil {
 		return res, nil
 	}
@@ -484,6 +515,15 @@ func (e *Engine) InspectAll(r *http.Request, body []byte, clientIP netip.Addr) (
 
 	tx := e.waf.NewTransaction()
 	defer tx.Close()
+	if opts.BodyStreamed {
+		// The concrete transaction exposes the per-request removal the CRS
+		// recommends for an accepted content type; a compiled exclusion rule
+		// cannot be reached for a single request.
+		if rm, ok := tx.(interface{ RemoveRuleByID(int) }); ok {
+			rm.RemoveRuleByID(contentTypePolicyRule)
+			rm.RemoveRuleByID(methodPolicyRule)
+		}
+	}
 
 	if clientIP.IsValid() {
 		tx.ProcessConnection(clientIP.String(), 0, "", 0)

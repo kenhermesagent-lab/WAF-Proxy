@@ -57,6 +57,10 @@ type Request struct {
 	Loc    geoip.Location
 	Body   []byte
 	HTTP   *http.Request
+	// BodyStreamed says the body is forwarded unread, as on a body-skip path.
+	// The WAF then drops its content-type and method policy rules, which would
+	// refuse a raw upload before the exemption could apply.
+	BodyStreamed bool
 }
 
 // WAFInfo describes the WAF outcome for logging.
@@ -1203,7 +1207,7 @@ func (e *Engine) inspect(req *Request) (model.Verdict, WAFInfo, []waf.Match) {
 		return model.Verdict{Action: "block", Stage: "waf", Rule: "200010", Status: http.StatusServiceUnavailable,
 			Reason: "no WAF engine is compiled for this profile"}, WAFInfo{}, nil
 	}
-	res, matches := engine.InspectAll(req.HTTP, req.Body, req.Addr)
+	res, matches := engine.InspectAllWith(req.HTTP, req.Body, req.Addr, waf.InspectOptions{BodyStreamed: req.BodyStreamed})
 	info := WAFInfo{Matched: res.Matched, RuleID: res.RuleID, Label: res.Label, Message: res.Message, Profile: engine.Name()}
 	// RuleID 0 means the only matches were setup actions, so the rule set has
 	// no verdict of its own. Normalization only speaks in that case, which also
