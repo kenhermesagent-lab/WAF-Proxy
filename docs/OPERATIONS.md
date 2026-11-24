@@ -582,7 +582,10 @@ git push origin v1.47.19                  # or one tag on its own
 Pushing a tag runs the `release` workflow, which builds and signs the binaries
 and publishes that tag's `CHANGELOG.md` section as the GitHub release body, so the
 written notes are what operators read. A tag with no section fails the job instead
-of publishing an empty release.
+of publishing an empty release. The same push builds the container image, boots it
+and checks `/api/health` reports the same version, then pushes
+`ghcr.io/<owner>/wafproxy:<version>`; an image that fails the boot is never
+published.
 
 `make verify-release` runs `deploy/check-tags.sh`, which fails when a
 `CHANGELOG.md` section from **1.61.0** on has no annotated tag, when the tag is

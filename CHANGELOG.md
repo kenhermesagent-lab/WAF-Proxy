@@ -14,6 +14,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
+### Added
+
+- **A release tag publishes the container image too.** The `image` job builds `wafproxy:<version>`,
+  boots it and asks `/api/health` for its own version before it pushes
+  `ghcr.io/<owner>/wafproxy:<version>`, so a tag delivers the binaries and the image that matches
+  them. A dispatch that only re-attaches assets to an existing tag leaves the registry alone.
+
 ### Fixed
 
 - **The Backup card stops repeating the daily file.** Each tier reports its own last run, so a
