@@ -912,6 +912,8 @@ export interface MCPToken {
   last_used_at?: string | null;
   revoked_at?: string | null;
   scopes: string[];
+  // The site the token acts on; the gateway serves that site's rows only.
+  site: string;
 }
 
 export interface MCPStatus {
@@ -922,6 +924,9 @@ export interface MCPStatus {
   // The gateway's tool catalog, so the page never carries its own copy.
   tools: { name: string; description: string }[];
   protocols: string[];
+  // This console's site and the sites a new token can be issued for.
+  site: string;
+  sites: { slug: string; name: string }[];
 }
 
 export interface AuditEntry {

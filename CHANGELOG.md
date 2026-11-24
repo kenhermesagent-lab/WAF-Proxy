@@ -35,6 +35,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   action, `cut_stream_ip`, which ends every relay stream from an address and audits the cut.
   `GET /api/mcp` now returns the catalog in `tools`, and the console's AI Agent Access page
   renders it from there instead of a hardcoded list.
+- **Agent tokens are issued per site.** The token dialog picks the site a token acts on, and the
+  gateway resolves each bearer token to that site before running a tool, so a tenant's agent
+  reads and writes only that tenant's logs, proxies, bans, gate sessions and settings. `list_sites`
+  still names every tenant, the host console mints and revokes tokens for all of them, and the
+  environment token keeps acting on the default site.
 
 ### Changed
 

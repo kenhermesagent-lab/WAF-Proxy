@@ -155,8 +155,9 @@ func (s *Store) CreateMCPToken(name, hash, prefix, createdBy string, scopes []st
 
 // ListMCPTokens returns every agent credential, active first.
 func (s *Store) ListMCPTokens() ([]model.MCPToken, error) {
-	rows, err := s.db.Query(`SELECT id, name, prefix, created_by, created_at, last_used_at, revoked_at, scopes
-		FROM mcp_tokens WHERE (? = 0 OR site_id = ?) ORDER BY revoked_at IS NOT NULL, id DESC LIMIT 200`, s.site, s.site)
+	rows, err := s.db.Query(`SELECT t.id, t.name, t.prefix, t.created_by, t.created_at, t.last_used_at, t.revoked_at, t.scopes, t.site_id, COALESCE(sites.slug, '')
+		FROM mcp_tokens t LEFT JOIN sites ON sites.id = t.site_id
+		WHERE (? = 0 OR t.site_id = ?) ORDER BY t.revoked_at IS NOT NULL, t.id DESC LIMIT 200`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +167,7 @@ func (s *Store) ListMCPTokens() ([]model.MCPToken, error) {
 		var t model.MCPToken
 		var created, scopes string
 		var lastUsed, revoked sql.NullString
-		if err := rows.Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &created, &lastUsed, &revoked, &scopes); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &created, &lastUsed, &revoked, &scopes, &t.SiteID, &t.Site); err != nil {
 			return nil, err
 		}
 		t.CreatedAt = parseStamp(created)
@@ -183,9 +184,10 @@ func (s *Store) MCPTokenByHash(hash string) (*model.MCPToken, error) {
 	var t model.MCPToken
 	var created, scopes string
 	var lastUsed, revoked sql.NullString
-	err := s.db.QueryRow(`SELECT id, name, prefix, created_by, created_at, last_used_at, revoked_at, scopes
-		FROM mcp_tokens WHERE token_hash = ? AND revoked_at IS NULL AND (? = 0 OR site_id = ?)`, hash, s.site, s.site).
-		Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &created, &lastUsed, &revoked, &scopes)
+	err := s.db.QueryRow(`SELECT t.id, t.name, t.prefix, t.created_by, t.created_at, t.last_used_at, t.revoked_at, t.scopes, t.site_id, COALESCE(sites.slug, '')
+		FROM mcp_tokens t LEFT JOIN sites ON sites.id = t.site_id
+		WHERE t.token_hash = ? AND t.revoked_at IS NULL AND (? = 0 OR t.site_id = ?)`, hash, s.site, s.site).
+		Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &created, &lastUsed, &revoked, &scopes, &t.SiteID, &t.Site)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

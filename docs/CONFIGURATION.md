@@ -759,6 +759,7 @@ the administrator's browser session. It exposes only the security tools below â€
 | Token field | What it does |
 |---|---|
 | Token name | Identifies the agent; appears in the audit log as `mcp:<name>`. |
+| Site | The site the token acts on. It reads and writes only that site's rows; empty means the console's own site. |
 | Tools this token may call | Per-tool scopes. An empty list sent to the API means every tool; the console requires at least one. Unknown tool names are refused. |
 | Revoke | Takes effect on the next request. |
 

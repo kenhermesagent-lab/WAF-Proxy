@@ -31,11 +31,17 @@ const status = {
   token_count: 1,
   tools,
   protocols: ["2025-06-18", "2026-07-28"],
+  site: "default",
+  sites: [
+    { slug: "default", name: "Default" },
+    { slug: "bravo", name: "Bravo" },
+  ],
   tokens: [
     {
       id: 7,
       name: "hermes-agent",
       prefix: "abc12345",
+      site: "default",
       created_by: "admin",
       created_at: new Date().toISOString(),
       last_used_at: null,
@@ -87,6 +93,7 @@ describe("Agent access page", () => {
       expect(post).toHaveBeenCalledWith("/api/mcp/tokens", {
         name: "hermes-agent",
         scopes: tools.map((t) => t.name),
+        site: "default",
       }),
     );
     expect(await screen.findByText("one-time-secret-token")).toBeTruthy();

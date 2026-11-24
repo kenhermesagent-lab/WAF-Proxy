@@ -937,14 +937,9 @@ func run() error {
 	gui.Handle("/metrics", apiServer.Handler())
 	// The agent gateway is deliberately outside /api: it has its own bearer
 	// authentication and does not use the admin session or CSRF token.
-	// Tokens are minted on the default site's console, and every console page
-	// answers for one site, so the gateway reads that site's rows. An unscoped
-	// store would let one token read every tenant's logs and gate sessions.
-	mcpStore := st
-	if def, err := st.SiteBySlug(store.DefaultSiteSlug); err == nil && def != nil {
-		mcpStore = st.InSite(def.ID)
-	}
-	mcpGateway := mcpgw.New(mcpStore, bans, log, mcpgw.Options{EnvToken: cfg.MCPToken, EnvActor: cfg.MCPActor})
+	// Tokens are minted per site, so the gateway resolves each bearer token to
+	// the site that minted it and serves that site's rows only.
+	mcpGateway := mcpgw.NewRouter(st.Unscoped(), bans, log, mcpgw.Options{EnvToken: cfg.MCPToken, EnvActor: cfg.MCPActor})
 	mcpGateway.SetStreaming(streams)
 	gui.Handle(mcpgw.Endpoint, mcpGateway)
 	gui.Handle(mcpgw.Endpoint+"/", mcpGateway)

@@ -11,6 +11,73 @@ import (
 	mcpgw "github.com/kenhermesagent-lab/waf-proxy-docker/internal/mcp"
 )
 
+// The host console can issue a token for a tenant, and a tenant's token is
+// invisible to another site's list but still shown on the host console.
+func TestMCPTokenCanBeIssuedForATenant(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	bravo, err := st.CreateSite("bravo", "Bravo", "console.bravo.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := postMCPToken(t, srv, token, csrf, `{"name":"bravo-agent","site":"bravo"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("token create for a tenant = %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.Unscoped().MCPTokenByHash(mcpgw.HashToken(created.Token))
+	if err != nil || stored.SiteID != bravo.ID || stored.Site != "bravo" {
+		t.Fatalf("tenant token = %+v (%v), want site bravo", stored, err)
+	}
+	if listed, err := st.Unscoped().ListMCPTokens(); err != nil || len(listed) != 1 || listed[0].Site != "bravo" {
+		t.Fatalf("host token list = %+v (%v), want the tenant token", listed, err)
+	}
+	var createdRow struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &createdRow); err != nil {
+		t.Fatal(err)
+	}
+
+	// The host console must also be able to revoke the token it issued for a
+	// tenant, which the default site's handle cannot see.
+	del := httptest.NewRequest(http.MethodDelete, "/api/mcp/tokens/"+strconv.FormatInt(createdRow.ID, 10), nil)
+	del.Host = "gui.local"
+	del.RemoteAddr = "10.0.0.10:5000"
+	del.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	del.Header.Set("X-CSRF-Token", csrf)
+	delRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(delRec, del)
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("tenant token revoke = %d: %s", delRec.Code, delRec.Body.String())
+	}
+	if _, err := st.Unscoped().MCPTokenByHash(mcpgw.HashToken(created.Token)); err == nil {
+		t.Fatal("the revoked tenant token is still accepted")
+	}
+
+	bad := postMCPToken(t, srv, token, csrf, `{"name":"ghost","site":"nowhere"}`)
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("token create for an unknown site = %d, want 400", bad.Code)
+	}
+}
+
+func postMCPToken(t *testing.T, srv *Server, token, csrf, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/tokens", strings.NewReader(body))
+	req.Host = "gui.local"
+	req.RemoteAddr = "10.0.0.10:5000"
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	req.Header.Set("X-CSRF-Token", csrf)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
 func TestMCPTokenCreateListAndRevoke(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
 

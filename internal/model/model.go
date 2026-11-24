@@ -515,6 +515,10 @@ type MCPToken struct {
 	// Scopes lists the tool names this token may call. An empty list means
 	// every tool, which keeps tokens created before scopes working.
 	Scopes []string `json:"scopes"`
+	// SiteID is the site the token acts on, and Site is its slug for display.
+	// A token stored without a site reads the default site.
+	SiteID int64  `json:"-"`
+	Site   string `json:"site"`
 }
 
 // Alert is a queued notification.

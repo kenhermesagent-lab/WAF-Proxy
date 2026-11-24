@@ -9,6 +9,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("hermes-agent");
   const [scopes, setScopes] = useState<string[]>([]);
+  const [site, setSite] = useState("");
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ name: string; token: string } | null>(null);
 
@@ -20,6 +21,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
       .then((s) => {
         setStatus(s);
         setScopes((cur) => (cur.length ? cur : s.tools.map((t) => t.name)));
+        setSite((cur) => cur || s.site);
       })
       .catch((e) => onError(errText(e)));
 
@@ -33,7 +35,7 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
   const create = async () => {
     setBusy(true);
     try {
-      const r = await api.post<{ name: string; token: string }>("/api/mcp/tokens", { name, scopes });
+      const r = await api.post<{ name: string; token: string }>("/api/mcp/tokens", { name, scopes, site });
       setCreated({ name: r.name, token: r.token });
       setOpen(false);
       setName("hermes-agent");
@@ -120,12 +122,13 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
         ) : (
           <div style={{ overflowX: "auto" }}>
             <div className="table-wrap"><table>
-              <thead><tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Created</th><th>Last used</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Name</th><th>Prefix</th><th>Site</th><th>Scopes</th><th>Created</th><th>Last used</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {status.tokens.map((t) => (
                   <tr key={t.id}>
                     <td>{t.name}</td>
                     <td className="mono">{t.prefix}…</td>
+                    <td className="mono">{t.site || "default"}</td>
                     <td className="muted" style={{ whiteSpace: "normal" }}>{t.scopes?.length ? t.scopes.join(", ") : "all"}</td>
                     <td className="muted">{fmtTime(t.created_at)}</td>
                     <td className="muted">{t.last_used_at ? fmtAgo(t.last_used_at) : "never"}</td>
@@ -173,6 +176,17 @@ export default function AgentPage({ onError, onOK }: { onError: (m: string) => v
           </Field>
           <p className="muted" style={{ fontSize: 12 }}>
             Use a name that identifies the agent or host. Keep the token out of logs and shell history.
+          </p>
+          <Field label="Site">
+            <select value={site} onChange={(e) => setSite(e.target.value)}>
+              {(status?.sites ?? []).map((s) => (
+                <option key={s.slug} value={s.slug}>{s.name} ({s.slug})</option>
+              ))}
+            </select>
+          </Field>
+          <p className="muted" style={{ fontSize: 12 }}>
+            A token reads and writes only the site it is issued for, and <span className="mono">list_sites</span> still names every
+            tenant on the install.
           </p>
                     <div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
             <span className="muted" style={{ fontSize: 12 }}>Tools this token may call</span>

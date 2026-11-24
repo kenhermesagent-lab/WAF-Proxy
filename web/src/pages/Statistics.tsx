@@ -231,20 +231,20 @@ export default function Statistics({
       {rangeStrip}
 
       <Card title="Requests over time" sub="Hourly buckets; blocked traffic is overlaid on total requests.">
-          {series.length === 0 ? (
-            <Empty title="No events in this range" icon="chart">Choose a different date range to see traffic.</Empty>
-          ) : (
-            <Chart
-              series={[
-                { label: "Requests", color: "#4f8cff", values: series.map((b) => b.requests), area: true },
-                { label: "Blocked", color: "#f0616d", values: series.map((b) => b.errors) },
-              ]}
-              labels={labels}
-              height={240}
-              format={compact}
-              tooltipTitle={(l) => l}
-            />
-          )}
+        {series.length === 0 ? (
+          <Empty title="No events in this range" icon="chart">Choose a different date range to see traffic.</Empty>
+        ) : (
+          <Chart
+            series={[
+              { label: "Requests", color: "#4f8cff", values: series.map((b) => b.requests), area: true },
+              { label: "Blocked", color: "#f0616d", values: series.map((b) => b.errors) },
+            ]}
+            labels={labels}
+            height={240}
+            format={compact}
+            tooltipTitle={(l) => l}
+          />
+        )}
       </Card>
 
       <PageTabs tabs={tabs} active={tab} onSelect={(id) => onTab?.(id)} />

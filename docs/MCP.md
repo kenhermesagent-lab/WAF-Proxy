@@ -15,13 +15,19 @@ tools the running build actually has instead of a hardcoded copy.
 
 1. Sign in to the admin console.
 2. Open **AI Agent Access**.
-3. Choose **New agent token**, name it for the agent or host, and copy the value shown once.
+3. Choose **New agent token**, name it for the agent or host, pick the site it acts on, and copy
+   the value shown once.
 4. Give the agent that token. Store it in the agent's secret store, not in a command line or a
    committed file.
 
 The token is stored as a SHA-256 hash. Revoking it takes effect on the next request. The
-**AI Agent Access** page lists the prefix, creation time and last use, but cannot recover the
-plaintext.
+**AI Agent Access** page lists the prefix, site, creation time and last use, but cannot recover
+the plaintext.
+
+A token reads and writes only the site it was issued for: its logs, proxies, bans, gate accounts
+and settings are that site's. `list_sites` still names every tenant on the install, so an agent
+can see what else exists without reaching into it. Issue one token per site an agent needs; the
+host console mints and revokes all of them.
 
 ### Environment token (headless installs)
 
@@ -32,9 +38,8 @@ WAFPROXY_MCP_TOKEN=<at-least-32-random-characters>
 WAFPROXY_MCP_ACTOR=hermes-agent
 ```
 
-The token acts on the default site — the console that issues it — so its logs, gate accounts
-and settings are the ones that console shows. `list_sites` names every tenant on the install,
-but a tenant's rows are not readable through this token.
+The environment token has no site of its own, so it acts on the default site. `list_sites` names
+every tenant on the install, but a tenant's rows are not readable through this token.
 
 Console-issued tokens choose their tools individually: the create dialog lists the catalog and a
 token can be limited to, for example, `query_logs` and `get_ip_activity`. `tools/list` hides the
