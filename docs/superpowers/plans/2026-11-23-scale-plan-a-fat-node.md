@@ -1,9 +1,9 @@
 # Plan A — Fat node: "one box absorbs the whole rack"
 
-Status: **built 2026-11-24 on its own branch, awaiting review.** Merged to `main` once,
-after the last part passes review.
+Status: **built and merged to `main` in 1.62.0 (2026-11-24).** Main had already shipped
+1.61.0–1.61.2 from other work when this branch merged, so the whole track is one release.
 Owner: one agent, one branch. Window: **three weeks** of build (15 task-days), then one
-review-and-merge pass. Releases: **1.61.0**, **1.62.0**. Build loop: the roadmap's
+review-and-merge pass. Releases: **1.62.0**. Build loop: the roadmap's
 [Post-1.60 scale track](../ROADMAP.md).
 Companion plan: [Plan C — game-server streaming](2026-11-23-scale-plan-c-game-streaming.md).
 
