@@ -51,11 +51,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `vX.Y.Z` tag for every dated CHANGELOG section from 1.61.0 up, refuses a lightweight tag or one
   on a commit that does not carry the section, and the `release` job runs it on origin with
   `--remote`, so a release cannot ship untagged and the backlog cannot build up again. A section
-  still marked `unreleased` needs no tag yet.
+  still marked `unreleased` needs no tag yet. The rule is enforced on `main` only, so a release
+  branch can write its section before the tag exists; `--branch main` forces it from anywhere.
 - **The tag check reads `VERSION` at the tagged commit too.** A `vX.Y.Z` tag whose commit carries
   another version fails as surely as a missing tag — in the clone, and on origin where the remote
   run fetches the tag a shallow checkout does not have — so a tag can never name a version the
   commit does not hold.
+- **`scripts/release.sh` cuts the tag itself.** It commits the `VERSION` stamp and the rebuilt
+  console bundle, creates the annotated tag on that commit, and runs the tag check before printing
+  the push commands, so a release made through the script cannot ship untagged. It refuses a
+  version older than the newest tag, and removes its own tag again when that check fails.
 - **A UDP forwarder on the WAN port is a startup error.** The relay binds before the listener
   serves, so the boot names the card that holds the port and says to move it or unset
   `WAFPROXY_HTTP3`, instead of failing later with a bare "address already in use". A port held by
@@ -183,27 +188,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   runbook gains a "a game server does not connect" checklist that starts at the protocol, not the
   log. The README's limits say plainly what the relay does not do: no protocol parsing, no player
   counts, no game panel, and a spoofable UDP source.
-## [1.62.4] — 2026-11-24
-
-### Added
-
-- **A release section with no annotated tag now fails a check.** `deploy/check-tags.sh` requires
-  an annotated `vX.Y.Z` tag for every `CHANGELOG.md` section from 1.61.0 on, sitting on the commit
-  that carries the section, and rejects a lightweight tag or one whose commit does not carry it.
-  Sections below 1.61.0 shipped before the rule and are skipped. `make verify-release` runs it
-  against the clone, the `release` CI job runs `--remote` against origin, and both are covered by
-  `deploy/check-tags_test.sh`.
-
-### Changed
-
-- **The rule applies on `main` only.** A release branch writes its section before the tag can
-  exist, so the check skips any other branch, pull request or detached head and says so;
-  `--branch main` forces it from anywhere.
-- **`scripts/release.sh` cuts the tag itself.** It commits the `VERSION` stamp and the rebuilt
-  console bundle, creates the annotated tag on that commit, and runs the tag check before printing
-  the push commands, so a release made through the script cannot ship untagged. It refuses a
-  version older than the newest tag, and removes its own tag again when that check fails.
-
 ## [1.62.3] — 2026-11-24
 
 ### Changed
