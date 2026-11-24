@@ -379,6 +379,12 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             >
               <input value={s.body_timeout_s ?? "30"} onChange={(e) => set("body_timeout_s", e.target.value)} />
             </Field>
+            <Field
+              label="Idle upstream connections"
+              hint="Per site: idle connections kept open to each upstream address, so a repeat request reuses one instead of dialling again. Default 64."
+            >
+              <input value={s.upstream_idle_conns ?? "64"} onChange={(e) => set("upstream_idle_conns", e.target.value)} />
+            </Field>
             <Field label="Sample allowed above (rps)" hint="Per-site sampling threshold for the request log."><input value={s.sample_above_rps ?? "500"} onChange={(e) => set("sample_above_rps", e.target.value)} /></Field>
           </div>
           <Field label="Request normalization" hint="Duplicate parameters and double encoding from the release checks.">

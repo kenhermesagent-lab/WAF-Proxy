@@ -118,7 +118,7 @@ type Server struct {
 	certs      CertProvider
 	alpn       ALPNProvider
 	self       *tls.Certificate
-	transport  *http.Transport
+	pool       *transportPool
 	cache      *responseCache
 	draining   atomic.Bool
 	// httpChallenge answers ACME HTTP-01 on the plain-HTTP listener.
@@ -157,21 +157,8 @@ func New(d Deps) (*Server, error) {
 	// One cache for the process: 128 MiB total, at most 32 MiB per hostname,
 	// so one site cannot evict every other site's entries.
 	s.cache = newResponseCache(CacheBytes, 32<<20)
-	// No Proxy field: an HTTP_PROXY in the service environment must never
-	// carry customer traffic through a third party.
-	s.transport = &http.Transport{
-		DialContext:       (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		ForceAttemptHTTP2: true,
-		// Sized for a busier edge: an 8 vCPU host runs several hundred
-		// concurrent requests across a handful of backends, and the defaults
-		// close upstream connections between bursts.
-		MaxIdleConns:          1024,
-		MaxIdleConnsPerHost:   256,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
-		ExpectContinueTimeout: time.Second,
-	}
+	// One connection pool per upstream, kept across reloads (transport.go).
+	s.pool = newTransportPool()
 	return s, nil
 }
 
@@ -317,11 +304,16 @@ func (s *Server) Reload(ctx context.Context) error {
 	s.edges = next
 	s.mu.Unlock()
 
-	// Warm upstream connections are kept: rebuilding a route must not cost
-	// every other site its pooled connections.
+	// The new edge holds its own references, so an unchanged upstream keeps its
+	// warm connections and a removed or changed one closes its idle ones.
 	for host, prev := range old {
 		if _, keep := next[host]; !keep && prev.cancel != nil {
 			prev.cancel()
+		}
+		for _, u := range prev.ups {
+			if u.transport != nil {
+				s.pool.release(u.tkey)
+			}
 		}
 	}
 	s.d.Log.Info("routes reloaded", "proxies", len(next))
@@ -334,6 +326,7 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 	if err != nil {
 		return nil, err
 	}
+	idle := s.upstreamIdleFor(p.SiteID)
 	for _, u := range list {
 		if !u.Enabled {
 			continue
@@ -343,6 +336,8 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 			s.d.Log.Warn("invalid upstream", "proxy", p.Hostname, "url", u.URL, "err", err)
 			continue
 		}
+		up.tkey = transportKey{addr: up.url.Scheme + "://" + up.url.Host, idlePerHost: idle}
+		up.transport = s.pool.acquire(up.tkey)
 		ups = append(ups, up)
 	}
 	routes, err := s.d.Store.ListRoutes(p.ID)
@@ -376,7 +371,7 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 			pr.Out.Host = pr.In.Host
 			pr.SetXForwarded()
 		},
-		Transport:     &retryTransport{base: s.transport, retries: p.Retries},
+		Transport:     &retryTransport{base: upstreamTransport{def: s.pool.shared}, retries: p.Retries},
 		FlushInterval: 100 * time.Millisecond,
 		ModifyResponse: func(res *http.Response) error {
 			applyHeaderOps(e.respOps, res.Header)
@@ -439,6 +434,20 @@ func (s *Server) cacheFirstFor(p model.Proxy) bool {
 		return false
 	}
 	return strings.TrimSpace(kv["cache_pre_waf"]) == "1"
+}
+
+// upstreamIdleFor is how many idle connections one upstream keeps: the default
+// unless the site sets upstream_idle_conns.
+func (s *Server) upstreamIdleFor(siteID int64) int {
+	kv, err := s.d.Store.SettingsFor(siteID)
+	if err != nil {
+		return defaultUpstreamIdleConns
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(kv["upstream_idle_conns"]))
+	if err != nil || n < 1 || n > maxIdleUpstreamConns {
+		return defaultUpstreamIdleConns
+	}
+	return n
 }
 
 // bodyTimeoutFor is the site's body deadline: the process default unless the

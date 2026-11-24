@@ -74,6 +74,16 @@ func TestSettingsQueueMSRange(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("body_timeout_s=7200 = %d, want 400", rec.Code)
 	}
+	rec = sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"upstream_idle_conns": "256"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upstream_idle_conns=256 = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = sitesCall(srv, "gui.local", http.MethodPut, "/api/settings", token, csrf, "queue",
+		map[string]string{"upstream_idle_conns": "0"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("upstream_idle_conns=0 = %d, want 400", rec.Code)
+	}
 }
 
 // Cache-first skips the CRS, so the API refuses it where it would also skip a

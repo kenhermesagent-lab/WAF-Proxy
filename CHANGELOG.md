@@ -35,6 +35,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   64 KiB asset served 39,817 rps against 3,667 rps for the same request through the pipeline, with
   6,366 bytes on the wire instead of 65,536. Brotli is quality 4, chosen from the table in
   `docs/BENCHMARKS.md`.
+- **Upstream connections survive a reload.** Each upstream address keeps its own connection pool
+  (default 64 idle connections, 256 in total, per-site `upstream_idle_conns`), so a busy backend no
+  longer competes with another site's for slots. A reload reuses the pool of an unchanged upstream
+  instead of rebuilding it, and a removed or changed upstream closes its idle connections while the
+  requests already in flight finish. Dialling now resolves through a 30-second cache with one lookup
+  per host at a time, and keeps dialling the last good address for five minutes while the resolver
+  is failing, so a DNS blip does not take every backend down with it. Health probes keep their own
+  short-timeout, no-keep-alive transport. A test drives two reloads of an unchanged upstream and
+  records zero new upstream connections.
 - **A slow client cannot hold a request slot.** A request body now has its own deadline
   (`WAFPROXY_BODY_TIMEOUT`, default 30 s, per-site `body_timeout_s`, `0` disables it) that is cleared
   before the forward: a trickled upload is cut with a 408 and logged as `body-timeout`, while an

@@ -1190,6 +1190,7 @@ var publicSettingKeys = []string{
 	"base_domain", "wan_ip", "wan_port", "lan_ip", "gui_port", "wan_iface", "lan_iface",
 	"dos_rps", "dos_burst", "asn_block", "stealth_drop", "stealth_ping", "retention_days",
 	"sample_above_rps", "max_body", "queue_ms", "body_timeout_s", "cache_pre_waf",
+	"upstream_idle_conns",
 	"protection_enabled", "acme_staging", "acme_email",
 	"gate_ttl_hours", "home_lat", "home_lon", "decoy_hosts",
 	"admin_allow_cidrs", "bot_filter", "bot_filter_allow", "geoip_auto_update",
@@ -1338,7 +1339,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		switch k {
-		case "dos_rps", "dos_burst", "retention_days", "sample_above_rps", "max_body", "queue_ms", "body_timeout_s", "gate_ttl_hours":
+		case "dos_rps", "dos_burst", "retention_days", "sample_above_rps", "max_body", "queue_ms", "body_timeout_s", "gate_ttl_hours", "upstream_idle_conns":
 			if v == "" {
 				break
 			}
@@ -1368,6 +1369,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				// 0 disables the deadline for large or genuinely slow uploads.
 				if n < 0 || n > 3600 {
 					writeError(w, http.StatusBadRequest, "body_timeout_s must be 0-3600")
+					return
+				}
+			case "upstream_idle_conns":
+				// One pool per upstream, and the pool is capped at its total.
+				if n < 1 || n > 256 {
+					writeError(w, http.StatusBadRequest, "upstream_idle_conns must be 1-256")
 					return
 				}
 			case "gate_ttl_hours":

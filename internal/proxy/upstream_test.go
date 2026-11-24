@@ -155,7 +155,10 @@ func TestUpstreamTransportIgnoresEnvironmentProxy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.transport.Proxy != nil {
+	key := transportKey{addr: "http://upstream:8080"}
+	tr := s.pool.acquire(key)
+	defer s.pool.release(key)
+	if tr.Proxy != nil {
 		t.Fatal("the upstream transport still honours an environment proxy")
 	}
 }
