@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression test for check-tags.sh: a tagged release passes, and a missing,
-# lightweight, misplaced or unpushed tag fails on its own. Sections below the
-# 1.61.0 floor stay untagged and must not fail.
+# lightweight, misplaced, unpushed or misnumbered tag fails on its own. Sections
+# below the 1.61.0 floor stay untagged and must not fail.
 set -euo pipefail
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -23,6 +23,8 @@ changelog() {
     out+=$'\n\n'"## [$v] - 2026-01-01"$'\n\n'"- test"
   done
   printf '%s\n' "$out" >"$root/CHANGELOG.md"
+  # The convention the check enforces: the newest section and VERSION agree.
+  printf '%s\n' "${versions[0]}" >"$root/VERSION"
 }
 
 commit() {
@@ -117,9 +119,17 @@ misplaced_tag() {
   git -C "$root" tag -a v1.61.2 -m "Release 1.61.2" "$(git -C "$root" rev-list --max-parents=0 HEAD)"
 }
 
+mismatched_version() {
+  add_section
+  printf '1.99.0\n' >"$root/VERSION"
+  commit "1.61.2 with another VERSION"
+  git -C "$root" tag -a v1.61.2 -m "Release 1.61.2"
+}
+
 expect_fail "a section with no tag" add_section
 expect_fail "a lightweight tag" light_tag
 expect_fail "a tag on a commit that does not carry the section" misplaced_tag
+expect_fail "a tag whose commit carries another VERSION" mismatched_version
 
 # A tag the clone has but origin does not is still a broken release.
 seed
@@ -148,4 +158,4 @@ if check --remote; then
   exit 1
 fi
 
-echo "tag check rejects every missing, lightweight, misplaced or unpushed tag"
+echo "tag check rejects every missing, lightweight, misplaced, unpushed or misnumbered tag"

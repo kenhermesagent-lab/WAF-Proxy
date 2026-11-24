@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Fails when a CHANGELOG.md release section has no matching annotated vX.Y.Z tag.
+# Fails when a CHANGELOG.md release section has no matching annotated vX.Y.Z tag,
+# or when VERSION at the tagged commit is not the version the tag names.
 #
 # The rule starts at 1.61.0. The sections below it shipped before the convention
 # was enforced and were never tagged, so checking them would report history
@@ -79,6 +80,20 @@ fail() {
   exit 1
 }
 
+# The tag names the release, so VERSION at its commit has to agree: a tag on a
+# commit stamped with another version publishes misnumbered binaries. Remote
+# mode lists tags without their commits, so it fetches the one tag it needs.
+version_at() {
+  local tag=$1 commit=$2 version
+  if ! git -C "$root" cat-file -e "${commit}^{commit}" 2>/dev/null; then
+    [[ $mode == remote ]] || return 1
+    git -C "$root" fetch --quiet --no-tags "$remote" "+refs/tags/${tag}:refs/tags/${tag}" >/dev/null 2>&1 || return 1
+  fi
+  version=$(git -C "$root" show "${commit}:VERSION" 2>/dev/null | tr -d '[:space:]')
+  [[ -n $version ]] || return 1
+  printf '%s\n' "$version"
+}
+
 if [[ $mode == local ]]; then
   if ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
     echo "not a git checkout: use --remote to check the tags origin holds" >&2
@@ -101,6 +116,14 @@ if [[ $mode == local ]]; then
       fail "$v" "$tag points at ${commit:0:7}, which does not carry the $v section" \
         "move the tag to the commit that cut $v: git tag -f -a $tag <commit> -m \"Release $v\""
     fi
+    if ! tagver=$(version_at "$tag" "$commit"); then
+      fail "$v" "cannot read VERSION at ${commit:0:7}, where $tag points" \
+        "tag the commit that stamped VERSION $v"
+    fi
+    if [[ $tagver != "$v" ]]; then
+      fail "$v" "$tag points at ${commit:0:7}, whose VERSION is ${tagver}" \
+        "tag the commit that stamped VERSION $v: git tag -f -a $tag <commit> -m \"Release $v\""
+    fi
     if ! git -C "$root" merge-base --is-ancestor "$commit" HEAD; then
       fail "$v" "$tag is not an ancestor of HEAD" \
         "check out the branch that carries the release, or fetch the tag's commit"
@@ -122,6 +145,15 @@ else
     if ! grep -qE "refs/tags/v$v\^\{\}$" <<<"$listing"; then
       fail "$v" "v$v on ${remote} is lightweight, not annotated" \
         "git tag -d v$v && git tag -a v$v <release commit> -m \"Release $v\" && git push $remote v$v"
+    fi
+    commit=$(awk -v want="refs/tags/v$v^{}" '$2 == want { print $1 }' <<<"$listing")
+    if ! tagver=$(version_at "v$v" "$commit"); then
+      fail "$v" "cannot read VERSION at ${commit:0:7} on ${remote}, where v$v points" \
+        "tag the commit that stamped VERSION $v"
+    fi
+    if [[ $tagver != "$v" ]]; then
+      fail "$v" "v$v on ${remote} points at ${commit:0:7}, whose VERSION is ${tagver}" \
+        "tag the commit that stamped VERSION $v"
     fi
   done
   echo "release tags on ${remote} match the CHANGELOG.md sections from $floor (${#versions[@]} releases)"
