@@ -127,7 +127,7 @@ func TestMuteSuppressesExpectedEgress(t *testing.T) {
 	if err := st.ReplaceUpstreams(1, []model.Upstream{{ProxyID: 1, URL: "http://10.9.9.9:8080", Enabled: true}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.AddMute(1, "10.9.9.9"); err != nil {
+	if err := m.AddMute(1, MuteDestination, "10.9.9.9"); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
@@ -144,7 +144,7 @@ func TestMuteSuppressesExpectedEgress(t *testing.T) {
 	}
 	// The muted window still raised the baseline, so the next spike has to clear
 	// it the way a real one would.
-	if err := m.RemoveMute(1, "10.9.9.9"); err != nil {
+	if err := m.RemoveMute(1, MuteDestination, "10.9.9.9"); err != nil {
 		t.Fatal(err)
 	}
 	met.Count(1, 10, 0, 0, 20<<20)
@@ -153,5 +153,45 @@ func TestMuteSuppressesExpectedEgress(t *testing.T) {
 	}
 	if len(rec.kinds) != 1 || rec.kinds[0] != "egress_spike" {
 		t.Fatalf("after unmuting kinds = %v, want the egress spike back", rec.kinds)
+	}
+}
+
+// A whitelisted source can be muted too. A window made only of its bytes is
+// expected, while a window another client contributed to still raises a spike.
+func TestMuteSourceSuppressesOnlyItsOwnEgress(t *testing.T) {
+	m, st, met, rec := newDetector(t)
+	if err := st.ReplaceUpstreams(1, []model.Upstream{{ProxyID: 1, URL: "http://10.9.9.9:8080", Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.AddMute(1, MuteSource, "203.0.113.7"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	met.Count(1, 1, 0, 0, 0)
+	met.CountSource(1, "203.0.113.7", 0)
+	if err := m.Tick(now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Six megabytes, all of them from the muted source, are expected.
+	met.Count(1, 1, 0, 0, 6<<20)
+	met.CountSource(1, "203.0.113.7", 6<<20)
+	if err := m.Tick(now.Add(Window)); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.kinds) != 0 {
+		t.Fatalf("a spike from the muted source still raised %v", rec.kinds)
+	}
+
+	// A second client moved most of the next window, so the spike stands even
+	// though the muted source is still part of it.
+	met.Count(1, 1, 0, 0, 36<<20)
+	met.CountSource(1, "203.0.113.7", 6<<20)
+	met.CountSource(1, "198.51.100.9", 30<<20)
+	if err := m.Tick(now.Add(2 * Window)); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.kinds) != 1 || rec.kinds[0] != "egress_spike" {
+		t.Fatalf("kinds = %v, want the spike back for the unmuted source", rec.kinds)
 	}
 }

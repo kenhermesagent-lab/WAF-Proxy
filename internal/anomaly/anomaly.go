@@ -24,13 +24,27 @@ import (
 // same proxy's recent windows.
 const Window = time.Minute
 
-// MutesKey stores the destinations an operator expects outbound traffic to.
+// MutesKey stores the flows an operator expects: destinations traffic goes to
+// and whitelisted sources it comes from.
 const MutesKey = "anomaly_mutes"
 
-// Mute is one destination whose traffic is expected, so an outbound spike
-// toward it is not a detection. Address is the upstream host, without a port.
+// Mute kinds. A destination is an upstream host, without its port; a source is
+// one address or CIDR from an enabled IP whitelist.
+const (
+	MuteDestination = "destination"
+	MuteSource      = "source"
+)
+
+// ValidMuteKind reports whether kind is a flow the detector can mute.
+func ValidMuteKind(kind string) bool {
+	return kind == MuteDestination || kind == MuteSource
+}
+
+// Mute is one flow whose traffic is expected, so an outbound spike made only of
+// it is not a detection.
 type Mute struct {
 	ProxyID int64     `json:"proxy_id"`
+	Kind    string    `json:"kind"` // destination | source
 	Address string    `json:"address"`
 	At      time.Time `json:"at"`
 }
@@ -87,19 +101,23 @@ type Manager struct {
 	now    func() time.Time
 	sink   func(model.AnomalyEvent)
 
-	mu     sync.Mutex
-	prev   map[int64]sample
-	egress map[int64][]float64
-	rates  map[int64][]float64
+	mu   sync.Mutex
+	prev map[int64]sample
+	// srcPrev is each proxy's per-source outbound totals as of the previous
+	// tick, so a window can be attributed to the clients that moved it.
+	srcPrev map[int64]map[string]int64
+	egress  map[int64][]float64
+	rates   map[int64][]float64
 }
 
 // New returns a detector bound to the store and the metrics collector.
 func New(st *store.Store, met *metrics.Collector, notify Notifier, log *slog.Logger) *Manager {
 	return &Manager{
 		st: st, met: met, notify: notify, log: log, now: time.Now,
-		prev:   map[int64]sample{},
-		egress: map[int64][]float64{},
-		rates:  map[int64][]float64{},
+		prev:    map[int64]sample{},
+		srcPrev: map[int64]map[string]int64{},
+		egress:  map[int64][]float64{},
+		rates:   map[int64][]float64{},
 	}
 }
 
@@ -168,38 +186,54 @@ func (m *Manager) Mutes() ([]Mute, error) {
 			return []Mute{}, nil
 		}
 	}
+	for i := range out {
+		// Entries written before sources existed are destination mutes.
+		if out[i].Kind == "" {
+			out[i].Kind = MuteDestination
+		}
+	}
 	return out, nil
 }
 
-// AddMute records a destination as expected. The same destination twice is one
-// entry, so muting from two events cannot leave stale copies behind.
-func (m *Manager) AddMute(proxyID int64, address string) error {
+// AddMute records one expected flow: a destination the site sends to, or a
+// whitelisted source it accepts from. The same flow twice is one entry, so
+// muting from two events cannot leave stale copies behind.
+func (m *Manager) AddMute(proxyID int64, kind, address string) error {
 	address = strings.TrimSpace(address)
+	if kind == "" {
+		kind = MuteDestination
+	}
 	if proxyID == 0 || address == "" {
-		return errors.New("a mute needs a proxy and a destination")
+		return errors.New("a mute needs a proxy and an address")
+	}
+	if !ValidMuteKind(kind) {
+		return errors.New("a mute is for a destination or a source")
 	}
 	mutes, err := m.Mutes()
 	if err != nil {
 		return err
 	}
 	for _, mu := range mutes {
-		if mu.ProxyID == proxyID && mu.Address == address {
+		if mu.ProxyID == proxyID && mu.Kind == kind && mu.Address == address {
 			return nil
 		}
 	}
-	mutes = append(mutes, Mute{ProxyID: proxyID, Address: address, At: m.now().UTC()})
+	mutes = append(mutes, Mute{ProxyID: proxyID, Kind: kind, Address: address, At: m.now().UTC()})
 	return m.saveMutes(mutes)
 }
 
-// RemoveMute forgets one destination, so its spikes are detected again.
-func (m *Manager) RemoveMute(proxyID int64, address string) error {
+// RemoveMute forgets one expected flow, so its spikes are detected again.
+func (m *Manager) RemoveMute(proxyID int64, kind, address string) error {
+	if kind == "" {
+		kind = MuteDestination
+	}
 	mutes, err := m.Mutes()
 	if err != nil {
 		return err
 	}
 	kept := mutes[:0]
 	for _, mu := range mutes {
-		if mu.ProxyID == proxyID && mu.Address == address {
+		if mu.ProxyID == proxyID && mu.Kind == kind && mu.Address == address {
 			continue
 		}
 		kept = append(kept, mu)
@@ -218,34 +252,83 @@ func (m *Manager) saveMutes(mutes []Mute) error {
 	return m.st.SetSetting(MutesKey, string(blob))
 }
 
-// muted reports whether every enabled destination of a proxy is expected, which
-// is what makes an outbound spike unremarkable. Without upstreams there is
-// nothing to match, so the event is raised.
-func (m *Manager) muted(proxyID int64) bool {
+// expectedEgress reports whether a window's outbound traffic is the traffic an
+// operator said to expect. A site counts as expected when every enabled
+// upstream is a muted destination, or when every byte the window sent came from
+// a muted source. A destination or a client nobody muted keeps the spike, and
+// so does a byte the counters could not attribute.
+func (m *Manager) expectedEgress(proxyID, total int64, bySource map[string]int64) bool {
 	mutes, err := m.Mutes()
 	if err != nil {
 		m.log.Warn("anomaly mute lookup failed", "err", err)
 		return false
 	}
-	expected := map[string]bool{}
+	dest, src := map[string]bool{}, map[string]bool{}
 	for _, mu := range mutes {
-		if mu.ProxyID == proxyID {
-			expected[mu.Address] = true
+		if mu.ProxyID != proxyID {
+			continue
+		}
+		if mu.Kind == MuteSource {
+			src[mu.Address] = true
+			continue
+		}
+		dest[mu.Address] = true
+	}
+	if len(dest) > 0 && m.allDestinationsMuted(proxyID, dest) {
+		return true
+	}
+	if len(src) == 0 || total <= 0 {
+		return false
+	}
+	var accounted, fromMuted int64
+	for addr, bytes := range bySource {
+		accounted += bytes
+		if src[addr] {
+			fromMuted += bytes
 		}
 	}
-	if len(expected) == 0 {
+	// Bytes no source accounts for could be anyone's, so they are never
+	// expected; the same goes for a window that only partly came from a muted
+	// source.
+	if accounted != total {
 		return false
 	}
+	return fromMuted == total
+}
+
+// allDestinationsMuted reports whether every enabled upstream of a proxy is a
+// muted destination. Without an enabled upstream there is nothing to match.
+func (m *Manager) allDestinationsMuted(proxyID int64, muted map[string]bool) bool {
 	ups, err := m.st.ListUpstreams(proxyID)
-	if err != nil || len(ups) == 0 {
+	if err != nil {
 		return false
 	}
+	checked := 0
 	for _, up := range ups {
-		if !up.Enabled || !expected[upstreamHost(up.URL)] {
+		if !up.Enabled {
+			continue
+		}
+		checked++
+		if !muted[upstreamHost(up.URL)] {
 			return false
 		}
 	}
-	return true
+	return checked > 0
+}
+
+// sourceWindow returns the outbound bytes each client moved since the previous
+// tick, and remembers this tick's totals for the next one.
+func (m *Manager) sourceWindow(proxyID int64) map[string]int64 {
+	now := m.met.EgressBySource(proxyID)
+	prev := m.srcPrev[proxyID]
+	out := map[string]int64{}
+	for addr, total := range now {
+		if grown := total - prev[addr]; grown > 0 {
+			out[addr] = grown
+		}
+	}
+	m.srcPrev[proxyID] = now
+	return out
 }
 
 // upstreamHost is the host an upstream URL sends traffic to, without its port.
@@ -298,6 +381,7 @@ func (m *Manager) Tick(now time.Time) error {
 		}
 		prev := m.prev[id]
 		m.prev[id] = sample{requests: c.Requests, bytesOut: c.BytesOut, set: true}
+		bySource := m.sourceWindow(id)
 		if !prev.set {
 			continue
 		}
@@ -316,7 +400,7 @@ func (m *Manager) Tick(now time.Time) error {
 		m.rates[id] = append(rateHist, float64(reqs)/Window.Seconds())
 
 		floor := float64(cfg.EgressMB) * (1 << 20)
-		if float64(out) >= floor && float64(out) >= cfg.EgressFactor*egressBase && !m.muted(id) {
+		if float64(out) >= floor && float64(out) >= cfg.EgressFactor*egressBase && !m.expectedEgress(id, out, bySource) {
 			m.raise(cfg, model.AnomalyEvent{
 				Kind: "egress_spike", ProxyID: id, WindowStart: now.Add(-Window), WindowSeconds: int(Window.Seconds()),
 				Value: float64(out), Baseline: egressBase,
