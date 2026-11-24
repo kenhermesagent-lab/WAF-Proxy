@@ -174,6 +174,12 @@ if check --branch main; then
   echo "a tag on an unmerged branch passed the local tag check" >&2
   exit 1
 fi
+# release.sh checks its own tag before it pushes, so it asks for the on-main rule
+# to be left to the post-push --remote run.
+if ! check --branch main --skip-on-main; then
+  echo "the release script's pre-push check failed on the on-main rule" >&2
+  exit 1
+fi
 # Once that branch lands, the same tag is a release people receive.
 git -C "$root" checkout -q main
 git -C "$root" merge -q --no-ff release/1.61.2 -m "land 1.61.2"

@@ -595,6 +595,10 @@ make verify-release                              # on main: local tags
 bash deploy/check-tags.sh --remote --branch main  # what origin holds
 ```
 
+`scripts/release.sh` runs the check before it prints its push commands, when its own
+release commit is not on `main` yet, so it passes `--skip-on-main`; the `--remote`
+run after the push is what proves the tag landed.
+
 CI runs `bash deploy/check-tags.sh --remote` on every push and pull request; the
 `release` job fails only on `main`, where a section without its tag is a real
 mistake. A checkout does not fetch tags, which is why CI asks the remote, and the

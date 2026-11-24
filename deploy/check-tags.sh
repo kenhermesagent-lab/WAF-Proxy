@@ -16,6 +16,7 @@ floor=1.61.0
 mode=local
 remote=origin
 branch=""
+skip_on_main=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -23,8 +24,11 @@ while [[ $# -gt 0 ]]; do
     --remote=*) mode=remote; remote=${1#--remote=} ;;
     --branch) shift; branch=${1:-}; [[ -n $branch ]] || { echo "--branch needs a name" >&2; exit 2; } ;;
     --branch=*) branch=${1#--branch=}; [[ -n $branch ]] || { echo "--branch needs a name" >&2; exit 2; } ;;
+    # release.sh runs this before it prints the push commands, so its own release
+    # commit is not on main yet; the post-push --remote run is what proves that.
+    --skip-on-main) skip_on_main=1 ;;
     *)
-      echo "usage: $0 [--remote[=REMOTE]] [--branch NAME]" >&2
+      echo "usage: $0 [--remote[=REMOTE]] [--branch NAME] [--skip-on-main]" >&2
       exit 2
       ;;
   esac
@@ -118,7 +122,7 @@ fi
 
 # With no main to compare against the rule cannot be answered here; CI's
 # --remote run is the one that proves it.
-on_main() { [[ -z $main_sha ]] || git -C "$root" merge-base --is-ancestor "$1" "$main_sha"; }
+on_main() { [[ -n $skip_on_main || -z $main_sha ]] || git -C "$root" merge-base --is-ancestor "$1" "$main_sha"; }
 
 # The tag names the release, so VERSION at its commit has to agree: a tag on a
 # commit stamped with another version publishes misnumbered binaries. Remote
