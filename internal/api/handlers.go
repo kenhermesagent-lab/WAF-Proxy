@@ -682,7 +682,8 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in model.Profile
-	if err := decode(r, &in); err != nil {
+	sent, err := decodeSent(r, &in)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
@@ -708,7 +709,9 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 	if in.MaxBody > 0 {
 		p.MaxBody = in.MaxBody
 	}
-	p.Exceptions = in.Exceptions
+	if _, ok := sent["exceptions"]; ok {
+		p.Exceptions = in.Exceptions
+	}
 	if msg := validateProfileLimits(in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
@@ -720,8 +723,28 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		p.BundleModes = bundleModesOrEmpty(in.BundleModes)
 	}
-	p.MaxResponse, p.LoginPaths, p.LoginRPS = in.MaxResponse, in.LoginPaths, in.LoginRPS
-	p.LoginBurst, p.AdminPaths, p.AdminIPs = in.LoginBurst, in.AdminPaths, in.AdminIPs
+	// These have no "unset" value of their own — an empty list or a zero rate is
+	// a real setting — so only the keys the payload names are written. A client
+	// sending one setting must not strip the profile's login limits or admin
+	// allowlist, which is exactly the protection a preset installs.
+	if _, ok := sent["max_response"]; ok {
+		p.MaxResponse = in.MaxResponse
+	}
+	if _, ok := sent["login_paths"]; ok {
+		p.LoginPaths = in.LoginPaths
+	}
+	if _, ok := sent["login_rps"]; ok {
+		p.LoginRPS = in.LoginRPS
+	}
+	if _, ok := sent["login_burst"]; ok {
+		p.LoginBurst = in.LoginBurst
+	}
+	if _, ok := sent["admin_paths"]; ok {
+		p.AdminPaths = in.AdminPaths
+	}
+	if _, ok := sent["admin_ips"]; ok {
+		p.AdminIPs = in.AdminIPs
+	}
 	before := s.snapshotProfile(r, p.ID)
 	if err := s.db(r).UpdateProfile(p); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")

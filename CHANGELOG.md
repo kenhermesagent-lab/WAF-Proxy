@@ -12,6 +12,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.67.1] — 2026-11-24
+
+### Fixed
+
+- **Editing one profile setting no longer disarms the rest.** `PUT /api/profiles/{id}` wrote
+  `max_response`, `login_paths`, `login_rps`, `login_burst`, `admin_paths`, `admin_ips` and
+  `exceptions` from whatever the payload carried, so a request naming a single field cleared the
+  login limits and the admin allowlist a preset installs — the console sends the whole record, but a
+  script or a hand-written PUT does not. Those keys are now written only when the payload names
+  them, which is how the proxy handler already treats a partial update; an explicit empty value
+  still clears a field. Found by driving a Frigate preset through a real proxy: an unrelated edit
+  silently removed the admin-path rejection it had just been enforcing.
+
 ## [1.67.0] — 2026-11-24
 
 ### Added
