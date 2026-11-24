@@ -227,12 +227,14 @@ of being tagged somewhere nearby. Tags origin already has are skipped, so a re-r
 When a release has more than one commit where `VERSION` reads as it does, the tag names one that did
 not change a file under `.github/workflows/`, since those are the commits a token can push.
 
-A tag whose commit changed a file under `.github/workflows/` cannot be pushed with the runner's
-token: GitHub refuses to let an App create a ref that carries a workflow change, even when the
-commit is already on `main`. The script creates that tag through the API instead — the tag object and
-its ref, with no commits travelling — and only fails if the API refuses as well, which needs a token
-with the `workflow` scope in place of `GITHUB_TOKEN`. One refused tag no longer hides the ones after
-it: every version is attempted and the job ends red naming each one that failed.
+A tag cannot be pushed with the runner's token when it would introduce a change under
+`.github/workflows/`, and GitHub reads that over the whole range since the previous tag rather than
+just the tagged commit. `v1.62.3`'s range carries the dependency refresh that edited `ci.yml` and
+`release.yml`, so no commit of that release is pushable by the App and the job names it instead: push
+that one from a clone with your own credentials, or give the job a token with the `workflow` scope in
+place of `GITHUB_TOKEN`. The script tries the API as well (tag object plus ref, no commits
+travelling), and one refused tag does not hide the ones after it — every version is attempted and the
+job ends red naming each one that failed.
 
 The same work is available locally as `bash deploy/create-release-tags.sh --dry-run`, then without
 `--dry-run` to push. A tag that exists only in the local checkout makes the script stop: it points
