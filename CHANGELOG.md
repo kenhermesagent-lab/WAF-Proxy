@@ -43,6 +43,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   would otherwise look green. `ghcr.io/<owner>/wafproxy:latest` moves only when the tag is the
   newest on `origin`, so dispatching an older tag republishes its own version and leaves the alias
   where it is.
+- **The tag step says why it failed.** An unreadable remote is now reported as an Actions error
+  annotation instead of a bare git exit code, and the wider token goes in as an authorization header
+  with the checkout's own credential stripped from the remote first, because one request carries one
+  credential and sending both is what made the first attempt die on a `git ls-remote`.
 - **A wider token lets the job push every tag.** `TAG_PUSH_TOKEN`, when the repository sets it, is
   preferred over the App's token for the tag push and the API calls, so a tag whose range touches
   `.github/workflows/` — the case the App refuses — lands without anyone pushing it by hand. Its push

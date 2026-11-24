@@ -26,7 +26,13 @@ dry_run=0
 requested=()
 
 die() {
-  echo "create-release-tags: $*" >&2
+  # Under Actions the annotation is all that survives a failed step, so the
+  # reason goes there as well as to the log instead of only an exit code.
+  if [[ -n ${GITHUB_ACTIONS:-} ]]; then
+    echo "::error::create-release-tags: $*" >&2
+  else
+    echo "create-release-tags: $*" >&2
+  fi
   exit 1
 }
 
@@ -99,14 +105,16 @@ else
   done
 fi
 
-main=$(git ls-remote --heads "$remote" refs/heads/main | cut -f1)
+main=$(git ls-remote --heads "$remote" refs/heads/main | cut -f1) ||
+  die "$remote is not readable; a token that may push the tags has to be in place"
 [[ -n $main ]] || die "$remote has no main branch"
 if ! git cat-file -e "${main}^{commit}" 2>/dev/null; then
   git fetch --quiet --no-tags "$remote" '+refs/heads/main:refs/remotes/'"$remote"'/main' ||
     die "cannot fetch main from $remote"
 fi
 
-listing=$(git ls-remote --tags "$remote")
+listing=$(git ls-remote --tags "$remote") ||
+  die "$remote is not readable; a token that may push the tags has to be in place"
 
 # One walk of main, newest first, records the first and the last qualifying commit
 # of each version. Only VERSION is read per commit, so the whole history is cheap.

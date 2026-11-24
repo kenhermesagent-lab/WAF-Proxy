@@ -156,4 +156,11 @@ grep -q "would tag v1.62.0 at $want" <<<"$out" ||
   fail "v1.62.0 was not moved off the workflow-changing commit: $out"
 rm -rf .github/workflows
 
+# An unreadable remote must say so: a bare git exit code is all a failed action
+# step leaves behind otherwise.
+if out=$(bash "$script" --remote no-such-remote --dry-run 2>&1); then
+  fail "an unreadable remote was accepted"
+fi
+grep -q 'not readable' <<<"$out" || fail "unreadable remote gave no reason: $out"
+
 echo "create-release-tags_test: ok"

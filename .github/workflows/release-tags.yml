@@ -72,12 +72,15 @@ jobs:
         run: |-
           set -euo pipefail
           # The checkout leaves the App token in origin's URL, which is exactly the
-          # credential that cannot push a workflow-spanning tag. Hand git the wider
-          # token as an authorization header instead, without writing it anywhere.
+          # credential that cannot push a workflow-spanning tag. One request
+          # carries one credential, so the URL goes back to plain and the wider
+          # token goes in as an authorization header; a stray newline out of the
+          # secret would ride inside that header, so it is trimmed first.
           if [[ -n ${TAG_PUSH_TOKEN:-} ]]; then
-            export GIT_CONFIG_COUNT=1
-            export GIT_CONFIG_KEY_0='http.https://github.com/.extraheader'
-            export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TAG_PUSH_TOKEN" | base64 -w0)"
+            token=${TAG_PUSH_TOKEN//[[:space:]]/}
+            git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+            git config --local 'http.https://github.com/.extraheader' \
+              "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$token" | base64 -w0)"
           fi
           args=()
           if [[ $DRY_RUN == true ]]; then
