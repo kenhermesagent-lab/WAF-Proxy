@@ -12,6 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.65.12] — 2026-11-24
+
+### Tests
+
+- **The settings round trip has to prove the save writes.** It now flips `dos_rps` in the payload and
+  requires the stored row to change, so a save that answers `200` and writes nothing fails instead of
+  passing on an unchanged form. A second case does the same for a tenant console's reduced payload —
+  runtime and host-wide keys stripped, as the console sends it — and requires its `retention_days` to
+  land in that site's store and not the default site's. Both fail against a save that only answers,
+  and against the pre-1.65.9 validator.
+
 ## [1.65.11] — 2026-11-24
 
 ### Fixed
