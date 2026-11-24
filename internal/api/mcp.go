@@ -12,6 +12,9 @@ import (
 
 // getMCP reports gateway availability without ever returning a credential.
 func (s *Server) getMCP(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the agent gateway") {
+		return
+	}
 	tokens, err := s.db(r).ListMCPTokens()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
@@ -41,6 +44,9 @@ type mcpTokenBody struct {
 // createMCPToken returns the plaintext token exactly once. Only its SHA-256
 // hash is persisted, so a database copy cannot be replayed against /mcp.
 func (s *Server) createMCPToken(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the agent gateway") {
+		return
+	}
 	var in mcpTokenBody
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
@@ -91,6 +97,9 @@ func (s *Server) createMCPToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) revokeMCPToken(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the agent gateway") {
+		return
+	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")

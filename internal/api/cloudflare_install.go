@@ -17,7 +17,7 @@ func (s *Server) getCloudflareInstall(w http.ResponseWriter, r *http.Request) {
 // Cloudflare's repository and installing the package takes a minute, so the page
 // polls instead of holding one request open.
 func (s *Server) startCloudflareInstall(w http.ResponseWriter, r *http.Request) {
-	if !s.requireHostConsole(w, r) {
+	if !s.requireHostConsole(w, r, "the tunnel connector") {
 		return
 	}
 	st := s.cloudflaredInstallStatus()

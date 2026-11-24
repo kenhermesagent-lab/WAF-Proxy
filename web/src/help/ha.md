@@ -8,7 +8,7 @@ Running two nodes as one service: pair them, see which one is active, and move t
 - **Witness** — an optional third party that grants a short lease; an active that cannot renew it stops serving.
 
 ## First tasks
-- Turn on **Settings → High availability** on both nodes after starting them with `WAFPROXY_HA_ENABLE=1`.
+- Turn on **Settings → High availability** on both nodes. The first enable restarts the service so the HA listeners bind; no environment variable is needed.
 - Create a pair on one node, then join from the other with the code, address and fingerprint.
 - Run a **failover** as a dry run first; the real move drains writes and needs the cluster id typed again.
 

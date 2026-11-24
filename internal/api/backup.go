@@ -15,6 +15,9 @@ func (s *Server) StartBackup(ctx context.Context) {
 }
 
 func (s *Server) getBackup(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "backup scheduling") {
+		return
+	}
 	if s.backup == nil {
 		writeError(w, http.StatusServiceUnavailable, "the backup manager is not configured")
 		return
@@ -32,6 +35,9 @@ func (s *Server) getBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) putBackup(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "backup scheduling") {
+		return
+	}
 	if s.backup == nil {
 		writeError(w, http.StatusServiceUnavailable, "the backup manager is not configured")
 		return
@@ -58,6 +64,9 @@ func (s *Server) putBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runBackup(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "backup scheduling") {
+		return
+	}
 	if s.backup == nil {
 		writeError(w, http.StatusServiceUnavailable, "the backup manager is not configured")
 		return

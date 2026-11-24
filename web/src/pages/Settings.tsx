@@ -13,14 +13,11 @@ type Settings = Record<string, string>;
 const RUNTIME_KEYS = new Set(["kernel", "geoip", "iface_available", "host_wide_keys", "site_slug", "site_name"]);
 
 // The parts of /api/ha the Settings switch needs for its help text.
-type HAInfo = { enabled?: boolean; boot_enabled?: boolean; paired?: boolean; cluster_id?: string; reason?: string };
+type HAInfo = { enabled?: boolean; paired?: boolean; cluster_id?: string; reason?: string };
 
 function haSwitchHelp(hostWide: boolean, me: Me | null | undefined, info: HAInfo | null): string {
   if (hostWide || me?.role === "host_admin") {
     return "Only an administrator on the default site can change this.";
-  }
-  if (info && info.boot_enabled === false) {
-    return "Locked off: this host booted with WAFPROXY_HA_ENABLE=0. Set it to 1, restart, then use this switch.";
   }
   if (info?.enabled && info.paired) {
     return "This node is paired. Turning it off stops replication and the HA API on this node; the pair stays configured for when you turn it back on.";
@@ -73,6 +70,9 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   const [backupPass, setBackupPass] = useState("");
   const [haInfo, setHaInfo] = useState<HAInfo | null>(null);
   const [haConfirm, setHaConfirm] = useState("");
+  // Set while the supervisor restarts the process for the first HA enable, so
+  // the page waits for the service instead of firing requests at it.
+  const [restart, setRestart] = useState<"idle" | "restarting" | "back" | "lost">("idle");
   const [activeSection, setActiveSection] = useState("network");
   const [iface, setIface] = useState<{ wan: string; lan: string; wanAuto: boolean; lanAuto: boolean; available: string[] }>({
     wan: "", lan: "", wanAuto: false, lanAuto: false, available: [],
@@ -122,6 +122,12 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
     const t = setInterval(loadGeo, 2000);
     return () => clearInterval(t);
   }, [geo?.installing]);
+
+  useEffect(() => {
+    if (restart !== "back") return;
+    const t = setTimeout(() => setRestart("idle"), 8000);
+    return () => clearTimeout(t);
+  }, [restart]);
 
   useEffect(() => {
     // Nearest section head to the top of the viewport, so the last short
@@ -232,6 +238,24 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
     return out;
   };
 
+  // The first enable restarts the process to bind the HA listeners. Wait past
+  // the restart, then require two successful health checks a second apart so a
+  // response from the outgoing process is not mistaken for the new one.
+  const waitForRestart = async () => {
+    await new Promise((r) => setTimeout(r, 1500));
+    for (let i = 0; i < 60; i++) {
+      try {
+        await api.get("/api/health");
+        await new Promise((r) => setTimeout(r, 1000));
+        await api.get("/api/health");
+        return true;
+      } catch {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+    return false;
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -241,16 +265,28 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
         posted.ha_enabled === "0" && haInfo?.paired && haConfirm.trim()
           ? { "X-HA-Cluster-ID": haConfirm.trim() }
           : undefined;
-      await api.put("/api/settings", posted, headers);
-      onOK("Settings saved");
+      const res = await api.put<{ restart_required?: boolean }>("/api/settings", posted, headers);
       setSaved(editable(s));
+      // The typed id belongs to one save; never leave it in the field.
+      if ("ha_enabled" in posted) setHaConfirm("");
+      if (res?.restart_required) {
+        setRestart("restarting");
+        onOK("High availability is enabled; the service is restarting");
+        if (!(await waitForRestart())) {
+          setRestart("lost");
+          onError("The console did not reconnect. Check WAF-Proxy on the host, then reload this page.");
+          return;
+        }
+        setRestart("back");
+        onOK("WAF-Proxy is back; high availability is on");
+      } else {
+        onOK("Settings saved");
+      }
       load();
       // The help text depends on the server's view of the switch, and the nav
       // depends on /api/me, so both are refreshed instead of guessed at.
       loadHA();
       if (posted.ha_enabled !== saved.ha_enabled) onMeChanged?.();
-      // The typed id belongs to one save; never leave it in the field.
-      if ("ha_enabled" in posted) setHaConfirm("");
     } catch (e) {
       onError(errText(e));
     } finally {
@@ -272,8 +308,8 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
   );
   const ifaceHint = (name: string, auto: boolean) =>
     name ? `${name} (${auto ? "auto-detected" : "configured"})` : "— (none detected)";
-  // The boot switch and the site console both own this decision, so the switch
-  // explains which one is in the way instead of failing on save.
+  // A tenant console cannot change the host-wide switch, so the control says
+  // which console owns it instead of failing on save.
   const mayToggleHA = !hostWide && me?.role !== "host_admin";
 
   return (
@@ -286,6 +322,19 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
       }
       actions={<Badge tone="info">Site: {siteName}</Badge>}
     />
+    {restart !== "idle" && (
+      <div
+        className={`banner ${restart === "restarting" ? "warn" : restart === "lost" ? "bad" : ""}`}
+        role="status"
+        aria-live="polite"
+      >
+        {restart === "restarting"
+          ? "Enabling high availability restarts WAF-Proxy. The console reconnects when the service is back…"
+          : restart === "lost"
+            ? "WAF-Proxy has not reconnected. Check the service on the host, then reload this page."
+            : "WAF-Proxy is back. High availability is on."}
+      </div>
+    )}
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
         {SECTIONS.map((sec) => (
@@ -431,7 +480,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             help={haSwitchHelp(hostWide, me, haInfo)}
             checked={s.ha_enabled === "1"}
             onChange={(v) => set("ha_enabled", v ? "1" : "0")}
-            disabled={!mayToggleHA || haInfo?.boot_enabled === false}
+            disabled={!mayToggleHA}
           />
           {haInfo?.paired && s.ha_enabled === "0" && !hostWide && (
             <Field

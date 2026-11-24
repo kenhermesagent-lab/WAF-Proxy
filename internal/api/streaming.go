@@ -33,6 +33,9 @@ type streamingView struct {
 }
 
 func (s *Server) getStreaming(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "streaming forwarders") {
+		return
+	}
 	kv, _ := s.db(r).Settings()
 	live := map[string]streaming.Status{}
 	if s.streams != nil {
@@ -70,6 +73,9 @@ func (s *Server) streamingDefaults(def streaming.Service, kv map[string]string) 
 }
 
 func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "streaming forwarders") {
+		return
+	}
 	def, ok := streaming.Lookup(r.PathValue("id"))
 	if !ok {
 		writeError(w, http.StatusNotFound, "unknown streaming service")

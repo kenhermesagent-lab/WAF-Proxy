@@ -45,8 +45,6 @@ func TestIsLocalAddress(t *testing.T) {
 
 func TestLoadRefusesAnUnsafeAutomaticFailover(t *testing.T) {
 	t.Setenv("WAFPROXY_DATA_DIR", t.TempDir())
-	t.Setenv("WAFPROXY_HA_ENABLE", "1")
-	t.Setenv("WAFPROXY_HA_MGMT_LISTEN", "127.0.0.1:8443")
 	t.Setenv("WAFPROXY_HA_AUTO_FAILOVER", "1")
 	if _, err := Load(); err == nil {
 		t.Fatal("automatic failover loaded without a witness")

@@ -137,14 +137,16 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	userID, ok := s.db(r).ConsumePasswordReset(tokenDigest(strings.TrimSpace(in.Token)))
-	if !ok {
-		writeError(w, http.StatusBadRequest, "this reset link is invalid or has expired")
-		return
-	}
+	// Hash before spending the token: a password the policy refuses must not
+	// consume the single-use link and force another email.
 	hash, err := auth.HashPassword(in.Password)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	userID, ok := s.db(r).ConsumePasswordReset(tokenDigest(strings.TrimSpace(in.Token)))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "this reset link is invalid or has expired")
 		return
 	}
 	user, err := s.db(r).UserByID(userID)

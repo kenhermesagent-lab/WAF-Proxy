@@ -247,6 +247,13 @@ func Join(ctx context.Context, dataDir, activeAddr, pin, code string) (*Pair, er
 	if err := SavePair(dataDir, pair); err != nil {
 		return nil, err
 	}
+	// The node that joins is the pair's standby. The caller restarts so the data
+	// plane and the follower pick this up together.
+	if node, err := Load(dataDir); err == nil && node.Active() {
+		if _, err := EnterState(dataDir, node, StateStandby); err != nil {
+			return nil, err
+		}
+	}
 	return pair, nil
 }
 
@@ -275,6 +282,11 @@ func (l *attemptLimiter) allow(key string, now time.Time) bool {
 	if len(kept) >= l.limit {
 		l.hits[key] = kept
 		return false
+	}
+	if len(kept) == 0 {
+		// Do not leave an empty bucket behind for every address that only
+		// guessed once.
+		delete(l.hits, key)
 	}
 	l.hits[key] = append(kept, now)
 	return true

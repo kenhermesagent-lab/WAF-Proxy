@@ -52,6 +52,9 @@ func (s *Server) listBundles(w http.ResponseWriter, r *http.Request) {
 // of them. Providers are independent, so a failure on one still returns the
 // snapshot with the other packs in place.
 func (s *Server) checkBundles(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the signature bundle channel") {
+		return
+	}
 	if s.bundles == nil || !s.bundles.Enabled() {
 		writeError(w, http.StatusConflict, "no signed bundle channel is configured")
 		return
@@ -80,6 +83,9 @@ func (s *Server) checkBundles(w http.ResponseWriter, r *http.Request) {
 // enableBundle switches one pack on or off. A disabled pack keeps its files
 // and version, so re-enabling it needs no download.
 func (s *Server) enableBundle(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the signature bundle channel") {
+		return
+	}
 	if s.bundles == nil {
 		writeError(w, http.StatusConflict, "no bundle manager is running")
 		return
@@ -109,6 +115,9 @@ func (s *Server) enableBundle(w http.ResponseWriter, r *http.Request) {
 // is stored in the settings table, which takes over from the environment once
 // the first edit is saved here.
 func (s *Server) saveBundleProvider(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the signature bundle channel") {
+		return
+	}
 	if s.bundles == nil {
 		writeError(w, http.StatusConflict, "no bundle manager is running")
 		return
@@ -149,6 +158,9 @@ func (s *Server) saveBundleProvider(w http.ResponseWriter, r *http.Request) {
 // deleteBundleProvider drops one channel. Its installed packs stay on disk and
 // keep serving until an administrator disables them.
 func (s *Server) deleteBundleProvider(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the signature bundle channel") {
+		return
+	}
 	if s.bundles == nil {
 		writeError(w, http.StatusConflict, "no bundle manager is running")
 		return

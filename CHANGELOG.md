@@ -20,9 +20,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   replaced `net.Dialer`'s own fallback, so an answer whose first address was IPv6 on a host with no
   IPv6 route burned the whole five-second dial timeout before IPv4 was tried. Both families are now
   dialled at once and the first success wins, while addresses inside a family stay in order.
+
 - **A route that fails to build gives its upstream pool back.** A reload that failed after the
   connection pool was acquired held a reference forever, so the pool could never close its idle
   connections.
+
 - **The lockfile names the release it belongs to.** `web/package-lock.json` still said 1.60.1 while
   `package.json` moved on, which is what `npm ci` and a release audit read; it is updated, and
   `deploy/check-version.sh` now fails when the two disagree.
@@ -40,25 +42,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   shed. A tenant console sees its own routes only; the budget itself is process-wide. Refusals already
   logged `stage=capacity`, and the report is the aggregate of them.
 
-### Added
-
-- **A cached hit can be answered before the WAF, per site.** With `cache_pre_waf=1` a cacheable GET
-  that has a fresh entry is served after screening but before the CRS: bans, the allow-list, the
-  rate limit and the bot filter still apply, while the CRS request rules, per-IP WAF rules, bot
-  challenge and access gate do not see it. Off by default; the API refuses the setting on a site
-  with an access gate or a WAF mode other than block/detect, so it cannot quietly disable a
-  control the operator asked for. On the test host a cached 1 KiB asset served 38,459 rps against
-  8,720 rps when every hit was inspected.
-- **Sizing and the shedding answer are written down.** `docs/OPERATIONS.md` pairs
-  `WAFPROXY_MAX_BUFFERED_BYTES` with a sizing table and a checklist that maps each refusal counter to
-  the setting to change, `docs/CONFIGURATION.md` lists the per-site capacity settings (`queue_ms`,
-  `body_timeout_s`, `cache_pre_waf`, `upstream_idle_conns`), and the README no longer lists brotli as
-  missing or implies relay-class throughput for inspected requests.
-
-## [1.61.0] — 2026-11-24
-
-### Changed
-
 - **A burst is absorbed, not refused.** Admission now bounds request bytes as well as the request
   count (`WAFPROXY_MAX_BUFFERED_BYTES`, default 512 MiB, and a `WAFPROXY_MAX_INFLIGHT` default of
   256), and a request that cannot be admitted waits `WAFPROXY_QUEUE_MS` (default 250 ms, per-site
@@ -66,6 +49,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   200 clients against a 128-request budget refused 162,630 of 345,571 requests with no queue and
   none with it, while completing 17 % more of them. `WAFPROXY_MEMORY_LIMIT` sets the soft heap
   limit and boot refuses a buffer budget that cannot fit under it.
+
 - **A cached response is compressed once, for every client.** The cache key is now the URL alone:
   one identity copy per entry, with `br` or `gzip` built on the first hit that asks for it and kept
   inside the entry. Clients whose `Accept-Encoding` differed only in order or weights used to keep
@@ -78,6 +62,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   64 KiB asset served 39,817 rps against 3,667 rps for the same request through the pipeline, with
   6,366 bytes on the wire instead of 65,536. Brotli is quality 4, chosen from the table in
   `docs/BENCHMARKS.md`.
+
 - **Upstream connections survive a reload.** Each upstream address keeps its own connection pool
   (default 64 idle connections, 256 in total, per-site `upstream_idle_conns`), so a busy backend no
   longer competes with another site's for slots. A reload reuses the pool of an unchanged upstream
@@ -87,6 +72,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   is failing, so a DNS blip does not take every backend down with it. Health probes keep their own
   short-timeout, no-keep-alive transport. A test drives two reloads of an unchanged upstream and
   records zero new upstream connections.
+
 - **A slow client cannot hold a request slot.** A request body now has its own deadline
   (`WAFPROXY_BODY_TIMEOUT`, default 30 s, per-site `body_timeout_s`, `0` disables it) that is cleared
   before the forward: a trickled upload is cut with a 408 and logged as `body-timeout`, while an
@@ -95,6 +81,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **A cached hit can be answered before the WAF, per site.** With `cache_pre_waf=1` a cacheable GET
+  that has a fresh entry is served after screening but before the CRS: bans, the allow-list, the
+  rate limit and the bot filter still apply, while the CRS request rules, per-IP WAF rules, bot
+  challenge and access gate do not see it. Off by default; the API refuses the setting on a site
+  with an access gate or a WAF mode other than block/detect, so it cannot quietly disable a
+  control the operator asked for. On the test host a cached 1 KiB asset served 38,459 rps against
+  8,720 rps when every hit was inspected.
+
+- **Sizing and the shedding answer are written down.** `docs/OPERATIONS.md` pairs
+  `WAFPROXY_MAX_BUFFERED_BYTES` with a sizing table and a checklist that maps each refusal counter to
+  the setting to change, `docs/CONFIGURATION.md` lists the per-site capacity settings (`queue_ms`,
+  `body_timeout_s`, `cache_pre_waf`, `upstream_idle_conns`), and the README no longer lists brotli as
+  missing or implies relay-class throughput for inspected requests.
+
 - **A capacity number instead of a guess.** `cmd/perftool -proxy` runs the real proxy — TLS
   listener, routing, cache and event writer — against stub upstreams with a keep-alive client
   fan-out, and records requests, rps, p50/p95/p99, shed count and peak RSS per mode in
@@ -102,7 +102,73 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   uncached path served 6,080 rps, a cache hit 54,776 rps, and the same hit with the WAF on
   10,574 rps. `-cache` and `-encoding` choose what the run asks for, including a compressed 64 KiB
   asset for measuring the cache's encoded variants.
+
 - `github.com/andybalholm/brotli` (pure Go, no cgo) for cached response variants.
+
+## [1.61.2] — 2026-11-23
+
+### Fixed
+
+- **A tenant administrator can no longer reach the host console.** The site switcher is only
+  honoured for a session on the host's own console, host-wide areas (sites, system and HA) stay
+  closed to tenant sessions even when their role carries the wildcard permission, and role
+  definitions, backup scheduling, signature bundles, CrowdSec, streaming forwarders, agent links
+  and MCP tokens are host-console only, and the uptime panel reports only the caller's backends.
+- **A rejected new password no longer consumes a password-reset link.** The password is validated
+  before the single-use token is spent, so a policy error leaves the link usable.
+- **A bundle rule set to block no longer overrides a profile in detect-only mode** when the site
+  inherits its WAF mode from that profile.
+- **The policy rate limiter now prunes strike timestamps**, so a bucket that ever denied a request
+  can be cleaned up instead of staying in memory forever.
+- **Encrypted backup files are pruned** along with plain ones, so scheduled encrypted backups no
+  longer grow the destination without bound.
+- **Ban management is site-scoped.** A manual ban is recorded against the console that created it,
+  and editing a ban by id cannot reach another site's row.
+- **First-boot setup runs only on the host console**, because it writes host-wide settings.
+
+## [1.61.1] — 2026-11-23
+
+### Added
+
+- **A Check for updates button on the WAF-Proxy application card**, so the console can refresh
+  its own repository check from the section that shows the application version, not only the
+  host package check below it.
+
+### Fixed
+
+- **Enabling high availability from Settings now reports the restart and reconnects.** The save
+  answers whether the service must restart, the console shows that it is restarting instead of
+  sending failing requests at the stopping process, and it reloads the switch and the nav once
+  the service answers again.
+- **A peer's outbox acknowledgement is clamped to this node's stream head**, so a stale or
+  malformed acknowledgement cannot prune changes the peer never received.
+- **The HA join attempt limiter drops expired buckets**, so repeated guesses from many addresses
+  no longer leave one empty entry per address behind.
+
+## [1.61.0] — 2026-11-23
+
+### Changed
+
+- **The High availability switch is the only switch.** `WAFPROXY_HA_ENABLE` is gone. Turning
+  on **Settings → High availability** enables the runtime, starts the HA loops and allows
+  pairing; the first enable asks the service supervisor for one restart, which binds the HA
+  link and management listeners and settles the floating service address. Later enables and
+  disables are live. An upgrading operator can delete the variable; it is ignored.
+
+### Fixed
+
+- **Joining a pair now makes the joining node the standby**, so the pair cannot end up with two
+  writers and a failover has a standby to promote. The node that issues the pairing code is
+  recorded as the active.
+- **A sync on the active is refused from the console as well as the CLI**, so a mirror pass
+  cannot overwrite the serving node with its peer's copy.
+- **A witness that was never reachable no longer leaves an active writing.** The lease keeper
+  reports a loss after one TTL even when it never obtained a lease, and unpairing stops the
+  keeper instead of letting it demote the node later.
+- **`wafproxy ha status` reads the stored switch** instead of the removed boot variable, and a
+  paired standby is reported out of service when HA is off.
+- **HA metrics follow the switch**, and an empty `WAFPROXY_HA_MGMT_LISTEN` no longer attempts a
+  wildcard management listener.
 
 ## [1.60.1] — 2026-11-23
 

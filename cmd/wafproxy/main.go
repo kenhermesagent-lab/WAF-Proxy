@@ -385,13 +385,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// The role file decides which background work this node may do. A missing
-	// or damaged file loads as standby, so the safe answer is the default. With
-	// HA off the node is standalone and runs everything, as it always has.
-	node, roleErr := ha.Load(cfg.DataDir)
-	if roleErr != nil {
-		log.Error("reading the node role; refusing to run active-only work", "err", roleErr)
-	}
 	trusted, err := clientip.New(cfg.TrustedProxies)
 	if err != nil {
 		return err
@@ -431,14 +424,30 @@ func run() error {
 	// node rather than answer traffic with none of the active loops running. A
 	// paired standby is different: it is the backup, so it stays a standby and
 	// stays out of service, or the pair would have two writers.
-	haOn := haBootOn(cfg, st)
+	haOn := haSettingOn(st)
 	pair, pairErr := ha.LoadPair(cfg.DataDir)
 	paired := pair != nil
 	if pairErr != nil {
 		// An unreadable record is not proof of a single node: while HA is on,
 		// count it as paired so a standby cannot start serving alone.
 		log.Error("could not read the HA pair", "err", pairErr)
-		paired = cfg.HAEnabled
+		paired = haOn
+	}
+	// The pairing identity exists before HA is turned on, so the Settings switch
+	// can pair this node without a restart and a fresh node has the id its role
+	// file needs to become standalone. An active node captures every streamed
+	// change into the outbox; a standby writes none and pays nothing for the
+	// machinery.
+	haIdent, err := ha.LoadOrCreateIdentity(cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("ha identity: %w", err)
+	}
+	// The role file decides which background work this node may do. A missing
+	// or damaged file loads as standby, so the safe answer is the default. With
+	// HA off the node is standalone and runs everything, as it always has.
+	node, roleErr := ha.Load(cfg.DataDir)
+	if roleErr != nil {
+		log.Error("reading the node role; refusing to run active-only work", "err", roleErr)
 	}
 	if n, err := haBootRole(cfg.DataDir, node, paired, haOn); err != nil {
 		log.Warn("could not normalise the role while HA is off", "err", err)
@@ -446,33 +455,23 @@ func run() error {
 		node = n
 	}
 	startActive := node.Active()
-	if cfg.HAEnabled {
-		log.Info("high availability", "boot_switch", cfg.HAEnabled, "enabled", haOn,
+	if haOn {
+		log.Info("high availability", "enabled", haOn,
 			"paired", paired, "role", node.Role, "active_work", startActive)
 	}
-	// The pairing identity exists as soon as HA is enabled. An active node
-	// captures every streamed change into the outbox; a standby writes none and
-	// pays nothing for the machinery.
-	var haIdent *ha.Identity
 	// haQuiesce pauses configuration writes while a planned move drains this
 	// node. It is in memory: a crash releases it.
 	haQuiesce := ha.NewQuiesce()
-	if cfg.HAEnabled {
-		haIdent, err = ha.LoadOrCreateIdentity(cfg.DataDir)
-		if err != nil {
-			return fmt.Errorf("ha identity: %w", err)
-		}
-		if haOn && node.Active() {
-			st.SetNodeID(haIdent.Node)
-		}
-		// The standby's audit chain arrives from the active; a local row would
-		// break it. The console is read-only there, so nothing of value is lost.
-		st.SetAuditEnabled(node.Active())
+	if haOn && node.Active() {
+		st.SetNodeID(haIdent.Node)
 	}
+	// The standby's audit chain arrives from the active; a local row would
+	// break it. The console is read-only there, so nothing of value is lost.
+	st.SetAuditEnabled(node.Active())
 	// The witness is optional: with one, an active that cannot renew its lease
 	// stops serving; without one, moves stay manual.
 	var witness *ha.WitnessClient
-	if haOn && cfg.HAWitness != "" {
+	if cfg.HAWitness != "" {
 		if pair != nil {
 			witness = &ha.WitnessClient{
 				URL: cfg.HAWitness, Token: cfg.HAWitnessToken,
@@ -517,7 +516,7 @@ func run() error {
 	// the first-boot address and log why. A single-NIC host stores the same
 	// address for both, which is valid here.
 	if !config.IsLocalAddress(cfg.ListenWAN) {
-		if cfg.HAEnabled {
+		if haOn {
 			// In HA mode the WAN address is the floating service address. It
 			// belongs to the other node until a move, so it must not be replaced
 			// by a boot fallback: the standby holds it with IP_FREEBIND.
@@ -872,7 +871,7 @@ func run() error {
 		pair, _ := ha.LoadPair(cfg.DataDir)
 		// The effective switch is read on every request, so turning HA off in
 		// Settings takes effect without a restart. Missing means off.
-		enabled := cfg.HAEnabled && haSettingOn(st)
+		enabled := haSettingOn(st)
 		status := api.HAStatus{
 			Enabled: enabled, Role: string(n.Role), State: string(state),
 			Serving: ha.Serving(state), Epoch: n.Epoch, Peer: n.Peer,
@@ -962,7 +961,7 @@ func run() error {
 	}
 	// In HA mode the service address moves between nodes, so each node also
 	// answers its console on a fixed management address of its own.
-	if haOn && cfg.HAMgmtListen != cfg.ListenGUI {
+	if haOn && cfg.HAMgmtListen != "" && cfg.HAMgmtListen != cfg.ListenGUI {
 		if msg := listenGUI(cfg.HAMgmtListen, lanHandler, true); msg != "" {
 			log.Error("management listener failed", "addr", cfg.HAMgmtListen, "err", msg)
 			cancel()
@@ -1062,30 +1061,47 @@ func run() error {
 	} else if err := plane.Serve(ctx); err != nil {
 		return fmt.Errorf("proxy listener: %w", err)
 	}
-	if cfg.HAEnabled {
-		rt := &haRuntime{
-			root: ctx, dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
-			plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
-			ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand,
-			witnessURL: cfg.HAWitness, witnessToken: cfg.HAWitnessToken,
-			flap:         ha.NewFlapGuard(flapBudget(st, cfg.HAMaxFailovers)),
-			autoFailover: cfg.HAAutoFailover, log: log,
-		}
-		if haOn {
-			if err := rt.Start(); err != nil {
-				log.Error("high availability did not start", "err", err)
-			}
-		}
-		// The write gate stays installed: quiesce is only set during a move.
-		apiServer.SetWriteGate(haQuiesce.Active)
-		apiServer.SetHAOps(haControl{dir: cfg.DataDir, st: st, fallback: cfg.HAMaxFailovers, rt: rt})
-		// The settings route flips the loops live; the data plane is untouched.
-		// Turning HA off on a paired standby is refused: it is out of service by
-		// design, and starting it here would give the pair two writers.
-		apiServer.SetHAChange(func(on bool, confirm string) error {
-			return haApplyChange(rt, cfg.DataDir, on, confirm)
-		})
+	// The HA-only listeners and the floating service address are settled at
+	// boot. A first live enable asks the supervisor for the restart that binds
+	// them; the loops themselves still start and stop live.
+	haOnAtBoot := haOn
+	rt := &haRuntime{
+		root: ctx, dir: cfg.DataDir, st: st, all: all, res: res, bans: bans, api: apiServer,
+		plane: plane, active: active, repl: newReplicator(ctx, cfg.DataDir, st, log),
+		ident: haIdent, quiesce: haQuiesce, witness: witness, fence: cfg.HAFenceCommand,
+		witnessURL: cfg.HAWitness, witnessToken: cfg.HAWitnessToken,
+		flap:         ha.NewFlapGuard(flapBudget(st, cfg.HAMaxFailovers)),
+		autoFailover: cfg.HAAutoFailover, log: log,
 	}
+	if haOn {
+		if err := rt.Start(); err != nil {
+			log.Error("high availability did not start", "err", err)
+		}
+	}
+	// The write gate stays installed: quiesce is only set during a move.
+	apiServer.SetWriteGate(haQuiesce.Active)
+	apiServer.SetHAOps(haControl{dir: cfg.DataDir, st: st, fallback: cfg.HAMaxFailovers, rt: rt})
+	// The settings route flips the loops live; the data plane is untouched.
+	// Turning HA off on a paired standby is refused: it is out of service by
+	// design, and starting it here would give the pair two writers.
+	apiServer.SetHAChange(func(on bool, confirm string) (bool, error) {
+		if err := haApplyChange(rt, cfg.DataDir, on, confirm); err != nil {
+			return false, err
+		}
+		// The listeners HA adds are bound at boot, so the first enable needs a
+		// restart; a later enable in the same process reuses them.
+		restart := on && !haOnAtBoot
+		if restart {
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				select {
+				case restartCh <- struct{}{}:
+				default:
+				}
+			}()
+		}
+		return restart, nil
+	})
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

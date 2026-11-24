@@ -103,8 +103,8 @@ the plan.
 
 ## 1. Rules every task follows
 
-- **Dark by default.** `WAFPROXY_HA_ENABLE` is `0` unless the lab sets it. A merged task must
-  leave a single-node binary behaving exactly as 1.55.2.
+- **Dark by default.** The stored `ha_enabled` switch is off unless the lab turns it on. A
+  merged task must leave a single-node binary behaving exactly as 1.55.2.
 - **One concern per PR.** A migration PR contains the migration and its test, no feature code
   that depends on it. A console PR contains the page and its test, no API changes.
 - **No new dependency.** Standard library plus what `go.mod` already has. The metrics
@@ -278,7 +278,7 @@ broadcasts plaintext secrets. No HA behaviour ships.
   invalid, and the new recovery code authenticates.
 
 **P0 gate.** `make test`, `make vet`, `cd web && npm test`, `make perf-gate`, and the lab in
-both modes: one node with HA off behaves identically to one node with `WAFPROXY_HA_ENABLE=1`
+both modes: one node with HA off behaves identically to one node with the switch on
 and role `active`; 100 listener cycles; a migrated `sqlite3` dump has no plaintext gate token
 and no plaintext `key_pem`. **Rollback:** revert the phase branch; migrations 22 and 23 have
 already shipped separately and are not reverted with it.
@@ -757,8 +757,8 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 ### P7-02 Settings key and enablement backend — S, 1 day — built
 
 - Built: missing `ha_enabled` means off; `0`/`1` only; host-wide for tenants and audited
-  separately. `Enabled` is the boot master switch AND the stored setting, computed from the
-  live setting on every `/api/me`, `/api/ha` and health call. Saving the setting starts or
+  separately. `Enabled` is the stored setting, read live on every `/api/me`, `/api/ha` and
+  health call. Saving the setting starts or
   stops the HA loops in the same process (`haRuntime.Start`/`Stop`: control socket,
   replication, lease, failover watcher and outbox capture), while the data plane keeps
   whatever it was doing, so turning HA on or off never moves traffic or drops a listener.
@@ -780,16 +780,15 @@ end-to-end cases on the VMs. **Rollback:** revert P6; P5 manual failover remains
 - Files: `internal/api/server.go` (`publicSettingKeys`, `putSettings`, `/api/me`),
   `internal/store/sites.go` (`hostSettingKeys`), `internal/ha/manager.go`.
 - Change: `ha_enabled` host-wide, `0`/`1` validation, effective value in `/api/me.ha_enabled`
-  and `/api/ha.enabled`, manager starts/stops loops from `reloadEngines`. `WAFPROXY_HA_ENABLE=0`
-  keeps routes and loops absent and reports why.
+  and `/api/ha.enabled`, manager starts/stops loops from `reloadEngines`. With the switch off no
+  HA loop runs and the page reports why.
 - Verify: save as default site, save as tenant (403), `/api/me` before and after.
 - Done: toggling changes the effective value without a restart, and a tenant cannot set it.
 
 ### P7-03 Settings toggle UI — S, 1 day — built
 
-- Built: as specified below, with the help text read from `GET /api/ha` (`boot_enabled`,
-  `paired`, `enabled`) so it matches what the backend actually does. The switch is also
-  disabled while the boot switch is off, rather than letting a save imply it took effect.
+- Built: as specified below, with the help text read from `GET /api/ha` (`paired`,
+  `enabled`) so it matches what the backend actually does.
 
 - Files: `web/src/pages/Settings.tsx`, `web/src/pages/Settings.test.tsx`.
 - Change: section `ha` between `retention` and `backup`, one `Switch` bound to
@@ -905,7 +904,7 @@ it, `POST /api/ha/pair` 409. Enabled and unpaired: setup card and `ha status` = 
 ### P8-04 Performance gate — M, 2 days
 
 - Files: `Makefile`, `docs/PERFORMANCE.md` if the project keeps records there.
-- Change: `WAFPROXY_HA_ENABLE=1, role: active`, ban and session paths, record before and after.
+- Change: the switch on with `role: active`, ban and session paths, record before and after.
 - Verify: `make perf-gate`.
 - Done: the delta is in the PR and accepted explicitly; `make perf-record` only after that.
 
@@ -930,7 +929,7 @@ it, `POST /api/ha/pair` 409. Enabled and unpaired: setup card and `ha status` = 
 
 **P8 gate.** Everything in HA.md 13.13 green on the lab and on two real hosts with the release
 binary, HA off by default, every HA table empty until pairing. **Rollback:** the release can be
-reverted to a build with `WAFPROXY_HA_ENABLE=0`; migrations stay, which is why they shipped
+reverted to a build with HA off; migrations stay, which is why they shipped
 separately.
 
 ## 13. What blocks what

@@ -4,7 +4,9 @@ import "testing"
 
 func TestSiteCapRefusesBeyondLimit(t *testing.T) {
 	l := newCapLimiter(2)
-	if !l.acquire() || !l.acquire() {
+	first := l.acquire()
+	second := l.acquire()
+	if !first || !second {
 		t.Fatal("the site budget refused a request below its limit")
 	}
 	if l.acquire() {

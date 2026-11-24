@@ -14,7 +14,6 @@ type bucket struct {
 type limiter struct {
 	mu      sync.Mutex
 	buckets map[string]*bucket
-	rps     float64
 	reqs    int64
 	window  time.Time
 }
@@ -83,11 +82,22 @@ func (l *limiter) shouldSample(limit int) bool {
 	return perSecond > int64(limit)
 }
 
-// Cleanup drops idle buckets; call periodically.
+// Cleanup drops idle buckets; call periodically. Strike timestamps are pruned
+// first, because a bucket that ever denied a request would otherwise keep its
+// slice forever and never become deletable.
 func (l *limiter) Cleanup() {
-	cutoff := time.Now().Add(-10 * time.Minute)
+	now := time.Now()
+	cutoff := now.Add(-10 * time.Minute)
+	strikeCutoff := now.Add(-time.Minute)
 	l.mu.Lock()
 	for k, b := range l.buckets {
+		kept := b.strikes[:0]
+		for _, t := range b.strikes {
+			if t.After(strikeCutoff) {
+				kept = append(kept, t)
+			}
+		}
+		b.strikes = kept
 		if b.last.Before(cutoff) && len(b.strikes) == 0 {
 			delete(l.buckets, k)
 		}

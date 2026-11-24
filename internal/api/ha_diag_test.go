@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
@@ -21,7 +20,7 @@ func TestHADiagnosticsReportsOutbox(t *testing.T) {
 	if _, err := st.AddBan(&model.Ban{CIDR: "203.0.113.9", Reason: "test", Source: "manual"}); err != nil {
 		t.Fatal(err)
 	}
-	srv := &Server{st: st, cfg: &config.Config{HAEnabled: true}}
+	srv := &Server{st: st}
 	srv.SetHAStatus(func() HAStatus {
 		return HAStatus{Enabled: true, Role: "active", State: "active", Serving: true, PeerFingerprint: "peer"}
 	})

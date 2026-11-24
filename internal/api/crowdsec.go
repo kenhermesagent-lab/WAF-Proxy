@@ -60,6 +60,9 @@ func (s *Server) getCrowdSec(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) putCrowdSec(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "CrowdSec") {
+		return
+	}
 	var in crowdsecBody
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
@@ -133,6 +136,9 @@ func (s *Server) saveCrowdSecConfig(enabled bool, lapi, key string) error {
 }
 
 func (s *Server) testCrowdSec(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "CrowdSec") {
+		return
+	}
 	var in crowdsecBody
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")

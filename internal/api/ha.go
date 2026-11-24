@@ -46,8 +46,9 @@ func (s *Server) SetHAOps(o HAOps) { s.haOps = o }
 // SetHAChange installs the live switch the settings route calls after saving
 // ha_enabled, so turning HA off stops its loops instead of only hiding it. The
 // second argument is the cluster id the operator typed, if any. A refused
-// change rolls the setting back and answers 409.
-func (s *Server) SetHAChange(fn func(bool, string) error) { s.haChange = fn }
+// change rolls the setting back and answers 409. The bool reports whether the
+// caller must restart the process for the new state to take effect.
+func (s *Server) SetHAChange(fn func(bool, string) (bool, error)) { s.haChange = fn }
 
 // haStatusOf reads the live role, falling back to standalone when HA is off.
 func (s *Server) haStatusOf() HAStatus {
@@ -93,14 +94,12 @@ func (s *Server) haRoute(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case !st.Enabled && st.Paired && !st.Serving:
 		reason = "this node is a paired standby; it stays out of service while high availability is off"
-	case !s.cfg.HAEnabled:
-		reason = "this host booted with WAFPROXY_HA_ENABLE=0"
 	case !st.Enabled:
 		reason = "high availability is turned off in Settings"
 	}
 	body := map[string]any{
-		"enabled": st.Enabled, "boot_enabled": s.cfg.HAEnabled,
-		"paired": st.Paired, "cluster_id": st.ClusterID,
+		"enabled": st.Enabled,
+		"paired":  st.Paired, "cluster_id": st.ClusterID,
 		"role": st.Role, "state": st.State, "serving": st.Serving, "epoch": st.Epoch,
 		"peer": st.Peer, "peer_fingerprint": st.PeerFingerprint, "reason": reason,
 		"can_write": canWrite,
@@ -194,6 +193,14 @@ func (s *Server) haAction(w http.ResponseWriter, r *http.Request) {
 		}
 		s.db(r).AddAudit(sess.Username, "ha.join", in.Address, clientIP(r))
 		s.recordHAEvent("join", nil, nil)
+		// Joining makes this node the standby and writes the pair, both of which
+		// the next boot reads, so the supervisor is asked to restart it.
+		if s.restartFn != nil {
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				s.restartFn()
+			}()
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "restart_required": true})
 		return
 	case "sync":

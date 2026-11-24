@@ -11,14 +11,13 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
-// settingDrivenHA mirrors the rule main uses: the boot switch allows HA, and the
-// stored host-wide setting has it on. Reading it per request is what makes the
-// toggle effective without a restart.
+// settingDrivenHA mirrors the rule main uses: the stored host-wide setting is
+// read per request, which is what makes the toggle effective without a restart.
 func settingDrivenHA(srv *Server) {
 	srv.SetHAStatus(func() HAStatus {
 		raw, _ := srv.st.GetSetting("ha_enabled")
 		return HAStatus{
-			Enabled: srv.cfg.HAEnabled && raw == "1",
+			Enabled: raw == "1",
 			Role:    "standalone", State: "standalone", Serving: true,
 		}
 	})
@@ -26,7 +25,6 @@ func settingDrivenHA(srv *Server) {
 
 func TestHAEnabledSettingDrivesTheEffectiveValue(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
-	srv.cfg.HAEnabled = true
 	settingDrivenHA(srv)
 
 	get := func(path string) map[string]any {
@@ -67,7 +65,7 @@ func TestHAEnabledSettingDrivesTheEffectiveValue(t *testing.T) {
 		t.Fatalf("/api/me after enabling = %+v", me)
 	}
 	status := get("/api/ha")
-	if status["enabled"] != true || status["boot_enabled"] != true {
+	if status["enabled"] != true {
 		t.Fatalf("/api/ha after enabling = %+v", status)
 	}
 
@@ -98,11 +96,10 @@ func TestHAEnabledSettingDrivesTheEffectiveValue(t *testing.T) {
 
 func TestHAChangeFiresOnlyWhenTheSwitchMoves(t *testing.T) {
 	srv, _, token, csrf := newObservabilityServer(t)
-	srv.cfg.HAEnabled = true
 	var calls []bool
-	srv.SetHAChange(func(on bool, _ string) error {
+	srv.SetHAChange(func(on bool, _ string) (bool, error) {
 		calls = append(calls, on)
-		return nil
+		return false, nil
 	})
 	put := func(body string) {
 		t.Helper()
@@ -123,16 +120,15 @@ func TestHAChangeFiresOnlyWhenTheSwitchMoves(t *testing.T) {
 
 func TestHARefusedDisableWritesNothing(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
-	srv.cfg.HAEnabled = true
 	settingDrivenHA(srv)
 	if err := st.SetSettings(map[string]string{"retention_days": "7"}); err != nil {
 		t.Fatal(err)
 	}
-	srv.SetHAChange(func(on bool, _ string) error {
+	srv.SetHAChange(func(on bool, _ string) (bool, error) {
 		if !on {
-			return errors.New("this node is paired; type the cluster id to confirm")
+			return false, errors.New("this node is paired; type the cluster id to confirm")
 		}
-		return nil
+		return false, nil
 	})
 	if rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"1"}`); rec.Code != http.StatusOK {
 		t.Fatalf("enable = %d: %s", rec.Code, rec.Body.String())
@@ -166,17 +162,16 @@ func TestHARefusedDisableWritesNothing(t *testing.T) {
 
 func TestHADisablePassesTheTypedClusterID(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
-	srv.cfg.HAEnabled = true
 	settingDrivenHA(srv)
 	var seen string
-	srv.SetHAChange(func(on bool, confirm string) error {
+	srv.SetHAChange(func(on bool, confirm string) (bool, error) {
 		if !on {
 			seen = confirm
 			if confirm != "cluster-abc" {
-				return errors.New("type the cluster id to confirm")
+				return false, errors.New("type the cluster id to confirm")
 			}
 		}
-		return nil
+		return false, nil
 	})
 	if rec := haCall(t, srv, token, csrf, http.MethodPut, "/api/settings", `{"ha_enabled":"1"}`); rec.Code != http.StatusOK {
 		t.Fatalf("enable = %d", rec.Code)
@@ -199,7 +194,6 @@ func TestHADisablePassesTheTypedClusterID(t *testing.T) {
 
 func TestHAPairedStandbyReportsWhyItIsOutOfService(t *testing.T) {
 	srv, _, token, csrf := newObservabilityServer(t)
-	srv.cfg.HAEnabled = true
 	srv.SetHAStatus(func() HAStatus {
 		return HAStatus{Enabled: false, Paired: true, Serving: false, Role: "standby", State: "standby"}
 	})

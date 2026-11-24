@@ -210,6 +210,7 @@ type LeaseKeeper struct {
 
 	mu        sync.Mutex
 	lastGrant time.Time
+	started   time.Time
 }
 
 // NewLeaseKeeper builds a keeper for one epoch.
@@ -227,7 +228,15 @@ func (k *LeaseKeeper) Tick(ctx context.Context) bool {
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	return !k.lastGrant.IsZero() && k.Now().Sub(k.lastGrant) > LeaseTTL
+	if k.started.IsZero() {
+		k.started = k.Now()
+	}
+	since := k.lastGrant
+	if since.IsZero() {
+		// An active that never held a lease is as unsafe as one that lost it.
+		since = k.started
+	}
+	return k.Now().Sub(since) > LeaseTTL
 }
 
 // Run renews until the lease is lost or ctx ends, then calls OnLoss once.

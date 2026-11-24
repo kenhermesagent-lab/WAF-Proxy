@@ -64,7 +64,6 @@ type Manager struct {
 	// guardrails
 	distinct map[int64]map[string]struct{}
 	guardMu  sync.Mutex
-	abuseKey string
 
 	maxBytes int64
 	now      func() time.Time

@@ -40,7 +40,7 @@ func (s *Server) incidentReportMarkdown(w http.ResponseWriter, r *http.Request) 
 	}
 	var ban banInfo
 	if s.bans != nil {
-		ban = s.banView(ip, s.banIndex())
+		ban = s.banView(ip, s.banIndex(r))
 	}
 
 	country := sum.Country

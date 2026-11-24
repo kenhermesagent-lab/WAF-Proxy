@@ -1906,7 +1906,7 @@ paths:
     get:
       operationId: getApiInvite
       tags: [invite]
-      summary: Invite Info
+      summary: Invite info
       security: []
       responses:
         "200":
@@ -1917,7 +1917,7 @@ paths:
     post:
       operationId: postApiInviteAccept
       tags: [invite]
-      summary: Accept Invite
+      summary: Accept invite
       security: []
       responses:
         "200":
@@ -2298,7 +2298,7 @@ paths:
     get:
       operationId: getApiPasswordForgot
       tags: [password]
-      summary: Forgot Available
+      summary: Forgot available
       security: []
       responses:
         "200":
@@ -2308,7 +2308,7 @@ paths:
     post:
       operationId: postApiPasswordForgot
       tags: [password]
-      summary: Forgot Password
+      summary: Forgot password
       security: []
       responses:
         "200":
@@ -2319,7 +2319,7 @@ paths:
     post:
       operationId: postApiPasswordReset
       tags: [password]
-      summary: Reset Password
+      summary: Reset password
       security: []
       responses:
         "200":
@@ -2811,7 +2811,7 @@ paths:
     get:
       operationId: getApiSetupStatus
       tags: [setup]
-      summary: Setup Status
+      summary: Setup status
       security: []
       responses:
         "200":
@@ -3190,7 +3190,7 @@ paths:
     get:
       operationId: getApiVersion
       tags: [version]
-      summary: Version Info
+      summary: Version info
       security: []
       responses:
         "200":
@@ -3201,7 +3201,7 @@ paths:
     get:
       operationId: getMetrics
       tags: [metrics]
-      summary: Prometheus Metrics
+      summary: Prometheus metrics
       security: []
       responses:
         "200":

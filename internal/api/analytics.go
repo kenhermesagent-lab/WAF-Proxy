@@ -73,7 +73,31 @@ func (s *Server) getUptime(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, s.uptime.Snapshot())
+	snap := s.uptime.Snapshot()
+	if s.consoleSite(r) != s.st.SiteID() {
+		// The monitor probes every site; a tenant sees only its own backends.
+		own := map[int64]bool{}
+		if proxies, err := s.db(r).ListProxies(); err == nil {
+			for _, p := range proxies {
+				own[p.ID] = true
+			}
+		}
+		targets := snap.Targets[:0]
+		for _, t := range snap.Targets {
+			if own[t.ProxyID] {
+				targets = append(targets, t)
+			}
+		}
+		snap.Targets = targets
+		proxies := snap.Proxies[:0]
+		for _, p := range snap.Proxies {
+			if own[p.ProxyID] {
+				proxies = append(proxies, p)
+			}
+		}
+		snap.Proxies = proxies
+	}
+	writeJSON(w, http.StatusOK, snap)
 }
 
 // globeSince parses the 1h–24h history selector and falls back to one hour.

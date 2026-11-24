@@ -192,15 +192,20 @@ export default function UpdatesPage({
       <Card
         title="WAF-Proxy application"
         actions={
-          snap.app_update_available && snap.app_update_supported ? (
-            <button className="small primary" onClick={applyApp} disabled={busy}>
-              {applying
-                ? "Rebuilding and restarting…"
-                : snap.app_remote_version
-                  ? `Update to v${snap.app_remote_version}`
-                  : "Update application"}
+          <>
+            <button className="small" onClick={check} disabled={busy}>
+              {checking ? "Checking…" : "Check for updates"}
             </button>
-          ) : undefined
+            {snap.app_update_available && snap.app_update_supported ? (
+              <button className="small primary" onClick={applyApp} disabled={busy}>
+                {applying
+                  ? "Rebuilding and restarting…"
+                  : snap.app_remote_version
+                    ? `Update to v${snap.app_remote_version}`
+                    : "Update application"}
+              </button>
+            ) : null}
+          </>
         }
       >
         <div className="bar-row">

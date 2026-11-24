@@ -73,6 +73,23 @@ func TestWitnessRequiresItsToken(t *testing.T) {
 	}
 }
 
+func TestLeaseKeeperDemotesWhenItNeverHeldTheLease(t *testing.T) {
+	_, srv, _ := witnessForTest(t, witnessTestToken)
+	keeper := NewLeaseKeeper(witnessClient(srv, "node-a"), 3)
+	srv.Close()
+	now := time.Unix(1_700_000_200, 0)
+	keeper.Now = func() time.Time { return now }
+	ctx := context.Background()
+
+	if keeper.Tick(ctx) {
+		t.Fatal("a keeper reported a loss before its first TTL")
+	}
+	now = now.Add(LeaseTTL + time.Second)
+	if !keeper.Tick(ctx) {
+		t.Fatal("an active that never obtained a lease did not report a loss")
+	}
+}
+
 func TestLeaseKeeperDemotesOnlyAfterTTL(t *testing.T) {
 	_, srv, _ := witnessForTest(t, witnessTestToken)
 	keeper := NewLeaseKeeper(witnessClient(srv, "node-a"), 3)
