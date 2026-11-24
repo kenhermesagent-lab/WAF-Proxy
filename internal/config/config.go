@@ -286,9 +286,5 @@ func envInt(key string, fallback int) int {
 }
 
 func splitList(raw string) []string {
-	var out []string
-	for _, v := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' }) {
-		out = append(out, v)
-	}
-	return out
+	return strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' })
 }

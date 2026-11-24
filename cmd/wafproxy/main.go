@@ -384,13 +384,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// The role file decides which background work this node may do. A missing
-	// or damaged file loads as standby, so the safe answer is the default. With
-	// HA off the node is standalone and runs everything, as it always has.
-	node, roleErr := ha.Load(cfg.DataDir)
-	if roleErr != nil {
-		log.Error("reading the node role; refusing to run active-only work", "err", roleErr)
-	}
 	trusted, err := clientip.New(cfg.TrustedProxies)
 	if err != nil {
 		return err
@@ -448,7 +441,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("ha identity: %w", err)
 	}
-	if node, roleErr = ha.Load(cfg.DataDir); roleErr != nil {
+	// The role file decides which background work this node may do. A missing
+	// or damaged file loads as standby, so the safe answer is the default. With
+	// HA off the node is standalone and runs everything, as it always has.
+	node, roleErr := ha.Load(cfg.DataDir)
+	if roleErr != nil {
 		log.Error("reading the node role; refusing to run active-only work", "err", roleErr)
 	}
 	if n, err := haBootRole(cfg.DataDir, node, paired, haOn); err != nil {

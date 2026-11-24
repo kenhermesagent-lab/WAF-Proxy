@@ -37,6 +37,9 @@ func validateAgentLink(name, endpoint string) string {
 }
 
 func (s *Server) listAgentLinks(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "agent links") {
+		return
+	}
 	list, err := s.db(r).ListAgentLinks()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
@@ -59,6 +62,9 @@ func (s *Server) listAgentLinks(w http.ResponseWriter, r *http.Request) {
 
 // listAgentDeliveries shows a link's recent payloads, newest first.
 func (s *Server) listAgentDeliveries(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "agent links") {
+		return
+	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
@@ -75,6 +81,9 @@ func (s *Server) listAgentDeliveries(w http.ResponseWriter, r *http.Request) {
 
 // retryAgentLink re-queues the newest delivery for a link.
 func (s *Server) retryAgentLink(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "agent links") {
+		return
+	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
@@ -97,6 +106,9 @@ func (s *Server) retryAgentLink(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createAgentLink(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "agent links") {
+		return
+	}
 	var in agentLinkBody
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
@@ -135,6 +147,9 @@ func (s *Server) createAgentLink(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateAgentLink(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "agent links") {
+		return
+	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
@@ -179,6 +194,9 @@ func (s *Server) updateAgentLink(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteAgentLink(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "agent links") {
+		return
+	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
@@ -200,6 +218,9 @@ func (s *Server) deleteAgentLink(w http.ResponseWriter, r *http.Request) {
 
 // testAgentLink posts a synthetic event so the admin can prove reachability.
 func (s *Server) testAgentLink(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "agent links") {
+		return
+	}
 	if s.agentLinks == nil {
 		writeError(w, http.StatusServiceUnavailable, "the agent dispatcher is not configured")
 		return

@@ -494,10 +494,10 @@ func (s *Server) withSite(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := s.st.SiteForHost(r.Host)
 		ctx := context.WithValue(r.Context(), siteKey, id)
-		// The console's site switcher asks for another site by slug. authed
-		// drops the request back to the console's own site unless the session
-		// may read every site, so a tenant cannot reach past its own rows.
-		if slug := strings.TrimSpace(r.Header.Get("X-WAF-Site")); slug != "" {
+		// The console's site switcher asks for another site by slug, and only
+		// the host console may ask: a tenant host must not be able to retarget
+		// even an unauthenticated route such as login with this header.
+		if slug := strings.TrimSpace(r.Header.Get("X-WAF-Site")); slug != "" && id == s.st.SiteID() {
 			if site, err := s.st.SiteBySlug(slug); err == nil && site.Enabled {
 				ctx = context.WithValue(ctx, siteKey, site.ID)
 				ctx = context.WithValue(ctx, siteOverrideKey, true)
@@ -658,7 +658,11 @@ func (s *Server) authed(fn http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		ctx := context.WithValue(r.Context(), sessionKey, sess)
-		if requested, _ := r.Context().Value(siteOverrideKey).(bool); requested && !sess.Can(rbac.Permission("sites", "read")) {
+		// The switcher belongs to the host console. A tenant session cannot use
+		// it even when its role carries the wildcard permission, because the
+		// site it asks for would otherwise become this request's store.
+		if requested, _ := r.Context().Value(siteOverrideKey).(bool); requested &&
+			(s.consoleSite(r) != s.st.SiteID() || !sess.Can(rbac.Permission("sites", "read"))) {
 			ctx = context.WithValue(ctx, siteKey, s.consoleSite(r))
 			ctx = context.WithValue(ctx, siteOverrideKey, false)
 		}
@@ -821,6 +825,12 @@ func (s *Server) versionInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
+	// First-boot setup creates the host administrator and writes host-wide
+	// settings, so a tenant console never offers it.
+	if s.consoleSite(r) != s.st.SiteID() {
+		writeJSON(w, http.StatusOK, map[string]any{"needs_setup": false, "version": version.Version})
+		return
+	}
 	n, err := s.db(r).CountUsers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
@@ -888,6 +898,10 @@ type setupRequest struct {
 }
 
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
+	if s.consoleSite(r) != s.st.SiteID() {
+		writeError(w, http.StatusForbidden, "setup runs on the host console")
+		return
+	}
 	n, err := s.db(r).CountUsers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
@@ -1163,6 +1177,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	}
 	site, _ := s.st.SiteByID(s.consoleSite(r))
 	haOn := s.haStatusOf().Enabled
+	canSwitch := s.consoleSite(r) == s.st.SiteID() && sess.Can(rbac.Permission("sites", "read"))
 	body := map[string]any{
 		"username": sess.Username, "csrf": sess.CSRF, "version": version.Version,
 		"ha_enabled":  haOn,
@@ -1170,7 +1185,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		"totp_enabled": user != nil && user.TOTPEnabled,
 		"email":        email,
 		"role":         sess.Role, "permissions": sess.Permissions,
-		"can_switch": sess.Can(rbac.Permission("sites", "read")),
+		"can_switch": canSwitch,
 	}
 	if haOn {
 		body["ha_role"] = s.haStatusOf().Role
@@ -1179,7 +1194,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		body["site"] = site.Slug
 		body["site_name"] = site.Name
 	}
-	if canSwitch, _ := body["can_switch"].(bool); canSwitch {
+	if canSwitch {
 		body["sites"] = s.switchable()
 	}
 	writeJSON(w, http.StatusOK, body)

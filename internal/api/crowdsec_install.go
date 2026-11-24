@@ -285,6 +285,9 @@ func (s *Server) getCrowdSecInstall(w http.ResponseWriter, r *http.Request) {
 // CrowdSec repository and installing packages takes minutes, so the page polls
 // instead of holding one request open.
 func (s *Server) startCrowdSecInstall(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the CrowdSec engine") {
+		return
+	}
 	var in struct {
 		ConsoleKey string `json:"console_key"`
 	}
@@ -377,6 +380,9 @@ func parseConsoleEnrollError(out string) string {
 // restartCrowdSec applies an accepted console enrollment, which the engine only
 // picks up when it restarts.
 func (s *Server) restartCrowdSec(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the CrowdSec engine") {
+		return
+	}
 	if !s.updates.HelperReady() {
 		writeError(w, http.StatusConflict, "the privileged host helper is not running")
 		return
@@ -450,6 +456,9 @@ func parseCrowdSecInstallOutput(out string) (lapi, key string) {
 // account. The key is validated here and again by the root helper, then passed
 // to cscli as one argv entry.
 func (s *Server) enrollCrowdSecConsole(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostConsole(w, r, "the CrowdSec engine") {
+		return
+	}
 	var in struct {
 		Key string `json:"key"`
 	}

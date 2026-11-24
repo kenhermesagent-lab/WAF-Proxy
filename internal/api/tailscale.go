@@ -153,7 +153,7 @@ func (s *Server) putTailscale(w http.ResponseWriter, r *http.Request) {
 
 func validateTailscale(req tailscaleRequest, kv map[string]string, available bool) error {
 	if (req.AdminEnabled || req.ProxyEnabled) && !available {
-		return fmt.Errorf("Tailscale is not connected: tailscale0 has no IPv4 address")
+		return fmt.Errorf("tailscale is not connected: tailscale0 has no IPv4 address")
 	}
 	if req.AdminEnabled && req.ProxyEnabled &&
 		settingPort(kv["gui_port"], 8443) == settingPort(kv["wan_port"], 443) {

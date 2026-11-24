@@ -202,7 +202,7 @@ func (s *Server) applyBackup(w http.ResponseWriter, r *http.Request, body []byte
 		if reason == "" {
 			reason = "restored from backup"
 		}
-		if _, err := s.bans.Add(b.CIDR, reason, source, "restore", ttl); err != nil {
+		if _, err := s.bans.AddFor(s.db(r).SiteID(), b.CIDR, reason, source, "restore", ttl); err != nil {
 			problems = append(problems, "ban "+b.CIDR+": "+err.Error())
 			continue
 		}
@@ -210,7 +210,8 @@ func (s *Server) applyBackup(w http.ResponseWriter, r *http.Request, body []byte
 	}
 
 	s.reloadEngines(r.Context())
-	if iface := in.Settings["wan_iface"]; iface != "" {
+	// A tenant restore cannot move the process-wide interfaces.
+	if iface := in.Settings["wan_iface"]; iface != "" && s.consoleSite(r) == s.st.SiteID() {
 		s.metrics.SetInterfaces(iface, in.Settings["lan_iface"])
 	}
 	sess := sessionFrom(r)

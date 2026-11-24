@@ -1235,7 +1235,7 @@ func (e *Engine) inspect(req *Request) (model.Verdict, WAFInfo, []waf.Match) {
 		info.Label = "bundle"
 		// A site pinned to detect-only keeps that promise even when its profile
 		// allows the bundle to block: the per-site setting is the narrower one.
-		if e.bundleMode(p, bm.Bundle) == model.BundleBlock && p.WAFMode != "detect" {
+		if e.bundleMode(p, bm.Bundle) == model.BundleBlock && mode != "detect" {
 			return model.Verdict{Action: "block", Stage: "waf", Rule: strconv.Itoa(bm.RuleID),
 				Reason: "bundle " + bm.Bundle + ": " + bm.Message, Status: http.StatusForbidden}, info, matches
 		}

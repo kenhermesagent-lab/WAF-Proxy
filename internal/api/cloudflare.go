@@ -237,18 +237,17 @@ func (s *Server) consoleHost(r *http.Request) string {
 	return store.NormalizeHost(r.Host)
 }
 
-// requireHostConsole refuses a write to the connector from a tenant console:
-// one connector and one token serve every site.
-func (s *Server) requireHostConsole(w http.ResponseWriter, r *http.Request) bool {
+// requireHostConsole refuses a host-wide write from a tenant console.
+func (s *Server) requireHostConsole(w http.ResponseWriter, r *http.Request, feature string) bool {
 	if s.consoleSite(r) != s.st.SiteID() {
-		writeError(w, http.StatusForbidden, "the tunnel connector is host-wide; change it from the host console")
+		writeError(w, http.StatusForbidden, feature+" is host-wide; change it from the host console")
 		return false
 	}
 	return true
 }
 
 func (s *Server) putCloudflare(w http.ResponseWriter, r *http.Request) {
-	if !s.requireHostConsole(w, r) {
+	if !s.requireHostConsole(w, r, "the tunnel connector") {
 		return
 	}
 	var req cloudflareRequest

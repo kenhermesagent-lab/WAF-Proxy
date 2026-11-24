@@ -271,6 +271,61 @@ func TestPerSiteResourcesAreIsolated(t *testing.T) {
 	}
 }
 
+// TestTenantAdministratorStaysOnItsConsole proves the wildcard role does not
+// lift a tenant session out of its site: the switch header is ignored, the
+// host-wide routes stay closed, and role definitions cannot be edited.
+func TestTenantAdministratorStaysOnItsConsole(t *testing.T) {
+	f := newSiteFixtures(t)
+	if rec := f.call("gui.local", http.MethodPut, "/api/notifications", f.adminToken, f.adminCSRF, "", map[string]string{"smtp_host": "smtp.alpha.test"}); rec.Code != http.StatusOK {
+		t.Fatalf("default notifications = %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := f.call("console.bravo.test", http.MethodPut, "/api/notifications", f.bravoToken, f.bravoCSRF, "", map[string]string{"smtp_host": "smtp.bravo.test"}); rec.Code != http.StatusOK {
+		t.Fatalf("bravo notifications = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// The header names the host site, but this session stays on bravo.
+	var wrapped struct {
+		Settings map[string]string `json:"settings"`
+	}
+	rec := f.call("console.bravo.test", http.MethodGet, "/api/notifications", f.bravoToken, "", store.DefaultSiteSlug, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bravo notifications = %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &wrapped); err != nil {
+		t.Fatal(err)
+	}
+	if wrapped.Settings["smtp_host"] != "smtp.bravo.test" {
+		t.Fatalf("a tenant administrator switched sites: %+v", wrapped.Settings)
+	}
+
+	for _, path := range []string{"/api/sites", "/api/ha", "/api/updates", "/api/backup/schedule"} {
+		if rec := f.call("console.bravo.test", http.MethodGet, path, f.bravoToken, "", "", nil); rec.Code != http.StatusForbidden {
+			t.Fatalf("tenant GET %s = %d, want 403: %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := f.call("console.bravo.test", http.MethodPost, "/api/roles", f.bravoToken, f.bravoCSRF, "", map[string]any{
+		"name": "tenant-owner", "permissions": []string{"*"},
+	}); rec.Code != http.StatusForbidden {
+		t.Fatalf("tenant role write = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+
+	var me struct {
+		CanSwitch bool   `json:"can_switch"`
+		Sites     []any  `json:"sites"`
+		Site      string `json:"site"`
+	}
+	rec = f.call("console.bravo.test", http.MethodGet, "/api/me", f.bravoToken, "", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tenant me = %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
+		t.Fatal(err)
+	}
+	if me.CanSwitch || len(me.Sites) != 0 || me.Site != "bravo" {
+		t.Fatalf("tenant me advertised the switcher: %+v", me)
+	}
+}
+
 // TestHostAdminIsConfinedToItsOwnResources sends a site switch header with a
 // host_admin session: the API must keep answering from its own site.
 func TestHostAdminIsConfinedToItsOwnResources(t *testing.T) {

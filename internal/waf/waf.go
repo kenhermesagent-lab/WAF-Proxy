@@ -301,7 +301,7 @@ func ValidateCompile(name string, rules []BundleRule) error {
 	p := model.Profile{Name: "bundle-check", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072}
 	origins := map[int]bundleOrigin{}
 	directives := bundleDirectives(p, []Bundle{{Name: name, Version: "check", Rules: rules}}, origins)
-	if origins == nil || len(origins) == 0 {
+	if len(origins) == 0 {
 		return errors.New("bundle produced no usable directives")
 	}
 	cfg := coraza.NewWAFConfig().WithRootFS(coreruleset.FS).WithDirectives("SecRuleEngine On\n" + directives)

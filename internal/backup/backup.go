@@ -462,8 +462,10 @@ func prune(dir string, keep int) error {
 	}
 	var names []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), "wafproxy-backup-") && strings.HasSuffix(e.Name(), ".json") {
-			names = append(names, e.Name())
+		name := e.Name()
+		if !e.IsDir() && strings.HasPrefix(name, "wafproxy-backup-") &&
+			(strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".json.enc")) {
+			names = append(names, name)
 		}
 	}
 	if len(names) <= keep {

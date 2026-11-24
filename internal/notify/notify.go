@@ -17,7 +17,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
@@ -65,7 +64,6 @@ type Manager struct {
 	log  *slog.Logger
 	kick chan struct{}
 
-	mu     sync.Mutex
 	client *http.Client
 	now    func() time.Time
 }

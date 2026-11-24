@@ -57,7 +57,9 @@ func TestUntrustedPeerCannotSetClientAddress(t *testing.T) {
 func TestInflightBudgetSheds(t *testing.T) {
 	s := &Server{}
 	s.SetMaxInflight(2)
-	if !s.acquire() || !s.acquire() {
+	first := s.acquire()
+	second := s.acquire()
+	if !first || !second {
 		t.Fatal("the budget refused a request it should accept")
 	}
 	if s.acquire() {

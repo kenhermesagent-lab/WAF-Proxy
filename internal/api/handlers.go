@@ -1087,7 +1087,7 @@ func (s *Server) createBan(w http.ResponseWriter, r *http.Request) {
 		ttl = time.Duration(in.TTL) * time.Second
 	}
 	sess := sessionFrom(r)
-	rec, err := s.bans.Add(p.String(), in.Reason, "manual", sess.Username, ttl)
+	rec, err := s.bans.AddFor(s.db(r).SiteID(), p.String(), in.Reason, "manual", sess.Username, ttl)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot create ban")
 		return
@@ -1110,7 +1110,7 @@ func (s *Server) deleteBan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	b, err := s.bans.ByID(id)
+	b, err := s.db(r).BanByID(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -1133,7 +1133,7 @@ func (s *Server) promoteBan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	b, err := s.bans.ByID(id)
+	b, err := s.db(r).BanByID(id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -1182,7 +1182,7 @@ func (s *Server) bulkBans(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[id] = true
-		b, err := s.bans.ByID(id)
+		b, err := s.db(r).BanByID(id)
 		if errors.Is(err, store.ErrNotFound) {
 			skipped++
 			continue

@@ -82,7 +82,31 @@ func (s *Server) authorize(sess *store.Session, r *http.Request) bool {
 		return true
 	}
 	want := permissionFor(r)
-	return want == "" || sess.Can(want)
+	if want == "" {
+		return true
+	}
+	// Sites, system and HA are properties of the host. A tenant role never
+	// reaches them, even when a global built-in role gave it the wildcard.
+	if s.consoleSite(r) != s.st.SiteID() && hostWidePermission(want) {
+		return false
+	}
+	return sess.Can(want)
+}
+
+// hostWidePermission reports whether a permission names a host-wide area.
+func hostWidePermission(want string) bool {
+	return strings.HasPrefix(want, "sites.") || strings.HasPrefix(want, "system.") ||
+		strings.HasPrefix(want, "ha.")
+}
+
+// requireHostRoles keeps role definitions on the host console: roles are one
+// global table, not a site's property.
+func (s *Server) requireHostRoles(w http.ResponseWriter, r *http.Request) bool {
+	if s.consoleSite(r) != s.st.SiteID() {
+		writeError(w, http.StatusForbidden, "roles are host-wide; change them from the host console")
+		return false
+	}
+	return true
 }
 
 // loadAdminAllowlist installs the source allowlist for the console. An empty
@@ -375,6 +399,9 @@ type roleBody struct {
 }
 
 func (s *Server) createRole(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostRoles(w, r) {
+		return
+	}
 	var in roleBody
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
@@ -399,6 +426,9 @@ func (s *Server) createRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateRole(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostRoles(w, r) {
+		return
+	}
 	id, ok := pathID(w, r)
 	if !ok {
 		return
@@ -437,6 +467,9 @@ func (s *Server) updateRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteRole(w http.ResponseWriter, r *http.Request) {
+	if !s.requireHostRoles(w, r) {
+		return
+	}
 	id, ok := pathID(w, r)
 	if !ok {
 		return

@@ -22,6 +22,14 @@ type route struct {
 	params  []string
 }
 
+// upperFirst capitalises the first rune without the deprecated strings.Title.
+func upperFirst(s string) string {
+	for i, r := range s {
+		return s[:i] + string(unicode.ToUpper(r)) + s[i+len(string(r)):]
+	}
+	return s
+}
+
 // operationID derives a stable, unique id from the method and path; handler
 // names repeat (every guarded route records "authed") and validators reject that.
 func operationID(method, path string) string {
@@ -309,7 +317,7 @@ func render(routes []route, version string) []byte {
 		b.WriteString("    " + strings.ToLower(r.method) + ":\n")
 		b.WriteString("      operationId: " + operationID(r.method, r.path) + "\n")
 		b.WriteString("      tags: [" + r.tag + "]\n")
-		b.WriteString("      summary: " + strings.Title(humanize(r.handler)) + "\n")
+		b.WriteString("      summary: " + upperFirst(humanize(r.handler)) + "\n")
 		if r.authed {
 			b.WriteString("      security:\n        - sessionCookie: []\n")
 		} else {

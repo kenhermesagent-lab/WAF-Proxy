@@ -135,9 +135,9 @@ type ipView struct {
 	banInfo
 }
 
-func (s *Server) banIndex() map[string]model.Ban {
+func (s *Server) banIndex(r *http.Request) map[string]model.Ban {
 	out := map[string]model.Ban{}
-	list, err := s.bans.List(false)
+	list, err := s.db(r).ListBans(false)
 	if err != nil {
 		return out
 	}
@@ -178,7 +178,7 @@ func (s *Server) listIPs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	index := s.banIndex()
+	index := s.banIndex(r)
 	out := make([]ipView, 0, len(list))
 	for _, sum := range list {
 		out = append(out, ipView{IPSummary: sum, banInfo: s.banView(sum.IP, index)})
@@ -205,7 +205,7 @@ func (s *Server) getIP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	v := ipView{IPSummary: sum, banInfo: s.banView(ip, s.banIndex())}
+	v := ipView{IPSummary: sum, banInfo: s.banView(ip, s.banIndex(r))}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"summary": v, "events": events, "total": total, "from": f.From, "to": f.To,
 	})

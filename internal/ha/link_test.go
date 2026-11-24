@@ -158,7 +158,9 @@ func TestJoinRefusesExpiredCode(t *testing.T) {
 func TestAttemptLimiter(t *testing.T) {
 	l := newAttemptLimiter(2, time.Minute)
 	now := time.Now()
-	if !l.allow("a", now) || !l.allow("a", now) {
+	first := l.allow("a", now)
+	second := l.allow("a", now)
+	if !first || !second {
 		t.Fatal("first two attempts were refused")
 	}
 	if l.allow("a", now) {

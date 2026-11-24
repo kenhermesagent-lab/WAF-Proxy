@@ -12,6 +12,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.61.2] — 2026-11-23
+
+### Fixed
+
+- **A tenant administrator can no longer reach the host console.** The site switcher is only
+  honoured for a session on the host's own console, host-wide areas (sites, system and HA) stay
+  closed to tenant sessions even when their role carries the wildcard permission, and role
+  definitions, backup scheduling, signature bundles, CrowdSec, streaming forwarders, agent links
+  and MCP tokens are host-console only, and the uptime panel reports only the caller's backends.
+- **A rejected new password no longer consumes a password-reset link.** The password is validated
+  before the single-use token is spent, so a policy error leaves the link usable.
+- **A bundle rule set to block no longer overrides a profile in detect-only mode** when the site
+  inherits its WAF mode from that profile.
+- **The policy rate limiter now prunes strike timestamps**, so a bucket that ever denied a request
+  can be cleaned up instead of staying in memory forever.
+- **Encrypted backup files are pruned** along with plain ones, so scheduled encrypted backups no
+  longer grow the destination without bound.
+- **Ban management is site-scoped.** A manual ban is recorded against the console that created it,
+  and editing a ban by id cannot reach another site's row.
+- **First-boot setup runs only on the host console**, because it writes host-wide settings.
+
 ## [1.61.1] — 2026-11-23
 
 ### Added

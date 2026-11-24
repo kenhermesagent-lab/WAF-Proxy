@@ -135,7 +135,7 @@ func MarshalProviders(list []Provider) string {
 	}
 	out := make([]entry, 0, len(list))
 	for _, p := range list {
-		out = append(out, entry{Name: p.Name, URL: p.URL, PublicKey: p.PublicKey})
+		out = append(out, entry(p))
 	}
 	raw, err := json.Marshal(out)
 	if err != nil {
