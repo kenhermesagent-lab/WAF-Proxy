@@ -34,6 +34,31 @@ docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml logs -f wafproxy
 ```
 
+### Use the published image instead of building
+
+Every release also publishes that image to the GitHub Container Registry, so a host without the
+Go and Node toolchain can pull it rather than build it:
+
+```bash
+docker pull ghcr.io/kenhermesagent-lab/wafproxy:1.64.0
+```
+
+The package starts **private**, so an anonymous pull answers `denied` until the owner makes it
+public (the repository's **Packages** → the package → **Package settings** → **Change
+visibility**). Pulling a private package needs a GitHub token with `read:packages` first:
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
+```
+
+Compose runs the image it builds under the name `wafproxy:<version>`, where `<version>` is
+`VERSION` in `deploy/.env`, so tag the pulled copy to that name and start without a build:
+
+```bash
+docker tag ghcr.io/kenhermesagent-lab/wafproxy:1.64.0 wafproxy:1.64.0
+docker compose -f deploy/docker-compose.yml up -d --no-build
+```
+
 The image builds the React SPA and embeds it in the Go binary. First boot has no saved
 binding, so the process listens on `:8443` (proxy) and, by default, **`127.0.0.1:8080`** for the
 console. Compose deliberately keeps the console on loopback: the setup wizard is

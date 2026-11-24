@@ -32,6 +32,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 - The Settings help explains the two backup counts: the schedule keeps its own number of files,
   the optional daily tier keeps a second count, and each prunes independently.
+- **The Docker install page shows how to run the published image.** It gives the `docker pull`
+  line for `ghcr.io/kenhermesagent-lab/wafproxy:<version>`, the name to tag it under so compose
+  starts it without a build, and the reminder that the package starts private and needs a
+  `read:packages` token until it is made public.
 
 ## [1.64.0] — 2026-11-24
 
