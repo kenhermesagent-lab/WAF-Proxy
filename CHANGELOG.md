@@ -43,6 +43,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
+- **A released section must carry its annotated tag on origin.** `deploy/check-tags.sh` requires a
+  `vX.Y.Z` tag for every dated CHANGELOG section from 1.61.0 up, refuses a lightweight tag or one
+  on a commit that does not carry the section, and the `release` job runs it on origin with
+  `--remote`, so a release cannot ship untagged and the backlog cannot build up again. A section
+  still marked `unreleased` needs no tag yet.
 - **A UDP forwarder on the WAN port is a startup error.** The relay binds before the listener
   serves, so the boot names the card that holds the port and says to move it or unset
   `WAFPROXY_HTTP3`, instead of failing later with a bare "address already in use". A port held by
