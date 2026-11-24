@@ -378,13 +378,16 @@ func (m *Manager) perform(t tier) (Status, error) {
 func (m *Manager) finish(t tier, file string, err error) (Status, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.status.LastRun = m.now().UTC().Format(time.RFC3339)
-	m.status.LastFile = file
+	// Each tier reports its own last run, so a daily copy does not show twice:
+	// once as the last run and again as the last daily copy.
 	if t.daily {
-		m.status.LastDailyRun = m.status.LastRun
+		m.status.LastDailyRun = m.now().UTC().Format(time.RFC3339)
 		if file != "" {
 			m.status.LastDailyFile = file
 		}
+	} else {
+		m.status.LastRun = m.now().UTC().Format(time.RFC3339)
+		m.status.LastFile = file
 	}
 	if err != nil {
 		m.status.LastError = err.Error()

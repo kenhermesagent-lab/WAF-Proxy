@@ -12,6 +12,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [Unreleased]
+
+### Fixed
+
+- **The Backup card stops repeating the daily file.** Each tier reports its own last run, so a
+  recent daily copy no longer appears as both the last run and the last daily copy; leaving the
+  daily tier on adds its own last and next rows instead.
+
+### Documentation
+
+- The Settings help explains the two backup counts: the schedule keeps its own number of files,
+  the optional daily tier keeps a second count, and each prunes independently.
+
 ## [1.64.0] — 2026-11-24
 
 ### Added
