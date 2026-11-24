@@ -619,7 +619,10 @@ commit — delete it, or date the section and cut the release properly.
 
 `scripts/release.sh` runs the check before it prints its push commands, when its own
 release commit is not on `main` yet, so it passes `--skip-on-main`; the `--remote`
-run after the push is what proves the tag landed.
+run after the push is what proves the tag landed. It refuses a working tree with
+uncommitted changes, a `vX.Y.Z` tag that already exists, a version older than the
+newest tag, and a version with no `CHANGELOG.md` section, and it removes its own
+tag again when the check fails, leaving the release commit at `HEAD`.
 
 CI runs `bash deploy/check-tags.sh --remote` on every push and pull request; the
 `release` job fails only on `main`, where a section without its tag is a real
