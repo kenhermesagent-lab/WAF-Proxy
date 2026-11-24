@@ -142,4 +142,18 @@ grep -q "through the API" <<<"$out" || fail "the refusal did not fall back to th
 grep -q "git/tags" "$GH_LOG" || fail "the fallback never called git/tags"
 rm -f "$tmp/origin.git/hooks/pre-receive"
 
+# The preferred commit can be one a token may not push: it changed a workflow
+# file. The tag then names the newest commit of that release that did not.
+release 1.62.0
+mkdir -p .github/workflows
+printf 'name: ci\n' >.github/workflows/ci.yml
+git add -A
+GIT_COMMITTER_DATE="2026-01-20T00:00:00" git commit -q -m "Change a workflow while 1.62.0 is current"
+git push -q origin main
+out=$(bash "$script" --remote origin --dry-run 1.62.0)
+want=$(git rev-parse --short=12 HEAD~1)
+grep -q "would tag v1.62.0 at $want" <<<"$out" ||
+  fail "v1.62.0 was not moved off the workflow-changing commit: $out"
+rm -rf .github/workflows
+
 echo "create-release-tags_test: ok"

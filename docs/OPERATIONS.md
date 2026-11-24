@@ -207,6 +207,11 @@ The tag gate (`deploy/check-tags.sh --remote --branch main`) passes only when ev
 where `VERSION` reads as that version and the section already exists. Tags cannot be pushed from a
 checkout without credentials, so the gaps are filled by a job that has them:
 
+The job also runs by itself on a push to `main` that changes `CHANGELOG.md` or `VERSION`, which is
+exactly when a version gains its dated section, so a release is tagged without anyone opening the
+Actions page. It skips tags `origin` already has, so a push that changes neither file never starts
+it and any other run creates nothing. To fill the backlog by hand:
+
 1. Actions → **Create release tags** → **Run workflow** on `main`.
 2. Leave `versions` empty to tag every dated section, or list the ones you want. `dry_run` starts
    as `true`: the run prints each version with the commit it would tag and pushes nothing.
@@ -219,6 +224,9 @@ that has since been succeeded is tagged at the commit that cut it, because a lat
 stamp the old number again and that tag would look cut after the release that followed it. A version
 whose section was dated while `VERSION` stayed on an older number fails the job instead
 of being tagged somewhere nearby. Tags origin already has are skipped, so a re-run only fills gaps.
+When a release has more than one commit where `VERSION` reads as it does, the tag names one that did
+not change a file under `.github/workflows/`, since those are the commits a token can push.
+
 A tag whose commit changed a file under `.github/workflows/` cannot be pushed with the runner's
 token: GitHub refuses to let an App create a ref that carries a workflow change, even when the
 commit is already on `main`. The script creates that tag through the API instead — the tag object and

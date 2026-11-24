@@ -5,6 +5,15 @@ name: Create release tags
 # tags, so this is where the gaps are filled: it tags the commit that stamped
 # VERSION, which is the only commit the gate accepts.
 on:
+  # A version lands as a dated CHANGELOG.md section and a VERSION bump, and the
+  # gate is red until its tag exists. Filling it on that push is what stops the
+  # tag gate being a manual step; the script skips tags origin already has, so a
+  # push that carries neither file never starts this, and any other is a no-op.
+  push:
+    branches: [main]
+    paths:
+      - CHANGELOG.md
+      - VERSION
   workflow_dispatch:
     inputs:
       versions:
@@ -59,5 +68,5 @@ jobs:
           versions=($VERSIONS)
           bash deploy/create-release-tags.sh "${args[@]}" "${versions[@]}"
       - name: Check the tags origin now holds
-        if: ${{ inputs.dry_run == false }}
+        if: ${{ inputs.dry_run != true }}
         run: bash deploy/check-tags.sh --remote --branch main

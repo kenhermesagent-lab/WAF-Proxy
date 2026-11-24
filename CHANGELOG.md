@@ -43,6 +43,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   would otherwise look green. `ghcr.io/<owner>/wafproxy:latest` moves only when the tag is the
   newest on `origin`, so dispatching an older tag republishes its own version and leaves the alias
   where it is.
+- **Release tags fill themselves when a version lands.** `release-tags.yml` now also runs on a push
+  to `main` that touches `CHANGELOG.md` or `VERSION`, so the dated section a release adds gets its
+  annotated tag without anyone dispatching the workflow; it is idempotent (tags origin already has
+  are skipped) and a push that changes neither file never starts it.
+- **A tag names a commit a token may push.** When several commits carry the same `VERSION`, the tag
+  now prefers one that did not change a file under `.github/workflows/`, because a GitHub App token
+  cannot push the others — `v1.62.3` sat on a dependency refresh that edited two workflows and had to
+  be placed on the newest commit of the same release that left them alone.
 - **The tag helper gets past the workflow-file refusal.** A tag whose commit changed
   `.github/workflows/` cannot be pushed by the runner's token, and the tag run stopped on the first
   one — `v1.62.3` points at a merge that touched `ci.yml`. The helper now creates that tag through the

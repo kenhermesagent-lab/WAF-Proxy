@@ -110,7 +110,15 @@ listing=$(git ls-remote --tags "$remote")
 
 # One walk of main, newest first, records the first and the last qualifying commit
 # of each version. Only VERSION is read per commit, so the whole history is cheap.
+# A GitHub App token may not push a tag whose commit changed a workflow file, so
+# the commits that did are recorded separately and only used when a release has
+# no other commit to name.
+touches_workflows() {
+  git show --name-only --format='' "$1" 2>/dev/null | grep -q '^\.github/workflows/'
+}
+
 declare -A newest_commit=() newest_when=() oldest_commit=() oldest_when=()
+declare -A newest_safe=() newest_safe_when=() oldest_safe=() oldest_safe_when=()
 while IFS= read -r c; do
   # || true: a commit older than the file has no VERSION, and pipefail would
   # otherwise end the run on the first one.
@@ -123,6 +131,14 @@ while IFS= read -r c; do
   if [[ -z ${newest_commit[$v]:-} ]]; then
     newest_commit[$v]=$c
     newest_when[$v]=$t
+  fi
+  if ! touches_workflows "$c"; then
+    if [[ -z ${newest_safe[$v]:-} ]]; then
+      newest_safe[$v]=$c
+      newest_safe_when[$v]=$t
+    fi
+    oldest_safe[$v]=$c
+    oldest_safe_when[$v]=$t
   fi
   oldest_commit[$v]=$c
   oldest_when[$v]=$t
@@ -175,11 +191,11 @@ for v in "${versions[@]}"; do
     die "v$v: no commit on main carries the dated $v section with VERSION $v; nothing to tag"
   fi
   if [[ $v == "${shipped[0]}" ]]; then
-    commit=${newest_commit[$v]}
-    when=${newest_when[$v]}
+    commit=${newest_safe[$v]:-${newest_commit[$v]}}
+    when=${newest_safe_when[$v]:-${newest_when[$v]}}
   else
-    commit=${oldest_commit[$v]}
-    when=${oldest_when[$v]}
+    commit=${oldest_safe[$v]:-${oldest_commit[$v]}}
+    when=${oldest_safe_when[$v]:-${oldest_when[$v]}}
   fi
   when=$(date -u -d "@$when" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "?")
   if ((dry_run)); then
