@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression test for check-tags.sh: a tagged release passes, and a missing,
-# lightweight, misplaced, unpushed or misnumbered tag fails on its own. Sections
-# below the 1.61.0 floor stay untagged and must not fail.
+# lightweight, misplaced, unpushed, misnumbered or off-main tag fails on its own.
+# Sections below the 1.61.0 floor stay untagged and must not fail.
 set -euo pipefail
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -155,4 +155,24 @@ if check --remote; then
   exit 1
 fi
 
-echo "tag check rejects every missing, lightweight, misplaced, unpushed or misnumbered tag"
+# A tag on a commit main never took is a release nobody can pull.
+seed
+git init -q --bare "$work/offmain.git"
+git -C "$root" remote add origin "$work/offmain.git"
+git -C "$root" push -q origin main --follow-tags
+changelog 1.61.2 1.61.1 1.61.0 1.60.1
+commit "1.61.2 on a side branch"
+git -C "$root" tag -a v1.61.2 -m "Release 1.61.2"
+git -C "$root" push -q origin "refs/tags/v1.61.2:refs/tags/v1.61.2"
+if check --remote; then
+  echo "a tag on a commit main never took passed the remote tag check" >&2
+  exit 1
+fi
+# The same tag on main's tip is fine.
+git -C "$root" push -q origin HEAD:refs/heads/main
+if ! check --remote; then
+  echo "a tag on main's tip failed the remote tag check" >&2
+  exit 1
+fi
+
+echo "tag check rejects every missing, lightweight, misplaced, unpushed, misnumbered or off-main tag"

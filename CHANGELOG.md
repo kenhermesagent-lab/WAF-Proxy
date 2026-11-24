@@ -53,6 +53,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `--remote`, so a release cannot ship untagged and the backlog cannot build up again. A section
   still marked `unreleased` needs no tag yet. The rule is enforced on `main` only, so a release
   branch can write its section before the tag exists; `--branch main` forces it from anywhere.
+  On origin it also refuses a tag whose commit is not reachable from `main`, so a release cut on a
+  branch nobody merged fails instead of publishing something nobody can pull.
 - **The tag check reads `VERSION` at the tagged commit too.** A `vX.Y.Z` tag whose commit carries
   another version fails as surely as a missing tag — in the clone, and on origin where the remote
   run fetches the tag a shallow checkout does not have — so a tag can never name a version the

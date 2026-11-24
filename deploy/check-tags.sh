@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fails when a CHANGELOG.md release section has no matching annotated vX.Y.Z tag,
-# or when VERSION at the tagged commit is not the version the tag names.
+# when VERSION at the tagged commit is not the version the tag names, or when the
+# tag's commit is not on main (a release nobody can pull).
 #
 # The rule starts at 1.61.0. The sections below it shipped before the convention
 # was enforced and were never tagged, so checking them would report history
@@ -134,6 +135,30 @@ else
     echo "cannot list the tags on '${remote}'" >&2
     exit 2
   fi
+  if ! main_tip=$(git -C "$root" ls-remote "$remote" refs/heads/main 2>/dev/null | cut -f1); then
+    echo "cannot read main from '${remote}'" >&2
+    exit 2
+  fi
+  if [[ -z $main_tip ]]; then
+    echo "'${remote}' has no main branch to compare the tags against" >&2
+    exit 2
+  fi
+  # A tag on a commit main never took is a release nobody can pull, so the check
+  # proves reachability. merge-base needs connected history, which a CI checkout
+  # of one commit does not have, so deepen once rather than answer from a graft.
+  if [[ $(git -C "$root" rev-parse --is-shallow-repository) == true ]]; then
+    if ! git -C "$root" fetch --quiet --unshallow "$remote" >/dev/null 2>&1; then
+      echo "cannot deepen this shallow clone to prove each tag is on ${remote}/main" >&2
+      exit 2
+    fi
+  fi
+  if ! git -C "$root" cat-file -e "${main_tip}^{commit}" 2>/dev/null; then
+    git -C "$root" fetch --quiet --no-tags "$remote" "+refs/heads/main:refs/remotes/${remote}/main" >/dev/null 2>&1 || true
+  fi
+  if ! git -C "$root" cat-file -e "${main_tip}^{commit}" 2>/dev/null; then
+    echo "cannot read ${remote}/main (${main_tip:0:7}) in this clone" >&2
+    exit 2
+  fi
   for v in "${versions[@]}"; do
     if ! grep -qE "refs/tags/v$v$" <<<"$listing"; then
       fail "$v" "CHANGELOG.md has a section but ${remote} has no v$v tag" \
@@ -153,6 +178,10 @@ else
     if [[ $tagver != "$v" ]]; then
       fail "$v" "v$v on ${remote} points at ${commit:0:7}, whose VERSION is ${tagver}" \
         "tag the commit that stamped VERSION $v"
+    fi
+    if ! git -C "$root" merge-base --is-ancestor "$commit" "$main_tip"; then
+      fail "$v" "v$v on ${remote} points at ${commit:0:7}, which is not on ${remote}/main" \
+        "merge that commit to main, or retag v$v on a commit main carries"
     fi
   done
   echo "release tags on ${remote} match the CHANGELOG.md sections from $floor (${#versions[@]} releases)"
