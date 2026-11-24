@@ -157,7 +157,7 @@ its anomaly score, and **Why?** replays it against the current rules without tou
 
 **Operations**
 
-- Dashboard with live traffic, attack map, top sources and upstream health; statistics, an event log
+- Dashboard with live traffic, an attack map that separates what was blocked from what reached your apps, top sources and upstream health; statistics, an event log
   with the "Why?" request simulator, anomaly events and uptime history.
 - Backups to a directory, SFTP, FTP or a Git remote, optionally AES-256-GCM encrypted; declarative
   YAML/JSON export and import that references names, so a file restores onto another install.

@@ -1972,6 +1972,18 @@ func (s *Server) getGlobe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, points)
 }
 
+// getReach is the allowed side of the attack map: requests that reached an
+// application, the endpoints they landed on, and the detections that fired
+// without blocking. It reads the same window and site scope as the globe.
+func (s *Server) getReach(w http.ResponseWriter, r *http.Request) {
+	reach, err := s.db(r).ReachSnapshot(globeSince(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, reach)
+}
+
 func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("format") == "csv" {
 		// The export covers the whole table, not the console's 200-row view.

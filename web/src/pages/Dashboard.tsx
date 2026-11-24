@@ -7,7 +7,8 @@ import Icon from "../components/Icon";
 import { countryFlag, countryName } from "../countries";
 import { Badge, Card, Empty, Info, PageHead, Skeleton, TableWrap, fmtAgo, fmtBps, fmtBytes, fmtTime } from "../ui";
 import CapacityCard, { Capacity } from "../components/CapacityCard";
-import { AnomalyEvent, Cert, Event, Feed, GlobeHit, GlobePoint, Metrics, Proxy, UpdatesSnapshot, Uptime } from "../types";
+import { AnomalyEvent, Cert, Event, Feed, GlobeHit, GlobePoint, Metrics, Proxy, Reach, UpdatesSnapshot, Uptime } from "../types";
+import { nearMissTotal, reachedGlobePoints } from "../reach";
 
 type Rate = { requests: number; bytesIn: number; bytesOut: number };
 
@@ -37,6 +38,7 @@ export default function Dashboard({
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [points, setPoints] = useState<GlobePoint[]>([]);
   const [hits, setHits] = useState<GlobeHit[]>([]);
+  const [reach, setReach] = useState<Reach | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [uptime, setUptime] = useState<Uptime | null>(null);
@@ -121,6 +123,23 @@ export default function Dashboard({
         .catch(() => undefined);
     load();
     if (hours === 1) return () => { alive = false; };
+    const t = setInterval(load, 15000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [hours]);
+
+  // The allowed side of the map. It moves with the same window as the blocked
+  // aggregates, so the two halves of the picture always describe one period.
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api
+        .get<Reach>(`/api/reach?hours=${hours}`)
+        .then((r) => alive && setReach(r))
+        .catch(() => undefined);
+    load();
     const t = setInterval(load, 15000);
     return () => {
       alive = false;
@@ -275,6 +294,12 @@ export default function Dashboard({
   }, [points]);
 
   const blockedShare = totals.requests ? (totals.blocked / totals.requests) * 100 : 0;
+  const reachedPoints = useMemo(() => reachedGlobePoints(reach), [reach]);
+  const nearCount = useMemo(() => nearMissTotal(reach), [reach]);
+  const mapBlocked = useMemo(() => regions.reduce((n, [, c]) => n + c, 0), [regions]);
+  const reachedCount = reach?.reached ?? 0;
+  const screened = mapBlocked + reachedCount;
+  const landedShare = screened > 0 ? (reachedCount / screened) * 100 : 0;
 
   // The attention queue has no dismiss state: an item stays until its cause
   // clears, so the list can never disagree with the resources it summarises.
@@ -551,10 +576,23 @@ export default function Dashboard({
             </>
           }
         >
-          <Globe points={points} hits={hits} home={home} hours={hours} variant="compact" />
-          <div className="facts" style={{ marginTop: 10 }}>
-            <span>Source regions ranked by blocked requests</span>
-            <span style={{ marginLeft: "auto" }}>{regions.reduce((n, [, c]) => n + c, 0).toLocaleString()} blocked</span>
+          <Globe points={points} hits={hits} reached={reachedPoints} home={home} hours={hours} variant="compact" />
+          <div className="reach-strip">
+            <div className="reach-strip-item blocked">
+              <span><i aria-hidden="true" />Blocked</span>
+              <b>{mapBlocked.toLocaleString()}</b>
+            </div>
+            <div className="reach-strip-item reached">
+              <span><i aria-hidden="true" />Reached app</span>
+              <b>{reachedCount.toLocaleString()}</b>
+            </div>
+            <div className="reach-strip-item near">
+              <span><i aria-hidden="true" />Near miss</span>
+              <b>{nearCount.toLocaleString()}</b>
+            </div>
+            <button className="xsmall ghost reach-strip-link" onClick={() => setMapOpen(true)}>
+              {landedShare > 0 ? `${landedShare.toFixed(1)}% landed · drill in` : "drill in"}
+            </button>
           </div>
         </Card>
 
@@ -696,6 +734,7 @@ export default function Dashboard({
         <AttackMap
           points={points}
           hits={hits}
+          reach={reach}
           home={home}
           hours={hours}
           onHours={setHours}

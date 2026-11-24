@@ -13,10 +13,10 @@ database schema and the unit files.
 
 | Version | Supported |
 |---|---|
-| 1.65.x | Yes |
-| 1.64.x | Yes — until 1.65.0 ships |
-| 1.63.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
-| 1.62.x and older | No — upgrade first (`deploy/install.sh`, or the Update button) |
+| 1.66.x | Yes |
+| 1.65.x | Yes — until 1.66.0 ships |
+| 1.64.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
+| 1.63.x and older | No — upgrade first (`deploy/install.sh`, or the Update button) |
 
 The version you run is shown on **Updates** and in `GET /api/health`. If a report only
 reproduces on an unsupported version, the first step is to confirm it on the newest release.

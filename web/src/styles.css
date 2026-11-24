@@ -884,6 +884,89 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 .map-side-body { flex: 1; overflow: auto; padding: 10px 12px; }
 .map-side-foot { border-top: 1px solid var(--border-soft); padding: 10px 12px; }
 
+/* The allowed side of the map: blocked vs reached vs detect-only, in one band. */
+.reach-kpis {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px;
+  background: var(--border-soft); border-bottom: 1px solid var(--border-soft);
+}
+.reach-kpi { background: var(--bg-elev); padding: 9px 11px 8px; min-width: 0; }
+.reach-kpi > span {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--faint); font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.reach-kpi i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.reach-kpi b {
+  display: block; margin-top: 2px; font-size: 19px; font-weight: 600;
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+.reach-kpi.blocked i { background: #ef4444; }
+.reach-kpi.reached i { background: #2dd4bf; }
+.reach-kpi.near i { background: #f59e0b; }
+.reach-kpi.reached b { color: #5eead4; }
+.reach-split { display: flex; height: 3px; background: #0c1117; }
+.reach-split i { display: block; height: 100%; }
+.reach-split .blocked { background: #ef4444; opacity: .85; }
+.reach-split .reached { background: #2dd4bf; opacity: .85; }
+.map-tabs {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px;
+  padding: 9px 12px; border-bottom: 1px solid var(--border-soft);
+}
+.map-tabs button { justify-content: center; min-width: 0; padding-left: 4px; padding-right: 4px; white-space: nowrap; overflow: hidden; }
+.map-tab-count { color: var(--faint); font-variant-numeric: tabular-nums; margin-left: 4px; }
+.map-tabs button.primary .map-tab-count { color: rgba(255, 255, 255, .72); }
+.region-share { color: #5f6878; }
+
+.reach-row { padding: 7px 7px 8px; border-bottom: 1px solid var(--border-soft); }
+.reach-row:last-child { border-bottom: 0; }
+.reach-path { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reach-path b { color: var(--faint); font-weight: 550; }
+.reach-count { color: #5eead4; font-variant-numeric: tabular-nums; font-size: 11.5px; font-weight: 550; flex: none; }
+.reach-sub { display: flex; gap: 8px; justify-content: space-between; margin-top: 2px; color: var(--faint); font-size: 10.5px; }
+.reach-host { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.reach-status { font-variant-numeric: tabular-nums; }
+.reach-status.ok { color: var(--ok); }
+.reach-status.warn { color: var(--warn); }
+.reach-status.info { color: var(--info); }
+.reach-bar { height: 2px; margin-top: 5px; border-radius: 2px; background: #1b222c; overflow: hidden; }
+.reach-bar i { display: block; height: 100%; background: #2dd4bf; opacity: .55; }
+.reach-h4 {
+  margin: 14px 0 6px; color: var(--faint); font-size: 10px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.reach-sources { display: flex; flex-direction: column; gap: 5px; }
+.reach-source { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.reach-source .link-cell { font-size: 11.5px; }
+.near-row { padding: 8px 7px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--bg-soft); }
+.near-rule { font-size: 11px; color: var(--warn); }
+.near-msg { margin-top: 2px; font-size: 11.5px; color: var(--text); line-height: 1.4; }
+.near-path { margin-top: 4px; font-size: 10.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.globe-key.reached { border-color: rgba(45, 212, 191, .3); color: #7fe7d8; }
+.globe-key.reached b { color: #5eead4; }
+
+.reach-strip {
+  display: flex; align-items: stretch; gap: 0; margin-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+.reach-strip-item { flex: 1; min-width: 0; padding: 9px 2px 0 10px; border-left: 1px solid var(--border-soft); }
+.reach-strip-item:first-child { border-left: 0; padding-left: 0; }
+.reach-strip-item > span {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--faint); font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase;
+  white-space: nowrap;
+}
+.reach-strip-item i { width: 6px; height: 6px; border-radius: 50%; }
+.reach-strip-item b { display: block; font-size: 16px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.reach-strip-item.blocked i { background: #ef4444; }
+.reach-strip-item.reached i { background: #2dd4bf; }
+.reach-strip-item.reached b { color: #5eead4; }
+.reach-strip-item.near i { background: #f59e0b; }
+.reach-strip-link { margin-left: 10px; align-self: center; flex: none; }
+	@media (max-width: 640px) {
+  .reach-strip-link { display: none; }
+}
+
 /* ---------- settings ---------- */
 /* One tab per section, so only the selected card is in flow. */
 .settings-sections { padding-bottom: 72px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }

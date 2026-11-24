@@ -12,6 +12,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.66.0] — 2026-11-24
+
+### Added
+
+- **The attack map now shows what got through, not only what was stopped.** A blocked-only map reads
+  as zero risk when everything is working, which says nothing about exposure. `GET /api/reach` returns
+  the same window and site scope as the globe with the other half: requests that were allowed and
+  landed on an authentication or administration endpoint — login, sign-in, auth, SSO/SAML, admin,
+  wp-login, phpMyAdmin, token, session, setup, actuator and server-status paths — each with the status
+  the application answered, the source country and the last time it happened. The map draws those as
+  teal dashed arcs to the node and lists them in a **Reached** tab beside the blocked ones, with
+  the source addresses that got in and a link to the IP explorer for each.
+- **Detections that did not block are counted as near misses.** Events recorded with `action=log` — a
+  WAF profile in detect mode, a logged bundle rule, a feed match set to log — are grouped by rule in
+  the map's **Near miss** tab with the request they hit. Each one is a refusal under a stricter
+  setting, so the tab answers the question a block log cannot: what would have been caught.
+- **The allowed side has tests.** A tenant test drives `/api/reach` from two console hosts and requires
+  each to see only its own endpoints, sources and near misses, and unit tests pin the two console
+  aggregators: one endpoint merged across countries, different answers for the same path kept apart,
+  and rows the globe cannot place dropped.
+- **Three counters replace the single blocked number.** The map leads with blocked, reached and
+  near-miss totals and a split bar of screened traffic, and the dashboard's Live attacks card carries
+  the same three numbers with the share that landed. The region list shows each region's percentage
+  of blocked requests instead of only a raw count.
+
+### Changed
+
+- **The map's detail panel is tabbed instead of one list.** Blocked keeps the region ranking and the
+  per-country event feed; Reached ranks endpoints by volume with their status and countries;
+  Near miss shows the logged rules. Selecting a country on the globe filters all three.
+- The globe legend gains a **Passed to app** key in teal, and the expanded footnote says what the
+  dashed arcs mean.
+
+### Security
+
+- **"Reached" cannot include a refusal.** The new view only counts rows recorded as `allow` with a
+  `2xx`–`4xx` answer from the application, so a request the proxy blocked, banned or challenged never
+  appears there. Like the globe, it is scoped to the caller's site and reachable only with dashboard
+  read permission.
+
 ## [1.65.12] — 2026-11-24
 
 ### Tests
