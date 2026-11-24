@@ -8,7 +8,9 @@
 # clone and proves each one sits on the commit that carries its section; a
 # checkout does not fetch tags, so CI asks origin with --remote instead. Both
 # modes also prove the tagged commit is on main, because a tag on an unmerged
-# branch is a release nobody receives.
+# branch is a release nobody receives; and every tag at or above the floor has
+# to name a version this CHANGELOG dates and to have been cut before a newer
+# one, so a stray v1.62.4 tag cannot hide on a commit that did reach main.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -138,6 +140,79 @@ version_at() {
   printf '%s\n' "$version"
 }
 
+# Remote mode reads origin's tags once, here, because the tag list and the
+# section rule below both need it.
+if [[ $mode == remote ]]; then
+  if ! listing=$(git -C "$root" ls-remote --tags "$remote" 2>/dev/null); then
+    echo "cannot list the tags on '${remote}'" >&2
+    exit 2
+  fi
+fi
+
+# A tag names a release, so the tags themselves are checked: each one at or
+# above the floor must name a version this CHANGELOG dates, and must have been
+# cut before a newer tag did. A v1.62.4 tag made after 1.63.0 shipped is the
+# second case, and its commit being on main does not make it a release.
+# The date that decides order is the release commit's, not the tag's: re-cutting
+# a tag that landed on the wrong commit moves only the tag date, and that is the
+# fix this check itself recommends, so it must not read as a late release.
+commit_time() {
+  local tag=$1 commit
+  if ! commit=$(git -C "$root" rev-parse -q --verify "refs/tags/$tag^{}" 2>/dev/null); then
+    return 1
+  fi
+  if ! git -C "$root" cat-file -e "${commit}^{commit}" 2>/dev/null && [[ $mode == remote ]]; then
+    git -C "$root" fetch --quiet --no-tags "$remote" "+refs/tags/${tag}:refs/tags/${tag}" >/dev/null 2>&1 || return 1
+  fi
+  git -C "$root" log -1 --format=%ct "$commit" 2>/dev/null
+}
+
+tagged=()
+if [[ $mode == remote ]]; then
+  while IFS= read -r v; do
+    [[ -n $v ]] && tagged+=("$v")
+  done < <(awk '$2 ~ /^refs\/tags\/v[0-9]+\.[0-9]+\.[0-9]+$/ { sub("refs/tags/v", "", $2); print $2 }' <<<"$listing")
+else
+  while IFS= read -r v; do
+    [[ -n $v ]] && tagged+=("$v")
+  done < <(git -C "$root" tag -l 'v[0-9]*' 2>/dev/null | sed -E 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true)
+fi
+
+# Below the floor the convention did not exist yet, so v1.55.2 and v1.60.0 are
+# history rather than strays.
+kept=()
+if [[ ${#tagged[@]} -gt 0 ]]; then
+  for v in "${tagged[@]}"; do
+    if [[ $(printf '%s\n%s\n' "$floor" "$v" | sort -V | head -1) == "$floor" ]]; then
+      kept+=("$v")
+    fi
+  done
+fi
+
+if [[ ${#kept[@]} -gt 0 ]]; then
+  shipped=" ${versions[*]} "
+  for v in "${kept[@]}"; do
+    if [[ $shipped != *" $v "* ]]; then
+      fail "$v" "tag v$v names a version CHANGELOG.md does not ship" \
+        "delete the stray tag, or date a $v section and cut it properly: git tag -d v$v"
+    fi
+  done
+
+  newest=$(printf '%s\n' "${kept[@]}" | sort -V | tail -1)
+  newest_time=$(commit_time "v$newest")
+  while IFS= read -r v; do
+    [[ -z $v || $v == "$newest" ]] && continue
+    when=$(commit_time "v$v")
+    # A release whose own commit is newer than the newest release was cut late,
+    # whatever its tag date says. An older tag re-cut onto its original commit
+    # keeps its old commit date, so it stays ordinary history.
+    if [[ -n $when && -n $newest_time && $when -gt $newest_time ]]; then
+      fail "$v" "v$v was cut after the newer v$newest shipped, so the release went out of order" \
+        "delete it, and cut the version before a newer one ships: git tag -d v$v"
+    fi
+  done < <(printf '%s\n' "${kept[@]}")
+fi
+
 if [[ $mode == local ]]; then
   if ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
     echo "not a git checkout: use --remote to check the tags origin holds" >&2
@@ -179,10 +254,6 @@ if [[ $mode == local ]]; then
   done
   echo "release tags match the CHANGELOG.md sections from $floor (${#versions[@]} releases)"
 else
-  if ! listing=$(git -C "$root" ls-remote --tags "$remote" 2>/dev/null); then
-    echo "cannot list the tags on '${remote}'" >&2
-    exit 2
-  fi
   for v in "${versions[@]}"; do
     if ! grep -qE "refs/tags/v$v$" <<<"$listing"; then
       fail "$v" "CHANGELOG.md has a section but ${remote} has no v$v tag" \
