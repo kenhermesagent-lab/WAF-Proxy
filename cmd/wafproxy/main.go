@@ -747,6 +747,26 @@ func run() error {
 		return err
 	}
 
+	// HTTP/3 shares the WAN port over UDP. A UDP forwarder on that number would
+	// bind first (the data plane starts the forwarders before the listener
+	// serves), so the conflict is named here instead of surfacing as a bare
+	// "address already in use" from the QUIC socket.
+	if cfg.HTTP3 {
+		port, err := wanPort(cfg.ListenWAN)
+		if err != nil {
+			return fmt.Errorf("WAFPROXY_HTTP3: %w", err)
+		}
+		kv, err := st.Settings()
+		if err != nil {
+			return err
+		}
+		if err := http3StreamConflict(kv, port); err != nil {
+			return err
+		}
+		px.EnableHTTP3(port)
+		log.Info("http/3 enabled", "udp_port", port)
+	}
+
 	streams = streaming.New(log)
 	// The relay bypasses the request pipeline, so banned addresses have to be
 	// refused here as well or they could still stream through a forwarded port.

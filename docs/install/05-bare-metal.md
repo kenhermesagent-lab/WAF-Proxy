@@ -123,7 +123,7 @@ and **Dashboard → Request budget** shows the current count and how many were r
 
 ### 11.3 Firewall and nftables
 
-Allow `443/tcp` (and streaming ports) to the WAN address, and the GUI port on the LAN only. The
+Allow `443/tcp` (and `443/udp` when `WAFPROXY_HTTP3=1`, plus streaming ports) to the WAN address, and the GUI port on the LAN only. The
 ban engine creates and owns its `inet wafproxy` table; it does not replace the host firewall.
 Check it with `sudo nft list table inet wafproxy`; **Settings** reports `active` while the
 process can manage it. If `nft` is missing or the capabilities were removed, the console shows

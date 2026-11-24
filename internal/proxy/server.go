@@ -132,6 +132,12 @@ type Server struct {
 
 	listenMu  sync.Mutex
 	listenErr map[string]string
+
+	// h3Want is the configured UDP port for HTTP/3; 0 leaves it off. h3Port is
+	// what Alt-Svc advertises, cleared while no socket is bound.
+	h3Want atomic.Int64
+	h3Port atomic.Int64
+	h3Rate h3Attempts
 }
 
 // New creates the proxy server with a temporary self-signed certificate.
@@ -446,6 +452,8 @@ type Listeners struct {
 	servers []*http.Server
 	bound   []string
 	events  sync.Once
+	// h3 is the optional QUIC listener that shares the first address.
+	h3 *h3Listener
 }
 
 // Listen binds the addresses but serves nothing yet. The first address is
@@ -514,6 +522,16 @@ func (l *Listeners) Serve() error {
 	if len(l.lns) == 0 {
 		return fmt.Errorf("no proxy listeners bound")
 	}
+	// Bind QUIC before any TCP listener accepts. HTTP/3 is additive, so a UDP
+	// port held by something else must not take HTTPS down with it: the
+	// failure is logged, and Alt-Svc stops advertising an alternative that
+	// does not exist. A forwarder on the same port is caught at boot instead.
+	if port := l.s.http3Want(); port > 0 {
+		if err := l.listenHTTP3(port); err != nil {
+			l.s.h3Port.Store(0)
+			l.s.d.Log.Error("http/3 not started", "err", err)
+		}
+	}
 	l.events.Do(func() { go l.s.eventWriter(l.ctx) })
 	errCh := make(chan error, len(l.servers))
 	for i, srv := range l.servers {
@@ -532,6 +550,10 @@ func (l *Listeners) Serve() error {
 // service address.
 func (l *Listeners) Drain(ctx context.Context) {
 	l.s.draining.Store(true)
+	// h3 first: its handlers get the same budget as a TCP request, then the
+	// socket is released so a promoted peer can bind the UDP port immediately.
+	l.h3.shutdown(ctx)
+	l.h3.close()
 	for _, srv := range l.servers {
 		_ = srv.Shutdown(ctx)
 	}
@@ -550,6 +572,7 @@ func (l *Listeners) DrainTimeout(d time.Duration) {
 // Close releases the sockets immediately. It is safe on a partially bound set
 // and on a listener that never served.
 func (l *Listeners) Close() {
+	l.h3.close()
 	for _, srv := range l.servers {
 		_ = srv.Close()
 	}

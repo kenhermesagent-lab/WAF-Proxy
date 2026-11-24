@@ -74,7 +74,7 @@ Open `http://<host-ip>:8080` from the LAN and fill in:
 Both addresses must be configured on the host; the listeners bind them directly from the
 database. On a host with one NIC the WAN and LAN address are the same — the host's address
 that the router DNATs to. The proxy then binds `443` on the NIC shared with the GUI, so only
-forward `443` (and streaming ports) from the WAN and firewall the GUI port. The interface
+forward `443` (and `443/udp` when `WAFPROXY_HTTP3=1`, plus streaming ports) from the WAN and firewall the GUI port. The interface
 counters show that one NIC twice, and the stealth ping drop applies to the whole NIC, so
 leave it off unless dropping LAN ICMP is acceptable.
 

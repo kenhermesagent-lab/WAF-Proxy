@@ -12,6 +12,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.64.0] — unreleased
+
+### Added
+
+- **Optional HTTP/3 over QUIC.** `WAFPROXY_HTTP3=1` makes the WAN port serve QUIC on UDP beside
+  the TCP listener, through the same handler, so the WAF, gate, bans, cache and access log apply
+  without a second implementation. TLS 1.3 with the existing certificate resolver and the `h3`
+  ALPN, 0-RTT refused because a replayed request would skip the address check, at most 100
+  incoming streams per connection, and at most ten handshakes a second from one source until its
+  address is verified.
+- **Alt-Svc is advertised only where it can be used.** HTTP/1.1 and HTTP/2 answers over TLS carry
+  `h3=":<port>"; ma=86400` while the QUIC socket is bound; the plain-HTTP redirector, an answer
+  that already came over h3, and a node whose h3 bind failed advertise nothing.
+- Over h3 the pipeline behaves as it does over HTTP/2: a GET, HEAD and POST reach the upstream, a
+  policy block answers `403` without touching it, and a cacheable response is served from the
+  cache. A demotion releases the UDP socket with the TCP listener.
+
+### Changed
+
+- **A UDP forwarder on the WAN port is a startup error.** The relay binds before the listener
+  serves, so the boot names the card that holds the port and says to move it or unset
+  `WAFPROXY_HTTP3`, instead of failing later with a bare "address already in use". A port held by
+  something outside this process leaves HTTPS serving, logs the failure and stops advertising h3.
+
+### Security
+
+- HTTP/3 refuses 0-RTT, bounds handshakes per unverified source, caps a connection at 100 streams
+  and reuses the existing certificate resolver, so a QUIC client meets the same WAF, gate and ban
+  policy as an HTTP/2 one.
+- An answer advertises h3 only while the QUIC socket is bound: a client is never pointed at an
+  alternative that is not listening.
+
+### Documentation
+
+- `docs/CONFORMANCE.md` moves HTTP/3 from unsupported to supported with the cases that prove it,
+  the configuration reference lists `WAFPROXY_HTTP3`, the install guides open the UDP port, and
+  the Cloudflare Tunnel page states that the connector reaches the origin over HTTP/2, so h3 is a
+  direct-path feature.
+
 ## [1.63.0] — unreleased
 
 ### Added

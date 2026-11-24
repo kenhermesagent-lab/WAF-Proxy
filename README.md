@@ -50,6 +50,9 @@ systemd service. Version 1.60.1.
 - TLS with SNI, per-site minimum versions, certificates via DNS-01, HTTP-01 or TLS-ALPN-01,
   uploaded PEM pairs, an internal CA for `*.home.arpa` installs, DuckDNS updates, and automatic
   renewal with backoff; HTTP/2 and WebSocket pass-through.
+- Opt-in HTTP/3 over QUIC on the same WAN port (`WAFPROXY_HTTP3=1`): the same handler serves h3,
+  HTTP/1.1 and HTTP/2 answers advertise it with `Alt-Svc`, 0-RTT is refused, and the TCP path is
+  unchanged while the flag is off.
 - Proxies with per-site load balancing (`weighted_rr`, `least_conn`, `least_latency`, `ip_hash`,
   `sticky_cookie`), per-upstream connection caps, configurable health probes with passive ejection,
   per-site and per-client request budgets, per-site upstream timeouts with bounded idempotent
@@ -324,7 +327,7 @@ secrets are not part of the document.
 - **Subdomains are not a secrecy boundary.** Certificates are published to Certificate
   Transparency logs, so a wildcard's names are discoverable.
 - **Not included:** AbuseIPDB enrichment, tarpit, per-site HTTP basic auth/mTLS, brotli, per-site
-  bandwidth history, HTTP/3, and multi-user roles beyond the built-in RBAC.
+  bandwidth history, and multi-user roles beyond the built-in RBAC.
 
 ## High availability
 

@@ -923,6 +923,7 @@ addresses.
 | `WAFPROXY_GUI_PRIVATE_ONLY` | `true` | Refuses console requests from non-private addresses even if the listener is wider. |
 | `WAFPROXY_LISTEN_WAN` | `:8443` | Proxy listener before the wizard stores an address (**443** afterwards). |
 | `WAFPROXY_LISTEN_HTTP` | empty | Serves ACME HTTP-01 and redirects to HTTPS on this address; empty disables it. |
+| `WAFPROXY_HTTP3` | `false` | Serves HTTP/3 over QUIC on the WAN port over UDP and advertises it with `Alt-Svc`; open the same port over UDP on the firewall. A Cloudflare Tunnel carries HTTP/2 to the origin, so h3 is a direct-path feature. |
 | `WAFPROXY_WAN_IFACE`, `WAFPROXY_LAN_IFACE` | empty | Interface names the installer passes to the wizard. |
 | `WAFPROXY_TRUSTED_PROXIES` | empty | CIDRs whose `X-Forwarded-For` may name the client. Empty means the socket peer always wins. |
 | `WAFPROXY_MAX_INFLIGHT` | `128` | Requests buffered at once; the ceiling on request memory. Past it, requests get 503. |

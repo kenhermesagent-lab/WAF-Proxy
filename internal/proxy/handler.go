@@ -20,6 +20,9 @@ import (
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	// Every answer points an HTTP/1.1 or HTTP/2 client at the QUIC listener; a
+	// refusal or an error page is the best place to learn the alternative.
+	s.setAltSvc(w, r)
 	// One trusted-proxy decision per request, taken before any forwarding header
 	// is stripped: the access lists, the ban engine, GeoIP, the access log and
 	// the upstream all read the same address from RemoteAddr afterwards.
@@ -373,7 +376,11 @@ func (s *Server) blackhole(w http.ResponseWriter, r *http.Request, host string, 
 	}
 	event.Status = http.StatusMisdirectedRequest
 	s.record(event)
-	w.Header().Set("Connection", "close")
+	// HTTP/3 has no connection to close and forbids the header; the stream is
+	// the connection there, so only HTTP/1.1 gets it.
+	if r.ProtoMajor < 3 {
+		w.Header().Set("Connection", "close")
+	}
 	w.WriteHeader(http.StatusMisdirectedRequest)
 }
 
