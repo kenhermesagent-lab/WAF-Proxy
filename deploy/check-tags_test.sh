@@ -135,6 +135,39 @@ expect_fail "a tag whose commit carries another VERSION" mismatched_version
 stray_tag() { add_section; git -C "$root" tag -a v1.61.5 -m "Release 1.61.5"; }
 expect_fail "a tag for a version CHANGELOG.md does not ship" stray_tag
 
+# A tag newer than the checked-out VERSION belongs to a release cut after this
+# commit shipped, so re-running the gate on an old commit must not read it as a
+# stray: that is the v1.66.1 tag on a 1.66.0 checkout. A real stray inside the
+# shipped range still fails on the same tree, against origin as well as in the
+# clone.
+seed
+changelog 1.61.3 1.61.1 1.61.0 1.60.1
+commit "1.61.3"
+git -C "$root" tag -a v1.61.3 -m "Release 1.61.3"
+git init -q --bare "$work/origin7.git"
+git -C "$root" remote add origin "$work/origin7.git"
+git -C "$root" push -q origin main --follow-tags
+git -C "$root" tag -a v1.62.0 -m "Release 1.62.0"
+git -C "$root" push -q origin refs/tags/v1.62.0
+if ! check --remote --branch main; then
+  echo "a tag newer than VERSION failed the remote tag check" >&2
+  exit 1
+fi
+if ! check --branch main; then
+  echo "a tag newer than VERSION failed the local tag check" >&2
+  exit 1
+fi
+git -C "$root" tag -a v1.61.2 -m "Release 1.61.2"
+git -C "$root" push -q origin refs/tags/v1.61.2
+if check --remote --branch main; then
+  echo "a stray tag below VERSION passed the remote tag check" >&2
+  exit 1
+fi
+if check --branch main; then
+  echo "a stray tag below VERSION passed the local tag check" >&2
+  exit 1
+fi
+
 tag_dated() { GIT_COMMITTER_DATE="$2" git -C "$root" tag -a "v$1" -m "Release $1"; }
 
 # Order is decided by the release commit's date, so the fixture pins commits
@@ -184,13 +217,18 @@ if ! check --branch main; then
   exit 1
 fi
 
-# Both stray forms are caught on origin, not only in the clone.
+# Both stray forms are caught on origin, not only in the clone. The stray sits
+# below VERSION: one above it is a release cut later, which the checkout cannot
+# judge, so it is not a stray here at all.
 seed
+changelog 1.61.3 1.61.1 1.61.0 1.60.1
+commit "1.61.3"
+git -C "$root" tag -a v1.61.3 -m "Release 1.61.3"
 git init -q --bare "$work/origin3.git"
 git -C "$root" remote add origin "$work/origin3.git"
 git -C "$root" push -q origin main --follow-tags
-git -C "$root" tag -a v1.61.5 -m "Release 1.61.5"
-git -C "$root" push -q origin refs/tags/v1.61.5
+git -C "$root" tag -a v1.61.2 -m "Release 1.61.2"
+git -C "$root" push -q origin refs/tags/v1.61.2
 if check --remote --branch main; then
   echo "a stray tag on origin passed the remote tag check" >&2
   exit 1

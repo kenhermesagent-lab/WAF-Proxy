@@ -685,7 +685,10 @@ the tag is not reachable from the branch you are on, when its commit is not on
 the `CHANGELOG.md` does not date (a stray tag, even when its commit did reach
 `main`), or when a version's release commit is newer than the newest release, so
 it was cut after one that had already shipped. Sections below 1.61.0 predate
-the rule and are not checked.
+the rule and are not checked. A tag above the version this checkout's `VERSION`
+names need not be dated here either: it is a release cut later, so re-running
+the gate on an old commit does not go red because a newer release shipped, while
+the order rule still reads it.
 
 It enforces on `main` only, because a release branch writes its new section
 before the tag can exist; it skips (and says so) on any other branch, pull

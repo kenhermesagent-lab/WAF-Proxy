@@ -42,6 +42,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   reachable. A new test fails any preset whose admin prefix covers one of its login paths.
 - **A navidrome note told only half the story.** Subsonic clients authenticate on every `/rest`
   call, which a login limit cannot cover without stalling playback; the preset now says so.
+## [1.66.4] — 2026-11-24
+
+### Fixed
+
+- **A tag for a newer release no longer fails the tag gate on an older commit.** `deploy/check-tags.sh`
+  treated every tag at or above 1.61.0 as a stray unless this CHANGELOG dated it, so re-running CI for
+  a commit that shipped 1.66.0 went red as soon as v1.66.1 was cut: the tag names a version that
+  commit's CHANGELOG could not know about. Tags above the checked-out `VERSION` now belong to a later
+  release and are skipped, while a stray inside the shipped range still fails, on origin as well as in
+  the clone; `check-tags_test.sh` pins both halves — a v1.62.0 tag over a 1.61.3 tree passes, and a
+  v1.61.2 tag on that same tree still fails.
 
 ## [1.66.3] — 2026-11-24
 
