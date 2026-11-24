@@ -1,0 +1,22 @@
+# The demo site, in the same format the console exports and imports
+# (Settings → Backup and transport → Configuration transport).
+#
+# One proxy: demo.local terminates TLS, screens every request with the built-in
+# Generic Web profile (OWASP CRS, paranoia 1, anomaly threshold 5, blocking),
+# and forwards what survives to the echo service on 127.0.0.1:9000.
+version: "1.0"
+note: "Quickstart demo: one site in front of the echo service, CRS blocking on."
+
+proxies:
+  - hostname: demo.local
+    enabled: true
+    waf_mode: block
+    waf_profile: Generic Web
+    gate_mode: "off"
+    bot_level: light
+    fingerprint: strict
+    maintenance: false
+    upstreams:
+      - url: http://127.0.0.1:9000
+        weight: 1
+        enabled: true

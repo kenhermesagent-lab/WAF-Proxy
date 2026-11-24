@@ -1,0 +1,15 @@
+name: wafproxy-quickstart
+
+# Build the demo from the checkout instead of pulling the image:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
+#
+# Same container, same settings; only the source of the image changes.
+
+services:
+  wafproxy:
+    image: wafproxy-quickstart:local
+    build:
+      context: ../..
+      args:
+        VERSION: ${WAFPROXY_VERSION:-dev}

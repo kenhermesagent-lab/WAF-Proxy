@@ -47,6 +47,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **A one-minute demo that proves the WAF does something.** `examples/quickstart` starts the proxy
+  and an echo service on loopback, imports one site, and sends an ordinary request and a SQL
+  injection through it: 200 then 403, with rule 942100 in the log. No DNS, no certificate, no
+  backend of your own, and nothing exposed to the network.
+- **The README is built around being evaluated.** Value proposition and badges first, then a
+  quickstart for both Docker Compose and a release binary under systemd, a verify-it-works section
+  with the expected status codes, a request-flow diagram, and an honest comparison with nginx plus
+  ModSecurity, Caddy, Traefik and CrowdSec.
+
 - **Each streaming service has its own tab.** A strip under the Proxies tabs lists every
   forwarder in the catalog, and the page shows only the card, status and connecting guide of the
   one selected, so Jellyfin's settings no longer sit under Plex's. A dot marks the forwarders that
