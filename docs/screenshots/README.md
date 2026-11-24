@@ -25,7 +25,7 @@ traffic shaped by a daily curve. Everybody sees the full gallery in the
 | [certs.png](certs.png) | Certificates: issuance, renewal policy, expiry | [Configuration reference](../CONFIGURATION.md) |
 | [agent.png](agent.png) | AI Agent Access: MCP endpoint and per-tool tokens | [Configuration reference](../CONFIGURATION.md) |
 | [notifications.png](notifications.png) | Notifications: channels and per-event routing | [Configuration reference](../CONFIGURATION.md) |
-| [streaming.png](streaming.png) | Streaming: byte-relay forwarders for Plex and Jellyfin | [Configuration reference](../CONFIGURATION.md) |
+| [streaming.png](streaming.png) | Streaming: byte-relay forwarders for media and game servers (taken before the 1.63.0 grouping) | [Configuration reference](../CONFIGURATION.md) |
 | [settings.png](settings.png) | Settings: network, protection, retention, backup, GeoIP | [Configuration reference](../CONFIGURATION.md) |
 | [readiness.png](readiness.png) | Readiness: scored hardening checklist | [Security policy](../../SECURITY.md), [Configuration reference](../CONFIGURATION.md) |
 | [updates.png](updates.png) | Updates: application and host packages | [Configuration reference](../CONFIGURATION.md) |

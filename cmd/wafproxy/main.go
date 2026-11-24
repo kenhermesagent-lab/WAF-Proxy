@@ -753,6 +753,26 @@ func run() error {
 		return err
 	}
 
+	// HTTP/3 shares the WAN port over UDP. A UDP forwarder on that number would
+	// bind first (the data plane starts the forwarders before the listener
+	// serves), so the conflict is named here instead of surfacing as a bare
+	// "address already in use" from the QUIC socket.
+	if cfg.HTTP3 {
+		port, err := wanPort(cfg.ListenWAN)
+		if err != nil {
+			return fmt.Errorf("WAFPROXY_HTTP3: %w", err)
+		}
+		kv, err := st.Settings()
+		if err != nil {
+			return err
+		}
+		if err := http3StreamConflict(kv, port); err != nil {
+			return err
+		}
+		px.EnableHTTP3(port)
+		log.Info("http/3 enabled", "udp_port", port)
+	}
+
 	streams = streaming.New(log)
 	// The relay bypasses the request pipeline, so banned addresses have to be
 	// refused here as well or they could still stream through a forwarded port.
@@ -763,21 +783,9 @@ func run() error {
 	// Refusals and cut streams are written as ordinary events so they appear in
 	// Logs and on the attack globe next to the HTTP traffic. The payload carries
 	// the service and port, so the sink needs no manager lookup.
-	streams.SetEventSink(func(ev streaming.Event) {
-		kind := ev.Kind
-		if kind == "" {
-			kind = "stream-ban"
-		}
-		row := model.Event{
-			TS: time.Now(), Host: ev.Service, SrcIP: ev.Addr.String(),
-			Method: "TCP", Path: fmt.Sprintf(":%d", ev.Port),
-			Status: http.StatusForbidden, Stage: "stream", Action: "block",
-			RuleID: kind, RuleMsg: ev.Detail,
-		}
-		if err := st.InsertEvents([]model.Event{row}); err != nil {
-			log.Warn("streaming event insert failed", "err", err)
-		}
-	})
+	streamWriter := newStreamEvents(st, log)
+	defer streamWriter.stop()
+	streams.SetEventSink(func(ev streaming.Event) { streamWriter.record(streamEventRow(ev)) })
 	// A forwarder enforces the same named lists as a proxied site; country
 	// entries need the GeoIP database the HTTP pipeline already loads.
 	if accessLists, err := st.ListAccessLists(); err != nil {
@@ -793,9 +801,19 @@ func run() error {
 	streams.SetCountryLookup(func(addr netip.Addr) string {
 		return strings.ToUpper(geo.Lookup(addr).Country)
 	})
-	cfgs := make(map[string]streaming.Config, len(streaming.Catalog))
-	for _, def := range streaming.Catalog {
-		cfgs[def.ID] = streaming.ConfigFromSettings(def, kv)
+	// Every promotion reads the settings again: a card saved while this node
+	// was active, or replicated from the peer while it was a standby, must be
+	// what the forwarders bind, not the map read at boot.
+	streamCfgs := func() (map[string]streaming.Config, error) {
+		kv, err := st.Settings()
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[string]streaming.Config, len(streaming.Catalog))
+		for _, def := range streaming.Catalog {
+			out[def.ID] = streaming.ConfigFromSettings(def, kv)
+		}
+		return out, nil
 	}
 	// Forwarders start with the data plane, not at boot: a standby must not
 	// hold a media port, and a promoted node rebinds them.
@@ -904,6 +922,7 @@ func run() error {
 	active.Add(func(ctx context.Context) { agentLinks.Start(ctx) })
 	res.Each(func(b *siteres.Bundle) { b.Anomaly.SetSink(agentLinks.Publish) })
 	apiServer.SetStreaming(streams)
+	apiServer.SetStreamEventDrops(streamWriter.Dropped)
 	apiServer.SetUpdates(updateManager)
 	apiServer.SetUptime(uptimeMon)
 	restartCh := make(chan struct{}, 1)
@@ -1055,7 +1074,7 @@ func run() error {
 		}(gl)
 	}
 
-	plane := newDataPlane(ctx, px, streams, cfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
+	plane := newDataPlane(ctx, px, streams, streamCfgs, cfg.ListenWAN, cfg.ListenHTTP, tailProxyAddr, log)
 	defer plane.Close()
 	if !node.Active() {
 		// Hold the service address without accepting. A paired standby stays

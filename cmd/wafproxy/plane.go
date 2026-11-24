@@ -29,11 +29,15 @@ type dataPlane struct {
 	root    context.Context
 	px      *proxy.Server
 	streams *streaming.Manager
-	cfgs    map[string]streaming.Config
-	wan     string
-	http    string
-	tail    string
-	log     *slog.Logger
+	// loadCfgs rebuilds the forwarder configuration from the store at each
+	// promotion: a card edited while this node was active, or replicated from
+	// the peer while it was a standby, is applied instead of the map read at
+	// boot.
+	loadCfgs func() (map[string]streaming.Config, error)
+	wan      string
+	http     string
+	tail     string
+	log      *slog.Logger
 
 	mu      sync.Mutex
 	prebind *proxy.Listeners
@@ -42,9 +46,9 @@ type dataPlane struct {
 	serving bool
 }
 
-func newDataPlane(root context.Context, px *proxy.Server, streams *streaming.Manager, cfgs map[string]streaming.Config,
+func newDataPlane(root context.Context, px *proxy.Server, streams *streaming.Manager, loadCfgs func() (map[string]streaming.Config, error),
 	wan, httpAddr, tail string, log *slog.Logger) *dataPlane {
-	return &dataPlane{root: root, px: px, streams: streams, cfgs: cfgs, wan: wan, http: httpAddr, tail: tail, log: log}
+	return &dataPlane{root: root, px: px, streams: streams, loadCfgs: loadCfgs, wan: wan, http: httpAddr, tail: tail, log: log}
 }
 
 // freebind holds an address that is not local yet. IP_FREEBIND is Linux-only;
@@ -104,8 +108,14 @@ func (p *dataPlane) Serve(ctx context.Context) error {
 	p.px.SetDraining(false)
 	// Forwarders rebind from the replicated settings. One that cannot bind is
 	// reported but must not stop the HTTP listener: it is a separate service.
-	if err := p.streams.ApplyAll(p.cfgs); err != nil {
-		p.log.Warn("streaming forwarder not started", "err", err)
+	cfgs, err := p.loadCfgs()
+	if err != nil {
+		p.log.Warn("streaming settings not reloaded", "err", err)
+	}
+	if cfgs != nil {
+		if err := p.streams.ApplyAll(cfgs); err != nil {
+			p.log.Warn("streaming forwarder not started", "err", err)
+		}
 	}
 	if strings.TrimSpace(p.http) != "" {
 		go func() {
@@ -152,6 +162,10 @@ func (p *dataPlane) Drain(ctx context.Context) {
 	if cancel != nil {
 		cancel()
 	}
+	// The game ports go first. A forwarded session is not an HTTP request, so
+	// nothing is gained by holding a UDP socket through the HTTP drain budget;
+	// releasing it here lets the node taking over bind without waiting.
+	p.streams.Close()
 	if lns != nil {
 		// Give handlers the promotion's budget, capped so a demotion cannot
 		// hang on one slow upload.
@@ -161,7 +175,6 @@ func (p *dataPlane) Drain(ctx context.Context) {
 		}
 		lns.DrainTimeout(max(budget, time.Second))
 	}
-	p.streams.Close()
 	p.log.Info("data plane drained")
 }
 

@@ -203,12 +203,18 @@ func ReturnToStandby(dataDir string, n *Node) (*Node, error) {
 }
 
 // MakeStandalone turns a leftover HA standby into a single node when HA is off.
-// The epoch is kept, so a later promotion still starts above it.
+// The epoch is kept, so a later promotion still starts above it. A data
+// directory that has never held a role file has no node id either, and Save
+// refuses one without: the id is minted here, or a fresh single node would fail
+// to normalise, boot as a standby and hold the service address without serving.
 func MakeStandalone(dataDir string, n *Node) (*Node, error) {
 	if n.Active() {
 		return n, nil
 	}
 	out := *n
+	if out.NodeID == "" {
+		out.NodeID = randomID()
+	}
 	out.Role = RoleStandalone
 	out.State = StateStandalone
 	out.Reason = ""

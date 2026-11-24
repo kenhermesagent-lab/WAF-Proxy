@@ -12,6 +12,138 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.64.0] — unreleased
+
+### Added
+
+- **Optional HTTP/3 over QUIC.** `WAFPROXY_HTTP3=1` makes the WAN port serve QUIC on UDP beside
+  the TCP listener, through the same handler, so the WAF, gate, bans, cache and access log apply
+  without a second implementation. TLS 1.3 with the existing certificate resolver and the `h3`
+  ALPN, 0-RTT refused because a replayed request would skip the address check, at most 100
+  incoming streams per connection, and at most ten handshakes a second from one source until its
+  address is verified.
+- **Alt-Svc is advertised only where it can be used.** HTTP/1.1 and HTTP/2 answers over TLS carry
+  `h3=":<port>"; ma=86400` while the QUIC socket is bound; the plain-HTTP redirector, an answer
+  that already came over h3, and a node whose h3 bind failed advertise nothing.
+- Over h3 the pipeline behaves as it does over HTTP/2: a GET, HEAD and POST reach the upstream, a
+  policy block answers `403` without touching it, and a cacheable response is served from the
+  cache. A demotion releases the UDP socket with the TCP listener.
+
+### Changed
+
+- **A UDP forwarder on the WAN port is a startup error.** The relay binds before the listener
+  serves, so the boot names the card that holds the port and says to move it or unset
+  `WAFPROXY_HTTP3`, instead of failing later with a bare "address already in use". A port held by
+  something outside this process leaves HTTPS serving, logs the failure and stops advertising h3.
+- **The topbar site chip names the console host, not the site's label.** The switcher, the
+  single-site chip and the account menu's site list read `acme.example.com` instead of `Acme`, so
+  the site a page answers for is visible at a glance. A site with no console host still shows its
+  name. `GET /api/me` now carries `site_host` for the current site.
+
+### Fixed
+
+- **A fresh single-node install serves again.** With high availability off the boot normalises a
+  leftover standby to `standalone`, but a data directory that never held a role file has no node id
+  and the save was refused. The node stayed a standby, bound the WAN address and never accepted a
+  connection, so a new host answered the console and nothing else. The normalisation now mints the
+  id, and the first request after the wizard is proxied.
+
+### Security
+
+- HTTP/3 refuses 0-RTT, bounds handshakes per unverified source, caps a connection at 100 streams
+  and reuses the existing certificate resolver, so a QUIC client meets the same WAF, gate and ban
+  policy as an HTTP/2 one.
+- An answer advertises h3 only while the QUIC socket is bound: a client is never pointed at an
+  alternative that is not listening.
+
+### Documentation
+
+- `docs/CONFORMANCE.md` moves HTTP/3 from unsupported to supported with the cases that prove it,
+  the configuration reference lists `WAFPROXY_HTTP3`, the install guides open the UDP port, and
+  the Cloudflare Tunnel page states that the connector reaches the origin over HTTP/2, so h3 is a
+  direct-path feature.
+
+## [1.63.0] — 2026-11-24
+
+### Added
+
+- **A game server is now a first-class service.** A streaming service can forward UDP, with one
+  session per client source and a connected upstream socket per session, so replies are
+  demultiplexed by the kernel rather than by parsing the game's protocol. Sessions are capped in
+  total and per source address, and an idle session is reclaimed after 60 seconds by default
+  while media keeps its 30-minute window. No schema change and no new outbox row.
+- **Port ranges.** `port_count` maps a listen range 1:1 onto the upstream — 2456–2458 forwards to
+  2456–2458 — so a Valheim or ARK server is one card instead of three. A range that would run past
+  65535 on either side is refused with the offending port named.
+- **A ban cuts a live UDP session.** The ban map is checked on every datagram, not only when a
+  session opens, so a source banned mid-session stops within one datagram; the cut is counted and
+  logged once per throttle window instead of once per packet.
+- Relay events now carry the protocol and the exact listen port that was hit, so a UDP range names
+  the port a refusal came from in Logs as well as in the counters.
+- **TCP+UDP pairing.** `protocol=both` binds a TCP listener and a UDP socket on the same number,
+  which is what FiveM and Factorio need, and reports one status: bound only when both sockets are,
+  with the failing protocol named otherwise. TCP services gained port ranges too, so a game that
+  opens several TCP ports is one card.
+- **The relay reports what it moves.** Each service now returns bytes and packets in both
+  directions, refusals, oversize drops, live sessions per protocol and the fifty busiest sessions.
+- **Game server presets.** The catalog seeds Minecraft (Java and Bedrock), Source, Valheim,
+  Palworld, FiveM, Factorio, ARK, Rust and 7 Days to Die with a default protocol, port range and
+  a one-line note; ARK's query port and Rust's RCON are separate cards. Every value stays
+  editable, and a test compares the install guide's table with the catalog so the two cannot drift.
+- **The Streaming page groups the catalog and shows it live.** Media, game and custom sections each get
+  a card with its protocol, port range, upstream and — for UDP — the per-source and idle limits; a UDP
+  card with no allow list says plainly that it answers any source. The status side shows what is
+  bound, bytes each way, refusals, oversize drops and the busiest source.
+- **Sessions carry a last-seen time, and the page refreshes itself.** The status list keeps the fifty
+  newest sessions with bytes, packets, start and last activity, ranked by traffic, and the page polls
+  every three seconds — only while the tab is visible.
+- **Prometheus covers the forwarders.** `wafproxy_stream_sessions`, `_stream_bytes_total`,
+  `_stream_packets_total`, `_stream_refused_total{reason}` and `_stream_cap_hits_total` report per
+  service on the existing authenticated `/metrics` endpoint, for listening services only, and
+  `_stream_events_dropped_total` reports rows the event writer had to drop.
+
+### Changed
+
+- **Streaming settings are stored per key and stay backward compatible.** `protocol`, `port_count`,
+  `upstream_port`, `max_per_source`, `idle_seconds` and `max_datagram` join the existing keys, and a
+  configuration saved by 1.60 loads unchanged as one TCP port. Port-conflict checks now compare the
+  protocol as well: a TCP and a UDP listener may share a number, two on the same protocol may not.
+- **Relay rows are written in batches.** A refused game client retries in a loop, so events go through
+  a 1,024-row buffer that inserts once per 250 ms or 256 rows through the same `InsertEvents`
+  transaction the HTTP pipeline uses; a full buffer drops rows and counts them instead of stalling a
+  stream.
+- A UDP port below `1024` names the switch that unlocks it: the error says
+  **Refuse sources that are not on an allow list**, which is the control on the card.
+- **An HA move binds the forwarders the store holds now.** Every promotion reads the streaming
+  settings again, so a card saved while this node was active — or replicated from the peer while it
+  was a standby — is what binds, instead of the map read at boot. A demotion closes the UDP sessions
+  and releases the game ports before the HTTP listener's drain budget is spent, so the node taking
+  over binds immediately. A failover still drops live game sessions, which [docs/HA.md](docs/HA.md)
+  now states in the failover checklist.
+- **The service unit raises `LimitNOFILE` to 8192.** A UDP session owns a descriptor and the default
+  1024 is below the 256-session cap on a few cards at once; the install script copies the unit, so a
+  fresh install and an upgrade both get it.
+
+### Security
+
+- An oversized datagram is dropped and counted, never truncated and forwarded. `max_datagram`
+  bounds the buffer in both directions; the default is 1500 bytes.
+- **A UDP port cannot become a reflector.** The amplification ports (DNS `53`, NTP `123`, SNMP
+  `161`, CLDAP `389`, SSDP `1900`, mDNS `5353`, memcached `11211`) refuse UDP outright, and a UDP
+  port below `1024` needs the allow requirement plus at least one allowed source. One address may
+  start at most ten new sessions a second, with a burst of thirty, so a reconnect loop cannot walk
+  the port range. Turning on **Refuse sources that are not on an allow list** refuses every session
+  when no list is attached, which is the safer default for a friends-only server.
+
+### Documentation
+
+- **The relay is documented as one feature.** The install guide now carries the protocol and port
+  table for media and game cards, the router rule per protocol (a `both` card is two rules), the
+  descriptor cost of UDP sessions with the `LimitNOFILE` check, and the failover session-loss note.
+  The configuration reference lists every new field with its default and bounds, and the operations
+  runbook gains a "a game server does not connect" checklist that starts at the protocol, not the
+  log. The README's limits say plainly what the relay does not do: no protocol parsing, no player
+  counts, no game panel, and a spoofable UDP source.
 ## [1.62.3] — 2026-11-24
 
 ### Changed
@@ -31,10 +163,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `>=26` and `web/.npmrc` sets `engine-strict`, so `npm ci` in `web/` stops with an `EBADENGINE`
   message on an older runtime instead of installing a tree jsdom 31 and Vite 8 cannot run. The
   lockfile's root package entry carries the same range, so `npm ci` stays in sync with it.
-- **The topbar site chip names the console host, not the site's label.** The switcher, the
-  single-site chip and the account menu's site list read `acme.example.com` instead of `Acme`, so
-  the site a page answers for is visible at a glance. A site with no console host still shows its
-  name. `GET /api/me` now carries `site_host` for the current site.
 
 ### Fixed
 

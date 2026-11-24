@@ -23,7 +23,10 @@ type Config struct {
 	// ListenHTTP serves ACME HTTP-01 and redirects to HTTPS; empty disables it.
 	ListenHTTP string
 	ListenWAN  string
-	ListenGUI  string
+	// HTTP3 serves HTTP/3 over QUIC on the WAN port over UDP, beside the TCP
+	// listener. Off by default; Alt-Svc is advertised only while it is bound.
+	HTTP3     bool
+	ListenGUI string
 	// ListenGUITLS serves the console over HTTPS using the certificate that
 	// matches GUIHost from the certificate manager.
 	ListenGUITLS   bool
@@ -109,6 +112,7 @@ func Load() (*Config, error) {
 		ListenGUITLS:     envBoolOr("WAFPROXY_LISTEN_GUI_TLS", false),
 		GUIHost:          strings.ToLower(strings.TrimSpace(os.Getenv("WAFPROXY_GUI_HOST"))),
 		ListenHTTP:       envOr("WAFPROXY_LISTEN_HTTP", ""),
+		HTTP3:            envBoolOr("WAFPROXY_HTTP3", false),
 		WANIface:         strings.TrimSpace(os.Getenv("WAFPROXY_WAN_IFACE")),
 		LANIface:         strings.TrimSpace(os.Getenv("WAFPROXY_LAN_IFACE")),
 		GUIPrivateOnly:   envBoolOr("WAFPROXY_GUI_PRIVATE_ONLY", true),

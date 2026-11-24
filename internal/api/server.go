@@ -83,6 +83,7 @@ type Server struct {
 	mux         *http.ServeMux
 	started     time.Time
 	streams     *streaming.Manager
+	streamDrops func() int64
 	backup      *backup.Manager
 	anomaly     *anomaly.Manager
 	canary      *canary.Monitor
@@ -457,6 +458,10 @@ func (s *Server) routes() {
 // SetStreaming attaches the media forwarder manager. A nil manager keeps the
 // page readable and disables the controls that would change it.
 func (s *Server) SetStreaming(m *streaming.Manager) { s.streams = m }
+
+// SetStreamEventDrops attaches the relay event writer's drop counter, so a full
+// queue shows on the scrape instead of only being counted in the process.
+func (s *Server) SetStreamEventDrops(fn func() int64) { s.streamDrops = fn }
 
 // SetUpdates attaches the host package inventory and the root-helper client.
 func (s *Server) SetUpdates(m *updatepkg.Manager) { s.updates = m }

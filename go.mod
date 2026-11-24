@@ -12,6 +12,7 @@ require (
 	github.com/miekg/dns v1.1.73
 	github.com/oschwald/maxminddb-golang/v2 v2.9.1
 	github.com/pkg/sftp v1.13.12
+	github.com/quic-go/quic-go v0.65.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/sys v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -68,6 +69,7 @@ require (
 	github.com/openshift/gssapi v0.0.0-20161010215902-5fb4217df13b // indirect
 	github.com/ovh/go-ovh v1.9.0 // indirect
 	github.com/petar-dambovaliev/aho-corasick v0.0.0-20250424160509-463d218d4745 // indirect
+	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect

@@ -128,6 +128,11 @@ itself) and stops renewing existing certificates of those types, so removing the
 hostname from the tunnel does not leave a certificate that can never renew.
 DNS-01 orders still work and keep a local certificate for the direct path.
 
+The connector speaks HTTP/2 to the origin, so an origin with `WAFPROXY_HTTP3=1`
+is still reached over h2 through the tunnel, and HTTP/3 is offered only on the
+direct path. That is a property of the tunnel, not a missing setting: do not
+expect `Alt-Svc` to be honoured for a tunnelled hostname.
+
 **Check published** resolves the hostname, looks for a direct-origin record,
 confirms a Cloudflare edge answered (`CF-Ray`) and reports whether Access prompts
 before the app loads. A tenant console can publish its own hostnames but cannot
