@@ -36,6 +36,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   `ghcr.io/<owner>/wafproxy:<version>`, so a tag delivers the binaries and the image that matches
   them. Dispatching the workflow for a tag that already exists builds and publishes its image the
   same way, so a release cut before this rule can still get one.
+- **The tags a dated section is missing can be cut from a runner.** The **Create release tags**
+  `workflow_dispatch` job runs `deploy/create-release-tags.sh`, which tags each version at the
+  commit that stamped `VERSION` to it and carries its section, pushes what origin lacks and then
+  runs the remote gate. It defaults to a dry run, skips tags origin already has, and fails rather
+  than tagging a commit whose `VERSION` names something else.
 
 ### Fixed
 
@@ -51,7 +56,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   the release metadata is still produced and attached while the tags are behind.
 - **A streaming card that fails to bind no longer opens its port.** The firewall step runs after
   the listener, and a bind failure now leaves the rules untouched instead of punching a hole for a
-  service that never started.
+  service that never started. A card that was already on closes the range the console opened for
+  its previous port before the save fails, so a rebind onto a busy port cannot leave the old port
+  open in front of no listener.
 - **A stopped firewalld is not read as running.** Detection compared the state output for the word
   "running", which the tool's own "not running" answer also contains; it now has to be exactly
   that word, and a failing command reports the tool's message instead of "exit status 1".

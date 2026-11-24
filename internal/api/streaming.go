@@ -208,14 +208,14 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 // are stored beside the settings, so a later save closes exactly what this one
 // opened and nothing the operator added by hand.
 func (s *Server) openStreamPorts(r *http.Request, def streaming.Service, cfg streaming.Config, kv map[string]string, applied bool) hostfw.Report {
-	if cfg.Enabled && (!applied || s.streams == nil) {
-		return hostfw.Report{Detail: "the listener did not start, so the firewall was left unchanged"}
-	}
+	failed := cfg.Enabled && (!applied || s.streams == nil)
 	key := "stream_" + def.ID + "_firewall"
 	want := []hostfw.Spec{}
-	if cfg.Enabled {
+	if cfg.Enabled && !failed {
 		want = hostfw.ForConfig(cfg.Port, cfg.PortCount, cfg.Protocol)
 	}
+	// A failed rebind left no listener behind, so the range this console opened
+	// for the previous configuration is closed rather than left as a hole.
 	rep := hostfw.New().Sync(r.Context(), want, splitEntries(kv[key]))
 
 	kept := make([]string, 0, len(want))
@@ -231,6 +231,17 @@ func (s *Server) openStreamPorts(r *http.Request, def streaming.Service, cfg str
 	kept = append(kept, rep.Opened...)
 	if err := s.db(r).SetSettings(map[string]string{key: strings.Join(kept, ",")}); err != nil {
 		s.log.Warn("record streaming firewall ports", "service", def.ID, "err", err)
+	}
+	if failed {
+		reason := "the listener did not start"
+		if s.streams == nil {
+			reason = "no forwarder manager is attached"
+		}
+		if rep.Detail != "" {
+			rep.Detail = reason + " — " + rep.Detail
+		} else {
+			rep.Detail = reason + ", so the firewall was left alone"
+		}
 	}
 	return rep
 }

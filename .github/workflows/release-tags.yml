@@ -1,0 +1,60 @@
+name: Create release tags
+
+# The tag gate (deploy/check-tags.sh --remote) fails while a version CHANGELOG.md
+# dates has no annotated tag on origin. A runner holds the credentials to push
+# tags, so this is where the gaps are filled: it tags the commit that stamped
+# VERSION, which is the only commit the gate accepts.
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: 'Space-separated versions to tag (blank: every dated section from 1.61.0)'
+        required: false
+        default: ''
+      dry_run:
+        description: Only print the tags that would be created
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tags
+  cancel-in-progress: false
+
+jobs:
+  tags:
+    name: Create the missing release tags
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to commit SHAs, not tags: a moved tag would otherwise
+      # change what the job runs while the signature still vouches for it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          # The release commits are history, so the whole graph has to be here.
+          fetch-depth: 0
+      # The tags are annotated, and git refuses a tag without an identity.
+      - name: Give git an identity for the tags
+        run: |-
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      - name: Create the tags on origin
+        env:
+          VERSIONS: ${{ inputs.versions }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |-
+          set -euo pipefail
+          args=()
+          if [[ $DRY_RUN == true ]]; then
+            args+=(--dry-run)
+          fi
+          # Word splitting is the point here: the input is a version list.
+          # shellcheck disable=SC2206
+          versions=($VERSIONS)
+          bash deploy/create-release-tags.sh "${args[@]}" "${versions[@]}"
+      - name: Check the tags origin now holds
+        if: ${{ inputs.dry_run == false }}
+        run: bash deploy/check-tags.sh --remote --branch main

@@ -200,6 +200,25 @@ start**.
    start the boot path uses; no service restart is needed once the cause is gone. **Copy
    diagnostics** attaches the current state to a report.
 
+## Release tags
+
+The tag gate (`deploy/check-tags.sh --remote --branch main`) passes only when every dated
+`CHANGELOG.md` section at or above 1.61.0 has an annotated tag on origin that points at the commit
+where `VERSION` reads as that version and the section already exists. Tags cannot be pushed from a
+checkout without credentials, so the gaps are filled by a job that has them:
+
+1. Actions → **Create release tags** → **Run workflow** on `main`.
+2. Leave `versions` empty to tag every dated section, or list the ones you want. `dry_run` starts
+   as `true`: the run prints each version with the commit it would tag and pushes nothing.
+3. Run it again with `dry_run` off. Each missing tag is created at its release commit, pushed, and
+   the job ends by running the gate against `origin`.
+
+A version whose section was dated while `VERSION` stayed on an older number fails the job instead
+of being tagged somewhere nearby. Tags origin already has are skipped, so a re-run only fills gaps.
+The same work is available locally as `bash deploy/create-release-tags.sh --dry-run`, then without
+`--dry-run` to push. A tag that exists only in the local checkout makes the script stop: it points
+at a commit nobody receives, so delete it with `git tag -d v1.2.3` and re-run.
+
 ## Upgrading a high-availability pair
 
 Upgrade the **standby first**, then move the service, then upgrade the old active. Never upgrade

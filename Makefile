@@ -34,6 +34,7 @@ test: docs-check
 test-release:
 	bash deploy/check-version_test.sh
 	bash deploy/check-tags_test.sh
+	bash deploy/create-release-tags_test.sh
 	bash deploy/check-workflow-pins_test.sh
 	bash deploy/check-image-pins_test.sh
 
@@ -46,6 +47,7 @@ fmt:
 verify-release:
 	bash deploy/check-version.sh
 	bash deploy/check-tags.sh
+	bash deploy/create-release-tags_test.sh
 	bash deploy/check-tags-docs_test.sh
 	bash deploy/check-workflow-pins.sh
 	bash deploy/check-image-pins.sh
