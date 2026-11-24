@@ -13,6 +13,8 @@ seed() {
   mkdir -p "$root/deploy" "$root/internal/version" "$root/web"
   cp "$src/check-version.sh" "$root/deploy/check-version.sh"
   printf '1.2.3\n' >"$root/VERSION"
+  printf '# Copy to deploy/.env and adjust\nVERSION=1.2.3\nTZ=UTC\n' >"$root/.env.example"
+  printf '#!/usr/bin/env bash\nversion=$(cat VERSION)\n' >"$root/deploy/install.sh"
   printf '# Changelog\n\n## [1.2.3] - 2026-01-01\n\n- test\n' >"$root/CHANGELOG.md"
   printf 'package version\n\nvar (\n\tVersion = "1.2.3"\n\tCommit  = "dev"\n)\n' >"$root/internal/version/version.go"
   printf '| Version | Supported |\n|---|---|\n| 1.2.x | Yes |\n| 1.1.x and older | No |\n' >"$root/SECURITY.md"
@@ -62,6 +64,8 @@ set_security() { sed -i 's/| 1.2.x | Yes |/| 1.1.x | Yes |/' "$root/SECURITY.md"
 set_npm() { sed -i 's/"version": "1.2.3"/"version": "1.2.2"/' "$root/web/package.json"; }
 set_lock() { sed -i 's/"version": "1.2.3"/"version": "1.2.2"/g' "$root/web/package-lock.json"; }
 set_compose() { sed -i 's/VERSION:-1.2.3/VERSION:-1.2.2/' "$root/deploy/docker-compose.yml"; }
+set_env_example() { sed -i 's/^VERSION=.*/VERSION=1.2.2/' "$root/.env.example"; }
+set_installer_literal() { printf '#!/usr/bin/env bash\nVERSION=1.20.0\n' >"$root/deploy/install.sh"; }
 
 expect_fail() {
   local name=$1 mutate=$2
@@ -81,6 +85,8 @@ expect_fail "a SECURITY.md supported version that disagrees with VERSION" set_se
 expect_fail "a web/package.json version that disagrees with VERSION" set_npm
 expect_fail "a web/package-lock.json version that disagrees with VERSION" set_lock
 expect_fail "a Compose default that disagrees with VERSION" set_compose
+expect_fail ".env.example VERSION that disagrees with VERSION" set_env_example
+expect_fail "a deploy script that hardcodes a version" set_installer_literal
 expect_fail "a release tag that disagrees with VERSION" set_tag
 
 seed

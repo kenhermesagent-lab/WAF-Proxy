@@ -70,6 +70,27 @@ while IFS= read -r pin; do
   fi
 done <<< "$pins"
 
+# A fresh `deploy/.env` is copied from `.env.example`, and its VERSION names both
+# the image and the Compose service, so a copy left at an older release installs
+# that older release.
+env_example=$(sed -n 's/^VERSION=//p' "$root/.env.example" | tail -1)
+if [[ $env_example != "$version" ]]; then
+  echo ".env.example VERSION is '${env_example:-none}', VERSION is ${version}" >&2
+  exit 1
+fi
+
+# The installer and the updater read the release from the checkout they are run
+# in, so a literal version pasted into one of them would install or rebuild an
+# older release than the source it came with.
+for script in install.sh install-docker-updater.sh wafproxy-self-update.sh wafproxy-self-update-check.sh wafproxy-update-lib.sh; do
+  [[ -f "$root/deploy/$script" ]] || continue
+  literal=$(grep -oE '^[[:space:]]*(export[[:space:]]+)?VERSION=[0-9][0-9.]*' "$root/deploy/$script" || true)
+  if [[ -n $literal ]]; then
+    echo "deploy/$script hardcodes '${literal}', VERSION is ${version}" >&2
+    exit 1
+  fi
+done
+
 # Only set by GitHub Actions; a local run checks the files above.
 if [[ ${GITHUB_REF_TYPE:-} == tag ]]; then
   tag=${GITHUB_REF_NAME#v}
