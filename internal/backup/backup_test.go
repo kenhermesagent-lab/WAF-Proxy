@@ -316,6 +316,12 @@ func TestDailyRunLeavesTheScheduledLastRunAlone(t *testing.T) {
 	if daily.LastFile != scheduled.LastFile {
 		t.Fatalf("the daily run replaced the scheduled last file: %q -> %q", scheduled.LastFile, daily.LastFile)
 	}
+	if daily.LastTarget != scheduled.LastTarget {
+		t.Fatalf("the daily run replaced the scheduled target: %q -> %q", scheduled.LastTarget, daily.LastTarget)
+	}
+	if !strings.HasSuffix(daily.LastDailyTarget, daily.LastDailyFile) {
+		t.Fatalf("daily target %q does not name %q", daily.LastDailyTarget, daily.LastDailyFile)
+	}
 }
 
 // A failed scheduled run must leave its slot pending for the next tick, and the

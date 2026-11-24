@@ -74,9 +74,10 @@ type Status struct {
 	LastTarget string `json:"last_target,omitempty"`
 	NextRun    string `json:"next_run,omitempty"`
 
-	LastDailyRun  string `json:"last_daily_run,omitempty"`
-	LastDailyFile string `json:"last_daily_file,omitempty"`
-	NextDailyRun  string `json:"next_daily_run,omitempty"`
+	LastDailyRun    string `json:"last_daily_run,omitempty"`
+	LastDailyFile   string `json:"last_daily_file,omitempty"`
+	LastDailyTarget string `json:"last_daily_target,omitempty"`
+	NextDailyRun    string `json:"next_daily_run,omitempty"`
 }
 
 // Prefixes keep the two tiers in separate file names, so each prunes only its
@@ -418,7 +419,11 @@ func (m *Manager) deliver(cfg Config, t tier, name string, data []byte) error {
 		err = fmt.Errorf("unknown backup transport %q", cfg.Transport)
 	}
 	m.mu.Lock()
-	m.status.LastTarget = target
+	if t.daily {
+		m.status.LastDailyTarget = target
+	} else {
+		m.status.LastTarget = target
+	}
 	m.mu.Unlock()
 	return err
 }

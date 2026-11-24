@@ -590,18 +590,30 @@ published.
 `make verify-release` runs `deploy/check-tags.sh`, which fails when a
 `CHANGELOG.md` section from **1.61.0** on has no annotated tag, when the tag is
 lightweight, when it sits on a commit that does not carry that section, when
-`VERSION` at that commit is not the version the tag names, or when the tag's
-commit is not on `main` — a release nobody can pull.
-Sections below 1.61.0 predate the rule and are not checked. It enforces on
-`main` only, because a release branch writes its new section before the tag can
-exist; it skips (and says so) on any other branch, pull request or detached
-head. Run it against the tags in your clone, and with `--remote` to ask `origin`
-instead, which proves the tag was published rather than just created here:
+`VERSION` at that commit is not the version the tag names, when the tag's
+commit is not on `main` — a release nobody can pull — when a tag names a version
+the `CHANGELOG.md` does not date (a stray tag, even when its commit did reach
+`main`), or when a version's release commit is newer than the newest release, so
+it was cut after one that had already shipped. Sections below 1.61.0 predate
+the rule and are not checked.
+
+It enforces on `main` only, because a release branch writes its new section
+before the tag can exist; it skips (and says so) on any other branch, pull
+request or detached head. Run it against the tags in your clone, and with
+`--remote` to ask `origin` instead, which proves the tag was published rather
+than just created here:
 
 ```sh
 make verify-release                              # on main: local tags
 bash deploy/check-tags.sh --remote --branch main  # what origin holds
 ```
+
+Moving a tag onto the commit that really cut its version is not a late release:
+the order rule reads the release commit's date, not the tag's, so
+`git tag -f -a v1.61.0 <commit> -m 1.61.0` is the fix, not a new mistake. The
+newest release is the highest version tagged at or above the floor, and a tag
+that names no dated version is a stray whether or not `main` carries its
+commit — delete it, or date the section and cut the release properly.
 
 `scripts/release.sh` runs the check before it prints its push commands, when its own
 release commit is not on `main` yet, so it passes `--skip-on-main`; the `--remote`
