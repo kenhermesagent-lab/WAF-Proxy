@@ -290,29 +290,50 @@ Cal.com, the \*arr suite (Sonarr, Radarr, Lidarr, Readarr, Prowlarr) and Generic
 
 ## Streaming
 
-![Streaming: one byte-relay forwarder per media application](screenshots/streaming.png)
+![Streaming: a byte relay per application](screenshots/streaming.png)
 
-*Streaming: one byte-relay forwarder per media application. Sample data.*
+*Streaming: sample data from a 1.60 install. Since 1.63.0 the cards are grouped into media, game
+and custom, and each carries a protocol and a port range; the table below is current.*
 
 
-Streaming forwarders relay TCP byte for byte to a media server. TLS stays end to end, so the WAF
-and access gate cannot inspect the payload — but the source allow list, named lists, connection
-cap and ban engine still apply, and a running stream is cut when a ban lands.
+Streaming forwarders relay a service byte for byte instead of proxying HTTP: a TCP stream carries
+TLS end to end, and UDP is relayed one session per client source over a connected upstream socket.
+The payload cannot be inspected, so the WAF and access gate never see it — but the source allow
+list, named lists, connection and session caps, the new-session rate limit and the ban engine still
+apply, and a running stream is cut when a ban lands (a UDP session is cut on its next datagram).
+
+The catalog is grouped into **Media** (Plex, Jellyfin), **Game** (twelve presets) and **Custom**. A
+preset seeds the protocol, port range and note and stays fully editable; enabling a game card does
+not lock its values.
 
 | Field | What it does | Value |
 |---|---|---|
-| Forward … through this gateway | Enables the listener. | Off |
+| Forward … through this gateway | Enables the listener or listeners. | Off |
 | Listen address (this host) | IP on this host the listener binds; required when the forwarder is enabled. | IP |
-| Listen port | Port the router forwards. | Plex **32400**, Jellyfin **8096**, Custom TCP has none and must be set |
+| Protocol | `tcp`, `udp` or `both`. `both` binds a TCP listener and a UDP socket on the same number and reports bound only when both are. | preset default, otherwise `tcp` |
+| Listen port | Base port the router forwards. | Plex **32400**, Jellyfin **8096**, game presets per their table, Custom TCP has none and must be set |
+| Port count | Consecutive ports, 1–16, mapped 1:1 onto the upstream: `2456` with count `3` forwards 2456–2458. A range that would run past 65535 on either side is refused with the port named. | 1 |
 | Server | The application's address (`host`, `host:port` or a URL); required. | — |
+| Upstream port | Base port on the server when it differs from the listen port; the listen range maps onto it. Empty uses the port in **Server**. | — |
 | Allowed sources | IPs/CIDRs allowed to connect; empty allows any. | Empty |
-| Max connections | Concurrent connection cap for this listener, 1–4096; 0 uses **256**. | 256 |
+| Refuse sources that are not on an allow list | UDP only. Refuses every session whose source is not on **Allowed sources**; a UDP listen port below 1024 requires it. With no list attached it refuses everyone. | Off |
+| Max connections | Concurrent TCP connections **or** UDP sessions for this card, 1–4096; 0 uses **256**. | 256 |
+| Max sessions per source | UDP sessions one source address may hold on this card, 1–4096. | 8 |
+| UDP idle timeout | Seconds without traffic before a UDP session is closed and its socket released, 10–3600. TCP keeps the 30-minute media window. | 60 |
+| Max datagram | Largest datagram carried in either direction, 576–8192. A larger one is dropped and counted, never truncated and forwarded. | 1500 |
 | Blocklists and whitelists | Named lists attached to this forwarder. A whitelist restricts the port to its entries plus the allow list; a blocklist wins when both name an address. Country entries need GeoIP. | none |
 
-Status reports the bound address, upstream, active and total connections, refused counts (lists,
-allow list, cap), refused-by-ban, streams cut by ban, and the last error. Saving rebinds
-immediately; restart only after changing bind addresses. Each application card includes its own
-router and application-side steps (Plex allow-without-auth list, Jellyfin known proxies).
+UDP cannot be a reflector: the amplification ports (DNS `53`, NTP `123`, SNMP `161`, CLDAP `389`,
+SSDP `1900`, mDNS `5353`, memcached `11211`) refuse UDP outright, a UDP port below `1024` needs the
+allow switch plus at least one allowed source, one address may open at most ten new sessions a
+second (burst thirty), and an oversized datagram is dropped instead of forwarded.
+
+Status reports the bound address, upstream, sessions per protocol, bytes and packets each way,
+oversize drops, refusals by reason (ban, list, allow, cap), streams cut by ban, the fifty newest
+sessions (with their last-seen time) ranked by traffic, and the last error; the card refreshes
+every three seconds while the tab is visible. Saving rebinds immediately; restart only after changing bind
+addresses. Each card includes its own router and application-side steps (Plex allow-without-auth
+list, Jellyfin known proxies).
 
 ## Policies
 

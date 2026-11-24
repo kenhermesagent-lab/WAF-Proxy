@@ -56,8 +56,9 @@ systemd service. Version 1.60.1.
   retries, ordered request/response header rewriting, method/header/query/regex routes with per-rule upstreams and timeouts, redirects and maintenance mode; a shared response cache with per-host
   quotas and purge; drain readiness; application presets for Nextcloud, Jellyfin, Plex, Home Assistant, Proxmox VE,
   Vaultwarden, Gitea/Forgejo, Grafana, n8n, BookStack, the *arr suite and more.
-- Streaming forwarders (Plex, Jellyfin and similar) that relay bytes without HTTP inspection,
-  optionally enforcing the same lists as a proxied site.
+- Streaming forwarders (Plex, Jellyfin, game servers) that relay bytes without HTTP inspection —
+  TCP, UDP or both on the same number, with port ranges, game presets, per-source session and
+  rate limits, and the same lists and bans as a proxied site.
 
 **Operations**
 
@@ -254,7 +255,7 @@ page.*
 |---|---|
 | Dashboard | Needs-attention queue, live requests and byte rates, attack globe with country drill-down, top sources, upstream health |
 | Statistics | **Overview** (totals, trend, stages), **Traffic** (per-site requests, countries), **Uptime** (live probes) and **Access gate logins** (failed sign-ins with a block action); the date range and trend stay above the tabs |
-| Proxies | **Hostnames** (upstreams, routes, health checks, maintenance, presets, per-hostname **360** view), **Certificates** (issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01) and **Streaming** (byte-relay forwarders for Plex, Jellyfin and similar) |
+| Proxies | **Hostnames** (upstreams, routes, health checks, maintenance, presets, per-hostname **360** view), **Certificates** (issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01) and **Streaming** (TCP/UDP byte relay for Plex, Jellyfin and game servers) |
 | Policies | **Bans**, **Profiles** (global profile with policy **Preflight**, WAF and protection profiles), **Access profiles**, **Lists** (blocklists/whitelists) and **Bot filter** |
 | Logs | Event search, filters, saved views, live tail, bulk source actions, incident report, the **Why?** request simulator |
 | Threat intel | **Feeds** (health and rollup), **Lookup**, **Sources** (per-address investigation), **Bundles** and **CrowdSec** (engine, bouncer and the console blocklists it is enforcing) |
@@ -310,7 +311,10 @@ secrets are not part of the document.
   admin session can make it install code; this is documented design rather than privilege
   escalation, and the rollback exists for failed builds.
 - **Streaming forwarders are a byte relay**, not an inspected proxy. They enforce their lists at
-  connection time and then stay out of the traffic.
+  connection time and then stay out of the traffic: no protocol parsing, no player counts, no game
+  panel. A UDP source address can be forged, so an allow list decides who is answered, not who
+  sent; amplification ports are refused over UDP, datagrams are size-capped and one address may
+  open at most ten new sessions a second.
 - **Bans are kernel state.** A permanent ban is absolute for its address; decoy hostnames ban
   permanently by design.
 - **Auditing is tamper-evident, not tamper-proof.** The hash chain and anchored head detect edits

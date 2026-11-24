@@ -19,17 +19,19 @@ shows last poll, applied decisions and the last error. The access log written to
 the LAPI stream and are applied as `source=crowdsec` bans. The legacy
 `WAFPROXY_CROWDSEC_URL` / `WAFPROXY_CROWDSEC_KEY` variables remain first-boot defaults.
 
-## 8. Optional streaming (Plex, Jellyfin)
+## 8. Optional streaming (Plex, Jellyfin and game servers)
 
 Media players validate the server's own certificates (Plex clients check the `*.plex.direct`
-names that encode its address), which this gateway cannot mint. The **Streaming** page
-therefore runs one **transparent TCP relay per application** on its own WAN port instead of an
-HTTP reverse proxy: TLS passes through untouched and the server sees every client as coming
-from the proxy's LAN address. That single address is what goes in the server's trusted list,
-so “allow only this, refuse everything else” stays intact.
+names that encode its address), which this gateway cannot mint, and a game server does not
+speak HTTP at all. The **Streaming** page therefore runs one **transparent relay per
+application** on its own WAN port instead of an HTTP reverse proxy: a TCP stream passes TLS
+through untouched, a UDP datagram is carried to a connected upstream socket, and either way the
+server sees every client as coming from the proxy's LAN address. That single address is what
+goes in the server's trusted list, so “allow only this, refuse everything else” stays intact.
 
-The shipped catalog has a section each for **Plex** (`32400`) and **Jellyfin** (`8096`), a
-**Custom** card that forwards any port on either protocol, and the game presets below.
+The shipped catalog has a section each for **Plex** (`32400/tcp`) and **Jellyfin**
+(`8096/tcp`), a **Custom** card that forwards any port on either protocol, and the game presets
+below.
 
 ### Game server presets
 
@@ -56,6 +58,21 @@ enter, so Valheim's `2456-2458` forwards to `2456-2458` on that host.
 A few of these overlap on purpose — ARK's query port `27015` is the Source engine's game port —
 so enable the cards a particular server needs rather than the whole group.
 
+### Ports and router rules
+
+| Card | Protocol | Ports | Router rules |
+| --- | --- | --- | --- |
+| Plex | tcp | 32400 | one TCP rule |
+| Jellyfin | tcp | 8096 | one TCP rule |
+| a game card | as seeded, editable | its range | one rule per protocol the card lists |
+
+Forward **TCP and UDP** for a card whose protocol is `both`: many routers need that as two rules
+on the same number, and a range needs a port-range rule (`2456-2458`), not a single port. Forward
+DNAT only, without SNAT, so the game server sees the proxy's LAN address and can trust it (step 5
+below). Routers without NAT loopback (hairpin) cannot reach the WAN address from inside the LAN;
+the client should connect to the server directly there — that is a router limit, not a relay
+fault.
+
 ### UDP is spoofable
 
 A UDP source address can be forged, so an allow list decides who is answered but cannot prove who
@@ -71,9 +88,13 @@ it refuses everyone, which is safer than answering anyone.
    reference; on a single-NIC host the LAN address the router forwards to), **port** = the
    port clients will use (any free port works, defaults are 32400 and 8096), **server** =
    the LAN address and port of that application (`192.168.2.10:32400`,
-   `192.168.2.11:8096`).
+   `192.168.2.11:8096`). On a game card check **protocol** (`tcp`, `udp` or `both`), **port
+   count** and **upstream port** first: the card forwards its listen range 1:1 onto the server,
+   so a Valheim card with port `2456` and count `3` listens on 2456–2458 and forwards to
+   2456–2458.
 3. **Allowed sources** is optional: empty accepts any client the firewall lets through; a
-   CIDR restricts further. **Max connections** caps concurrent streams. **Blocklists and
+   CIDR restricts further. **Max connections** caps concurrent TCP streams or UDP sessions (and
+   **Max sessions per source** the sessions one address may hold). **Blocklists and
    whitelists** attach any list from **Policies** to this port: a blocklist refuses its addresses
    and countries first, a whitelist makes the port reachable only from what it holds plus the
    allow list, and a blocklist wins when both name the same address. Country entries need the
@@ -82,8 +103,9 @@ it refuses everyone, which is safer than answering anyone.
    stack uses `network_mode: host`. A port already used by the GUI, the HTTP proxy or another
    streaming section is refused with a clear message.
 5. On the Firewalla: WAN `32400/tcp` → `192.168.1.20:32400` (and the same for 8096),
-   **DNAT only, no SNAT**. The listener address must not appear as the source, or the server
-   cannot trust it.
+   **DNAT only, no SNAT**. A `udp` or `both` card needs the matching UDP rule (or the range),
+   and a game card needs one rule per protocol it lists. The listener address must not appear
+   as the source, or the server cannot trust it.
 6. In the application:
    - **Plex**: Settings → Network → *List of IP addresses and networks that are allowed
      without auth* → add `192.168.1.10/32`, and keep the list strict.
@@ -97,6 +119,23 @@ address is refused on accept, a stream that is already running is cut when the b
 both show up in **Logs** as `stream` events (rule `stream-ban`). A retrying banned host
 produces at most one event a minute per application, with the number of attempts it folded
 in, so a loop cannot flood the log. Keep HTTP apps on their own hostnames for inspection.
+
+### File descriptors
+
+A UDP session owns one connected upstream socket, so a game card uses one descriptor per client:
+the default cap of 256 sessions is at most 256 sockets for that card, plus one listen socket per
+card and one per TCP listener in a `both` card. The shipped systemd unit sets
+`LimitNOFILE=8192`, which leaves room for several cards at the default cap. After replacing the
+unit file, confirm the running process inherited it (`ulimit -n` in its shell, or
+`cat /proc/$(pidof wafproxy)/limits`). `ss -u -a` lists the UDP sockets: the count should flatten
+when the served game is idle instead of climbing, which is the session table leaking.
+
+### High availability
+
+Forwarders bind only on the node that is serving; a standby holds no game port. A failover drops
+every live game session — the new active starts with an empty session table and each client
+reconnects on its own, which is better than both nodes answering on one port. See the failover
+checklist in [docs/HA.md](../HA.md).
 
 `deploy/.env` is not mounted into the container by default, so the GUI cannot rewrite it in
 the shipped stack. To let it mirror `PLEX_*` values there, mount the file and point the

@@ -69,6 +69,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   and releases the game ports before the HTTP listener's drain budget is spent, so the node taking
   over binds immediately. A failover still drops live game sessions, which [docs/HA.md](docs/HA.md)
   now states in the failover checklist.
+- **The service unit raises `LimitNOFILE` to 8192.** A UDP session owns a descriptor and the default
+  1024 is below the 256-session cap on a few cards at once; the install script copies the unit, so a
+  fresh install and an upgrade both get it.
 
 ### Security
 
@@ -80,6 +83,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   start at most ten new sessions a second, with a burst of thirty, so a reconnect loop cannot walk
   the port range. Turning on **Refuse sources that are not on an allow list** refuses every session
   when no list is attached, which is the safer default for a friends-only server.
+
+### Documentation
+
+- **The relay is documented as one feature.** The install guide now carries the protocol and port
+  table for media and game cards, the router rule per protocol (a `both` card is two rules), the
+  descriptor cost of UDP sessions with the `LimitNOFILE` check, and the failover session-loss note.
+  The configuration reference lists every new field with its default and bounds, and the operations
+  runbook gains a "a game server does not connect" checklist that starts at the protocol, not the
+  log. The README's limits say plainly what the relay does not do: no protocol parsing, no player
+  counts, no game panel, and a spoofable UDP source.
 
 ## [1.60.1] — 2026-11-23
 
