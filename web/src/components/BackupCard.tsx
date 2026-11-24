@@ -32,7 +32,6 @@ type Status = {
   last_run?: string;
   last_error?: string;
   last_file?: string;
-  last_target?: string;
   next_run?: string;
   last_daily_run?: string;
   last_daily_file?: string;

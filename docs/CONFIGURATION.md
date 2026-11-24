@@ -317,7 +317,8 @@ Cal.com, the \*arr suite (Sonarr, Radarr, Lidarr, Readarr, Prowlarr) and Generic
 ![Streaming: a byte relay per application](screenshots/streaming.png)
 
 *Streaming: sample data from a 1.60 install. Since 1.63.0 the cards are grouped into media, game
-and custom, and each carries a protocol and a port range; the table below is current.*
+and custom, and each carries a protocol and a port range; since 1.65.0 a tab per service sits under
+the page tabs and shows one forwarder at a time. The table below is current.*
 
 
 Streaming forwarders relay a service byte for byte instead of proxying HTTP: a TCP stream carries
@@ -328,7 +329,18 @@ apply, and a running stream is cut when a ban lands (a UDP session is cut on its
 
 The catalog is grouped into **Media** (Plex, Jellyfin), **Game** (twelve presets) and **Custom**. A
 preset seeds the protocol, port range and note and stays fully editable; enabling a game card does
-not lock its values.
+not lock its values. The tab strip under the page tabs lists every service in that order, marks the
+enabled ones with a dot, and shows only the selected card with its status and connecting guide.
+
+Saving an enabled forwarder also opens its listen range on the host firewall when the tools are
+reachable: firewalld gets `--permanent --add-port=<range>/<proto>` followed by `--reload`, ufw gets
+`allow <range>/<proto>` (its ranges use a colon). The console records the ports it opened, so
+moving the card to another port or switching it off closes exactly those rules and leaves an
+operator's own rules alone. A container with `network_mode: host` shares the host's rules. When
+neither tool is running, or the process may not change the rules, the save still succeeds and the
+Status card names the range to open by hand. SELinux needs no label while the service runs
+unconfined, which is what the shipped unit and image do; a confined policy needs
+`semanage port -a` for the range itself.
 
 | Field | What it does | Value |
 |---|---|---|

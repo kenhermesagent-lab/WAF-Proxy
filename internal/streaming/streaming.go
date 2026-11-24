@@ -614,6 +614,11 @@ type runtime struct {
 
 	connMu sync.Mutex
 	conns  map[*relay]struct{}
+	// handMu guards closed, which begins the shutdown of the accept loops: a
+	// connection accepted while a rebind is stopping the service must not
+	// register a handler after Wait has returned.
+	handMu sync.Mutex
+	closed bool
 
 	udp *udpRuntime
 
@@ -861,6 +866,7 @@ func (m *Manager) stopLocked(id string) {
 	if rt.done != nil {
 		close(rt.done)
 	}
+	rt.closeHandlers()
 	// The UDP sessions go before the listen sockets, so a demotion leaves the
 	// ports free for the node that takes over.
 	if rt.udp != nil {
@@ -1074,9 +1080,12 @@ func (m *Manager) accept(rt *runtime, l *tcpListener) {
 			rt.banned.Add(1)
 			continue
 		}
+		if !rt.beginHandler() {
+			_ = conn.Close()
+			return
+		}
 		rt.total.Add(1)
 		rt.active.Add(1)
-		rt.wg.Add(1)
 		go func(client net.Conn) {
 			defer rt.wg.Done()
 			defer rt.active.Add(-1)
@@ -1159,6 +1168,26 @@ func (rt *runtime) refusalCounts() map[string]uint64 {
 		out[k] = v
 	}
 	return out
+}
+
+// beginHandler registers one relay goroutine, refusing once the service is
+// stopping so Add never races the Wait that ends the shutdown.
+func (rt *runtime) beginHandler() bool {
+	rt.handMu.Lock()
+	defer rt.handMu.Unlock()
+	if rt.closed {
+		return false
+	}
+	rt.wg.Add(1)
+	return true
+}
+
+// closeHandlers refuses new handlers before the shutdown waits on the running
+// ones.
+func (rt *runtime) closeHandlers() {
+	rt.handMu.Lock()
+	rt.closed = true
+	rt.handMu.Unlock()
 }
 
 func (rt *runtime) setSource(p sourcePolicy) { rt.src.Store(&p) }

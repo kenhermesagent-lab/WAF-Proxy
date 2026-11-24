@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/hostfw"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
 )
@@ -40,9 +41,10 @@ type streamingPayload struct {
 // form and to group the page.
 type streamingView struct {
 	streaming.Status
-	Group   string         `json:"group"`
-	Notes   string         `json:"notes"`
-	Default map[string]any `json:"default"`
+	Group    string         `json:"group"`
+	Notes    string         `json:"notes"`
+	Default  map[string]any `json:"default"`
+	Firewall []string       `json:"firewall"`
 }
 
 func (s *Server) getStreaming(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +65,8 @@ func (s *Server) getStreaming(w http.ResponseWriter, r *http.Request) {
 			st = streaming.Status{ID: def.ID, Label: def.Label, DefaultPort: def.DefaultPort}
 		}
 		views = append(views, streamingView{Status: st, Group: def.Group, Notes: def.Notes,
-			Default: s.streamingDefaults(def, kv)})
+			Default:  s.streamingDefaults(def, kv),
+			Firewall: splitEntries(kv["stream_"+def.ID+"_firewall"])})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"services": views,
@@ -180,6 +183,10 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 			applied, applyErr = false, err.Error()
 		}
 	}
+	// The listener is up; now let the packets through. A native install needs
+	// the host firewall opened, and a container with host networking shares
+	// those rules, so the same call covers both when the tools are reachable.
+	firewall := s.openStreamPorts(r, def, normalized, kv)
 	envPath, envErr := s.streamingEnvFile(def, normalized)
 
 	sess := sessionFrom(r)
@@ -188,11 +195,42 @@ func (s *Server) putStreaming(w http.ResponseWriter, r *http.Request) {
 			" ports="+portSpec(normalized)+" upstream="+normalized.Upstream,
 		clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "ok",
-		"applied": applied,
-		"error":   applyErr,
-		"env":     map[string]string{"path": envPath, "error": envErr},
+		"status":   "ok",
+		"applied":  applied,
+		"error":    applyErr,
+		"env":      map[string]string{"path": envPath, "error": envErr},
+		"firewall": firewall,
 	})
+}
+
+// openStreamPorts makes the host firewall match the saved configuration: the
+// listen range is opened when the forwarder is on, and the range a previous
+// save opened is closed when it is turned off or moved. The specs it recorded
+// are stored beside the settings, so a later save closes exactly what this one
+// opened and nothing the operator added by hand.
+func (s *Server) openStreamPorts(r *http.Request, def streaming.Service, cfg streaming.Config, kv map[string]string) hostfw.Report {
+	key := "stream_" + def.ID + "_firewall"
+	want := []hostfw.Spec{}
+	if cfg.Enabled {
+		want = hostfw.ForConfig(cfg.Port, cfg.PortCount, cfg.Protocol)
+	}
+	rep := hostfw.New().Sync(r.Context(), want, splitEntries(kv[key]))
+
+	kept := make([]string, 0, len(want))
+	closed := make(map[string]bool, len(rep.Closed))
+	for _, spec := range rep.Closed {
+		closed[spec] = true
+	}
+	for _, raw := range splitEntries(kv[key]) {
+		if !closed[raw] {
+			kept = append(kept, raw)
+		}
+	}
+	kept = append(kept, rep.Opened...)
+	if err := s.db(r).SetSettings(map[string]string{key: strings.Join(kept, ",")}); err != nil {
+		s.log.Warn("record streaming firewall ports", "service", def.ID, "err", err)
+	}
+	return rep
 }
 
 // streamingLists resolves the named block/allow lists for a forwarder. The

@@ -83,7 +83,7 @@ oversized datagrams instead of truncating them, and the total, per-source and ne
 bound what one address can start. Tick that switch on a friends-only server: with no list attached
 it refuses everyone, which is safer than answering anyone.
 
-1. GUI → **Streaming** → the application's section → enable.
+1. GUI → **Streaming** → the application's tab in the strip under the page tabs → enable.
 2. **Listen address** = an address assigned to this host (`192.168.1.20` in the two-NIC
    reference; on a single-NIC host the LAN address the router forwards to), **port** = the
    port clients will use (any free port works, defaults are 32400 and 8096), **server** =
@@ -99,9 +99,13 @@ it refuses everyone, which is safer than answering anyone.
    and countries first, a whitelist makes the port reachable only from what it holds plus the
    allow list, and a blocklist wins when both name the same address. Country entries need the
    GeoIP database; without it they match nothing.
-4. **Save and apply** binds the port immediately. There is no Docker restart to do while the
-   stack uses `network_mode: host`. A port already used by the GUI, the HTTP proxy or another
-   streaming section is refused with a clear message.
+4. **Save and apply** binds the port immediately and opens it on the host firewall when firewalld
+   or ufw is running: firewalld gets a permanent `--add-port` for the range plus a reload, ufw gets
+   `allow <range>/<proto>`. The Status card lists the ports the console opened; moving the card to
+   another port or switching it off closes exactly those. When neither tool is reachable the save
+   still applies and the page says which range to open yourself. There is no Docker restart to do
+   while the stack uses `network_mode: host`. A port already used by the GUI, the HTTP proxy or
+   another streaming section is refused with a clear message.
 5. On the Firewalla: WAN `32400/tcp` → `192.168.1.20:32400` (and the same for 8096),
    **DNAT only, no SNAT**. A `udp` or `both` card needs the matching UDP rule (or the range),
    and a game card needs one rule per protocol it lists. The listener address must not appear

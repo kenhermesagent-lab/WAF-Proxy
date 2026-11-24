@@ -821,6 +821,9 @@ export interface StreamingService {
   refused: number;
   sessions: StreamingSession[];
   last_error: string;
+  // firewall lists the ports this console opened on the host, so a page can
+  // show what a save changed and what it left alone.
+  firewall?: string[];
   default: {
     listen_ip: string;
     protocol: string;

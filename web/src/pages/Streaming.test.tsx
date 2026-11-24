@@ -17,6 +17,7 @@ const get = vi.mocked(api.get);
 const put = vi.mocked(api.put);
 
 const base: StreamingService = {
+  firewall: [],
   id: "plex",
   label: "Plex",
   group: "media",
@@ -112,32 +113,50 @@ describe("Streaming page", () => {
     cleanup();
   });
 
-  it("groups the catalog into media, games and custom", async () => {
+  it("gives every service its own tab and shows only that service", async () => {
     serve([service(), valheim(), service({ id: "custom", label: "Custom TCP/UDP", group: "custom" })]);
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "Media" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Game servers" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Custom" })).toBeTruthy();
+    const tabs = await screen.findAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["Plex", "Valheim", "Custom TCP/UDP"]);
     expect(screen.getByText("Plex forwarding")).toBeTruthy();
+    expect(screen.queryByText("Valheim forwarding")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Media" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Valheim" }));
     expect(screen.getByText("Valheim forwarding")).toBeTruthy();
-    expect(screen.getByText("Custom TCP/UDP forwarding")).toBeTruthy();
+    expect(screen.queryByText("Plex forwarding")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Game servers" })).toBeTruthy();
     // The preset note rides along with the card title.
     expect(screen.getByText("2456-2458 in one card.")).toBeTruthy();
   });
 
-  it("shows the UDP limits only when the card uses UDP", async () => {
+  it("opens on the first enabled service", async () => {
+    serve([service(), valheim({ enabled: true, bound: true, listen_addr: "192.168.1.20:2456-2458" })]);
+    renderPage();
+
+    expect(await screen.findByText("Valheim forwarding")).toBeTruthy();
+    expect(screen.queryByText("Plex forwarding")).toBeNull();
+  });
+
+  it("shows the UDP limits only on a card that uses UDP", async () => {
     serve([service(), valheim()]);
     renderPage();
 
     await screen.findByText("Plex forwarding");
-    expect(screen.getAllByText("Max sessions per source")).toHaveLength(1);
+    expect(screen.queryByText("Max sessions per source")).toBeNull();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Plex protocol" }), { target: { value: "udp" } });
-    expect(screen.getAllByText("Max sessions per source")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("tab", { name: "Valheim" }));
+    expect(screen.getByText("Max sessions per source")).toBeTruthy();
+  });
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Plex protocol" }), { target: { value: "tcp" } });
-    expect(screen.getAllByText("Max sessions per source")).toHaveLength(1);
+  it("names the ports the host firewall opened", async () => {
+    serve([service({ enabled: true, bound: true, firewall: ["32400/tcp"] })]);
+    renderPage();
+
+    await screen.findByText("Plex forwarding");
+    expect(screen.getByText("Host firewall")).toBeTruthy();
+    expect(screen.getByText("32400/tcp")).toBeTruthy();
   });
 
   it("sends the protocol and the range on save", async () => {

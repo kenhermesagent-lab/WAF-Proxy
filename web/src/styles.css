@@ -570,6 +570,9 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 .tab:hover { color: var(--text); background: transparent; }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tab .count { color: var(--faint); margin-left: 5px; font-variant-numeric: tabular-nums; }
+/* A strip with more entries than fit keeps one row and scrolls sideways. */
+.tabs-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+.tabs-scroll .tab { white-space: nowrap; }
 
 .bar-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border-soft); align-items: center; }
 .bar-row:last-child { border-bottom: 0; }
