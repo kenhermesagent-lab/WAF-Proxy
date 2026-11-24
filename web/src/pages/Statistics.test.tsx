@@ -62,12 +62,14 @@ describe("Statistics page", () => {
     expect(chart.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("shows backend uptime without the date strip on the uptime tab", async () => {
-    render(<Statistics onError={vi.fn()} tab="uptime" onTab={vi.fn()} />);
+  it("keeps backend uptime above the date strip on every tab", async () => {
+    render(<Statistics onError={vi.fn()} tab="traffic" onTab={vi.fn()} />);
 
     expect(await screen.findByText("backend returned 503")).toBeTruthy();
     expect(screen.getByText("98.5%")).toBeTruthy();
-    expect(screen.queryByText("From")).toBeNull();
-    expect(screen.queryByText("Requests over time")).toBeNull();
+    const card = screen.getByText("Uptime monitor");
+    const from = screen.getByText("From");
+    expect(card.compareDocumentPosition(from) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Uptime" })).toBeNull();
   });
 });

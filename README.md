@@ -258,7 +258,7 @@ page.*
 | Page | What it covers |
 |---|---|
 | Dashboard | Needs-attention queue, live requests and byte rates, attack globe with country drill-down, top sources, upstream health |
-| Statistics | **Overview** (totals, trend, stages), **Traffic** (per-site requests, countries), **Uptime** (live probes) and **Access gate logins** (failed sign-ins with a block action); the date range and trend stay above the tabs |
+| Statistics | **Uptime monitor** (live probes, shown above the date range on every tab), **Overview** (totals, trend, stages), **Traffic** (per-site requests, countries) and **Access gate logins** (failed sign-ins with a block action); the date range and trend stay above the tabs |
 | Proxies | **Hostnames** (upstreams, routes, health checks, maintenance, presets, per-hostname **360** view), **Certificates** (issue, renew, inspect; DNS-01, HTTP-01, TLS-ALPN-01) and **Streaming** (TCP/UDP byte relay for Plex, Jellyfin and game servers) |
 | Policies | **Bans**, **Profiles** (global profile with policy **Preflight**, WAF and protection profiles), **Access profiles**, **Lists** (blocklists/whitelists) and **Bot filter** |
 | Logs | Event search, filters, saved views, live tail, bulk source actions, incident report, the **Why?** request simulator |

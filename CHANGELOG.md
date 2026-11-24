@@ -42,6 +42,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   serves, so the boot names the card that holds the port and says to move it or unset
   `WAFPROXY_HTTP3`, instead of failing later with a bare "address already in use". A port held by
   something outside this process leaves HTTPS serving, logs the failure and stops advertising h3.
+- **The uptime monitor is always on Statistics.** Its card moved above the date range, so backend
+  probes stay on screen on Overview, Traffic and Access gate logins alike, and the separate
+  Uptime tab is gone.
 - **The topbar site chip names the console host, not the site's label.** The switcher, the
   single-site chip and the account menu's site list read `acme.example.com` instead of `Acme`, so
   the site a page answers for is visible at a glance. A site with no console host still shows its
