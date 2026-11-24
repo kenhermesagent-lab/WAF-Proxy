@@ -6,9 +6,10 @@ seriously even when the project is small.
 
 ## Supported versions
 
-Only the newest minor release receives security fixes. Fixes are shipped as a patch release of
-that minor; older minors are not back-patched, because the fixes so far have touched the database
-schema and the unit files.
+The newest minor receives security fixes, and the minor before it stays supported until the next
+release ships, so there is always a supported version to upgrade to. Fixes ship as a patch release
+of the newest minor; older minors are not back-patched, because the fixes so far have touched the
+database schema and the unit files.
 
 | Version | Supported |
 |---|---|
