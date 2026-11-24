@@ -22,6 +22,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   ALPN, 0-RTT refused because a replayed request would skip the address check, at most 100
   incoming streams per connection, and at most ten handshakes a second from one source until its
   address is verified.
+- **Backups keep two retention tiers.** The Backup schedule gains a daily copy beside its weekly or
+  daily run: each tier writes its own file names (`wafproxy-daily-*` and `wafproxy-backup-*`) and
+  prunes by its own count, so a weekly schedule with 52 copies holds a year while the last seven
+  daily copies age out independently. Every file is still a complete export, and retention now
+  applies to SFTP and FTP destinations too, which previously kept everything forever. When both
+  tiers fall due in the same minute, the scheduler queues the second one behind the first and
+  retries a run that fails, so a copy is never skipped for the whole period. A destination that
+  refuses the prune's listing or delete now leaves the copy reported as written instead of failing
+  the run.
 - **Alt-Svc is advertised only where it can be used.** HTTP/1.1 and HTTP/2 answers over TLS carry
   `h3=":<port>"; ma=86400` while the QUIC socket is bound; the plain-HTTP redirector, an answer
   that already came over h3, and a node whose h3 bind failed advertise nothing.
@@ -47,14 +56,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
-- **A released section must carry its annotated tag on origin.** `deploy/check-tags.sh` requires a
-  `vX.Y.Z` tag for every dated CHANGELOG section from 1.61.0 up, refuses a lightweight tag or one
-  on a commit that does not carry the section, and the `release` job runs it on origin with
-  `--remote`, so a release cannot ship untagged and the backlog cannot build up again. A section
-  still marked `unreleased` needs no tag yet. The rule is enforced on `main` only, so a release
-  branch can write its section before the tag exists; `--branch main` forces it from anywhere.
-  On origin it also refuses a tag whose commit is not reachable from `main`, so a release cut on a
-  branch nobody merged fails instead of publishing something nobody can pull.
+- **A released section must carry its annotated tag on origin, and on main.** `deploy/check-tags.sh`
+  requires a `vX.Y.Z` tag for every dated CHANGELOG section from 1.61.0 up, refuses a lightweight
+  tag or one on a commit that does not carry the section, and the `release` job runs it on origin
+  with `--remote`, so a release cannot ship untagged and the backlog cannot build up again. It also
+  refuses a tag whose commit is not on `main`, so a tag on an unmerged branch — a release nobody
+  receives — is caught in both modes. A section still marked `unreleased` needs no tag yet. The rule
+  is enforced on `main` only, so a release branch can write its section before the tag exists;
+  `--branch main` forces it from anywhere.
 - **The tag check reads `VERSION` at the tagged commit too.** A `vX.Y.Z` tag whose commit carries
   another version fails as surely as a missing tag — in the clone, and on origin where the remote
   run fetches the tag a shallow checkout does not have — so a tag can never name a version the

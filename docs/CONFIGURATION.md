@@ -153,7 +153,9 @@ no secrets, certificates or bans) to a destination, then prunes older files.
 | scheduled | Enables the schedule. | Off |
 | Destination | **Local directory**, **Git repository**, **SFTP (over SSH)** or **FTP (unencrypted)**. | local |
 | Schedule / Day / Time | Daily or weekly, weekday when weekly, and the run time in 24-hour `HH:MM`. | daily, **03:00** |
-| Keep | Number of archives retained. | 1–365 |
+| Keep | Number of scheduled archives retained. A weekly schedule with 52 keeps a year of copies. | 1–365 |
+| Daily copies | A second copy every day, written as `wafproxy-daily-*.json`. Off leaves only the schedule above. | Off |
+| Daily time / Daily copies to keep | Run time for the daily tier (defaults to Time) and how many dailies it retains, counted independently of Keep. | 03:00, 1–365 |
 | Directory | Absolute path on this host (local transport). | — |
 | Git working directory, remote, branch | Repository to commit into and optionally push from. | — |
 | Host / Port / User / Password / Remote directory | Remote target for SFTP and FTP. FTP sends credentials in clear text. | — |
@@ -161,8 +163,15 @@ no secrets, certificates or bans) to a destination, then prunes older files.
 | Encrypt backups | Seals the archive with AES-256-GCM; restoring needs the same passphrase. | Off |
 | Passphrase | 16+ characters. Losing it makes the files unrecoverable. | — |
 
-**Back up now** runs once immediately. Status shows the last run, file, target, next run and last
-error.
+Every file is a complete export that restores on its own; there is no diff chain to rebuild. The two
+tiers prune separately by file name, so an expired daily copy never deletes a weekly one. When the
+weekly and daily times fall in the same minute the daily run waits for the weekly one to finish, so
+both files land; a scheduled run that fails is retried until it succeeds, for up to fifteen minutes.
+If a destination refuses the directory listing or a delete, the copy is still reported as written and
+the prune failure is only logged, so a good upload never reads as a broken backup. Retention applies to the local, git, SFTP and FTP destinations.
+
+**Back up now** writes one scheduled copy immediately. Status shows the last run, file, target, next
+run, the daily tier's last and next run, and the last error.
 
 ### Runtime status
 

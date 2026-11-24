@@ -583,7 +583,7 @@ git push origin v1.47.19                  # or one tag on its own
 `CHANGELOG.md` section from **1.61.0** on has no annotated tag, when the tag is
 lightweight, when it sits on a commit that does not carry that section, when
 `VERSION` at that commit is not the version the tag names, or when the tag's
-commit is not on `origin/main` — a release nobody can pull.
+commit is not on `main` — a release nobody can pull.
 Sections below 1.61.0 predate the rule and are not checked. It enforces on
 `main` only, because a release branch writes its new section before the tag can
 exist; it skips (and says so) on any other branch, pull request or detached
@@ -597,8 +597,8 @@ bash deploy/check-tags.sh --remote --branch main  # what origin holds
 
 CI runs `bash deploy/check-tags.sh --remote` on every push and pull request; the
 `release` job fails only on `main`, where a section without its tag is a real
-mistake. A checkout does not fetch tags, which is why CI asks the remote, and it
-deepens a one-commit checkout when it has to prove a tag is reachable from `main`.
+mistake. A checkout does not fetch tags, which is why CI asks the remote, and the
+`release` job checks out full history so it can prove each tag is on `main`.
 
 Check what the remote really holds:
 
