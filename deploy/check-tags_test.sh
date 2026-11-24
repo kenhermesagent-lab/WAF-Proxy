@@ -48,7 +48,9 @@ seed() {
   git -C "$root" tag -a v1.61.1 -m "Release 1.61.1"
 }
 
-check() { ( cd "$root" && bash deploy/check-tags.sh "$@" >/dev/null 2>&1 ); }
+# CI exports GITHUB_REF, which would otherwise pick the branch for every
+# fixture; the cases that care about it pass it explicitly.
+check() { ( cd "$root" && env -u GITHUB_REF bash deploy/check-tags.sh "$@" >/dev/null 2>&1 ); }
 
 seed
 if ! check; then

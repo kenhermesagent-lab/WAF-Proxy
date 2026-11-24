@@ -144,3 +144,69 @@ jobs:
           else
             gh release create "$TAG" dist/* --verify-tag --notes-file "$notes" --title "WAF-Proxy ${TAG#v}"
           fi
+
+  image:
+    name: Build, smoke-test and push the container image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.tag != ''
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      # The image takes its name from VERSION and its tag from the ref, so a tag
+      # that disagrees would publish a mislabelled image.
+      - name: Check the tag matches VERSION
+        run: |-
+          set -euo pipefail
+          version=$(cat VERSION)
+          if [[ ${TAG#v} != "$version" ]]; then
+            echo "tag '${TAG}' does not match VERSION ${version} at $(git rev-parse --short HEAD)" >&2
+            exit 1
+          fi
+      - name: Build the image
+        run: |-
+          set -euo pipefail
+          version=$(cat VERSION)
+          docker build -t "wafproxy:${version}" \
+            --build-arg VERSION="$version" \
+            --build-arg COMMIT="$(git rev-parse --short HEAD)" \
+            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
+      # Boots the image it is about to publish and asks the console's own health
+      # endpoint, so a broken image fails here instead of in a user's pull.
+      - name: Smoke-test the image
+        run: |-
+          set -euo pipefail
+          version=$(cat VERSION)
+          docker run -d --name wafproxy-smoke \
+            -p 18080:8080 \
+            -e WAFPROXY_LISTEN_GUI=0.0.0.0:8080 \
+            -e WAFPROXY_GUI_PRIVATE_ONLY=false \
+            "wafproxy:${version}"
+          for _ in $(seq 1 30); do
+            if body=$(curl -fsS http://127.0.0.1:18080/api/health 2>/dev/null); then
+              echo "health: $body"
+              [[ $body == *'"status":"ok"'* ]] || { echo "health is not ok" >&2; exit 1; }
+              [[ $body == *"\"version\":\"${version}\""* ]] || { echo "the image reports another version" >&2; exit 1; }
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the image never answered /api/health" >&2
+          docker logs wafproxy-smoke >&2 || true
+          exit 1
+      - name: Push to ghcr.io
+        run: |-
+          set -euo pipefail
+          version=$(cat VERSION)
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/wafproxy"
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker tag "wafproxy:${version}" "${image}:${version}"
+          docker push "${image}:${version}"
+      - name: Remove the smoke container
+        if: always()
+        run: docker rm -f wafproxy-smoke || true

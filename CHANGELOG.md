@@ -26,6 +26,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   switching it off closes exactly what this console opened and leaves hand-written rules alone. A
   container with host networking shares those rules, and when neither tool is reachable the save
   still succeeds and the page says which range to open by hand.
+- **The release-tag rules cannot drift from the runbook.** `deploy/check-tags-docs_test.sh` maps
+  every refusal `deploy/check-tags.sh` and `scripts/release.sh` can print to the sentence
+  `docs/OPERATIONS.md` uses for it, and runs in `make verify-release` and first in the `release` job,
+  so it still runs while tags on origin are behind. A rule that lands without a runbook line fails
+  the gate instead of being found later.
+- **A release tag publishes the container image too.** The `image` job builds `wafproxy:<version>`,
+  boots it and asks `/api/health` for its own version before it pushes
+  `ghcr.io/<owner>/wafproxy:<version>`, so a tag delivers the binaries and the image that matches
+  them. Dispatching the workflow for a tag that already exists builds and publishes its image the
+  same way, so a release cut before this rule can still get one.
 
 ### Fixed
 
@@ -33,6 +43,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   service was rebinding or closing could register its relay after the shutdown had finished
   waiting, leaking the stream; the handler now registers under a lock that the shutdown closes
   first.
+- **The example env file names the release it ships with.** `VERSION` in `.env.example` still read
+  `1.20.0`, so a fresh `deploy/.env` tagged the image and the compose service after a release from
+  months ago.
+- **A tag backlog no longer hides the rest of the release job.** The tag check still turns red, but the
+  job carries on through the pin checks, the SBOM and its upload and fails at the end, so the rest of
+  the release metadata is still produced and attached while the tags are behind.
 - **The Backup card stops repeating the daily file.** Each tier reports its own last run, so a
   recent daily copy no longer appears as both the last run and the last daily copy; leaving the
   daily tier on adds its own last and next rows instead.
@@ -43,6 +59,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   say which firewall the console opens and which range to open when it cannot.
 - The Settings help explains the two backup counts: the schedule keeps its own number of files,
   the optional daily tier keeps a second count, and each prunes independently.
+- **The Docker install page shows how to run the published image.** It gives the `docker pull`
+  line for `ghcr.io/kenhermesagent-lab/wafproxy:<version>`, read from `VERSION` in `deploy/.env`
+  so the pull and the container cannot disagree, the name to tag it under so compose starts it
+  without a build, and the reminder that the package starts private and needs a `read:packages`
+  token until it is made public. The upgrades page gains the matching pull-and-restart path.
 
 ## [1.64.0] — 2026-11-24
 

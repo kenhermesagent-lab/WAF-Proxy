@@ -582,13 +582,18 @@ git push origin v1.47.19                  # or one tag on its own
 Pushing a tag runs the `release` workflow, which builds and signs the binaries
 and publishes that tag's `CHANGELOG.md` section as the GitHub release body, so the
 written notes are what operators read. A tag with no section fails the job instead
-of publishing an empty release.
+of publishing an empty release. The same push builds the container image, boots it
+and checks `/api/health` reports the same version, then pushes
+`ghcr.io/<owner>/wafproxy:<version>`; an image that fails the boot is never
+published. Dispatching the workflow for an existing tag builds its image the same
+way, so a release cut before this rule can still get one.
 
 `make verify-release` runs `deploy/check-tags.sh`, which fails when a
 `CHANGELOG.md` section from **1.61.0** on has no annotated tag, when the tag is
 lightweight, when it sits on a commit that does not carry that section, when
-`VERSION` at that commit is not the version the tag names, when the tag's
-commit is not on `main` — a release nobody can pull — when a tag names a version
+`VERSION` at that commit is missing or is not the version the tag names, when
+the tag is not reachable from the branch you are on, when its commit is not on
+`main` — a release nobody can pull — when a tag names a version
 the `CHANGELOG.md` does not date (a stray tag, even when its commit did reach
 `main`), or when a version's release commit is newer than the newest release, so
 it was cut after one that had already shipped. Sections below 1.61.0 predate
@@ -614,7 +619,10 @@ commit — delete it, or date the section and cut the release properly.
 
 `scripts/release.sh` runs the check before it prints its push commands, when its own
 release commit is not on `main` yet, so it passes `--skip-on-main`; the `--remote`
-run after the push is what proves the tag landed.
+run after the push is what proves the tag landed. It refuses a working tree with
+uncommitted changes, a `vX.Y.Z` tag that already exists, a version older than the
+newest tag, and a version with no `CHANGELOG.md` section, and it removes its own
+tag again when the check fails, leaving the release commit at `HEAD`.
 
 CI runs `bash deploy/check-tags.sh --remote` on every push and pull request; the
 `release` job fails only on `main`, where a section without its tag is a real
