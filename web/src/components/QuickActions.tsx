@@ -126,24 +126,10 @@ export default function QuickActions({
       return;
     setBusy(true);
     try {
-      await api.put(`/api/proxies/${p.id}`, {
-        hostname: p.hostname,
-        enabled: false,
-        cert_id: p.cert_id ?? null,
-        profile_id: p.profile_id ?? null,
-        protection_profile_id: p.protection_profile_id ?? null,
-        access_profile_id: p.access_profile_id ?? null,
-        auth_provider_id: p.auth_provider_id ?? null,
-        gate_mode: p.gate_mode || "off",
-        gate_secret: "",
-        fingerprint: p.fingerprint || "strict",
-        bot_level: p.bot_level || "light",
-        maintenance: p.maintenance,
-        waf_mode: p.waf_mode || "inherit",
-        upstreams: p.upstreams ?? [],
-        routes: p.routes ?? [],
-        gate_users: p.gate_users ?? [],
-      });
+      // The update merges, so disabling sends only the switch: rebuilding the
+      // whole host from this list row would replace an upstream pool the row
+      // does not carry with an empty one.
+      await api.put(`/api/proxies/${p.id}`, { enabled: false });
       onOK(`${p.hostname} disabled`);
       onClose();
     } catch (e) {

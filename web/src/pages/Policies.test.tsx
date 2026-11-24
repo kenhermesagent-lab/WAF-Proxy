@@ -10,19 +10,23 @@ import { api } from "../api";
 
 const get = vi.mocked(api.get);
 const post = vi.mocked(api.post);
+const put = vi.mocked(api.put);
 
-describe("Policies preflight", () => {
+const stored = (path: string): unknown => {
+  if (path.startsWith("/api/bans")) return { bans: [], active: 0, kernel: { active: false, reason: "" } };
+  if (path === "/api/global-lists") return { whitelist_ids: [], blocklist_ids: [], lists: [] };
+  if (path === "/api/asn-recommendations") {
+    return { hosting: { id: "hosting", name: "Hosting", note: "", asns: [] }, vpn: [] };
+  }
+  return [];
+};
+
+describe("Policies", () => {
   beforeEach(() => {
     get.mockReset();
     post.mockReset();
-    get.mockImplementation(async (path: string) => {
-      if (path.startsWith("/api/bans")) return { bans: [], active: 0, kernel: { active: false, reason: "" } };
-      if (path === "/api/global-lists") return { whitelist_ids: [], blocklist_ids: [], lists: [] };
-      if (path === "/api/asn-recommendations") {
-        return { hosting: { id: "hosting", name: "Hosting", note: "", asns: [] }, vpn: [] };
-      }
-      return [];
-    });
+    put.mockReset();
+    get.mockImplementation(async (path: string) => stored(path));
   });
 
   afterEach(() => {
@@ -62,5 +66,34 @@ describe("Policies preflight", () => {
     expect(await screen.findByText(/7 are served today and would be refused/)).toBeTruthy();
     // Preflight must never save anything on its own.
     expect(post).not.toHaveBeenCalledWith("/api/policies", expect.anything());
+  });
+
+  it("toggles a policy by sending only the field it changes", async () => {
+    get.mockImplementation(async (path: string) =>
+      path === "/api/policies"
+        ? [
+            {
+              id: 7,
+              scope: "proxy",
+              proxy_id: 3,
+              kind: "country_blacklist",
+              value: "RU",
+              action: "block",
+              priority: 0,
+              enabled: true,
+              note: "demo",
+            },
+          ]
+        : stored(path),
+    );
+    put.mockResolvedValue({});
+
+    render(<Policies onError={vi.fn()} onOK={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Profiles" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Disable" }));
+
+    // The body names only the switch: kind, value and the proxy scope are the
+    // server's copy to keep, not this table row's to rewrite.
+    await waitFor(() => expect(put).toHaveBeenCalledWith("/api/policies/7", { enabled: false }));
   });
 });

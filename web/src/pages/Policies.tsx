@@ -437,7 +437,9 @@ export default function Policies({
 
   const togglePolicy = async (p: Policy) => {
     try {
-      await api.put(`/api/policies/${p.id}`, { ...p, enabled: !p.enabled });
+      // Only the field that changes: the server merges it into the stored row,
+      // so a toggle cannot rewrite the value or scope it is not touching.
+      await api.put(`/api/policies/${p.id}`, { enabled: !p.enabled });
       load();
     } catch (e) {
       onError(errText(e));

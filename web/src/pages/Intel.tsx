@@ -130,7 +130,9 @@ export default function Intel({
 
   const toggle = async (f: Feed) => {
     try {
-      await api.put(`/api/feeds/${f.id}`, { ...f, enabled: !f.enabled });
+      // The update merges, so send the switch alone rather than rewriting the
+      // URL, action and fetch state the operator is not editing.
+      await api.put(`/api/feeds/${f.id}`, { enabled: !f.enabled });
       load();
     } catch (e) {
       onError(errText(e));
@@ -139,7 +141,7 @@ export default function Intel({
 
   const setAction = async (f: Feed, action: string) => {
     try {
-      await api.put(`/api/feeds/${f.id}`, { ...f, action });
+      await api.put(`/api/feeds/${f.id}`, { action });
       onOK(`${f.name} now ${action === "log" ? "logs only" : action + "s"}`);
     } catch (e) {
       onError(errText(e));
