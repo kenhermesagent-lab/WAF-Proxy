@@ -698,6 +698,48 @@ export interface GlobeHit {
   lon: number;
 }
 
+// The allowed side of the attack map: what reached an application endpoint,
+// who sent it, and which detections fired without blocking.
+export interface ReachEndpoint {
+  host: string;
+  path: string;
+  method: string;
+  status: number;
+  country: string;
+  count: number;
+  last_seen: string;
+  lat: number;
+  lon: number;
+}
+
+export interface ReachSource {
+  ip: string;
+  country: string;
+  asn: number;
+  count: number;
+  last_seen: string;
+}
+
+export interface NearMiss {
+  stage: string;
+  rule_id: string;
+  rule_msg: string;
+  host: string;
+  path: string;
+  country: string;
+  count: number;
+  last_seen: string;
+}
+
+export interface Reach {
+  since: string;
+  allowed: number;
+  reached: number;
+  endpoints: ReachEndpoint[];
+  sources: ReachSource[];
+  near_miss: NearMiss[];
+}
+
 export interface Iface {
   name: string;
   rx_bps: number;

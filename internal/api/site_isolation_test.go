@@ -16,6 +16,95 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
+// TestReachStaysInsideItsSite covers the allowed side of the attack map: the
+// endpoints, sources and near misses /api/reach reports are the ones the
+// console's own site recorded.
+func TestReachStaysInsideItsSite(t *testing.T) {
+	srv, st, alphaToken, _ := newObservabilityServer(t)
+	alphaProxy, err := st.CreateProxy(&model.Proxy{Hostname: "alpha.example.com", Enabled: true, WAFMode: "inherit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertEvents([]model.Event{
+		{TS: time.Now().UTC(), ProxyID: &alphaProxy, Host: "alpha.example.com", SrcIP: "203.0.113.7", Country: "RU",
+			Method: "POST", Path: "/login", Status: 200, Action: "allow", Stage: "route"},
+		{TS: time.Now().UTC(), ProxyID: &alphaProxy, Host: "alpha.example.com", SrcIP: "203.0.113.9", Country: "RU",
+			Method: "GET", Path: "/.env", Status: 200, Action: "log", Stage: "waf", RuleID: "930130"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	site, err := st.CreateSite("bravo", "Bravo", "console.bravo.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bravo := st.InSite(site.ID)
+	bravoProxy, err := bravo.CreateProxy(&model.Proxy{Hostname: "bravo.example.com", Enabled: true, WAFMode: "inherit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bravo.InsertEvents([]model.Event{
+		{TS: time.Now().UTC(), ProxyID: &bravoProxy, Host: "bravo.example.com", SrcIP: "198.51.100.20", Country: "US",
+			Method: "GET", Path: "/admin", Status: 200, Action: "allow", Stage: "route"},
+		{TS: time.Now().UTC(), ProxyID: &bravoProxy, Host: "bravo.example.com", SrcIP: "198.51.100.21", Country: "US",
+			Method: "GET", Path: "/comment", Status: 200, Action: "log", Stage: "waf", RuleID: "941100"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := auth.HashPassword("a sufficiently long password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, err := bravo.CreateUser("bravo-admin", hash, "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bravoToken, _ := wfcrypto.RandomToken(32)
+	if err := bravo.CreateSession(bravoToken, uid, "", "127.0.0.1", "test", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	reach := func(host, token string) store.Reach {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/reach?hours=1", nil)
+		req.Host = host
+		req.RemoteAddr = "127.0.0.1:5000"
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s reach = %d: %s", host, rec.Code, rec.Body.String())
+		}
+		var out store.Reach
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	own := reach("console.bravo.test", bravoToken)
+	if own.Reached != 1 || len(own.Endpoints) != 1 || own.Endpoints[0].Path != "/admin" {
+		t.Fatalf("bravo reach = %+v, want its own /admin only", own)
+	}
+	if len(own.Sources) != 1 || own.Sources[0].IP != "198.51.100.20" || own.Sources[0].Country != "US" {
+		t.Fatalf("bravo sources = %+v, want its own address only", own.Sources)
+	}
+	if len(own.NearMiss) != 1 || own.NearMiss[0].RuleID != "941100" {
+		t.Fatalf("bravo near miss = %+v, want its own rule only", own.NearMiss)
+	}
+
+	other := reach("gui.local", alphaToken)
+	if other.Reached != 1 || len(other.Endpoints) != 1 || other.Endpoints[0].Path != "/login" {
+		t.Fatalf("default reach = %+v, want its own /login only", other)
+	}
+	if len(other.Sources) != 1 || other.Sources[0].IP != "203.0.113.7" {
+		t.Fatalf("default sources = %+v, want its own address only", other.Sources)
+	}
+	if len(other.NearMiss) != 1 || other.NearMiss[0].RuleID != "930130" {
+		t.Fatalf("default near miss = %+v, want its own rule only", other.NearMiss)
+	}
+}
+
 // TestConsoleHostSeesOnlyItsSite drives the console the way a browser does, on
 // two console hosts served by one process: each request may read and change
 // only the rows of the site its Host names.

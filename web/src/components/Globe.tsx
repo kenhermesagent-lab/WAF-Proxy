@@ -363,6 +363,7 @@ type Tip = { x: number; y: number; pt: GlobePoint };
 export default function Globe({
   points,
   hits,
+  reached = [],
   home,
   hours = 1,
   focus: focusProp,
@@ -371,6 +372,9 @@ export default function Globe({
 }: {
   points: GlobePoint[];
   hits: GlobeHit[];
+  // Allowed requests that landed on a sensitive endpoint, drawn as teal
+  // dashed arcs: the half of the picture a blocked-only map cannot show.
+  reached?: GlobePoint[];
   home: { lat: number; lon: number };
   hours?: number;
   focus?: string | null;
@@ -398,9 +402,10 @@ export default function Globe({
   // One tick keeps "attacks / min" and "last hit" counting down between polls.
   const [tick, setTick] = useState(0);
 
-  const state = useRef({ points, hits, home, visible, focus, rotation: 0 });
+  const state = useRef({ points, hits, reached, home, visible, focus, rotation: 0 });
   state.current.points = points;
   state.current.hits = hits;
+  state.current.reached = reached;
   state.current.home = home;
   state.current.visible = visible;
   state.current.focus = focus;
@@ -444,10 +449,12 @@ export default function Globe({
     // tick is intentional: it re-reads the clock so the window slides.
   }, [hits, tick]);
 
+  const reachedSum = useMemo(() => reached.reduce((n, p) => n + p.count, 0), [reached]);
+
   const summary = useMemo(() => {
     const parts = GROUPS.map((g) => `${counts[g.id].toLocaleString()} ${g.label}`).join(", ");
-    return `Attack globe over the last ${hours} hour${hours === 1 ? "" : "s"}: ${parts}.`;
-  }, [counts, hours]);
+    return `Attack globe over the last ${hours} hour${hours === 1 ? "" : "s"}: ${parts}; ${reachedSum.toLocaleString()} allowed requests reached an application endpoint.`;
+  }, [counts, hours, reachedSum]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -669,6 +676,28 @@ export default function Globe({
         }
       }
 
+      // ---- reached: teal dashed arcs from a source country to the app ----
+      // Drawn under the live comets and with a dash pattern, so "it got in"
+      // reads as a different outcome from "it was refused" at a glance.
+      const reachedShown = (state.current.reached ?? []).slice(0, 12);
+      for (const pt of reachedShown) {
+        const target = project(unitVec(pt.lat, pt.lon), r);
+        if (target.z <= 0 || homeP.z <= 0) continue;
+        const dim = focus && pt.country.toUpperCase() !== focus;
+        const samples = arcFor(unitVec(pt.lat, pt.lon), homeVec);
+        ctx.save();
+        ctx.setLineDash([3, 4]);
+        drawArc(ctx, samples, project, r, "#5eead4", dim ? 0.1 : 0.72, 1.5, 6);
+        ctx.restore();
+        ctx.save();
+        ctx.globalAlpha = dim ? 0.2 : 0.95;
+        ctx.fillStyle = "#5eead4";
+        ctx.beginPath();
+        ctx.arc(target.x, target.y, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
       // ---- live hits: a comet crosses in 1.2s ----
       for (const l of live) {
         const t = Math.min(1, (now - l.born) / l.life);
@@ -738,6 +767,18 @@ export default function Globe({
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.arc(homeP.x, homeP.y, 7 + Math.sin(now2 * 2) * 1.6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // A teal halo around home marks that something reached the app, even when
+      // the source arcs are on the far side of the sphere.
+      if (reachedShown.length > 0 && homeP.z > 0) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(94,234,212,0.7)";
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.arc(homeP.x, homeP.y, 11 + Math.sin(now2 * 2) * 1.4, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
@@ -870,7 +911,7 @@ export default function Globe({
         <canvas
           ref={canvasRef}
           role="img"
-          aria-label={`World map of blocked attacks in the last ${hours} hour${hours === 1 ? "" : "s"}`}
+          aria-label={`World map of blocked attacks and allowed requests that reached an application in the last ${hours} hour${hours === 1 ? "" : "s"}`}
           onPointerMove={onMove}
           onPointerDown={onDown}
           onPointerUp={onUp}
@@ -932,13 +973,22 @@ export default function Globe({
               <b>{counts[g.id].toLocaleString()}</b>
             </button>
           ))}
+          {reachedSum > 0 && (
+            <span className="globe-key reached" title="Allowed requests that reached a login, admin or token endpoint">
+              <i style={{ background: "#2dd4bf" }} />
+              Passed to app
+              <b>{reachedSum.toLocaleString()}</b>
+            </span>
+          )}
         </div>
         {variant === "expanded" && (
           <p className="globe-footnote">
             <b>WAF block</b> = signature match. <b>DoS / rate</b> = rate, concurrency or login limit.{" "}
             <b>Bot protection</b> = user-agent filter or browser challenge. <b>Ban / scanner</b> = existing ban,
             decoy/scanner hit, or country/list/ASN deny — CrowdSec decisions are counted here because the globe feed
-            does not record the ban source. <b>Threat feed</b> = IP matched a threat-intel feed.
+            does not record the ban source. <b>Threat feed</b> = IP matched a threat-intel feed.{" "}
+            <b>Passed to app</b> = an allowed request that landed on a login, admin or token endpoint, drawn as a
+            dashed teal arc.
           </p>
         )}
       </div>
