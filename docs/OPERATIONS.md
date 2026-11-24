@@ -236,9 +236,10 @@ earlier tag was refused, so one unpushable tag cannot hold the rest of the relea
 A tag cannot be pushed with the runner's token when it would introduce a change under
 `.github/workflows/`, and GitHub reads that over the whole range since the previous tag rather than
 just the tagged commit. `v1.62.3`'s range carries the dependency refresh that edited `ci.yml` and
-`release.yml`, so no commit of that release is pushable by the App and the job names it instead: push
-that one from a clone with your own credentials, or give the job a token with the `workflow` scope in
-place of `GITHUB_TOKEN`. The script tries the API as well (tag object plus ref, no commits
+`release.yml`, so no commit of that release is pushable by the App. The repository secret `TAG_PUSH_TOKEN` — a token
+with `repo` and `workflow` — is what the job prefers when it exists: git gets it as an authorization
+header and the API calls use it too, so such a tag is pushed without help. Without that secret the job
+names the tag instead, and that one is pushed from a clone with the operator's own credentials. The script tries the API as well (tag object plus ref, no commits
 travelling), and one refused tag does not hide the ones after it — every version is attempted and the
 job ends red naming each one that failed.
 

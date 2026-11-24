@@ -43,6 +43,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   would otherwise look green. `ghcr.io/<owner>/wafproxy:latest` moves only when the tag is the
   newest on `origin`, so dispatching an older tag republishes its own version and leaves the alias
   where it is.
+- **A wider token lets the job push every tag.** `TAG_PUSH_TOKEN`, when the repository sets it, is
+  preferred over the App's token for the tag push and the API calls, so a tag whose range touches
+  `.github/workflows/` — the case the App refuses — lands without anyone pushing it by hand. Its push
+  also raises the event `Release` listens for, so the dispatch is kept only for the App's path.
 - **The tags now publish their own releases.** A ref the tag job creates with `GITHUB_TOKEN` raises
   no push event, so `Release` never started for `v1.61.0` through `v1.65.0`: they had tags but no
   release, no binaries, and the Latest badge still pointed at `v1.60.0`. The job now dispatches

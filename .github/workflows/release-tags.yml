@@ -39,6 +39,11 @@ jobs:
   tags:
     name: Create the missing release tags
     runs-on: ubuntu-latest
+    env:
+      # With a token that may push workflow-spanning tags, the push itself raises
+      # the event Release listens for; the App's token raises none, so only that
+      # path needs the dispatch at the end.
+      WIDE_TOKEN: ${{ secrets.TAG_PUSH_TOKEN != '' }}
     steps:
       # Actions are pinned to commit SHAs, not tags: a moved tag would otherwise
       # change what the job runs while the signature still vouches for it.
@@ -57,11 +62,23 @@ jobs:
         env:
           VERSIONS: ${{ inputs.versions }}
           DRY_RUN: ${{ inputs.dry_run }}
+          # A tag whose release spans a workflow change is refused to the App, so
+          # TAG_PUSH_TOKEN (a token with the workflow scope) is used when it is
+          # set; the App token stays the fallback for when it is not.
+          TAG_PUSH_TOKEN: ${{ secrets.TAG_PUSH_TOKEN }}
           # The API fallback in the script needs a token, and the repository name.
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.TAG_PUSH_TOKEN || github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |-
           set -euo pipefail
+          # The checkout leaves the App token in origin's URL, which is exactly the
+          # credential that cannot push a workflow-spanning tag. Hand git the wider
+          # token as an authorization header instead, without writing it anywhere.
+          if [[ -n ${TAG_PUSH_TOKEN:-} ]]; then
+            export GIT_CONFIG_COUNT=1
+            export GIT_CONFIG_KEY_0='http.https://github.com/.extraheader'
+            export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TAG_PUSH_TOKEN" | base64 -w0)"
+          fi
           args=()
           if [[ $DRY_RUN == true ]]; then
             args+=(--dry-run)
@@ -80,7 +97,7 @@ jobs:
       # release already is left alone, and it runs after a refused tag too,
       # because the other releases do not depend on that one.
       - name: Publish the releases those tags never triggered
-        if: ${{ always() && inputs.dry_run != true }}
+        if: ${{ always() && inputs.dry_run != true && env.WIDE_TOKEN != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |-
