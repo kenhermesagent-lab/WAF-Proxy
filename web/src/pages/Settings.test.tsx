@@ -52,6 +52,9 @@ describe("Settings configuration transport", () => {
           return { packages: [], updating: false, app_updating: false };
         case "/api/certs":
           return { certs: [] };
+        // The readiness section in Settings reads proxies as an array.
+        case "/api/proxies":
+          return [];
         case "/api/notifications":
           return { settings: {}, channels: {}, recent: [], event_kinds: [] };
         default:
@@ -84,6 +87,9 @@ describe("Settings configuration transport", () => {
           return { packages: [], updating: false, app_updating: false };
         case "/api/certs":
           return { certs: [] };
+        // The readiness section in Settings reads proxies as an array.
+        case "/api/proxies":
+          return [];
         case "/api/notifications":
           return { settings: {}, channels: {}, recent: [], event_kinds: [] };
         default:
@@ -136,6 +142,9 @@ describe("Settings configuration transport", () => {
           return { packages: [], updating: false, app_updating: false };
         case "/api/certs":
           return { certs: [] };
+        // The readiness section in Settings reads proxies as an array.
+        case "/api/proxies":
+          return [];
         case "/api/notifications":
           return { settings: {}, channels: {}, recent: [], event_kinds: [] };
         default:
