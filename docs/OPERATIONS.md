@@ -155,6 +155,20 @@ capabilities).
   or the CLI.
 - Gate modes reset to `off` after a restore. Re-enable the mode and re-set the passphrase.
 
+### HA did not start
+
+When the stored switch is on but the HA loops failed to bind — usually the control socket
+under the data directory is held by another process, or an HA listener port is taken —
+`GET /api/ha` reports `runtime_error`, moves are refused, and the HA page shows **HA did not
+start**.
+
+1. Read the message on the page, or `sudo wafproxy ha status --json` when the console is down.
+2. Remove the cause: stop whatever holds the control socket, fix its directory permissions, or
+   free the HA link port. Never delete a socket that a live process still owns.
+3. Press **Retry startup** (or re-authenticate and call `POST /api/ha/retry`) to run the same
+   start the boot path uses; no service restart is needed once the cause is gone. **Copy
+   diagnostics** attaches the current state to a report.
+
 ## Upgrading a high-availability pair
 
 Upgrade the **standby first**, then move the service, then upgrade the old active. Never upgrade

@@ -1,11 +1,12 @@
 # HA build: execution plan
 
-> **Status: proposed.** Nothing in this document exists in 1.55.2. Read it beside
-> [HA.md](HA.md), which explains what each phase must make true and why; this file turns
-> that into ordered tasks that can be picked up, reviewed and reverted one at a time.
+> **Status: delivered history.** The HA track shipped in 1.60.0 and was hardened through
+> 1.62.2; this file is kept as the execution record, not a proposal. Read it beside
+> [HA.md](HA.md), which explains what each phase had to make true and why.
 
-**Build status.** Last checked against 1.57.0 on 2026-11-23. A task is *landed* only when
-its test exists and `go test ./...` passes; everything else is untouched.
+**Build status.** Last checked against 1.62.2 on 2026-11-24. A task is *landed* only when
+its test exists and `go test ./...` passes; the two rows still marked not started are the
+two-VM hardware lab and `recover --rotate-master-key`.
 
 | Task | Status | Evidence |
 |---|---|---|

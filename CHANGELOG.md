@@ -28,6 +28,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   that console may read. `#/ha` renders the HA page only on the default site; Settings drops its HA
   section and the readiness checklist drops its CrowdSec row there, so neither points at a hidden page.
 
+### Documentation
+
+- **The guides now describe the released console.** README carries a screenshot tour of every
+  captured page, the configuration reference documents the **Sites** and **High availability**
+  pages and the Settings switch, and the screenshot index names the build its captures came from.
+  The roadmap, HA build record and HA guide are marked delivered, the broken relative links in
+  the two scale plans point at the roadmap again, and the README's "not included" list no longer
+  contradicts the custom roles it already documents.
+
 ## [1.62.1] — 2026-11-24
 
 ### Fixed

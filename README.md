@@ -266,8 +266,53 @@ page.*
 | Notifications | Webhook routing |
 | Tailscale | Listener on the tailnet address |
 | Sites | Every site this install serves: create, edit and remove one, its console host, the hostnames and retention it owns, and the admins in it (`sites.read`/`sites.write`) |
-| Settings | One page of sections: **Network**, **Updates** (version, release check, one-click update), **Protection**, **Retention & ACME**, **Backup**, **Runtime status**, **GeoIP database**, **Administrator activity** (audit, YAML/JSON transport) and **Readiness** (a scored hardening checklist, each gap linking to the control that fixes it) |
+| Settings | One page of sections: **Network**, **Updates** (version, release check, one-click update), **Protection**, **Retention & ACME**, **High availability** (the host-wide switch, default console only), **Backup**, **Runtime status**, **GeoIP database**, **Administrator activity** (audit, YAML/JSON transport) and **Readiness** (a scored hardening checklist, each gap linking to the control that fixes it) |
 | Account | Password, authenticator rotation, recovery codes, administrators and roles |
+
+### Console tour
+
+Each image is a page of the demo install the guides were written against, with sample data.
+The captures were taken on v1.48.8, so the sidebar has since gained **Sites**, **High
+availability** and the tenant switcher; the pages and their controls are the ones listed above.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/dashboard.png" alt="Dashboard: needs-attention queue, live rates, attack globe and per-site traffic" width="100%"><br><sub><b>Dashboard</b> — needs-attention queue, live rates, attack globe, top sources and upstream health.</sub></td>
+<td width="50%"><img src="docs/screenshots/statistics.png" alt="Statistics: totals, trend, per-site traffic and uptime" width="100%"><br><sub><b>Statistics</b> — totals, trend, per-site traffic, countries and the uptime tab.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/proxies.png" alt="Proxies: hostnames, upstream health and per-site protection" width="100%"><br><sub><b>Proxies</b> — hostnames, upstream health, routes, certificates and streaming.</sub></td>
+<td width="50%"><img src="docs/screenshots/policies.png" alt="Policies: bans, global profile, WAF and protection profiles" width="100%"><br><sub><b>Policies</b> — bans, the global profile, WAF and protection profiles, lists and bot filter.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/logs.png" alt="Logs: event search, stages and the request simulator" width="100%"><br><sub><b>Logs</b> — event search, stages, saved views and the <b>Why?</b> request simulator.</sub></td>
+<td width="50%"><img src="docs/screenshots/intel.png" alt="Threat intel: feed health and rollup" width="100%"><br><sub><b>Threat intel</b> — feed health, the lookup, bundles and CrowdSec.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/sources.png" alt="Sources: feeds, local lists and per-address investigation" width="100%"><br><sub><b>Sources</b> — feeds, local lists and per-address investigation.</sub></td>
+<td width="50%"><img src="docs/screenshots/anomalies.png" alt="Anomaly events: behavioural detections with baselines" width="100%"><br><sub><b>Anomalies</b> — behavioural detections measured against a baseline.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/access.png" alt="Access gate: site accounts, TOTP and lockouts" width="100%"><br><sub><b>Access gate</b> — site accounts, TOTP enrolment and lockouts.</sub></td>
+<td width="50%"><img src="docs/screenshots/activity.png" alt="Activity: audit log with before and after diffs" width="100%"><br><sub><b>Activity</b> — the audit log with before/after diffs and rollback.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/certs.png" alt="Certificates: issuance, renewal policy and expiry" width="100%"><br><sub><b>Certificates</b> — issuance, renewal policy and expiry.</sub></td>
+<td width="50%"><img src="docs/screenshots/agent.png" alt="AI Agent Access: MCP endpoint and per-tool tokens" width="100%"><br><sub><b>Agent access</b> — the MCP endpoint and per-tool token scopes.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/notifications.png" alt="Notifications: channels and per-event routing" width="100%"><br><sub><b>Notifications</b> — channels and per-event routing.</sub></td>
+<td width="50%"><img src="docs/screenshots/streaming.png" alt="Streaming: byte-relay forwarders for Plex and Jellyfin" width="100%"><br><sub><b>Streaming</b> — byte-relay forwarders for Plex, Jellyfin and similar.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/settings.png" alt="Settings: network, protection, retention, backup and GeoIP" width="100%"><br><sub><b>Settings</b> — network, protection, retention, backup, GeoIP and Readiness.</sub></td>
+<td width="50%"><img src="docs/screenshots/readiness.png" alt="Readiness: scored hardening checklist" width="100%"><br><sub><b>Readiness</b> — the scored hardening checklist, each gap linking to its fix.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/updates.png" alt="Updates: application and host packages" width="100%"><br><sub><b>Updates</b> — application and host package versions, and the restart that applies a rebuild.</sub></td>
+<td width="50%"><b>Sites</b> and <b>High availability</b> are newer than these captures and are not pictured; see their rows above and the guides linked below.</td>
+</tr>
+</table>
 
 **Investigating a source.** Any address in the log, dashboard, attack map, source explorer or ⌘K
 search opens one drawer: totals for 1h/24h/7d/30d, block share, hosts, first and last seen, threat-intel
@@ -327,7 +372,7 @@ secrets are not part of the document.
   should not be read as such: cache hits and WAF-off sites run at relay speed, but every inspected
   request still pays Coraza and the CRS.
 - **Not included:** AbuseIPDB enrichment, tarpit, per-site HTTP basic auth/mTLS, per-site bandwidth
-  history, HTTP/3, and multi-user roles beyond the built-in RBAC.
+  history, HTTP/3, console single sign-on, and multi-organisation tenancy.
 
 ## High availability
 
@@ -350,7 +395,10 @@ lacks some cards, so run that checklist before trusting a pair with production t
    promotion. Without a witness, moves stay manual.
 
 The console page shows the role, peer, replication lag and the actions; `wafproxy ha status
---watch` shows the same from a terminal. A standby is read-only: configuration writes are refused
+--watch` shows the same from a terminal. If the stored switch is on but the loops failed to
+bind, the page shows **HA did not start** with the failure, **Retry startup** (re-authenticates,
+then runs the same start the boot path uses) and **Copy diagnostics**; moves stay refused until
+a retry succeeds. A standby is read-only: configuration writes are refused
 while it follows the active. Upgrading a pair has its own order (standby first); see
 [docs/OPERATIONS.md](docs/OPERATIONS.md#upgrading-a-high-availability-pair). The design, the
 state machine and the lab checklist are in [docs/HA.md](docs/HA.md).
@@ -374,7 +422,9 @@ state machine and the lab checklist are in [docs/HA.md](docs/HA.md).
   `localStorage`, so reloading returns to the same site, and switching remounts the views so no
   page keeps the previous site's data on screen. Settings are per site and carry a badge naming
   the site they apply to; the host-wide sections (network, updates, GeoIP) are read-only on a
-  non-default console with a note saying why. The built-in `host_admin` role administers one site
+  non-default   console with a note saying why. Host-only pages — Bundles, CrowdSec and High availability —
+  are absent from a non-default console, and a deep link to one opens the first tab it may read.
+  The built-in `host_admin` role administers one site
   (its hostnames, policies, certificates, feeds, settings and accounts) without the `sites` area:
   it sees no switcher and no Sites page, and a `X-WAF-Site` header from it is ignored, so it
   cannot read another tenant's rows.

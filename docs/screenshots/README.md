@@ -1,13 +1,19 @@
 # Console screenshots
 
-The images in this directory come from a two-NIC demo install of this exact build
-(`demo.home.arpa`) and **contain sample data**: the sites, bans, events, feeds and
-certificates were created for the documentation, not taken from a real deployment.
-They are here so the guides can show what a page looks like before you open it.
+The images in this directory come from a two-NIC demo install (`demo.home.arpa`) and **contain
+sample data**: the sites, bans, events, feeds and certificates were created for the
+documentation, not taken from a real deployment. They are here so the guides can show what a
+page looks like before you open it.
 
-| Image | Page | Used in |
+They were captured from the **v1.48.8** console (the version in the About card of the Settings
+capture), so the sidebar has since gained **Sites**, **High availability**, the tenant switcher
+and a few renamed groups. The pages and their controls are otherwise the ones this release
+serves. Everybody sees the full gallery in the
+[README console tour](../../README.md#console-tour); the guides below reuse the same files.
+
+| Image | Page | Also used in |
 | --- | --- | --- |
-| [dashboard.png](dashboard.png) | Dashboard: needs-attention queue, live rates, attack globe, per-site traffic | [README](../../README.md), [Operations](../OPERATIONS.md), [Docker install](../install/01-docker.md) |
+| [dashboard.png](dashboard.png) | Dashboard: needs-attention queue, live rates, attack globe, per-site traffic | [Operations](../OPERATIONS.md), [Docker install](../install/01-docker.md) |
 | [statistics.png](statistics.png) | Statistics: outcomes, per-site series, countries, uptime | [Configuration reference](../CONFIGURATION.md) |
 | [proxies.png](proxies.png) | Proxies: hostnames, upstream health, per-site settings | [First site](../install/03-first-site.md), [Configuration reference](../CONFIGURATION.md) |
 | [policies.png](policies.png) | Policies: bans, global profile, WAF and protection profiles | [Configuration reference](../CONFIGURATION.md) |
@@ -25,5 +31,10 @@ They are here so the guides can show what a page looks like before you open it.
 | [readiness.png](readiness.png) | Readiness: scored hardening checklist | [Security policy](../../SECURITY.md), [Configuration reference](../CONFIGURATION.md) |
 | [updates.png](updates.png) | Updates: application and host packages | [Configuration reference](../CONFIGURATION.md) |
 
-To retake them, run the console on a demo data directory, seed a few sites and a
-day of events, and capture each page at 1440 px wide.
+Not pictured: **Sites**, **High availability**, **Tailscale**, **Cloudflare** and **Account**.
+They were added after these captures; their fields are documented in the
+[configuration reference](../CONFIGURATION.md#sites) instead of here.
+
+To retake them, run the console on a demo data directory against a build whose About card you
+want to show, seed a few sites and a day of events, sign in on the default console host and
+capture each page at 1440 px wide.

@@ -1,7 +1,7 @@
 # WAF-Proxy roadmap: 1.30 → 1.34 (delivered)
 
-> **Status (2026-11-23):** this plan covered 1.30–1.34 and is kept as delivered history. The
-> current release is **1.59.0**; every shipped change is in [CHANGELOG.md](../CHANGELOG.md).
+> **Status (2026-11-24):** this plan covered 1.30–1.34 and is kept as delivered history. The
+> current release is **1.62.2**; every shipped change is in [CHANGELOG.md](../CHANGELOG.md).
 > The deferred list at the end is still accurate.
 
 Release numbers below are provisional: each phase shipped as the next minor version in
@@ -24,8 +24,8 @@ that run in parallel on separate branches and separate files:
 
 | Plan | What it buys | Owner | Releases | Plan |
 | --- | --- | --- | --- | --- |
-| **A — fat node** | One box absorbs the rack without falling over: byte budget + bounded queue, memory ceiling, slow-client deadlines, brotli, precompressed cache variants, opt-in cache-first, per-upstream transports | agent 1 | 1.61.0, 1.62.0 | [Plan A](superpowers/plans/2026-11-23-scale-plan-a-fat-node.md) |
-| **C — game streaming** | UDP relay, port ranges, TCP+UDP pairing, game presets, per-session visibility, UDP safety limits, HA lifecycle; HTTP/3 as the follow-on release | agent 2 | 1.63.0 (relay), 1.64.0 (HTTP/3) | [Plan C](superpowers/plans/2026-11-23-scale-plan-c-game-streaming.md) |
+| **A — fat node** | One box absorbs the rack without falling over: byte budget + bounded queue, memory ceiling, slow-client deadlines, brotli, precompressed cache variants, opt-in cache-first, per-upstream transports | agent 1 | 1.61.0–1.62.2 (**delivered**) | [Plan A](superpowers/plans/2026-11-23-scale-plan-a-fat-node.md) |
+| **C — game streaming** | UDP relay, port ranges, TCP+UDP pairing, game presets, per-session visibility, UDP safety limits, HA lifecycle; HTTP/3 as the follow-on release | agent 2 | 1.63.0 (relay), 1.64.0 (HTTP/3), **not started** | [Plan C](superpowers/plans/2026-11-23-scale-plan-c-game-streaming.md) |
 
 Timeline: each plan is **three weeks of build** — Plan A 15 task-days, Plan C
 14.5 — followed by one review-and-merge pass in week 4. The two-week label these
@@ -635,3 +635,7 @@ docs. None of them are required by a single-node deployment.
   counters on `/metrics`, `/api/capacity` and the dashboard. Harness numbers are in
   [BENCHMARKS.md](BENCHMARKS.md); the task list is
   [Plan A](superpowers/plans/2026-11-23-scale-plan-a-fat-node.md).
+- **1.62.1–1.62.2 — HA hardening and console recovery.** A failed activation drains the plane and
+  rolls back instead of serving under a promoting role, a control socket that cannot be bound
+  reports HA as stopped, tenant consoles no longer offer host-wide pages, and the HA page gained
+  the **HA did not start** recovery panel with retry and diagnostics. See `CHANGELOG.md`.

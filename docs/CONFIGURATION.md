@@ -32,6 +32,8 @@ troubleshooting see the [operations runbook](OPERATIONS.md); for the wire API se
 - [Updates](#updates)
 - [Tailscale](#tailscale)
 - [Readiness](#readiness)
+- [Sites](#sites)
+- [High availability](#high-availability)
 - [Account, administrators and roles](#account-administrators-and-roles)
 - [Environment variables](#environment-variables)
 - [Data directory and headless commands](#data-directory-and-headless-commands)
@@ -130,6 +132,16 @@ Applied before per-site profiles.
 | Event retention (days) | How long request events are kept: the hourly maintenance pass deletes older rows, and the analytics window follows it. Anomaly events and the audit log are not pruned by this setting. | **7**, 1–30 |
 | ACME account email | Let's Encrypt account contact. | Email |
 | Use the Let's Encrypt staging directory | Issues untrusted certificates for testing. Switch off before going live. | Off |
+
+### High availability
+
+| Control | What it does |
+|---|---|
+| Enable high availability | Host-wide switch (**off** by default). The first enable restarts the service so the HA listeners bind; a banner says so until the console reconnects. Turning it off on a paired active asks for the cluster id to be typed; a paired standby refuses until it is promoted or unpaired. |
+| High availability page | Status, pairing and moves live on the [High availability page](#high-availability); this section only holds the switch. |
+
+Only the **default** site's console shows this section, and the switch is one of the host-wide
+settings the API refuses on another site's console.
 
 ### Backup
 
@@ -842,6 +854,51 @@ control that fixes it.
 The score is met ÷ scored rows; a row whose source failed to load shows "unknown" and is not
 counted as met.
 
+## Sites
+
+Every configurable row belongs to a site. The **default** site is the install itself and owns the
+console host you signed in on; additional sites are tenants with their own console host,
+hostnames, bans, events, audit trail, settings and administrators. The page lists each site with
+its console host, hostnames, retention and administrator count.
+
+| Control | What it does |
+|---|---|
+| Add a site | Slug (`a-z`, `0-9` and dashes; the stable identifier), display name and console host. The host needs its own certificate and must resolve to this node. |
+| Edit | Changes the display name or console host. The slug stays. |
+| Delete | Removes the site after **Confirm delete**. The default site cannot be deleted because it serves this console. |
+
+A request arriving on a site's console host reads and writes that site's rows only. The topbar
+**site switcher** — shown to default-site administrators with `sites.read` — scopes the console
+with `X-WAF-Site`, and the choice is remembered per browser. A `host_admin` administers one site,
+sees no switcher and no Sites page, and a site header from it is ignored. Row ownership,
+per-site settings and the host-wide keys are described in [Operations](OPERATIONS.md#sites).
+
+**Host-only pages are hidden on a tenant console.** **Threat intel → Bundles**, **Threat intel →
+CrowdSec** and **High availability** belong to the default site: a tenant deep link to one of
+those tabs opens the first tab it may read, Settings omits its HA section, and `#/ha` does not
+render the HA page away from the default site.
+
+## High availability
+
+Off by default. The role machine, pairing sequence, witness and fencing, the lab checklist and
+the upgrade order are in [HA.md](HA.md) and [Operations](OPERATIONS.md#upgrading-a-high-availability-pair).
+
+| Card / action | What it says |
+|---|---|
+| HA is turned off | Why the switch is off, with a link to Settings. Shown while `ha_enabled` is off. |
+| HA did not start | The stored switch is on but the runtime failed to bind. The panel carries the failure, **Retry startup** (re-authenticates, then runs the same start the boot path uses) and **Copy diagnostics**; moves stay refused until a start succeeds. |
+| Pair this node | Create a pair (26-character code, valid ten minutes) or join one with the peer address, its pinned fingerprint and the code. |
+| Role and state | Role, state, epoch, whether the node is serving, when it entered the role and the reason. |
+| Peer | Peer address, pinned fingerprint and cluster id. |
+| Replication | Outbox depth and size, last acknowledged sequence, and the pending rows by kind. |
+| Actions from this console | The last 20 HA actions taken from this process; the audit log is the durable record. |
+| Maintenance | Flap budget, **Fail over**, **Fail back** and **Unpair**. Failover and failback can be dry-run first and forced; a move needs the peer to be healthy. |
+| Page actions | **Copy diagnostics** and **Sync now**, plus the read-only banner on a standby. |
+
+Every action re-authenticates with the administrator password and, when enrolled, a current
+authenticator code; failover and unpair also need the cluster id typed again. The page and the
+Settings switch exist only on the default site's console.
+
 ## Account, administrators and roles
 
 ### This account
@@ -961,6 +1018,8 @@ it**, and treat both as sensitive.
 | `wafproxy recover --password … --reset-totp` | Resets a locked-out administrator. |
 | `wafproxy backup --keep 7` | Writes an encrypted backup and prunes older ones. |
 | `wafproxy unban <ip|cidr>` | Lifts a ban while the console is unreachable. |
+| `wafproxy sites list\|add\|rename\|remove` | Manages the sites one process serves. |
+| `wafproxy ha status\|pair\|join\|sync\|failover\|failback\|unpair\|notify` | Runs the same pair and move sequence as the console; `ha upgrade --check` reports whether a pair can be upgraded before either node restarts. |
 | `bundletool keygen`, `bundletool sign` | Creates a publisher key and signs a signature-bundle manifest; see [Signature bundles](#signature-bundles). |
 
 Public health: `GET /api/health` (version and liveness, no auth). Metrics:

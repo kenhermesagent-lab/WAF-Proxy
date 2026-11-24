@@ -23,9 +23,11 @@
 > and toggle tests (P7-06), and the docs, CHANGELOG, README entry and
 > `ha upgrade --check` are written (P7-07). The two-VM hardware lab gates and the P8 chaos/soak gate have not been
 > run, and the page still lacks the VIP, sessions, bans and witness cards, so
-> those parts remain the intended end state. It ships in 1.60.0, off by default; the
-> two-VM hardware lab gates and the P8 chaos/soak gate have not been run, so the
-> checklist below is still required before a pair carries production traffic.
+> those parts remain the intended end state. It ships in 1.60.0, off by default; 1.62.1
+> fails closed after an activation error and 1.62.2 adds the console's **HA did not
+> start** recovery panel with **Retry startup** and **Copy diagnostics**. The two-VM
+> hardware lab gates and the P8 chaos/soak gate have not been run, so the checklist
+> below is still required before a pair carries production traffic.
 > `docs/HA-BUILD.md` carries the per-task status and the known gaps.
 >
 > The document is written so an operator can read the runbooks as the intended
@@ -356,8 +358,8 @@ same cluster id and secret. Restart the service so it reads the new pair.
 # On either node: role, peer, epoch, versions, lag.
 sudo wafproxy ha status
 
-# The HA API route and console page are not implemented yet (P7); use
-# `wafproxy ha status --json` on the node itself.
+# The same state is on the HA page and `GET /api/ha`; without a console:
+# `sudo wafproxy ha status --json`
 
 # Readiness must say standby, not ready to serve traffic.
 curl -s -o /dev/null -w '%{http_code}\n' 'http://10.0.0.11:8080/api/health?ready=1'   # 503
