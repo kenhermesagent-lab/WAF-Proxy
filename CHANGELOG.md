@@ -12,6 +12,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.67.0] — 2026-11-24
+
+### Added
+
+- **Sixteen more application presets.** Immich, Firefly III, Audiobookshelf, Open WebUI, the
+  container managers (Portainer, Dockge, Komodo), Frigate, Apache Guacamole, Actual Budget,
+  read-later (Karakeep, Linkwarden), feed readers (FreshRSS, Miniflux), wikis and notes (Outline,
+  Wiki.js, Docmost, Memos), file sync (Seafile, ownCloud), file managers (FileBrowser, copyparty),
+  Stirling-PDF, Matrix (Synapse, Conduit) and the DNS consoles (Pi-hole, AdGuard Home, Technitium).
+  Each carries a method allowlist, a buffered-body ceiling sized to the app's real upload, a
+  response cap unless it streams, login path and rate, and an admin allowlist where the app has a
+  distinct admin surface.
+- **Presets suggest an access gate where the app's own login is thin.** Container managers,
+  Guacamole, Frigate, the DNS consoles, Open WebUI, Stirling-PDF, the file managers, Firefly III,
+  Actual Budget and read-later carry a suggested gate; the proxy drawer
+  preselects it *only* when a gate account already exists, so a new site can never lock the
+  operator out, and otherwise shows the suggestion with a pointer to Access gate. Apps whose
+  mobile clients or API tokens would be cut off (Immich, Audiobookshelf, Seafile, ownCloud, Matrix,
+  feed readers) deliberately suggest nothing.
+
+### Fixed
+
+- **An admin prefix that covered the app's own login locked remote users out.** Jellyfin's `/Users`
+  restriction swallowed `/Users/AuthenticateByName`, and Proxmox's `/api2/json/access` swallowed
+  `/api2/json/access/ticket`, so a login from outside the private ranges was refused with the
+  uniform admin-path rejection. Jellyfin now restricts `/System`, `/ScheduledTasks` and `/Library`,
+  and Proxmox limits the allowlist to user, role and group management, leaving the ticket endpoint
+  reachable. A new test fails any preset whose admin prefix covers one of its login paths.
+- **A navidrome note told only half the story.** Subsonic clients authenticate on every `/rest`
+  call, which a login limit cannot cover without stalling playback; the preset now says so.
+
 ## [1.66.3] — 2026-11-24
 
 ### Changed

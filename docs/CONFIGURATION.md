@@ -323,7 +323,19 @@ site unless the upstream overrides them. They are not all exposed in the drawer.
 Presets create an editable WAF profile; they do not lock the site into a mode. The catalogue is:
 Nextcloud, Jellyfin, Plex Media Server, Home Assistant, Proxmox VE, Vaultwarden, Gitea / Forgejo,
 Paperless-ngx, Grafana, Uptime Kuma, Mealie, Navidrome, PhotoPrism, Syncthing, n8n, BookStack,
-Cal.com, the \*arr suite (Sonarr, Radarr, Lidarr, Readarr, Prowlarr) and Generic web application.
+Cal.com, the \*arr suite (Sonarr, Radarr, Lidarr, Readarr, Prowlarr), Immich, Firefly III,
+Audiobookshelf, Open WebUI, container managers (Portainer, Dockge, Komodo), Frigate, Apache
+Guacamole, Actual Budget, read-later (Karakeep, Linkwarden), feed readers (FreshRSS, Miniflux),
+wikis and notes (Outline, Wiki.js, Docmost, Memos), file sync (Seafile, ownCloud), file managers
+(FileBrowser, copyparty), Stirling-PDF, Matrix (Synapse, Conduit), DNS consoles (Pi-hole, AdGuard
+Home, Technitium) and Generic web application.
+
+Presets whose app puts a thin or root-equivalent login in front of the host — container managers,
+Guacamole, Frigate, a DNS console, Open WebUI, Stirling-PDF, the file managers — also suggest an
+access gate. The drawer preselects it only when a gate account already exists, so a new site can
+never lock the operator out; otherwise the suggestion is shown with a pointer to **Access gate**.
+A gate covers browser sessions only, so the presets for apps with mobile clients or API tokens
+(Immich, Audiobookshelf, Seafile, ownCloud, Matrix, the feed readers) leave it off.
 
 ## Streaming
 
