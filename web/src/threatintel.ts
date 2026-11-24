@@ -35,6 +35,14 @@ export function quotaView(quota: IntelQuota | undefined): QuotaView | null {
   };
 }
 
+// quotaTone colours the allowance bar by how much of it is spent: a gradient
+// squeezed into the filled width made an almost untouched allowance look red.
+export function quotaTone(percent: number): string {
+  if (percent >= 90) return "#ef4444";
+  if (percent >= 70) return "#f59e0b";
+  return "#14b8a6";
+}
+
 // abuseTone follows the score thresholds AbuseIPDB documents: under 25 is
 // rarely reported, over 75 is close to certain.
 export function abuseTone(score: number): "ok" | "warn" | "bad" | "" {

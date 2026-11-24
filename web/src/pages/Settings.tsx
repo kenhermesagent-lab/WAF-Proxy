@@ -5,7 +5,7 @@ import { COFFEE_URL, DOCS_URL } from "../links";
 import { NAV } from "../nav";
 import { Badge, Field, PageHead, PageTabs, SaveBar, Switch, TableWrap, confirmDialog, errText, fmtAgo, fmtTime } from "../ui";
 import type { AuditEntry, CrowdSecStatus, GeoIPStatus, IntelStatus, Me } from "../types";
-import { describePlan, quotaView } from "../threatintel";
+import { describePlan, quotaTone, quotaView } from "../threatintel";
 import BackupCard from "../components/BackupCard";
 import UpdatesPage from "./Updates";
 import Readiness from "./Readiness";
@@ -680,7 +680,7 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
               </div>
               {intelQuota && (
                 <div className="intel-meter" role="img" aria-label={`${intelQuota.used.toLocaleString()} of ${intelQuota.limit.toLocaleString()} checks used today`}>
-                  <i style={{ width: `${intelQuota.percent}%` }} />
+                  <i style={{ width: `${intelQuota.percent}%`, background: quotaTone(intelQuota.percent) }} />
                 </div>
               )}
               <div className="row between" style={{ marginTop: 8 }}>

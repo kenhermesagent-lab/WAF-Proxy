@@ -12,6 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.68.1] — 2026-11-24
+
+### Fixed
+
+- **The attack map's city label sat on its own hotspot.** Labels were drawn a fixed nine pixels from the dot, so at
+  city zoom the selected city's label covered the marker it named. The offset now clears the dot's halo, which shrinks
+  as the camera zooms in.
+- **A barely used AbuseIPDB allowance looked spent.** The quota bar's gradient was squeezed into the filled width, so a
+  4%-used bar rendered red. The fill is now one colour chosen by usage — teal under 70%, amber under 90%, red above —
+  and the plan line has room above it.
+
 ## [1.68.0] — 2026-11-24
 
 ### Added

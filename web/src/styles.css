@@ -1378,8 +1378,8 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 .intel-kv b.mono { font-size: 11px; }
 .intel-key-row { display: flex; gap: 8px; align-items: center; margin: 4px 0 6px; }
 .intel-key-row input { flex: 1; max-width: 420px; }
-.intel-plan { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin: 2px 0 6px; }
+.intel-plan { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin: 10px 0 6px; }
 .intel-plan-name { font-size: 13px; font-weight: 550; color: var(--text); }
 .intel-meter { height: 5px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; }
-.intel-meter i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #14b8a6, #f59e0b 70%, #ef4444); }
+.intel-meter i { display: block; height: 100%; border-radius: 999px; background: #14b8a6; }
 @media (max-width: 900px) { .intel-grid { grid-template-columns: 1fr; } }

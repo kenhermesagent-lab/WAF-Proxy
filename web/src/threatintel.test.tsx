@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { abuseSummary, abuseTone, describePlan, quotaView } from "./threatintel";
+import { abuseSummary, abuseTone, describePlan, quotaTone, quotaView } from "./threatintel";
 describe("plan detection", () => {
   it("names the plan the rate-limit ceiling belongs to", () => {
     expect(describePlan({ name: "Individual (free)", checks_per_day: 1000 }, { limit: 1000, remaining: 871 })).toBe(
@@ -17,6 +17,14 @@ describe("plan detection", () => {
     expect(describePlan(undefined, undefined)).toBe("checking the key…");
   });
 
+});
+
+describe("quota tone", () => {
+  it("keeps a barely used allowance calm and reddens it as it runs out", () => {
+    expect(quotaTone(4.3)).toBe("#14b8a6");
+    expect(quotaTone(70)).toBe("#f59e0b");
+    expect(quotaTone(95)).toBe("#ef4444");
+  });
 });
 
 describe("quota view", () => {
