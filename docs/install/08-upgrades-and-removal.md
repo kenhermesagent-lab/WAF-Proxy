@@ -16,6 +16,27 @@ The schema is applied idempotently on boot. Restore the JSON if a configuration 
 gate modes are reset to `off` and certificates must be re-issued because private keys are
 not exported.
 
+### Upgrading a pulled image
+
+A host that runs the published image does not build, so an upgrade fetches the release and
+restarts into it:
+
+```bash
+git pull --ff-only
+# Keep the image tag in deploy/.env aligned with the new VERSION file.
+sed -i "s/^VERSION=.*/VERSION=$(cat VERSION)/" deploy/.env
+version=$(sed -n 's/^VERSION=//p' deploy/.env)
+docker pull "ghcr.io/kenhermesagent-lab/wafproxy:${version}"
+docker tag "ghcr.io/kenhermesagent-lab/wafproxy:${version}" "wafproxy:${version}"
+docker compose -f deploy/docker-compose.yml up -d --no-build
+```
+
+Published tags never move, so `deploy/.env` pins the release that runs until you change that
+line. The data volume, settings and certificates carry over, and the backup above still protects
+you. The package stays private, so a host that has not pulled before needs
+`docker login ghcr.io` (see [Run it in Docker](01-docker.md)). Rolling back is the same steps with
+the previous `VERSION`, for a release that published an image.
+
 ## 10. Uninstall
 
 ```bash

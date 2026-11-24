@@ -28,6 +28,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **The example env file names the release it ships with.** `VERSION` in `.env.example` still read
+  `1.20.0`, so a fresh `deploy/.env` tagged the image and the compose service after a release from
+  months ago.
 - **The Backup card stops repeating the daily file.** Each tier reports its own last run, so a
   recent daily copy no longer appears as both the last run and the last daily copy; leaving the
   daily tier on adds its own last and next rows instead.
@@ -37,9 +40,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - The Settings help explains the two backup counts: the schedule keeps its own number of files,
   the optional daily tier keeps a second count, and each prunes independently.
 - **The Docker install page shows how to run the published image.** It gives the `docker pull`
-  line for `ghcr.io/kenhermesagent-lab/wafproxy:<version>`, the name to tag it under so compose
-  starts it without a build, and the reminder that the package starts private and needs a
-  `read:packages` token until it is made public.
+  line for `ghcr.io/kenhermesagent-lab/wafproxy:<version>`, read from `VERSION` in `deploy/.env`
+  so the pull and the container cannot disagree, the name to tag it under so compose starts it
+  without a build, and the reminder that the package starts private and needs a `read:packages`
+  token until it is made public. The upgrades page gains the matching pull-and-restart path.
 
 ## [1.64.0] — 2026-11-24
 

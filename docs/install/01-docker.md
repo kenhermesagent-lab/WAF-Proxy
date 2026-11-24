@@ -40,8 +40,13 @@ Every release also publishes that image to the GitHub Container Registry, so a h
 Go and Node toolchain can pull it rather than build it:
 
 ```bash
-docker pull ghcr.io/kenhermesagent-lab/wafproxy:1.64.0
+version=$(sed -n 's/^VERSION=//p' deploy/.env)
+docker pull "ghcr.io/kenhermesagent-lab/wafproxy:${version}"
 ```
+
+`VERSION` in `deploy/.env` is the release to run, and it is also the name compose gives the
+image, so take the tag from the file rather than typing a number: the pull and the container
+then cannot name different releases.
 
 The package starts **private**, so an anonymous pull answers `denied` until the owner makes it
 public (the repository's **Packages** → the package → **Package settings** → **Change
@@ -51,11 +56,12 @@ visibility**). Pulling a private package needs a GitHub token with `read:package
 echo "$GITHUB_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
 ```
 
-Compose runs the image it builds under the name `wafproxy:<version>`, where `<version>` is
-`VERSION` in `deploy/.env`, so tag the pulled copy to that name and start without a build:
+Compose runs that image under the name `wafproxy:<version>`, so tag the pulled copy to the same
+name and start without a build:
 
 ```bash
-docker tag ghcr.io/kenhermesagent-lab/wafproxy:1.64.0 wafproxy:1.64.0
+version=$(sed -n 's/^VERSION=//p' deploy/.env)
+docker tag "ghcr.io/kenhermesagent-lab/wafproxy:${version}" "wafproxy:${version}"
 docker compose -f deploy/docker-compose.yml up -d --no-build
 ```
 
