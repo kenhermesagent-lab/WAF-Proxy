@@ -486,6 +486,9 @@ export interface Preset {
   login_burst: number;
   admin_paths: string;
   admin_ips: string;
+  // gate is the access-gate mode the preset suggests, or empty for an app whose
+  // own login is the right control (or whose clients a gate would break).
+  gate: string;
   exceptions: string;
   notes: string[];
 }

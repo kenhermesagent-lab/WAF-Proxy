@@ -46,6 +46,8 @@ func TestPresetsAreConsistent(t *testing.T) {
 	for _, id := range []string{
 		"vaultwarden", "gitea", "paperless", "grafana", "uptime-kuma", "mealie", "navidrome",
 		"photoprism", "syncthing", "n8n", "bookstack", "calcom", "arr",
+		"immich", "firefly", "audiobookshelf", "openwebui", "containers", "frigate", "guacamole",
+		"actual", "bookmarks", "rss", "wiki", "filesync", "filebrowser", "stirling", "matrix", "dnsadmin",
 	} {
 		if _, ok := Get(id); !ok {
 			t.Errorf("preset %q is missing", id)
@@ -53,6 +55,54 @@ func TestPresetsAreConsistent(t *testing.T) {
 	}
 	if _, ok := Get("nope"); ok {
 		t.Error("Get accepted an unknown id")
+	}
+}
+
+// The console offers these gate modes; a preset that named anything else would
+// preselect a value the drawer cannot send.
+func TestGatesAreKnownModes(t *testing.T) {
+	known := map[string]bool{"": true, "passphrase": true, "accounts": true, "accounts_totp": true, "forward_auth": true}
+	for _, p := range All() {
+		if !known[p.Gate] {
+			t.Errorf("%s suggests unknown gate mode %q", p.ID, p.Gate)
+		}
+	}
+}
+
+// pathUnder mirrors how the policy engine matches an admin path, so a preset
+// whose login path sits under its own admin prefix is caught here rather than
+// by an operator locked out of the app from outside their network.
+func pathUnder(p, prefix string) bool {
+	p = strings.TrimSuffix(p, "/")
+	prefix = strings.TrimSuffix(prefix, "/")
+	return p == prefix || strings.HasPrefix(p, prefix+"/")
+}
+
+func TestAdminPathsNeverCoverALogin(t *testing.T) {
+	for _, p := range All() {
+		if strings.TrimSpace(p.AdminIPs) == "" {
+			continue
+		}
+		for _, login := range strings.Split(p.LoginPaths, ",") {
+			login = strings.TrimSpace(login)
+			if login == "" {
+				continue
+			}
+			for _, admin := range strings.Split(p.AdminPaths, ",") {
+				admin = strings.TrimSpace(admin)
+				if admin != "" && pathUnder(login, admin) {
+					t.Errorf("%s: admin path %q covers login path %q, so a remote login is refused", p.ID, admin, login)
+				}
+			}
+		}
+	}
+}
+
+func TestBodyCeilingsStayInMemoryBudget(t *testing.T) {
+	for _, p := range All() {
+		if p.MaxBody > 128<<20 {
+			t.Errorf("%s buffers %d MiB per request", p.ID, p.MaxBody>>20)
+		}
 	}
 }
 

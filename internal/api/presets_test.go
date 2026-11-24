@@ -79,6 +79,57 @@ func TestPresetBecomesAnEditableProfile(t *testing.T) {
 	}
 }
 
+// An edit that names one setting must not strip the login limits and admin
+// allowlist the preset installed — that is the protection itself.
+func TestPartialProfileEditKeepsPresetLimits(t *testing.T) {
+	srv, _, token, csrf := newObservabilityServer(t)
+	if err := srv.st.SetSetting("base_domain", "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	rec := authed(t, srv, token, csrf, http.MethodPost, "/api/proxies",
+		`{"hostname":"pdf.example.com","preset":"stirling","upstreams":[{"url":"http://192.168.1.10:8080","enabled":true}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /api/proxies = %d: %s", rec.Code, rec.Body.String())
+	}
+	var created model.Proxy
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/profiles/" + strconv.FormatInt(*created.ProfileID, 10)
+	if rec := authed(t, srv, token, csrf, http.MethodPut, path, `{"admin_paths":"/admin","admin_ips":"10.0.0.0/8"}`); rec.Code != http.StatusOK {
+		t.Fatalf("PUT admin allowlist = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if rec := authed(t, srv, token, csrf, http.MethodPut, path, `{"paranoia":2}`); rec.Code != http.StatusOK {
+		t.Fatalf("PUT paranoia = %d: %s", rec.Code, rec.Body.String())
+	}
+	prof, err := srv.st.GetProfile(*created.ProfileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prof.LoginPaths != "/api/v1/auth/login,/login" || prof.LoginRPS != 3 || prof.LoginBurst != 5 {
+		t.Fatalf("the login limits were stripped by a partial edit: %+v", prof)
+	}
+	if prof.AdminPaths != "/admin" || prof.AdminIPs != "10.0.0.0/8" {
+		t.Fatalf("the admin allowlist was stripped by a partial edit: %+v", prof)
+	}
+	if prof.MaxBody != 64<<20 || prof.MaxResponse != 64<<20 || prof.Exceptions != "920350,920440" {
+		t.Fatalf("the body ceilings or exceptions changed: %+v", prof)
+	}
+
+	// Naming an empty value is still the way to clear one.
+	if rec := authed(t, srv, token, csrf, http.MethodPut, path, `{"admin_paths":"","admin_ips":"","login_paths":""}`); rec.Code != http.StatusOK {
+		t.Fatalf("PUT clearing the limits = %d: %s", rec.Code, rec.Body.String())
+	}
+	cleared, err := srv.st.GetProfile(*created.ProfileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.AdminPaths != "" || cleared.AdminIPs != "" || cleared.LoginPaths != "" {
+		t.Fatalf("an explicit empty value did not clear: %+v", cleared)
+	}
+}
+
 func TestUnknownPresetIsRejected(t *testing.T) {
 	srv, _, token, csrf := newObservabilityServer(t)
 	rec := authed(t, srv, token, csrf, http.MethodPost, "/api/proxies",

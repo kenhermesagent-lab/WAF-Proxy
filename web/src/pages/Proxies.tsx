@@ -85,6 +85,9 @@ export default function Proxies({
   const [providers, setProviders] = useState<AuthProvider[]>([]);
   const [certs, setCerts] = useState<Cert[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
+  // Whether the operator has a gate account: a preset may only preselect its
+  // suggested gate when one exists, or the new site would lock everyone out.
+  const [gateAccounts, setGateAccounts] = useState(0);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [drawerTab, setDrawerTab] = useState<Tab>("overview");
@@ -105,8 +108,9 @@ export default function Proxies({
       api.get<{ certs: Cert[] }>("/api/certs"),
       api.get<Preset[]>("/api/presets"),
       api.get<Profile[]>("/api/profiles"),
+      api.get<{ id: number }[]>("/api/gate-users"),
     ])
-      .then(([p, pp, ap, prov, c, pre, prof]) => {
+      .then(([p, pp, ap, prov, c, pre, prof, gu]) => {
         setList(p);
         setProtections(pp);
         setAccessProfiles(ap);
@@ -114,6 +118,7 @@ export default function Proxies({
         setCerts(c.certs || []);
         setPresets(pre);
         setProfiles(prof);
+        setGateAccounts(gu.length);
       })
       .catch((e) => onError(errText(e)));
 
@@ -353,10 +358,28 @@ export default function Proxies({
                 <>
                   {!draft.id && (
                     <Field label="Application preset" hint={chosenPreset ? `${chosenPreset.description} Creates an editable WAF profile.` : "A preset fills in the WAF profile for this site; it is not applied automatically."}>
-                      <select value={draft.preset} onChange={(e) => patch((d) => (d.preset = e.target.value))}>
+                      <select
+                        value={draft.preset}
+                        onChange={(e) =>
+                          patch((d) => {
+                            d.preset = e.target.value;
+                            const pre = presets.find((p) => p.id === d.preset);
+                            if (pre?.gate && d.gate_mode === "off" && gateAccounts > 0) d.gate_mode = pre.gate;
+                          })
+                        }
+                      >
                         <option value="">No preset — default profile</option>
                         {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
+                      {chosenPreset?.gate && (
+                        <p className="faint" style={{ margin: "8px 0 0", fontSize: 11 }}>
+                          The preset suggests the {GATE_LABELS[chosenPreset.gate] ?? chosenPreset.gate} gate in front of this app.
+                          {gateAccounts > 0
+                            ? " It is selected on the Access gate tab; turn it off if you do not want it."
+                            : " It stays off until an account exists under Access gate, so this site cannot lock you out."}{" "}
+                          A gate covers browser sessions only: turn it off if a mobile app or API token must reach this site.
+                        </p>
+                      )}
                       {chosenPreset && chosenPreset.notes?.length > 0 && (
                         <ul className="faint" style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 11 }}>
                           {chosenPreset.notes.map((n) => <li key={n}>{n}</li>)}

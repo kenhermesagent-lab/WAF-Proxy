@@ -12,6 +12,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.67.2] — 2026-11-24
+
+### Fixed
+
+- **Editing one profile setting no longer disarms the rest.** `PUT /api/profiles/{id}` wrote
+  `max_response`, `login_paths`, `login_rps`, `login_burst`, `admin_paths`, `admin_ips` and
+  `exceptions` from whatever the payload carried, so a request naming a single field cleared the
+  login limits and the admin allowlist a preset installs — the console sends the whole record, but a
+  script or a hand-written PUT does not. Those keys are now written only when the payload names
+  them, which is how the proxy handler already treats a partial update; an explicit empty value
+  still clears a field. Found by driving a Frigate preset through a real proxy: an unrelated edit
+  silently removed the admin-path rejection it had just been enforcing.
+
+## [1.67.1] — 2026-11-24
+
+### Fixed
+
+- **Readiness no longer calls a configured hostname, and its traffic, missing.** The checklist read
+  `/api/proxies` as `{proxies: [...]}`, but that endpoint returns the array itself — the shape every
+  other page already used — so "A hostname is proxied" and "Traffic has arrived" were scored missing
+  on an install that was serving. The page now consumes the array, uses the shared `Proxy` type, and
+  its test mocks the real response instead of the broken shape, so the two rows can fail again only
+  if the endpoint changes.
+
+## [1.67.0] — 2026-11-24
+
+### Added
+
+- **Sixteen more application presets.** Immich, Firefly III, Audiobookshelf, Open WebUI, the
+  container managers (Portainer, Dockge, Komodo), Frigate, Apache Guacamole, Actual Budget,
+  read-later (Karakeep, Linkwarden), feed readers (FreshRSS, Miniflux), wikis and notes (Outline,
+  Wiki.js, Docmost, Memos), file sync (Seafile, ownCloud), file managers (FileBrowser, copyparty),
+  Stirling-PDF, Matrix (Synapse, Conduit) and the DNS consoles (Pi-hole, AdGuard Home, Technitium).
+  Each carries a method allowlist, a buffered-body ceiling sized to the app's real upload, a
+  response cap unless it streams, login path and rate, and an admin allowlist where the app has a
+  distinct admin surface.
+- **Presets suggest an access gate where the app's own login is thin.** Container managers,
+  Guacamole, Frigate, the DNS consoles, Open WebUI, Stirling-PDF, the file managers, Firefly III,
+  Actual Budget and read-later carry a suggested gate; the proxy drawer
+  preselects it *only* when a gate account already exists, so a new site can never lock the
+  operator out, and otherwise shows the suggestion with a pointer to Access gate. Apps whose
+  mobile clients or API tokens would be cut off (Immich, Audiobookshelf, Seafile, ownCloud, Matrix,
+  feed readers) deliberately suggest nothing.
+
+### Fixed
+
+- **An admin prefix that covered the app's own login locked remote users out.** Jellyfin's `/Users`
+  restriction swallowed `/Users/AuthenticateByName`, and Proxmox's `/api2/json/access` swallowed
+  `/api2/json/access/ticket`, so a login from outside the private ranges was refused with the
+  uniform admin-path rejection. Jellyfin now restricts `/System`, `/ScheduledTasks` and `/Library`,
+  and Proxmox limits the allowlist to user, role and group management, leaving the ticket endpoint
+  reachable. A new test fails any preset whose admin prefix covers one of its login paths.
+- **A navidrome note told only half the story.** Subsonic clients authenticate on every `/rest`
+  call, which a login limit cannot cover without stalling playback; the preset now says so.
 ## [1.66.4] — 2026-11-24
 
 ### Fixed
