@@ -10,7 +10,10 @@
 # modes also prove the tagged commit is on main, because a tag on an unmerged
 # branch is a release nobody receives; and every tag at or above the floor has
 # to name a version this CHANGELOG dates and to have been cut before a newer
-# one, so a stray v1.62.4 tag cannot hide on a commit that did reach main.
+# one, so a stray v1.62.4 tag cannot hide on a commit that did reach main. A tag
+# above this checkout's VERSION belongs to a release cut after this commit, so
+# this CHANGELOG need not date it: the gate also runs on old commits, and a
+# later release must not turn those red. The order rule still reads it.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -74,6 +77,15 @@ while IFS= read -r v; do
   fi
 done < <(grep -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\][[:space:]]*[—\-][[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}' "$root/CHANGELOG.md" |
   sed -E 's/^## \[([0-9.]+)\].*/\1/')
+
+# The version this tree ships. Tags above it belong to a release cut after this
+# commit, which this run cannot judge: reruns and backlog backfills start from an
+# old commit, and every tag added since would otherwise read as a stray.
+current=$(tr -d '[:space:]' <"$root/VERSION" 2>/dev/null || true)
+if [[ ! $current =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "VERSION does not hold a version ('${current}')" >&2
+  exit 2
+fi
 
 if [[ ${#versions[@]} -eq 0 ]]; then
   echo "CHANGELOG.md has no section at or above $floor" >&2
@@ -198,6 +210,13 @@ fi
 if [[ ${#kept[@]} -gt 0 ]]; then
   shipped=" ${versions[*]} "
   for v in "${kept[@]}"; do
+    # Newer than this tree's VERSION: a release cut after this commit, so this
+    # CHANGELOG cannot date it yet. It is checked where it belongs, on the commit
+    # that carries its VERSION. The order rule below still reads it, because a
+    # version cut after a newer one shipped is late whoever checks it out.
+    if [[ $v != "$current" && $(printf '%s\n%s\n' "$current" "$v" | sort -V | tail -1) == "$v" ]]; then
+      continue
+    fi
     if [[ $shipped != *" $v "* ]]; then
       fail "$v" "tag v$v names a version CHANGELOG.md does not ship" \
         "delete the stray tag, or date a $v section and cut it properly: git tag -d v$v"
