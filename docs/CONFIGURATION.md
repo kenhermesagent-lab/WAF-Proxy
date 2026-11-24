@@ -278,7 +278,13 @@ sends nothing for two minutes is disconnected (`body-skip` stage, `stalled` rule
 cannot hold an upstream connection open. The prefix matches whole path segments, so `/api/assets` covers `/api/assets/1` but not
 `/api/assetsfoo`, and the root cannot be skipped. The drawer holds at most 16 entries, and each
 may name blocklists or whitelists: only their addresses or countries skip, and a deleted list
-matches nobody, so the path fails closed to inspection.
+matches nobody, so the path fails closed to inspection. A skip path accepts the raw uploads it
+exists for: any request content type, including the `application/octet-stream` a sync or backup
+client sends, and the `PUT`/`PATCH` those clients use. CRS's content-type policy (920420) and its
+method policy (911100, whose default list holds no `PUT` or `PATCH`) are written for a body the WAF
+inspects and for CRS's own defaults, so both are removed for that request only. The profile's
+method allowlist is still enforced before the exemption applies, every other header rule still
+runs, and a buffered path keeps both policies.
 
 ### Access gate tab
 

@@ -55,6 +55,49 @@ func TestBodySkipStreamsUploadPastTheCeiling(t *testing.T) {
 	}
 }
 
+// A sync or backup client sends its whole file as application/octet-stream,
+// which the CRS refuses as a content type outside its policy list before it
+// reads a byte. That refusal protects a body the WAF inspects; on a skip path
+// there is none, so the raw upload must still stream.
+func TestBodySkipAcceptsARawUploadContentType(t *testing.T) {
+	h := newHarness(t)
+	// Skip first: attachBodySkip stores the harness's own copy of the site, so
+	// enabling the WAF afterwards must be the last write.
+	attachBodySkip(t, h, 1<<10, []model.BodySkip{{Method: http.MethodPut, Prefix: "/upload"}})
+	enableBlockingWAF(t, h)
+	raw := map[string]string{"Content-Type": "application/octet-stream"}
+
+	// The same content type on a buffered path keeps its policy answer.
+	if rec := h.request(http.MethodPut, testHost, "/index.html", "x", raw); rec.Code != http.StatusForbidden {
+		t.Fatalf("octet-stream on a buffered path = %d, want 403", rec.Code)
+	}
+
+	payload := strings.Repeat("x", 2<<20)
+	rec := h.request(http.MethodPut, testHost, "/upload", payload, raw)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("raw upload on a skip path = %d: %s", rec.Code, rec.Body.String())
+	}
+	if want := "size:2097152"; rec.Body.String() != want {
+		t.Fatalf("upstream received %q, want %q", rec.Body.String(), want)
+	}
+	if e := h.waitEvent(t, func(e model.Event) bool { return e.Stage == "body-skip" }); e.RuleID != "path" {
+		t.Fatalf("event = %+v, want a body-skip event", e)
+	}
+}
+
+// Streaming skips CRS's own method list, not the profile's: a method the
+// profile does not allow is refused before the exemption applies.
+func TestBodySkipStillHonoursTheProfileMethodList(t *testing.T) {
+	h := newHarness(t)
+	attachBodySkip(t, h, 1<<10, []model.BodySkip{{Method: http.MethodPut, Prefix: "/upload"}})
+	attachProfile(t, h, model.Profile{Name: "no-put", AllowedMethods: "GET,HEAD,POST", MaxBody: 1 << 20})
+
+	rec := h.request(http.MethodPut, testHost, "/upload", "x", map[string]string{"Content-Type": "application/octet-stream"})
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("PUT outside the profile list = %d, want 405", rec.Code)
+	}
+}
+
 // The exemption is one method and one path: everything else is still buffered
 // and still refused over the site ceiling.
 func TestBodySkipIsBoundToItsMethodAndPath(t *testing.T) {

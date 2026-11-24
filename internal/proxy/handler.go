@@ -254,6 +254,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	skipBody := bodySkipped(e.proxy.BodySkip, r.Method, r.URL.Path, func(ids []int64) bool {
 		return s.d.Policy.InList(preq, ids)
 	})
+	// The content-type and method policy rules refuse a raw PUT upload before
+	// any body is read, which would defeat the exemption it is meant to serve.
+	preq.BodyStreamed = skipBody
 	if skipBody {
 		event.Stage, event.RuleID = "body-skip", "path"
 		event.RuleMsg = "request body is streamed without inspection"
