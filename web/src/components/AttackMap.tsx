@@ -4,7 +4,7 @@ import { countryFlag, countryName } from "../countries";
 import { nearMissTotal, reachedApps, reachedGlobePoints, statusTone } from "../reach";
 import type { Event, GlobeHit, GlobePoint, Reach } from "../types";
 import { Badge, Drawer, Empty, Skeleton, fmtAgo, fmtTime } from "../ui";
-import Globe, { type GlobeHandle } from "./Globe";
+import Globe, { type GlobeHandle, windowText } from "./Globe";
 
 type Tab = "blocked" | "reached" | "near";
 
@@ -119,7 +119,7 @@ export default function AttackMap({
           Attack map
         </span>
       }
-      sub={`${total.toLocaleString()} blocked · ${reachedCount.toLocaleString()} reached your applications in the last ${hours} hour${hours === 1 ? "" : "s"}`}
+      sub={`${total.toLocaleString()} blocked · ${reachedCount.toLocaleString()} reached your applications in the last ${windowText(hours)}`}
       onClose={onClose}
       onEscape={() => globe.current?.stepBack() ?? false}
       footer={<button onClick={onClose}>Close</button>}
@@ -128,9 +128,9 @@ export default function AttackMap({
         <div className="map-stage">
           <div className="map-toolbar">
             <div className="btn-group">
-              {[1, 6, 24].map((h) => (
+              {([[1, "1h"], [6, "6h"], [24, "24h"], [168, "7d"], [720, "30d"]] as [number, string][]).map(([h, label]) => (
                 <button key={h} className={`small ${hours === h ? "primary" : ""}`} onClick={() => { onHours(h); setFocus(null); }} aria-pressed={hours === h}>
-                  {h}h
+                  {label}
                 </button>
               ))}
             </div>

@@ -384,6 +384,14 @@ function ago(ts: string): string {
   return `${Math.round(s / 3600)}h ago`;
 }
 
+// The map's window runs in hours up to the 30 days the log keeps; name it the
+// way the selector buttons do.
+export function windowText(hours: number): string {
+  if (hours >= 720) return "30 days";
+  if (hours >= 168) return "7 days";
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
 type Tip = { x: number; y: number; pt: GlobePoint };
 
 export type GlobeHandle = {
@@ -488,7 +496,7 @@ const Globe = forwardRef<GlobeHandle, {
 
   const summary = useMemo(() => {
     const parts = GROUPS.map((g) => `${counts[g.id].toLocaleString()} ${g.label}`).join(", ");
-    return `Attack globe over the last ${hours} hour${hours === 1 ? "" : "s"}: ${parts}; ${reachedSum.toLocaleString()} allowed requests reached an application endpoint.`;
+    return `Attack globe over the last ${windowText(hours)}: ${parts}; ${reachedSum.toLocaleString()} allowed requests reached an application endpoint.`;
   }, [counts, hours, reachedSum]);
 
   useEffect(() => {
@@ -1048,7 +1056,7 @@ const Globe = forwardRef<GlobeHandle, {
         <canvas
           ref={canvasRef}
           role="img"
-          aria-label={`World map of blocked attacks and allowed requests that reached an application in the last ${hours} hour${hours === 1 ? "" : "s"}`}
+          aria-label={`World map of blocked attacks and allowed requests that reached an application in the last ${windowText(hours)}`}
           onPointerMove={onMove}
           onPointerDown={onDown}
           onPointerUp={onUp}
@@ -1118,7 +1126,7 @@ const Globe = forwardRef<GlobeHandle, {
             <b>{liveStats.perMin}</b> attacks/min
           </span>
           <span>
-            last {hours}h · <b>{shownTotal(counts).toLocaleString()}</b> blocked
+            last {windowText(hours)} · <b>{shownTotal(counts).toLocaleString()}</b> blocked
           </span>
           {liveStats.top && (
             <span>

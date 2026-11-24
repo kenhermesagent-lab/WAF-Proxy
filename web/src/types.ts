@@ -350,15 +350,24 @@ export interface AnomalyDestination {
   address: string;
   port?: string;
   resolved?: string[];
+  // Public backends are off-network, so traffic to them leaves the host.
+  public: boolean;
   muted: boolean;
 }
 
-// One address a site's IP whitelists allow, which can be muted like a
-// destination once two clicks have shown the traffic is expected.
-export interface AnomalySource {
+// One client the site sent outbound bytes to during a detection's window. A
+// public address is data that left the network; a whitelisted one is expected.
+export interface AnomalyEgress {
   address: string;
-  label: string;
+  country: string;
+  asn: number;
+  requests: number;
+  bytes_out: number;
+  public: boolean;
+  whitelisted: boolean;
   muted: boolean;
+  banned: boolean;
+  permanent: boolean;
 }
 
 export interface AnomalyMute {
@@ -720,6 +729,20 @@ export interface Uptime {
   targets: UptimeTarget[];
   proxies: { proxy_id: number; host: string; state: string; targets: number; up: number }[];
   checked_at: string;
+}
+
+// One stored hour of host load, link rates and request counts.
+export interface UtilHour {
+  hour: string;
+  cpu: number;
+  mem_used: number;
+  mem_total: number;
+  wan_rx: number;
+  wan_tx: number;
+  proxy_rx: number;
+  proxy_tx: number;
+  reqs: number;
+  blocked: number;
 }
 
 export interface GlobePoint {

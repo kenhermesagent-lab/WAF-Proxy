@@ -13,6 +13,10 @@ import { nearMissTotal, reachedGlobePoints } from "../reach";
 
 type Rate = { requests: number; bytesIn: number; bytesOut: number };
 
+// The map and the blocked lists read the same window, capped at the 30 days the
+// event log keeps.
+const WINDOWS: [number, string][] = [[1, "1h"], [6, "6h"], [24, "24h"], [168, "7d"], [720, "30d"]];
+
 function compactBps(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB/s`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB/s`;
@@ -182,7 +186,7 @@ export default function Dashboard({
     let alive = true;
     const load = () =>
       api
-        .get<{ events: Event[]; total: number }>("/api/events?limit=40&blocked=1")
+        .get<{ events: Event[]; total: number }>(`/api/events?limit=40&blocked=1&hours=${hours}`)
         .then((r) => alive && setEvents(r.events ?? []))
         .catch((e) => alive && onError(e.message));
     load();
@@ -191,7 +195,7 @@ export default function Dashboard({
       alive = false;
       clearInterval(t);
     };
-  }, [onError]);
+  }, [onError, hours]);
 
   useEffect(() => {
     let alive = true;
@@ -551,14 +555,14 @@ export default function Dashboard({
           actions={
             <>
               <div className="btn-group">
-                {[1, 6, 24].map((h) => (
+                {WINDOWS.map(([h, label]) => (
                   <button
                     key={h}
                     className={`xsmall ${hours === h ? "primary" : ""}`}
                     onClick={() => setHours(h)}
                     aria-pressed={hours === h}
                   >
-                    {h}h
+                    {label}
                   </button>
                 ))}
               </div>

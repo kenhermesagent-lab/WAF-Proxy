@@ -1065,6 +1065,7 @@ func run() error {
 	uptimeMon.Start(ctx)
 	active.Add(func(ctx context.Context) { cs.Start(ctx) })
 	active.Add(func(ctx context.Context) { retentionLoop(ctx, st, log) })
+	active.Add(func(ctx context.Context) { utilizationLoop(ctx, st, met, log) })
 	active.Add(func(ctx context.Context) { certWatch(ctx, res, log) })
 	if startActive {
 		active.Start()
@@ -1244,6 +1245,37 @@ func retentionLoop(ctx context.Context, st *store.Store, log *slog.Logger) {
 			return
 		case <-t.C:
 			run()
+		}
+	}
+}
+
+// utilizationLoop folds host load and link rates into hourly rows, so the
+// Statistics hours view can cover the same 30 days the event log keeps.
+func utilizationLoop(ctx context.Context, st *store.Store, met *metrics.Collector, log *slog.Logger) {
+	const keep = 30 * 24 * time.Hour
+	save := func() {
+		now := time.Now()
+		snap := met.Snapshot()
+		err := st.RollupUtilization(now, store.UtilSample{
+			CPU: snap.Load.CPUPercent, MemUsed: int64(snap.Load.MemUsed), MemTotal: int64(snap.Load.MemTotal),
+			WANRx: snap.WAN.RxBps, WANTx: snap.WAN.TxBps, ProxyRx: snap.Proxy.InBps, ProxyTx: snap.Proxy.OutBps,
+		})
+		if err != nil {
+			log.Warn("utilization rollup failed", "err", err)
+		}
+		if err := st.DeleteUtilizationBefore(now.Add(-keep)); err != nil {
+			log.Warn("utilization retention failed", "err", err)
+		}
+	}
+	save()
+	t := time.NewTicker(5 * time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			save()
 		}
 	}
 }

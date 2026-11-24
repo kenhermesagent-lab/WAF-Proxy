@@ -11,10 +11,12 @@ Behavioural detections: patterns across requests that a single-request rule woul
 - Raise a threshold if a legitimate integration trips it, and note why.
 
 ## Following an event out
-Click an event to open its detail: the value, the baseline it was measured against, where the site's outbound traffic goes, and the sources its IP whitelists allow.
+Click an event to open its detail: the value, the baseline it was measured against, where the data left for, and the backends the site sends to.
 
-- **Where the outbound traffic goes** — the site's upstreams and the addresses they resolve to. **Mute destination** marks one as expected.
-- **Where it comes from** — the entries of the enabled IP whitelist policies that apply to the site. **Mute source** marks a trusted client as expected, so an upload from that public IP is no longer a spike; a subnet entry covers the clients inside it.
-- A mute acknowledges the open outbound spikes for the site. A new spike is still suppressed only while every enabled upstream is a muted destination, or every byte in the window came from muted sources: one unexpected destination or one other client still raises one.
+- **Where the data left for** — the clients that received the site's bytes in the window, ranked by volume, with the total delivered and the request count. A **public** address is data that left the network; a **LAN** one stayed on it. A whitelisted client is already expected, so it needs no mute.
+- **Investigate** opens the source's full record: whois, AbuseIPDB, the hosts and paths it touched.
+- **Mute** marks that client's traffic as expected. **Ban 24h** and **Ban permanently** add it to Policies; both are audited and enforced at the proxy and in nftables.
+- **Backends this site sends to** — the configured upstreams, marked **internal** or **public**. Muting a backend treats its traffic as expected; an internal backend is normal request forwarding, not data leaving the network.
+- A whitelisted client is expected without a mute, and a mute acknowledges the open outbound spikes for the site. A new spike is still suppressed only while every enabled upstream is a muted backend, or every byte in the window came from a whitelisted or muted client: one unexpected client still raises one.
 - Muted rows are listed under **Muted traffic** until they are unmuted.
 - Muting covers outbound spikes only. Request-rate spikes, login-failure bursts and their notifications are unaffected.

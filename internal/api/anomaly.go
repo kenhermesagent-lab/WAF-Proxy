@@ -82,21 +82,30 @@ func (s *Server) acknowledgeAnomaly(w http.ResponseWriter, r *http.Request) {
 }
 
 // destination is one configured upstream of a site: where its outbound traffic
-// actually goes and the addresses it resolves to.
+// actually goes and the addresses it resolves to. Public means the backend is
+// off-network, so traffic to it really leaves the host.
 type destination struct {
 	URL      string   `json:"url"`
 	Address  string   `json:"address"`
 	Port     string   `json:"port,omitempty"`
 	Resolved []string `json:"resolved,omitempty"`
+	Public   bool     `json:"public"`
 	Muted    bool     `json:"muted"`
 }
 
-// source is one address the site's IP whitelists allow, and whether traffic
-// from it is already expected.
-type source struct {
-	Address string `json:"address"`
-	Label   string `json:"label"`
-	Muted   bool   `json:"muted"`
+// egress is one client that received the site's outbound bytes during the
+// detection's window, with what an operator can do about it.
+type egress struct {
+	Address     string `json:"address"`
+	Country     string `json:"country"`
+	ASN         int    `json:"asn"`
+	Requests    int64  `json:"requests"`
+	BytesOut    int64  `json:"bytes_out"`
+	Public      bool   `json:"public"`
+	Whitelisted bool   `json:"whitelisted"`
+	Muted       bool   `json:"muted"`
+	Banned      bool   `json:"banned"`
+	Permanent   bool   `json:"permanent"`
 }
 
 // getAnomalyEvent answers the slide-over: one detection, the destinations the
@@ -114,7 +123,7 @@ func (s *Server) getAnomalyEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"event":        e,
 		"destinations": s.destinations(r, det, e.ProxyID),
-		"sources":      s.sources(r, det, e.ProxyID),
+		"egress":       s.egresses(r, det, e),
 	})
 }
 
@@ -147,14 +156,14 @@ func (s *Server) muteAnomaly(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "a mute is for a destination or a source")
 		return
 	}
-	known, err := s.knownAddress(r, det, e.ProxyID, kind, in.Address)
+	known, err := s.knownAddress(r, det, e, kind, in.Address)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
 	if !known {
 		if kind == anomaly.MuteSource {
-			writeError(w, http.StatusBadRequest, "that address is not on this site's IP whitelist")
+			writeError(w, http.StatusBadRequest, "that address is neither whitelisted nor in this event's traffic")
 		} else {
 			writeError(w, http.StatusBadRequest, "that address is not one of this site's upstreams")
 		}
@@ -178,21 +187,33 @@ func (s *Server) muteAnomaly(w http.ResponseWriter, r *http.Request) {
 }
 
 // knownAddress reports whether address is one the site actually uses on the side
-// being muted, so a typo cannot store a mute that never matches.
-func (s *Server) knownAddress(r *http.Request, det *anomaly.Manager, proxyID int64, kind, address string) (bool, error) {
+// being muted, so a typo cannot store a mute that never matches. A source is
+// known when a whitelist covers it or the detection saw it move bytes.
+func (s *Server) knownAddress(r *http.Request, det *anomaly.Manager, e *model.AnomalyEvent, kind, address string) (bool, error) {
 	if kind == anomaly.MuteSource {
-		list, err := s.whitelistedSources(r, proxyID)
+		p, err := netmatch.ParsePrefix(address)
+		if err != nil {
+			return false, nil
+		}
+		list, err := s.whitelistedSources(r, e.ProxyID)
 		if err != nil {
 			return false, err
 		}
-		for _, e := range list {
-			if e.Address == address {
+		for _, x := range list {
+			// A whole whitelist entry can be muted, which is how a subnet is
+			// marked expected in one click.
+			if x.Address == address {
+				return true, nil
+			}
+		}
+		for _, x := range s.egresses(r, det, e) {
+			if a, err := netip.ParseAddr(x.Address); err == nil && p.Contains(a) {
 				return true, nil
 			}
 		}
 		return false, nil
 	}
-	for _, d := range s.destinations(r, det, proxyID) {
+	for _, d := range s.destinations(r, det, e.ProxyID) {
 		if d.Address == address {
 			return true, nil
 		}
@@ -284,23 +305,82 @@ func (s *Server) destinations(r *http.Request, det *anomaly.Manager, proxyID int
 		}
 		d := destination{URL: up.URL, Address: u.Hostname(), Port: u.Port(), Muted: muted[u.Hostname()]}
 		d.Resolved = resolveHost(r.Context(), u.Hostname())
+		d.Public = isPublicAddr(u.Hostname())
+		for _, a := range d.Resolved {
+			d.Public = d.Public || isPublicAddr(a)
+		}
 		out = append(out, d)
 	}
 	return out
 }
 
-// sources lists the site's whitelisted sources with the ones already expected.
-func (s *Server) sources(r *http.Request, det *anomaly.Manager, proxyID int64) []source {
-	list, err := s.whitelistedSources(r, proxyID)
-	if err != nil {
-		return []source{}
+// egresses ranks the clients that were sent the most bytes during a detection's
+// window. A public address is data that left the network; a private one is a
+// LAN client. A whitelisted client is expected traffic, so it never raises a
+// spike and needs no mute of its own.
+func (s *Server) egresses(r *http.Request, det *anomaly.Manager, e *model.AnomalyEvent) []egress {
+	// A lasting spike refreshes last_seen instead of opening a new event, so the
+	// latest minute is the one whose clients matter.
+	window := time.Duration(max(e.WindowSeconds, 60)) * time.Second
+	from := e.WindowStart
+	if !e.LastSeen.IsZero() {
+		from = e.LastSeen.Add(-window)
 	}
-	muted := s.mutedSet(det, proxyID, anomaly.MuteSource)
-	out := make([]source, 0, len(list))
-	for _, e := range list {
-		out = append(out, source{Address: e.Address, Label: e.Label, Muted: muted[e.Address]})
+	if from.IsZero() {
+		from = time.Now().Add(-window)
+	}
+	to := from.Add(window)
+	rows, err := s.db(r).EgressSources(e.ProxyID, from, to, 12)
+	if err != nil {
+		return []egress{}
+	}
+	wl, _ := s.whitelistedSources(r, e.ProxyID)
+	muted := s.mutedSet(det, e.ProxyID, anomaly.MuteSource)
+	bans := s.banIndex(r)
+	out := make([]egress, 0, len(rows))
+	for _, row := range rows {
+		x := egress{Address: row.IP, Country: row.Country, ASN: row.ASN, Requests: row.Requests,
+			BytesOut: row.BytesOut, Public: isPublicAddr(row.IP), Muted: muted[row.IP]}
+		if addr, err := netip.ParseAddr(row.IP); err == nil {
+			x.Whitelisted = whitelistCovers(wl, addr)
+		}
+		if b := s.banView(row.IP, bans); b.Banned {
+			x.Banned, x.Permanent = true, b.Permanent
+		}
+		out = append(out, x)
 	}
 	return out
+}
+
+// whitelistCovers reports whether an enabled IP whitelist policy allows addr.
+func whitelistCovers(list []whitelistedSource, addr netip.Addr) bool {
+	for _, e := range list {
+		if p, err := netmatch.ParsePrefix(e.Address); err == nil && p.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// isPublicAddr reports whether an address is routable on the internet, so
+// traffic to it leaves the host rather than staying on the LAN.
+func isPublicAddr(raw string) bool {
+	a, err := netip.ParseAddr(raw)
+	if err != nil {
+		return false
+	}
+	a = a.Unmap()
+	if !a.IsGlobalUnicast() || a.IsPrivate() {
+		return false
+	}
+	// Carrier-grade NAT is not reachable from the internet either.
+	if a.Is4() {
+		b := a.As4()
+		if b[0] == 100 && b[1] >= 64 && b[1] <= 127 {
+			return false
+		}
+	}
+	return true
 }
 
 // mutedSet is the addresses muted on one side of a site, so a list can say which

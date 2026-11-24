@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { countryFlag, countryName } from "../countries";
-import { Analytics, GateFailure, Uptime, UptimeTarget } from "../types";
+import { Analytics, GateFailure, Uptime, UptimeTarget, UtilHour } from "../types";
 import Chart from "../components/Chart";
-import { Badge, Card, Empty, PageHead, PageTabs, errText, fmtAgo, fmtBytes, fmtTime } from "../ui";
+import { Badge, Card, Empty, PageHead, PageTabs, errText, fmtAgo, fmtBps, fmtBytes, fmtTime } from "../ui";
 
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "traffic", label: "Traffic" },
   { id: "gate", label: "Access gate logins" },
+  { id: "util", label: "Utilization" },
 ];
 
 const day = (offset: number) => {
@@ -35,6 +36,92 @@ function stateBadge(state: string) {
   if (state === "down") return <Badge tone="bad">down</Badge>;
   if (state === "disabled") return <Badge tone="warn">disabled</Badge>;
   return <Badge tone="">unknown</Badge>;
+}
+
+// Utilization is the hourly host series: load, throughput and the request
+// counts, so an operator can line a block spike up with the hour it happened.
+function Utilization({ onError }: { onError: (m: string) => void }) {
+  const [rows, setRows] = useState<UtilHour[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .get<{ hours: UtilHour[] }>("/api/utilization?hours=720")
+      .then((r) => alive && setRows(r.hours ?? []))
+      .catch((e) => {
+        if (!alive) return;
+        onError(errText(e));
+        setRows([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (rows === null) return <p className="muted">Loading…</p>;
+  if (rows.length === 0) {
+    return (
+      <Empty title="No hourly data yet" icon="chart">
+        One row is stored every five minutes, so the first hour appears within five minutes of the service running.
+      </Empty>
+    );
+  }
+
+  const labels = rows.map((h) => {
+    const d = new Date(h.hour);
+    if (Number.isNaN(d.getTime())) return "";
+    return rows.length <= 48
+      ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : d.toLocaleDateString([], { month: "short", day: "numeric" });
+  });
+  const memPct = (h: UtilHour) => (h.mem_total ? (h.mem_used / h.mem_total) * 100 : 0);
+  const pctFmt = (n: number) => `${n.toFixed(0)}%`;
+  const countFmt = (n: number) =>
+    n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : `${Math.round(n)}`;
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <Card title="CPU and memory" sub="Host load, averaged over each hour.">
+        <Chart
+          series={[
+            { label: "CPU", color: "#4f8cff", values: rows.map((h) => h.cpu), area: true },
+            { label: "Memory", color: "#e5a54b", values: rows.map(memPct) },
+          ]}
+          labels={labels}
+          height={200}
+          format={pctFmt}
+        />
+      </Card>
+
+      <Card title="Network throughput" sub="WAN rates over the hour, in and out.">
+        <Chart
+          series={[
+            { label: "Inbound", color: "#4f8cff", values: rows.map((h) => h.wan_rx), area: true },
+            { label: "Outbound", color: "#3ecf8e", values: rows.map((h) => h.wan_tx), area: true },
+          ]}
+          labels={labels}
+          height={200}
+          format={fmtBps}
+        />
+      </Card>
+
+      <Card title="Requests and blocks" sub="Request counts per hour from the event log, blocked traffic overlaid.">
+        <Chart
+          series={[
+            { label: "Requests", color: "#4f8cff", values: rows.map((h) => h.reqs), area: true },
+            { label: "Blocked", color: "#f0616d", values: rows.map((h) => h.blocked) },
+          ]}
+          labels={labels}
+          height={200}
+          format={countFmt}
+        />
+      </Card>
+
+      <p className="faint small-text" style={{ marginBottom: 0 }}>
+        Hourly rows are kept for 30 days, the same window as the event log.
+      </p>
+    </div>
+  );
 }
 
 function UptimeRow({ t }: { t: UptimeTarget }) {
@@ -161,15 +248,13 @@ export default function Statistics({
         </span>
       }
     >
-      <div className="grid cols-3" style={{ marginBottom: 12 }}>
+      <div className="facts" style={{ marginBottom: 12, fontSize: 12 }}>
         {(uptime?.proxies ?? []).map((p) => (
-          <div className="bar-row" key={p.proxy_id}>
-            <div>
-              <div>{p.host}</div>
-              <div className="faint" style={{ fontSize: 11 }}>{p.up}/{p.targets} upstreams up</div>
-            </div>
-            <div>{stateBadge(p.state)}</div>
-          </div>
+          <span key={p.proxy_id} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span>{p.host}</span>
+            <span className="faint">{p.up}/{p.targets} up</span>
+            {stateBadge(p.state)}
+          </span>
         ))}
         {(uptime?.proxies ?? []).length === 0 && <Empty>No proxies configured.</Empty>}
       </div>
@@ -214,6 +299,7 @@ export default function Statistics({
           <div className="quick-ranges">
             <button type="button" className="small" onClick={() => { setFrom(day(0)); setTo(day(0)); }}>Today</button>
             <button type="button" className="small" onClick={() => { setFrom(day(-6)); setTo(day(0)); }}>Last 7 days</button>
+            <button type="button" className="small" onClick={() => { setFrom(day(-29)); setTo(day(0)); }}>Last 30 days</button>
           </div>
         </form>
         <p className="faint small-text" style={{ marginBottom: 0 }}>
@@ -333,6 +419,8 @@ export default function Statistics({
           </Card>
         </div>
       )}
+
+      {tab === "util" && <Utilization onError={onError} />}
 
       {tab === "gate" && (
         <Card

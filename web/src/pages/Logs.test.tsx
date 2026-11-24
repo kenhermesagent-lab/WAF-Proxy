@@ -131,8 +131,8 @@ describe("Logs request simulator", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save view" }));
 
     await waitFor(() => expect(onOK).toHaveBeenCalledWith("View “Port scans” saved for the team"));
-    expect(put).toHaveBeenCalledWith("/api/log-views/Port%20scans", { query: "ip=203.0.113.7" });
-    expect(JSON.parse(store["waf.logs.views"])).toEqual([{ name: "Port scans", query: "ip=203.0.113.7" }]);
+    expect(put).toHaveBeenCalledWith("/api/log-views/Port%20scans", { query: "hours=24&ip=203.0.113.7" });
+    expect(JSON.parse(store["waf.logs.views"])).toEqual([{ name: "Port scans", query: "hours=24&ip=203.0.113.7" }]);
 
     // A fresh mount reads the saved view back from storage.
     cleanup();
@@ -202,7 +202,7 @@ describe("Logs request simulator", () => {
     fireEvent.change(screen.getByPlaceholderText("203.0.113.7"), { target: { value: "203.0.113.7" } });
     fireEvent.click(screen.getByRole("button", { name: "Report" }));
 
-    await waitFor(() => expect(text).toHaveBeenCalledWith("/api/events/incident.md?ip=203.0.113.7"));
+    await waitFor(() => expect(text).toHaveBeenCalledWith("/api/events/incident.md?hours=24&ip=203.0.113.7"));
     expect((await screen.findByLabelText("Incident report in Markdown")).textContent).toContain("Incident report — log window");
   });
 

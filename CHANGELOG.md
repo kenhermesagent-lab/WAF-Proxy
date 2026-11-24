@@ -12,6 +12,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.72.0] — 2026-11-24
+
+### Added
+
+- **Utilization tab on Statistics.** CPU, memory, WAN throughput and the hourly request and block counts are
+  sampled every five minutes, averaged into hours and kept for 30 days, drawn as line charts so a block spike can
+  be lined up with the load that came with it.
+- **Outbound data in the anomaly slide-over.** An outbound spike lists the clients that received the bytes, ranked
+  by volume and flagged public or LAN, with the total delivered, the country, the ASN and the request count. A
+  public address can be investigated (whois, AbuseIPDB), muted, or banned for 24 hours or permanently. The site's
+  upstreams are listed separately and marked internal or public, so a backend hop is not mistaken for data leaving
+  the network.
+- **Hour ranges up to 30 days** on the attack map, the dashboard's blocked lists and the log, next to the existing
+  1h, 6h and 24h.
+
+### Changed
+
+- **A whitelisted client no longer raises an outbound spike.** An address an enabled IP whitelist already allows is
+  expected traffic, so it needs no separate mute; a window another client contributed to still raises one.
+
+### Fixed
+
+- **The uptime monitor's per-proxy summary** no longer renders as a ragged three-column grid whose rules stop
+  mid-card; the proxies sit on one compact line above the probe table.
+
 ## [1.71.1] — 2026-11-24
 
 ### Fixed

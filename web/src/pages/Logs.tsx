@@ -20,6 +20,7 @@ function clockTime(iso: string): string {
 function filtersFromQuery(query?: string) {
   const q = new URLSearchParams(query ?? "");
   return {
+    hours: q.get("hours") ?? "24",
     ip: q.get("ip") ?? "",
     host: q.get("host") ?? "",
     stage: q.get("stage") ?? "",
@@ -32,6 +33,7 @@ type Filters = ReturnType<typeof filtersFromQuery>;
 
 function queryOf(f: Filters): URLSearchParams {
   const q = new URLSearchParams();
+  if (f.hours) q.set("hours", f.hours);
   if (f.ip) q.set("ip", f.ip);
   if (f.host) q.set("host", f.host);
   if (f.stage) q.set("stage", f.stage);
@@ -325,6 +327,15 @@ export default function Logs({
           </button>
         </div>
         <div className="row grow">
+          <div className="field"><label>Range</label>
+            <select value={filters.hours} onChange={(e) => setFilters({ ...filters, hours: e.target.value })}>
+              <option value="1">Last hour</option>
+              <option value="6">Last 6 hours</option>
+              <option value="24">Last 24 hours</option>
+              <option value="168">Last 7 days</option>
+              <option value="720">Last 30 days</option>
+            </select>
+          </div>
           <div className="field"><label>Source IP</label><input value={filters.ip} onChange={(e) => setFilters({ ...filters, ip: e.target.value })} placeholder="203.0.113.7" /></div>
           <div className="field"><label>Host</label><input value={filters.host} onChange={(e) => setFilters({ ...filters, host: e.target.value })} placeholder="app.example.com" /></div>
           <div className="field"><label>Stage</label>

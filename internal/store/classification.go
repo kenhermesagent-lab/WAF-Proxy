@@ -61,6 +61,7 @@ var TableClasses = map[string]TableClass{
 	"admin_prefs": ClassLocal,
 	"events":      ClassLocal,
 	"flows":       ClassLocal,
+	"utilization": ClassLocal,
 	"ha_outbox":   ClassLocal,
 	"ha_peer_ack": ClassLocal,
 	"ha_applied":  ClassLocal,

@@ -284,6 +284,9 @@ func (m *Manager) expectedEgress(proxyID, total int64, bySource map[string]int64
 	if len(dest) > 0 && m.allDestinationsMuted(proxyID, dest) {
 		return true
 	}
+	// A whitelisted client is traffic the operator already allows, so its bytes
+	// never make a spike on their own.
+	muted = append(muted, m.whitelistedSources(proxyID)...)
 	if len(muted) == 0 {
 		return false
 	}

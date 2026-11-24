@@ -156,6 +156,41 @@ func TestMuteSuppressesExpectedEgress(t *testing.T) {
 	}
 }
 
+// A whitelisted client is traffic the operator already allows, so its bytes are
+// expected without an explicit mute; one outside the whitelist still raises.
+func TestWhitelistedSourceIsExpected(t *testing.T) {
+	m, st, met, rec := newDetector(t)
+	if err := st.ReplaceUpstreams(1, []model.Upstream{{ProxyID: 1, URL: "http://10.9.9.9:8080", Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreatePolicy(&model.Policy{Scope: "global", Kind: model.PolicyIPWhitelist, Value: "203.0.113.0/24", Action: "allow", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	met.Count(1, 1, 0, 0, 0)
+	if err := m.Tick(now); err != nil {
+		t.Fatal(err)
+	}
+
+	met.Count(1, 1, 0, 0, 6<<20)
+	met.CountSource(1, "203.0.113.7", 6<<20)
+	if err := m.Tick(now.Add(Window)); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.kinds) != 0 {
+		t.Fatalf("a whitelisted client still raised %v", rec.kinds)
+	}
+
+	met.Count(1, 1, 0, 0, 20<<20)
+	met.CountSource(1, "198.51.100.9", 20<<20)
+	if err := m.Tick(now.Add(2 * Window)); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.kinds) != 1 || rec.kinds[0] != "egress_spike" {
+		t.Fatalf("kinds = %v, want the spike back for the client outside the whitelist", rec.kinds)
+	}
+}
+
 // A whitelisted source can be muted too, and a subnet mute covers the clients
 // inside it. A window made only of their bytes is expected, while a window
 // another client contributed to still raises a spike.

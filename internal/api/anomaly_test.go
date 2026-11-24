@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/anomaly"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/metrics"
@@ -77,8 +78,20 @@ func TestAnomalyDestinationAndMute(t *testing.T) {
 	if _, err := st.CreatePolicy(&model.Policy{Scope: "global", Kind: model.PolicyIPWhitelist, Value: "10.0.0.0/8", Action: "allow", Enabled: true, Note: "lan"}); err != nil {
 		t.Fatal(err)
 	}
-	eventID, err := st.CreateAnomalyEvent(&model.AnomalyEvent{Kind: "egress_spike", ProxyID: proxyID, ProxyHost: "files.example.com", Detail: "12.0 MB out in one minute", Value: 12 << 20})
+	now := time.Now().UTC()
+	eventID, err := st.CreateAnomalyEvent(&model.AnomalyEvent{Kind: "egress_spike", ProxyID: proxyID, ProxyHost: "files.example.com",
+		Detail: "12.0 MB out in one minute", Value: 12 << 20, WindowStart: now.Add(-time.Minute), WindowSeconds: 60})
 	if err != nil {
+		t.Fatal(err)
+	}
+	// One public client received the bytes and one LAN client got a little, so
+	// the slide-over can rank them and flag the ones already allowed.
+	if err := st.InsertEvents([]model.Event{
+		{TS: now.Add(-30 * time.Second), ProxyID: &proxyID, Host: "files.example.com", SrcIP: "203.0.113.9", Country: "NL",
+			Method: "GET", Path: "/f", Status: 200, Action: "allow", BytesOut: 12 << 20},
+		{TS: now.Add(-20 * time.Second), ProxyID: &proxyID, Host: "files.example.com", SrcIP: "10.1.2.3",
+			Method: "GET", Path: "/f", Status: 200, Action: "allow", BytesOut: 100},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -102,22 +115,31 @@ func TestAnomalyDestinationAndMute(t *testing.T) {
 	var detail struct {
 		Destinations []struct {
 			Address string `json:"address"`
+			Public  bool   `json:"public"`
 			Muted   bool   `json:"muted"`
 		} `json:"destinations"`
-		Sources []struct {
-			Address string `json:"address"`
-			Label   string `json:"label"`
-			Muted   bool   `json:"muted"`
-		} `json:"sources"`
+		Egress []struct {
+			Address     string `json:"address"`
+			Public      bool   `json:"public"`
+			Whitelisted bool   `json:"whitelisted"`
+			Muted       bool   `json:"muted"`
+			BytesOut    int64  `json:"bytes_out"`
+		} `json:"egress"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
 		t.Fatal(err)
 	}
-	if len(detail.Destinations) != 1 || detail.Destinations[0].Address != "10.1.2.3" {
+	if len(detail.Destinations) != 1 || detail.Destinations[0].Address != "10.1.2.3" || detail.Destinations[0].Public {
 		t.Fatalf("destinations = %s", rec.Body)
 	}
-	if len(detail.Sources) != 1 || detail.Sources[0].Address != "10.0.0.0/8" || detail.Sources[0].Label != "lan" {
-		t.Fatalf("sources = %s", rec.Body)
+	if len(detail.Egress) != 2 {
+		t.Fatalf("egress = %s", rec.Body)
+	}
+	if e := detail.Egress[0]; e.Address != "203.0.113.9" || !e.Public || e.Whitelisted || e.BytesOut != 12<<20 {
+		t.Fatalf("the public client was not ranked first: %+v", e)
+	}
+	if e := detail.Egress[1]; e.Address != "10.1.2.3" || e.Public || !e.Whitelisted {
+		t.Fatalf("the LAN client was not flagged as whitelisted: %+v", e)
 	}
 
 	if rec := call(http.MethodPost, "/api/anomaly/events/"+strconv.FormatInt(eventID, 10)+"/mute", `{"address":"10.1.2.3"}`); rec.Code != http.StatusOK {
@@ -137,25 +159,34 @@ func TestAnomalyDestinationAndMute(t *testing.T) {
 		t.Fatalf("unmute = %d %s", rec.Code, rec.Body)
 	}
 
-	// A whitelisted source can be muted instead of the backend it uploads to.
+	// A source can be muted when a whitelist names it or when the detection saw
+	// it move bytes; a typo is still refused.
 	path := "/api/anomaly/events/" + strconv.FormatInt(eventID, 10) + "/mute"
 	if rec := call(http.MethodPost, path, `{"kind":"source","address":"198.51.100.9"}`); rec.Code != http.StatusBadRequest {
-		t.Fatalf("an address off the whitelist was muted: %d %s", rec.Code, rec.Body)
+		t.Fatalf("an address the site never used was muted: %d %s", rec.Code, rec.Body)
 	}
 	if rec := call(http.MethodPost, path, `{"kind":"nonsense","address":"10.0.0.0/8"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("an unknown mute kind was accepted: %d %s", rec.Code, rec.Body)
 	}
-	if rec := call(http.MethodPost, path, `{"kind":"source","address":"10.0.0.0/8"}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"kind":"source"`) {
-		t.Fatalf("source mute = %d %s", rec.Code, rec.Body)
+	if rec := call(http.MethodPost, path, `{"kind":"source","address":"203.0.113.9"}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"kind":"source"`) {
+		t.Fatalf("public source mute = %d %s", rec.Code, rec.Body)
 	}
 	rec = call(http.MethodGet, "/api/anomaly/events/"+strconv.FormatInt(eventID, 10), "")
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
 		t.Fatal(err)
 	}
-	if !detail.Sources[0].Muted {
-		t.Fatalf("the source was not reported muted: %s", rec.Body)
+	if !detail.Egress[0].Muted {
+		t.Fatalf("the public source was not reported muted: %s", rec.Body)
+	}
+	if rec := call(http.MethodDelete, "/api/anomaly/mutes?proxy_id="+strconv.FormatInt(proxyID, 10)+"&kind=source&address=203.0.113.9", ""); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"address"`) {
+		t.Fatalf("source unmute = %d %s", rec.Code, rec.Body)
+	}
+
+	// A whole whitelist entry is muted in one click.
+	if rec := call(http.MethodPost, path, `{"kind":"source","address":"10.0.0.0/8"}`); rec.Code != http.StatusOK {
+		t.Fatalf("whitelist mute = %d %s", rec.Code, rec.Body)
 	}
 	if rec := call(http.MethodDelete, "/api/anomaly/mutes?proxy_id="+strconv.FormatInt(proxyID, 10)+"&kind=source&address=10.0.0.0/8", ""); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"address"`) {
-		t.Fatalf("source unmute = %d %s", rec.Code, rec.Body)
+		t.Fatalf("whitelist unmute = %d %s", rec.Code, rec.Body)
 	}
 }

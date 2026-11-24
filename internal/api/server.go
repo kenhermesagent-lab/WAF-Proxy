@@ -398,6 +398,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/capacity", s.authed(s.getCapacity))
 	m.HandleFunc("GET /metrics", s.prometheusMetrics)
 	m.HandleFunc("GET /api/analytics", s.authed(s.getAnalytics))
+	m.HandleFunc("GET /api/utilization", s.authed(s.getUtilization))
 	m.HandleFunc("GET /api/uptime", s.authed(s.getUptime))
 	m.HandleFunc("GET /api/events", s.authed(s.listEvents))
 	m.HandleFunc("GET /api/log-views", s.authed(s.listLogViews))

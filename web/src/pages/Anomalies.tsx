@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { countryFlag, countryName } from "../countries";
 import { Badge, Card, Drawer, Empty, Field, confirmDialog, errText, fmtAgo, PageHead } from "../ui";
-import type { AnomalyConfig, AnomalyDestination, AnomalyEvent, AnomalyMute, AnomalySource } from "../types";
+import type { AnomalyConfig, AnomalyDestination, AnomalyEgress, AnomalyEvent, AnomalyMute } from "../types";
 
 const LABELS: Record<string, string> = {
   egress_spike: "Outbound spike",
@@ -30,14 +31,24 @@ const TONE: Record<string, "bad" | "warn" | "info"> = {
   auth_burst: "info",
 };
 
-export default function Anomalies({ onError, onOK }: { onError: (m: string) => void; onOK: (m: string) => void }) {
+export default function Anomalies({
+  onError,
+  onOK,
+  onOpenSource,
+  canWrite,
+}: {
+  onError: (m: string) => void;
+  onOK: (m: string) => void;
+  onOpenSource: (ip: string) => void;
+  canWrite: boolean;
+}) {
   const [events, setEvents] = useState<AnomalyEvent[]>([]);
   const [mutes, setMutes] = useState<AnomalyMute[]>([]);
   const [cfg, setCfg] = useState<AnomalyConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<AnomalyEvent | null>(null);
   const [dests, setDests] = useState<AnomalyDestination[] | null>(null);
-  const [srcs, setSrcs] = useState<AnomalySource[] | null>(null);
+  const [egress, setEgress] = useState<AnomalyEgress[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = () =>
@@ -84,18 +95,44 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
   const inspect = async (e: AnomalyEvent) => {
     setSelected(e);
     setDests(null);
-    setSrcs(null);
+    setEgress(null);
     try {
-      const r = await api.get<{ event: AnomalyEvent; destinations: AnomalyDestination[]; sources: AnomalySource[] }>(
+      const r = await api.get<{ event: AnomalyEvent; destinations: AnomalyDestination[]; egress: AnomalyEgress[] }>(
         `/api/anomaly/events/${e.id}`,
       );
       setSelected(r.event);
       setDests(r.destinations || []);
-      setSrcs(r.sources || []);
+      setEgress(r.egress || []);
     } catch (err) {
       onError(errText(err));
       setDests([]);
-      setSrcs([]);
+      setEgress([]);
+    }
+  };
+
+  const ban = async (address: string, permanent: boolean) => {
+    if (!selected) return;
+    const site = selected.proxy_host || `#${selected.proxy_id}`;
+    const ok = await confirmDialog(
+      `${permanent ? "Permanently block" : "Block for 24 hours"} ${address}? It is added to Policies and enforced at the proxy and in nftables.`,
+      { title: permanent ? "Permanent ban" : "Temporary ban", confirmLabel: permanent ? "Ban permanently" : "Ban 24h" },
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.post("/api/bans", {
+        cidr: address,
+        reason: `anomaly: outbound data from ${site}`,
+        permanent,
+        ...(permanent ? {} : { ttl_seconds: 86400 }),
+      });
+      onOK(`${address} ${permanent ? "permanently banned" : "banned for 24 hours"}`);
+      await inspect(selected);
+      load();
+    } catch (err) {
+      onError(errText(err));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -292,19 +329,73 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
             </div>
           </div>
 
-          <h3 style={{ margin: "18px 0 4px", fontSize: 13 }}>Where the outbound traffic goes</h3>
+          <h3 style={{ margin: "18px 0 4px", fontSize: 13 }}>Where the data left for</h3>
           <p className="faint small-text" style={{ marginTop: 0 }}>
-            Every request to this site is forwarded to its configured upstreams, so this is where the bytes left for.
+            Clients that received this site's bytes during the window, ranked by volume. A public address is data that
+            left the network; a LAN address or a whitelisted client is expected traffic.
+          </p>
+          {egress === null ? (
+            <p className="muted">Loading…</p>
+          ) : egress.length === 0 ? (
+            <Empty>No request in this window carried bytes, so there is no client to show.</Empty>
+          ) : (
+            egress.map((x) => (
+              <div key={x.address} style={{ padding: "8px 0", borderBottom: "1px solid var(--border-soft)" }}>
+                <div className="row between" style={{ gap: 8 }}>
+                  <span className="row" style={{ gap: 6 }}>
+                    <span className="mono">{x.address}</span>
+                    <Badge tone={x.public ? "warn" : ""}>{x.public ? "public" : "LAN"}</Badge>
+                    {x.whitelisted && <Badge tone="ok">whitelisted</Badge>}
+                    {x.muted && !x.whitelisted && <Badge tone="info">muted</Badge>}
+                    {x.banned && <Badge tone="bad">{x.permanent ? "permanent ban" : "temp ban"}</Badge>}
+                  </span>
+                  <span className="mono">{fmtBytes(x.bytes_out)}</span>
+                </div>
+                <div className="row between" style={{ marginTop: 4, gap: 8 }}>
+                  <span className="faint small-text">
+                    {countryFlag(x.country)} {countryName(x.country) || "unknown"} · AS{x.asn || "?"} ·{" "}
+                    {x.requests.toLocaleString()} requests
+                  </span>
+                  <span className="row" style={{ gap: 6 }}>
+                    <button className="small" onClick={() => onOpenSource(x.address)}>Investigate</button>
+                    {x.muted ? (
+                      <button className="small" onClick={() => unmute(selected.proxy_id, "source", x.address)} disabled={busy}>
+                        Unmute
+                      </button>
+                    ) : x.whitelisted ? (
+                      <span className="faint small-text">expected</span>
+                    ) : (
+                      <button className="small" onClick={() => mute("source", x.address)} disabled={busy}>
+                        Mute
+                      </button>
+                    )}
+                    {canWrite && !x.banned && (
+                      <>
+                        <button className="small" onClick={() => ban(x.address, false)} disabled={busy}>Ban 24h</button>
+                        <button className="small danger" onClick={() => ban(x.address, true)} disabled={busy}>Ban permanently</button>
+                      </>
+                    )}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+
+          <h3 style={{ margin: "18px 0 4px", fontSize: 13 }}>Backends this site sends to</h3>
+          <p className="faint small-text" style={{ marginTop: 0 }}>
+            The configured upstreams. An internal backend keeps the traffic on your network; a public one means it
+            leaves the host. Muting a backend treats its traffic as expected.
           </p>
           {dests === null ? (
             <p className="muted">Loading…</p>
           ) : dests.length === 0 ? (
-            <Empty>This site has no upstreams configured, so there is no destination to show.</Empty>
+            <Empty>This site has no upstreams configured, so there is no backend to show.</Empty>
           ) : (
             dests.map((d) => (
               <div className="bar-row" key={d.url}>
                 <div>
-                  <span className="mono">{d.address}{d.port ? `:${d.port}` : ""}</span>
+                  <span className="mono">{d.address}{d.port ? `:${d.port}` : ""}</span>{" "}
+                  <Badge tone={d.public ? "warn" : ""}>{d.public ? "public" : "internal"}</Badge>
                   <div className="faint small-text">
                     {d.resolved && d.resolved.length > 0 ? d.resolved.join(", ") : "the name did not resolve"} · {d.url}
                   </div>
@@ -320,41 +411,7 @@ export default function Anomalies({ onError, onOK }: { onError: (m: string) => v
                   </button>
                 ) : (
                   <button className="small" onClick={() => mute("destination", d.address)} disabled={busy}>
-                    Mute destination
-                  </button>
-                )}
-              </div>
-            ))
-          )}
-
-          <h3 style={{ margin: "18px 0 4px", fontSize: 13 }}>Where it comes from</h3>
-          <p className="faint small-text" style={{ marginTop: 0 }}>
-            The sources this site's IP whitelists allow. Muting one is how an upload from a trusted client stops
-            looking like a spike; traffic from any other client still raises one.
-          </p>
-          {srcs === null ? (
-            <p className="muted">Loading…</p>
-          ) : srcs.length === 0 ? (
-            <Empty>No IP whitelist applies to this site, so there is no whitelisted source to mute.</Empty>
-          ) : (
-            srcs.map((s) => (
-              <div className="bar-row" key={s.address}>
-                <div>
-                  <span className="mono">{s.address}</span>
-                  <div className="faint small-text">whitelisted · {s.label}</div>
-                  {s.muted && (
-                    <div style={{ marginTop: 4 }}>
-                      <Badge tone="info">muted</Badge>
-                    </div>
-                  )}
-                </div>
-                {s.muted ? (
-                  <button className="small" onClick={() => unmute(selected.proxy_id, "source", s.address)} disabled={busy}>
-                    Unmute
-                  </button>
-                ) : (
-                  <button className="small" onClick={() => mute("source", s.address)} disabled={busy}>
-                    Mute source
+                    Mute backend
                   </button>
                 )}
               </div>

@@ -482,6 +482,19 @@ CREATE TABLE IF NOT EXISTS flows (
   blocked INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (hour, proxy_id)
 );
+CREATE TABLE IF NOT EXISTS utilization (
+  hour TEXT PRIMARY KEY,
+  cpu REAL NOT NULL DEFAULT 0,
+  mem_used INTEGER NOT NULL DEFAULT 0,
+  mem_total INTEGER NOT NULL DEFAULT 0,
+  wan_rx REAL NOT NULL DEFAULT 0,
+  wan_tx REAL NOT NULL DEFAULT 0,
+  proxy_rx REAL NOT NULL DEFAULT 0,
+  proxy_tx REAL NOT NULL DEFAULT 0,
+  reqs INTEGER NOT NULL DEFAULT 0,
+  blocked INTEGER NOT NULL DEFAULT 0,
+  samples INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   channel TEXT NOT NULL,
@@ -641,7 +654,7 @@ CREATE TABLE IF NOT EXISTS ha_applied (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "25"
+const schemaVersion = "26"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {

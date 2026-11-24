@@ -100,11 +100,26 @@ func (s *Server) getUptime(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snap)
 }
 
-// globeSince parses the 1h–24h history selector and falls back to one hour.
-func globeSince(r *http.Request) time.Time {
-	hours := 1
-	if n, err := strconv.Atoi(r.URL.Query().Get("hours")); err == nil && n >= 1 && n <= 24 {
+// hoursBefore reads the hours selector, which runs to the 30 days the event log
+// keeps, and returns the start of that window.
+func hoursBefore(r *http.Request, fallback int) time.Time {
+	hours := fallback
+	if n, err := strconv.Atoi(r.URL.Query().Get("hours")); err == nil && n >= 1 && n <= 720 {
 		hours = n
 	}
 	return time.Now().Add(-time.Duration(hours) * time.Hour)
+}
+
+// globeSince parses the 1h–30d history selector and falls back to one hour.
+func globeSince(r *http.Request) time.Time { return hoursBefore(r, 1) }
+
+// getUtilization serves the hourly host series: load, link rates and the
+// request/block counts the event log already keeps, one row per hour.
+func (s *Server) getUtilization(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db(r).UtilizationHours(hoursBefore(r, 720))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"hours": rows})
 }

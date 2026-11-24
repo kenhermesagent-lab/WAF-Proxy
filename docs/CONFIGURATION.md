@@ -711,6 +711,12 @@ One event is opened per condition per proxy and refreshed while it lasts. **Ackn
 it. Each class can be muted under Notifications. Baselines are in memory, so the first minute after
 a restart only takes a sample.
 
+An outbound spike's slide-over lists the clients that received the bytes in that minute, ranked by
+volume and marked public or LAN, with the total delivered and what can be done about each one
+(investigate, mute, or ban for 24 hours or permanently). A client an enabled IP whitelist already
+allows is expected traffic and raises no spike on its own. The site's upstreams are listed separately
+and marked internal or public, so a backend hop is not mistaken for data leaving the network.
+
 ## Activity (audit log)
 
 ![Activity: the audit log with before/after diffs](screenshots/activity.png)

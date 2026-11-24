@@ -477,7 +477,14 @@ export default function App() {
                   {...tabProps("intel")}
                 />
               )}
-              {page === "anomalies" && <Anomalies onError={onError} onOK={onOK} />}
+              {page === "anomalies" && (
+                <Anomalies
+                  onError={onError}
+                  onOK={onOK}
+                  onOpenSource={setSourceIp}
+                  canWrite={can(me?.permissions, "policies.write")}
+                />
+              )}
               {page === "activity" && <Activity onError={onError} onOK={onOK} permissions={me?.permissions ?? []} />}
               {page === "access" && <Access onError={onError} onOK={onOK} {...tabProps("access")} />}
               {page === "notifications" && <Notifications onError={onError} onOK={onOK} />}
