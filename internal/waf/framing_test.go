@@ -66,3 +66,28 @@ func TestEngineSeesTheRequestFraming(t *testing.T) {
 		}
 	}
 }
+
+// A streamed body can legally arrive with no declared framing on HTTP/2, and
+// the proxy refuses ambiguous framing itself, so the rule is not left to fire
+// against a request the caller forwards unread.
+func TestStreamedBodyDropsTheFramingRule(t *testing.T) {
+	e, err := compile(model.Profile{ID: 1, Name: "test", Mode: "block", Paranoia: 1, Anomaly: 5, MaxBody: 131072}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/seafhttp/upload-aj/34a4ee81", nil)
+	req.ContentLength = -1
+	req.TransferEncoding = nil
+	req.Header.Del("Content-Length")
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=abc")
+
+	_, matches := e.InspectAllWith(req, nil, netip.MustParseAddr("192.0.2.10"), InspectOptions{BodyStreamed: true})
+	for _, m := range matches {
+		if m.RuleID == 920180 {
+			t.Fatal("920180 fired on a body the proxy streams unread")
+		}
+	}
+	if _, matches := e.InspectAllWith(req, nil, netip.MustParseAddr("192.0.2.10"), InspectOptions{}); len(matches) == 0 {
+		t.Fatal("a buffered request lost the framing rule")
+	}
+}

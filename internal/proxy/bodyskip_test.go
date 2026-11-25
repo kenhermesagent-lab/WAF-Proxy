@@ -390,3 +390,36 @@ func TestStallReaderClosesABlockedBodyWithoutADeadline(t *testing.T) {
 		t.Fatalf("bytes = %d, want 0", sr.bytes())
 	}
 }
+
+// A trailing star is the wildcard shorthand route matchers use, so an operator
+// can write the path a Seafile client actually posts to. The segment boundary
+// still holds, so the wildcard does not open a lookalike path.
+func TestBodySkipWildcardCoversASubtree(t *testing.T) {
+	h := newHarness(t)
+	attachBodySkip(t, h, 1<<10, []model.BodySkip{{Method: "POST", Prefix: "/seafhttp/upload-aj/*"}})
+	h.proxy.WAFMode = "block"
+
+	big := strings.Repeat("x", 2<<20)
+	rec := h.request(http.MethodPost, testHost, "/seafhttp/upload-aj/45caf4b6-abc7-4a7e", big,
+		map[string]string{"Content-Type": "multipart/form-data; boundary=abc"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a wildcard skip path refused the upload: %d %s", rec.Code, rec.Body.String())
+	}
+	ev := h.waitEvent(t, func(e model.Event) bool { return strings.HasPrefix(e.Path, "/seafhttp/upload-aj/") })
+	if ev.Stage != "body-skip" || ev.RuleID != "path" {
+		t.Fatalf("stage = %q rule = %q, want body-skip/path", ev.Stage, ev.RuleID)
+	}
+	if ev.BytesIn != int64(len(big)) {
+		t.Fatalf("bytes in = %d, want %d", ev.BytesIn, len(big))
+	}
+
+	// The named node itself and everything below it are covered.
+	if rec := h.request(http.MethodPost, testHost, "/seafhttp/upload-aj", big, nil); rec.Code != http.StatusOK {
+		t.Fatalf("/seafhttp/upload-aj = %d, want the wildcard to cover the node itself", rec.Code)
+	}
+	for _, path := range []string{"/seafhttp/upload-ajfoo", "/seafhttp/other"} {
+		if rec := h.request(http.MethodPost, testHost, path, big, nil); rec.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("%s = %d, want 413 from the buffered ceiling", path, rec.Code)
+		}
+	}
+}

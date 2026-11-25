@@ -509,16 +509,27 @@ const contentTypePolicyRule = 920420
 // is read, so a streamed PUT upload is already admitted when this rule runs.
 const methodPolicyRule = 911100
 
+// framingPolicyRule is CRS 920180, which refuses a POST with neither a
+// Content-Length nor a Transfer-Encoding. The proxy already refuses ambiguous
+// framing (two lengths, or a length beside a chunked body) before the WAF runs,
+// and a streamed body is never buffered here, so an HTTP/2 upload that carries
+// no declared length cannot be judged by the rule. Removing it for that
+// transaction keeps a legitimate upload from carrying protocol-violation
+// anomaly points into a block; a buffered request keeps the rule.
+const framingPolicyRule = 920180
+
 // InspectOptions tunes one inspection without touching the compiled profile.
 type InspectOptions struct {
 	// BodyStreamed marks a request whose body the caller forwards unread, as a
 	// body-skip path does. Two header-phase CRS policies would otherwise refuse
 	// the upload before a byte is read: 920420 for a content type outside its
-	// list (application/octet-stream is the usual raw upload type) and 911100
-	// for a method outside CRS's defaults (PUT and PATCH are not in them). The
-	// method is already checked against the profile allowlist by the policy
-	// layer, and there is no body to protect here, so both rules are removed
-	// for this transaction and every other rule still runs.
+	// list (application/octet-stream is the usual raw upload type), 911100 for a
+	// method outside CRS's defaults (PUT and PATCH are not in them) and 920180
+	// for a body with no declared framing, which an HTTP/2 upload can legally
+	// have. The method is already checked against the profile allowlist by the
+	// policy layer, the proxy refuses ambiguous framing itself, and there is no
+	// body to protect here, so those rules are removed for this transaction and
+	// every other rule still runs.
 	BodyStreamed bool
 }
 
@@ -563,6 +574,7 @@ func (e *Engine) InspectAllWith(r *http.Request, body []byte, clientIP netip.Add
 		if rm, ok := tx.(interface{ RemoveRuleByID(int) }); ok {
 			rm.RemoveRuleByID(contentTypePolicyRule)
 			rm.RemoveRuleByID(methodPolicyRule)
+			rm.RemoveRuleByID(framingPolicyRule)
 		}
 	}
 

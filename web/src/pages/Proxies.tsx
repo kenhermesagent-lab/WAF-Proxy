@@ -559,7 +559,7 @@ export default function Proxies({
                     <Icon name="plus" size={13} /> Add skip path
                   </button>
                   <p className="faint small-text" style={{ marginTop: 6 }}>
-                    Without a trust list the prefix is skipped for every source. Prefer a method and a narrow path, and leave the root out.
+                    Without a trust list the prefix is skipped for every source. A trailing * covers everything below the prefix. Prefer a method and a narrow path, and leave the root out.
                   </p>
                 </div>
                 </>

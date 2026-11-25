@@ -275,7 +275,9 @@ site's whole-exchange upstream timeout do not apply to it; method, path and head
 lists, rate limits and the access gate still do. The transport's response-header timeout still
 bounds the wait once the body has been sent. The transfer has no total limit, but a client that
 sends nothing for two minutes is disconnected (`body-skip` stage, `stalled` rule), so a dead upload
-cannot hold an upstream connection open. The prefix matches whole path segments, so `/api/assets` covers `/api/assets/1` but not
+cannot hold an upstream connection open. A trailing `*` is shorthand for the subtree: `/api/assets/*` says the same thing as
+`/api/assets/`, and is the form to reach for when the app appends its own id
+(`/seafhttp/upload-aj/*`). The prefix matches whole path segments, so `/api/assets` covers `/api/assets/1` but not
 `/api/assetsfoo`, and the root cannot be skipped. The drawer holds at most 16 entries. An entry
 with no trust lists exempts every source; one that names blocklists or whitelists exempts only their
 addresses or countries, and every other source is inspected in full, so a client outside the lists

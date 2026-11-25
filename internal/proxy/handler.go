@@ -759,10 +759,24 @@ func bodySkipped(entries []model.BodySkip, method, path string, inLists func([]i
 	return false
 }
 
-// pathPrefix matches a configured prefix as whole path segments.
+// pathPrefix matches a configured prefix as whole path segments. A trailing
+// star is the wildcard shorthand route matchers already use, so
+// "/api/assets/*" covers the same subtree as "/api/assets/" and reads the way
+// an operator expects; the segment boundary still applies either way, so
+// "/api/assets*" does not cover "/api/assetsfoo".
 func pathPrefix(path, prefix string) bool {
 	if prefix == "" || prefix == "/" {
 		return false
+	}
+	if strings.HasSuffix(prefix, "*") {
+		prefix = strings.TrimSuffix(prefix, "*")
+		if prefix == "" || prefix == "/" {
+			return false
+		}
+		if path == prefix || path == strings.TrimSuffix(prefix, "/") {
+			return true
+		}
+		return strings.HasPrefix(path, strings.TrimSuffix(prefix, "/")+"/")
 	}
 	if path == prefix {
 		return true

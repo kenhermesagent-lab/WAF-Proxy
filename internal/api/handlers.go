@@ -410,6 +410,12 @@ func validateBodySkip(entries []model.BodySkip) string {
 		if len(prefix) > 256 || strings.ContainsAny(prefix, " \t\r\n?#") {
 			return "a body-skip path contains invalid characters"
 		}
+		if strings.Contains(strings.TrimSuffix(prefix, "*"), "*") {
+			return "a body-skip path may use * only at the end"
+		}
+		if strings.TrimSuffix(prefix, "*") == "/" {
+			return "a body-skip path must name a path below the root"
+		}
 	}
 	return ""
 }

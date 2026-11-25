@@ -12,6 +12,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.73.4] — 2026-11-25
+
+### Added
+
+- **A trailing `*` in a body-skip path now covers the subtree.** `/seafhttp/upload-aj/*` reads
+  the way an operator expects and matches the id Seafile appends, while the segment boundary
+  still applies: it covers `/seafhttp/upload-aj` and everything below it, never
+  `/seafhttp/upload-ajfoo`. A `*` anywhere but the end, or a wildcard that names only the root,
+  is refused when the site is saved instead of silently matching nothing.
+
+### Fixed
+
+- **A streamed upload no longer carries CRS 920180 into a block.** An HTTP/2 upload can legally
+  arrive with neither `Content-Length` nor `Transfer-Encoding`; the rule has nothing to judge on
+  a body the proxy forwards unread, and the proxy already refuses ambiguous framing itself. The
+  rule is removed for the streamed transaction only, the way 920420 and 911100 already were, so a
+  skip path is decided by the site's own policy instead of a protocol notice.
+
 ## [1.73.3] — 2026-11-25
 
 ### Security
