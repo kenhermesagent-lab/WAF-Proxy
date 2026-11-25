@@ -1,6 +1,7 @@
 package clientip
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/netip"
 	"testing"
@@ -92,6 +93,29 @@ func TestCloudflareHeaderOnlyFromTrustedPeer(t *testing.T) {
 	req.RemoteAddr = "198.51.100.7:5555"
 	if got, _ := r.FromRequest(req); got.String() != "198.51.100.7" {
 		t.Fatalf("untrusted peer resolved to %s", got)
+	}
+}
+
+// A TLS listener is the client's scheme; a plain hop is only https when the
+// peer allowed to terminate TLS says so.
+func TestSchemeFromRequest(t *testing.T) {
+	r, _ := New([]string{"10.0.0.0/8"})
+	req, _ := http.NewRequest(http.MethodGet, "http://example.test/", nil)
+	req.RemoteAddr = "10.0.0.9:4321"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	if got := r.SchemeFromRequest(req); got != "https" {
+		t.Fatalf("trusted peer scheme = %q, want https", got)
+	}
+
+	req.TLS = &tls.ConnectionState{}
+	if got := r.SchemeFromRequest(req); got != "https" {
+		t.Fatalf("TLS scheme = %q, want https", got)
+	}
+
+	req.RemoteAddr = "198.51.100.7:4321"
+	req.TLS = nil
+	if got := r.SchemeFromRequest(req); got != "http" {
+		t.Fatalf("untrusted peer scheme = %q, want http", got)
 	}
 }
 

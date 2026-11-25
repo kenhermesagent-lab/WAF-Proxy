@@ -112,6 +112,10 @@ type ctxKey int
 
 const ctxUpstream ctxKey = 1
 
+// ctxScheme carries the scheme the browser used, which differs from this
+// listener's own when a trusted front proxy terminated TLS.
+const ctxScheme ctxKey = 3
+
 // Server terminates TLS and serves every configured hostname.
 type Server struct {
 	d          Deps
@@ -453,6 +457,12 @@ func (s *Server) buildEdge(ctx context.Context, p model.Proxy) (*edge, error) {
 			pr.SetURL(up.url)
 			pr.Out.Host = pr.In.Host
 			pr.SetXForwarded()
+			// SetXForwarded derives the scheme from this listener's TLS state,
+			// which is plain HTTP behind a TLS-terminating front proxy. The
+			// trusted-peer value is what the app's own origin check needs.
+			if v, ok := pr.In.Context().Value(ctxScheme).(string); ok && v != "" {
+				pr.Out.Header.Set("X-Forwarded-Proto", v)
+			}
 		},
 		Transport:     &retryTransport{base: upstreamTransport{def: s.pool.shared}, retries: p.Retries},
 		FlushInterval: 100 * time.Millisecond,

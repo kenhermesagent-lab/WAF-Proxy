@@ -23,6 +23,16 @@ import (
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	// The scheme the browser used, taken before RemoteAddr becomes the client
+	// address: the upstream needs it for absolute URLs and for the CSRF origin
+	// check, and a trusted front proxy knows it better than this plain hop does.
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if s.d.ClientIP != nil {
+		scheme = s.d.ClientIP.SchemeFromRequest(r)
+	}
 	// An HTTP/1.1 or HTTP/2 client learns about the QUIC listener from the
 	// answer it already receives; setAltSvc decides whether there is one.
 	s.setAltSvc(w, r)
@@ -460,6 +470,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rv := &respVerdict{}
 	ctx = context.WithValue(ctx, ctxUpstream, up)
 	ctx = context.WithValue(ctx, ctxRespVerdict, rv)
+	ctx = context.WithValue(ctx, ctxScheme, scheme)
 	r = r.WithContext(ctx)
 	e.rp.ServeHTTP(out, r)
 	_ = gz.Close()

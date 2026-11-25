@@ -12,6 +12,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [Unreleased]
+
+### Fixed
+
+- **A site behind a TLS-terminating front proxy now tells its upstream the scheme the browser used.**
+  The outbound `X-Forwarded-Proto` was always derived from this listener's own socket, so when a trusted
+  proxy, tunnel or load balancer handed the WAN listener a plain hop, the app was told `http` although
+  the browser was on `https` — enough for an app that compares the request's scheme against its own, or
+  builds its absolute URLs from it, to refuse or misrender. A peer in `WAFPROXY_TRUSTED_PROXIES` may now
+  name the scheme in `X-Forwarded-Proto`, and only that peer may: a client's own header is still dropped.
+  A TLS connection to the WAN listener, and a site with no trusted proxy, behave exactly as before.
+
 ## [1.72.1] — 2026-11-24
 
 ### Added

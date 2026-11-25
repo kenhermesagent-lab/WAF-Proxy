@@ -611,6 +611,7 @@ var all = []Preset{
 		AdminIPs:   privateRanges,
 		Exceptions: "920350,920440,921110",
 		Notes: []string{
+			"Seafile's web login is a Django form: the browser's Origin must match, so add CSRF_TRUSTED_ORIGINS = [\"https://<hostname>\"] (scheme included) to seahub_settings.py, or on Seafile 12+ set SEAFILE_SERVER_PROTOCOL=https and SEAFILE_SERVER_HOSTNAME. A mismatch answers 403 CSRF verification failed, and so does an Origin of null, which any proxy sending Referrer-Policy: no-referrer forces onto the form post.",
 			"The sync clients authenticate with a token, so a gate would stop every device; the app's own accounts and its sharing rules are the control.",
 			"Chunks are buffered and fit 16 MiB; ownCloud's whole-file PUTs stream through the prefilled skip entry, and downloads stay uncapped.",
 			"Server administration (/sys on Seafile, /settings/admin on ownCloud) stays on the private allowlist.",

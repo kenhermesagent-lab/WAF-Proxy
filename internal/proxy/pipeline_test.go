@@ -140,6 +140,10 @@ func newHarness(t testing.TB) *harness {
 				time.Sleep(60 * time.Millisecond)
 			}
 			return
+		case "/proto":
+			// Echoes what the upstream was told about the client's scheme.
+			_, _ = fmt.Fprintf(w, "proto:%s", r.Header.Get("X-Forwarded-Proto"))
+			return
 		case "/upload":
 			// Echoes how many bytes arrived, so a streamed upload can be proven
 			// whole without the harness holding it.

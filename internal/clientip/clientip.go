@@ -107,6 +107,24 @@ func (r *Resolver) FromRequest(req *http.Request) (netip.Addr, bool) {
 	return r.Resolve(peer, req.Header.Values("X-Forwarded-For")), true
 }
 
+// SchemeFromRequest reports the scheme the browser used. TLS on this listener
+// settles it; behind a front proxy that terminated TLS this listener only sees
+// the plain hop, so a trusted peer's X-Forwarded-Proto names the real scheme.
+// An untrusted peer cannot change it, whatever header it sends.
+func (r *Resolver) SchemeFromRequest(req *http.Request) string {
+	if req.TLS != nil {
+		return "https"
+	}
+	peer, err := peerAddr(req.RemoteAddr)
+	if err != nil || !r.Trusts(peer) {
+		return "http"
+	}
+	if strings.EqualFold(strings.TrimSpace(req.Header.Get("X-Forwarded-Proto")), "https") {
+		return "https"
+	}
+	return "http"
+}
+
 func peerAddr(remote string) (netip.Addr, error) {
 	host, _, err := net.SplitHostPort(remote)
 	if err != nil {
