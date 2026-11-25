@@ -101,7 +101,7 @@ var all = []Preset{
 		LoginBurst: 5,
 		AdminPaths: "/settings,/index.php/settings,/ocs/v2.php/cloud/users,/apps",
 		AdminIPs:   privateRanges,
-		Exceptions: "920350,920440,921110",
+		Exceptions: "920350,920440",
 		// Nextcloud Talk records audio, video and the screen in the browser.
 		Protection: Protection{
 			PermissionsPolicy: "camera=(self), microphone=(self), display-capture=(self), geolocation=()",
@@ -175,7 +175,7 @@ var all = []Preset{
 		LoginBurst:  5,
 		AdminPaths:  "/api2/extjs,/api2/json/access/users,/api2/json/access/roles,/api2/json/access/groups",
 		AdminIPs:    privateRanges,
-		Exceptions:  "920350,920440,921110",
+		Exceptions:  "920350,920440",
 		Notes: []string{
 			"The console is at /api2/extjs, and user, role and group management are on the admin allowlist by default — widen it only for addresses you trust.",
 			"The ticket endpoint /api2/json/access/ticket is deliberately outside that list, so logging in from elsewhere is not refused by the admin-path rule.",
@@ -211,7 +211,7 @@ var all = []Preset{
 		LoginBurst:  10,
 		AdminPaths:  "/-/admin,/api/v1/admin",
 		AdminIPs:    privateRanges,
-		Exceptions:  "920350,920440,921110",
+		Exceptions:  "920350,920440",
 		Notes: []string{
 			"Responses are not capped, so cloning a large repository is never interrupted.",
 			"SSH on port 22 is not proxied here; publish it separately if you use it.",
@@ -318,7 +318,7 @@ var all = []Preset{
 		LoginBurst:  5,
 		AdminPaths:  "/library/settings,/api/v1/settings",
 		AdminIPs:    privateRanges,
-		Exceptions:  "920350,920440,921110",
+		Exceptions:  "920350,920440",
 		Notes: []string{
 			"Original photos and videos are buffered for inspection, so files above 64 MiB are refused.",
 			"Downloads and thumbnails stream and are not capped.",
@@ -369,10 +369,9 @@ var all = []Preset{
 		LoginBurst:  10,
 		AdminPaths:  "/settings",
 		AdminIPs:    privateRanges,
-		Exceptions:  "920350,920440,921110",
+		Exceptions:  "920350,920440",
 		Notes: []string{
 			"Exports and large attachments are the biggest responses; both fit under 32 MiB.",
-			"The WYSIWYG editor posts Markdown and HTML, so 921110 is listed as a likely false positive to check in detect mode.",
 		},
 	},
 	{
@@ -509,7 +508,7 @@ var all = []Preset{
 		AdminPaths:  "/api/endpoints,/api/stacks,/api/docker,/api/system,/api/users,/api/compose",
 		AdminIPs:    privateRanges,
 		Gate:        "accounts",
-		Exceptions:  "920350,920440,921110",
+		Exceptions:  "920350,920440",
 		Notes: []string{
 			"Whoever reaches this console can run any image on the host, so the preset suggests an accounts gate on top of the app's own login.",
 			"Compose files are posted as JSON and land in one buffered body; 8 MiB is generous for a stack.",
@@ -619,10 +618,9 @@ var all = []Preset{
 		LoginPaths:  "/login,/api/auth/login,/api/v1/auth/signin,/api/auth/oidc",
 		LoginRPS:    5,
 		LoginBurst:  10,
-		Exceptions:  "920350,920440,921110",
+		Exceptions:  "920350,920440",
 		Notes: []string{
 			"No admin path is restricted: these apps are meant to be read and edited from anywhere, and their own roles decide who administers them.",
-			"The editor posts Markdown and HTML, so 921110 is listed as a likely false positive to check in detect mode.",
 			"Attachments and page exports fit under 32 MiB; a larger single upload should go to object storage instead.",
 		},
 	},
@@ -668,7 +666,7 @@ var all = []Preset{
 		AdminPaths:  "/settings,/api/settings",
 		AdminIPs:    privateRanges,
 		Gate:        "accounts",
-		Exceptions:  "920350,920440,921110",
+		Exceptions:  "920350,920440",
 		Notes: []string{
 			"A file manager exposes the whole shared tree, and copyparty's default is a single shared account, so the preset suggests an accounts gate.",
 			"Uploads are buffered whole, so 64 MiB is the practical limit for a single file; downloads stream uncapped.",

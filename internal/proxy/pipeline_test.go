@@ -79,6 +79,13 @@ func newHarness(t testing.TB) *harness {
 			return
 		}
 		hits.Add(1)
+		if strings.HasPrefix(r.URL.Path, "/seafhttp/") {
+			// Seafile's upload root: echo how many bytes arrived, so a streamed
+			// body can be proven whole on the path a browser actually posts to.
+			n, _ := io.Copy(io.Discard, r.Body)
+			_, _ = fmt.Fprintf(w, "size:%d", n)
+			return
+		}
 		switch r.URL.Path {
 		case "/slow":
 			// Holds its budget slot long enough for a burst to overlap it.

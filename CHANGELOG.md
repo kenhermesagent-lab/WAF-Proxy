@@ -12,6 +12,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.73.2] — 2026-11-25
+
+### Added
+
+- **A proxy-level test for Seafile's upload root.** It drives a 2 MiB `POST /seafhttp/upload-aj/…`
+  through the pipeline and asserts the upstream received every byte, the event recorded `body-skip` /
+  `path` with the full byte count, a lookalike path (`/seafhttpfoo`) is still buffered and refused over
+  the ceiling, and the same entry with a trust list exempts only a source inside that list.
+
+### Changed
+
+- **921110 is gone from every preset's exception list, not only the file-sync one.** The proxy refuses
+  two `Content-Length` headers, or a length beside a chunked body, before the WAF runs, so the
+  request-smuggling rule has nothing to match through this proxy. The notes that listed it as a likely
+  false positive for Markdown and HTML editors (BookStack, the wikis preset) described a request shape
+  the proxy never forwards, so they are gone too. Every preset keeps 920350 and 920440.
+
 ## [1.73.1] — 2026-11-25
 
 ### Changed

@@ -181,6 +181,47 @@ func TestBodySkipListNarrowsTheExemption(t *testing.T) {
 	}
 }
 
+// The file-sync preset exempts Seafile's web upload root, so a POST there
+// streams a whole file to the app, and the same entry with a trust list exempts
+// only those sources: everyone else is still held to the ceiling.
+func TestSeafileWebUploadStreamsAndTrustListsNarrowIt(t *testing.T) {
+	h := newHarness(t)
+	const upload = "/seafhttp/upload-aj/34a4ee81-4254-4f7f?ret-json=1"
+	attachBodySkip(t, h, 1<<10, []model.BodySkip{{Method: http.MethodPost, Prefix: "/seafhttp/"}})
+
+	payload := strings.Repeat("x", 2<<20)
+	rec := h.request(http.MethodPost, testHost, upload, payload, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a Seafile web upload = %d: %s", rec.Code, rec.Body.String())
+	}
+	if want := "size:2097152"; rec.Body.String() != want {
+		t.Fatalf("upstream received %q, want %q", rec.Body.String(), want)
+	}
+	if e := h.waitEvent(t, func(e model.Event) bool { return e.Stage == "body-skip" }); e.RuleID != "path" || e.BytesIn != int64(len(payload)) {
+		t.Fatalf("event = %+v, want a streaming path event carrying %d bytes", e, len(payload))
+	}
+	// The prefix stops at a segment boundary, so a lookalike path is buffered.
+	if rec := h.request(http.MethodPost, testHost, "/seafhttpfoo", payload, nil); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a lookalike path = %d, want 413", rec.Code)
+	}
+
+	// A trust list exempts its own sources only; the fixture's address is outside.
+	list := model.AccessList{Name: "home", Kind: "whitelist", IPs: "10.0.0.0/8"}
+	if err := h.st.CreateAccessList(&list); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	attachBodySkip(t, h, 1<<10, []model.BodySkip{{Method: http.MethodPost, Prefix: "/seafhttp/", ListIDs: []int64{list.ID}}})
+	if rec := h.request(http.MethodPost, testHost, upload, payload, nil); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a client outside the trust list = %d, want 413", rec.Code)
+	}
+	if rec := h.requestFrom("10.1.2.3", http.MethodPost, testHost, upload, payload, nil); rec.Code != http.StatusOK {
+		t.Fatalf("a client inside the trust list = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // slowBody sends a request body in paced pieces, so a transfer takes longer than
 // a short deadline.
 type slowBody struct {
