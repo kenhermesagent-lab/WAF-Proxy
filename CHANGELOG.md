@@ -12,6 +12,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.73.1] — 2026-11-25
+
+### Changed
+
+- **The file-sync preset streams Seafile's web uploads.** `POST /seafhttp/` is prefilled in Body-skip
+  beside ownCloud's WebDAV root, so a file chosen in Seafile's web UI goes straight to the app instead
+  of being buffered against the site's ceiling. The preset's steps and the console documentation now
+  say plainly that an entry with no trust lists exempts every source and an entry that names lists
+  exempts only the sources on them — a client outside those lists is inspected in full, and a deleted
+  list matches nobody.
+- **The file-sync preset's exception list was re-checked against the engine, and 921110 came off it.**
+  Two rules still fire on this application and stay excepted, now with the trigger rather than a guess:
+  920350 when the site is reached by its IP address, and 920440 for an upload whose path ends in
+  `.dll`, `.bat`, `.ini` or `.asa`. 921110 cannot fire here — the proxy refuses two `Content-Length`
+  headers, or a length beside a chunked body, before the WAF runs — so the note that called it a likely
+  false positive was stale. An encoded CRLF in a path is still refused, by 921190 and the path-traversal
+  rules.
+
 ## [1.73.0] — 2026-11-25
 
 ### Added

@@ -268,7 +268,7 @@ These per-site values are editable through the API/YAML (see
 | Bot protection | Proof-of-work challenge level: **Off**, **Light**, **Standard**, **Aggressive**. Separate from the global bot filter. | light |
 | Fingerprint mode | **Strict** or **Minimal** client fingerprinting for challenge decisions. | strict |
 | Site body ceiling | Buffered request-body limit for this site, in MiB; **0** inherits the host setting. A larger body is refused with 413 before it is read. | 0 |
-| Body-skip path | Method (**POST**, **PUT**, **PATCH**) plus a path prefix whose body streams to the app without buffering or inspection. Optional trust lists narrow it to those sources. | empty |
+| Body-skip path | Method (**POST**, **PUT**, **PATCH**) plus a path prefix whose body streams to the app without buffering or inspection. Trust lists narrow an entry to those sources. | empty |
 
 A skipped body is not inspected, so the WAF body rules, the anomaly score, the body deadline and the
 site's whole-exchange upstream timeout do not apply to it; method, path and header rules, bans,
@@ -276,9 +276,11 @@ lists, rate limits and the access gate still do. The transport's response-header
 bounds the wait once the body has been sent. The transfer has no total limit, but a client that
 sends nothing for two minutes is disconnected (`body-skip` stage, `stalled` rule), so a dead upload
 cannot hold an upstream connection open. The prefix matches whole path segments, so `/api/assets` covers `/api/assets/1` but not
-`/api/assetsfoo`, and the root cannot be skipped. The drawer holds at most 16 entries, and each
-may name blocklists or whitelists: only their addresses or countries skip, and a deleted list
-matches nobody, so the path fails closed to inspection. A skip path accepts the raw uploads it
+`/api/assetsfoo`, and the root cannot be skipped. The drawer holds at most 16 entries. An entry
+with no trust lists exempts every source; one that names blocklists or whitelists exempts only their
+addresses or countries, and every other source is inspected in full, so a client outside the lists
+must still fit the body ceiling. A deleted list matches nobody, so the path fails closed to
+inspection. A skip path accepts the raw uploads it
 exists for: any request content type, including the `application/octet-stream` a sync or backup
 client sends, and the `PUT`/`PATCH` those clients use. CRS's content-type policy (920420) and its
 method policy (911100, whose default list holds no `PUT` or `PATCH`) are written for a body the WAF

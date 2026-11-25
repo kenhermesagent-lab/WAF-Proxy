@@ -48,9 +48,8 @@ type Preset struct {
 	// this application. They are suggestions: check them in detect mode first.
 	Exceptions string   `json:"exceptions"`
 	Notes      []string `json:"notes"`
-	// Protection is the response hardening this application needs on top of the
-	// set every site gets. The zero value is that set, and a field is only set
-	// where the application needs something else.
+	// Protection is the response hardening this application needs beyond the
+	// baseline every site gets; a field is set only where the app needs more.
 	Protection Protection `json:"protection"`
 }
 
@@ -634,22 +633,26 @@ var all = []Preset{
 		Methods:       "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS,PROPFIND,PROPPATCH,MKCOL,COPY,MOVE,LOCK,UNLOCK,REPORT",
 		MaxBody:       16 << 20,
 		ProxyMaxBody:  64 << 20,
-		BodySkipPaths: []string{"PUT /remote.php/dav/files/"},
+		BodySkipPaths: []string{"POST /seafhttp/", "PUT /remote.php/dav/files/"},
 		Steps: []string{
 			"Set the site body ceiling to 64 MiB (on the Protection tab, already prefilled); both clients upload in chunks that fit that.",
-			"ownCloud's WebDAV upload root is prefilled in Body-skip for clients that send a whole file per PUT; delete the entry if your clients only chunk.",
-			"A streamed upload is not cut by the site's body deadline or upstream timeout; delete the skip entry and raise both if you would rather inspect those uploads.",
+			"Seafile's web UI posts every upload to /seafhttp/, and ownCloud's clients PUT whole files to /remote.php/dav/files/: both prefixes are prefilled in Body-skip, so those bodies stream to the app instead of being buffered and inspected.",
+			"A skip entry with no trust lists exempts every source; one that names trust lists exempts only the sources on them, so any client outside those lists is inspected in full and must fit the body ceiling. Leave the lists empty unless you mean to exempt only your own networks.",
+			"A streamed upload is not cut by the site's body deadline or upstream timeout; delete a skip entry and raise both if you would rather inspect those uploads.",
 		},
 		LoginPaths: "/api2/auth-token/,/index.php/login,/ocs/v2.php/core/getapppassword",
 		LoginRPS:   3,
 		LoginBurst: 5,
 		AdminPaths: "/sys,/settings/admin",
 		AdminIPs:   privateRanges,
-		Exceptions: "920350,920440,921110",
+		Exceptions: "920350,920440",
 		Notes: []string{
 			"Seafile's web login is a Django form: the browser's Origin must match, so add CSRF_TRUSTED_ORIGINS = [\"https://<hostname>\"] (scheme included) to seahub_settings.py, or on Seafile 12+ set SEAFILE_SERVER_PROTOCOL=https and SEAFILE_SERVER_HOSTNAME. A mismatch answers 403 CSRF verification failed, and so does an Origin of null, which any proxy sending Referrer-Policy: no-referrer forces onto the form post.",
+			"920350 is excepted because a site reached by its IP address has a numeric Host, which CRS flags; with a hostname the rule never fires.",
+			"920440 is excepted because a sync client can upload a file whose path ends in .dll, .bat, .ini or .asa, which CRS refuses by extension list; .exe and .shtml are not on that list.",
+			"921110 needs no exception here: the proxy refuses two Content-Length headers, or a length beside a chunked body, before the WAF runs. An encoded CRLF in a path is still refused, by 921190 and the path-traversal rules.",
 			"The sync clients authenticate with a token, so a gate would stop every device; the app's own accounts and its sharing rules are the control.",
-			"Chunks are buffered and fit 16 MiB; ownCloud's whole-file PUTs stream through the prefilled skip entry, and downloads stay uncapped.",
+			"Seafile's web uploads and ownCloud's whole-file PUTs stream through the prefilled skip entries; a chunked upload on any other path is buffered and must fit 16 MiB. Downloads stay uncapped.",
 			"Server administration (/sys on Seafile, /settings/admin on ownCloud) stays on the private allowlist.",
 		},
 	},
@@ -780,28 +783,24 @@ func (p Preset) ProtectionProfile(hostname string) model.ProtectionProfile {
 	if hostname != "" {
 		name += " (" + hostname + ")"
 	}
-	out := model.ProtectionProfile{
+	over := func(v, baseline string) string {
+		if t := strings.TrimSpace(v); t != "" {
+			return t
+		}
+		return baseline
+	}
+	return model.ProtectionProfile{
 		Name:              name,
 		ForceHTTPS:        true,
 		HSTS:              true,
 		HSTSSubdomains:    true,
-		FrameOptions:      "sameorigin",
 		NoSniff:           true,
-		ReferrerPolicy:    "strict-origin-when-cross-origin",
-		PermissionsPolicy: defaultPermissions,
 		HideServer:        true,
+		FrameOptions:      over(p.Protection.FrameOptions, "sameorigin"),
+		ReferrerPolicy:    over(p.Protection.ReferrerPolicy, "strict-origin-when-cross-origin"),
+		PermissionsPolicy: over(p.Protection.PermissionsPolicy, defaultPermissions),
+		CSP:               strings.TrimSpace(p.Protection.CSP),
 	}
-	if v := strings.TrimSpace(p.Protection.FrameOptions); v != "" {
-		out.FrameOptions = v
-	}
-	if v := strings.TrimSpace(p.Protection.ReferrerPolicy); v != "" {
-		out.ReferrerPolicy = v
-	}
-	if v := strings.TrimSpace(p.Protection.PermissionsPolicy); v != "" {
-		out.PermissionsPolicy = v
-	}
-	out.CSP = strings.TrimSpace(p.Protection.CSP)
-	return out
 }
 
 // Profile builds the WAF profile a preset suggests for one hostname. The name
