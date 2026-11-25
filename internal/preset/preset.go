@@ -4,7 +4,12 @@
 // form, and it never enables anything the proxy cannot undo.
 package preset
 
-import "github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+import (
+	"sort"
+	"strings"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+)
 
 // Preset is one application's suggested configuration.
 type Preset struct {
@@ -43,7 +48,32 @@ type Preset struct {
 	// this application. They are suggestions: check them in detect mode first.
 	Exceptions string   `json:"exceptions"`
 	Notes      []string `json:"notes"`
+	// Protection is the response hardening this application needs on top of the
+	// set every site gets. The zero value is that set, and a field is only set
+	// where the application needs something else.
+	Protection Protection `json:"protection"`
 }
+
+// Protection is the response-hardening a preset ships beside its WAF profile,
+// so a site created from a preset starts with headers that fit the app instead
+// of the generic set. The profile it builds is an ordinary, editable row.
+type Protection struct {
+	// PermissionsPolicy replaces the baseline feature list. An app that records
+	// audio, video or the screen in the browser needs those features allowed for
+	// its own origin; every other app denies them.
+	PermissionsPolicy string `json:"permissions_policy"`
+	// FrameOptions is "sameorigin", "deny" or "off" for X-Frame-Options.
+	FrameOptions string `json:"frame_options"`
+	// CSP replaces the baseline, which sends none. Only an app whose own
+	// documentation publishes a policy gets one here.
+	CSP string `json:"csp"`
+	// ReferrerPolicy replaces the baseline.
+	ReferrerPolicy string `json:"referrer_policy"`
+}
+
+// defaultPermissions denies what a browser app normally does not need, while
+// leaving the page usable: an app that records audio or video overrides it.
+const defaultPermissions = "camera=(), microphone=(), geolocation=()"
 
 // privateRanges is the admin-path allowlist a preset starts from: the operator's
 // own network. An admin path is refused for everyone else until it is edited.
@@ -73,6 +103,10 @@ var all = []Preset{
 		AdminPaths: "/settings,/index.php/settings,/ocs/v2.php/cloud/users,/apps",
 		AdminIPs:   privateRanges,
 		Exceptions: "920350,920440,921110",
+		// Nextcloud Talk records audio, video and the screen in the browser.
+		Protection: Protection{
+			PermissionsPolicy: "camera=(self), microphone=(self), display-capture=(self), geolocation=()",
+		},
 		Notes: []string{
 			"The two WebDAV upload roots stream without inspection (Body-skip); any other path is buffered and capped by the site ceiling.",
 			"File downloads are not capped.",
@@ -455,6 +489,8 @@ var all = []Preset{
 		AdminIPs:    privateRanges,
 		Gate:        "accounts",
 		Exceptions:  "920350,920440",
+		// Voice input records from the microphone; nothing else is needed.
+		Protection: Protection{PermissionsPolicy: "microphone=(self), camera=(), geolocation=()"},
 		Notes: []string{
 			"The admin area can add models, keys and tools that run on the host, so the preset suggests an accounts gate in front of the whole site.",
 			"Replies are server-sent events: they are streamed, never buffered to a ceiling, or the answer would arrive all at once at the end.",
@@ -711,8 +747,20 @@ var all = []Preset{
 	},
 }
 
-// All returns every preset in menu order.
-func All() []Preset { return all }
+// All returns every preset in menu order: alphabetical by the name the drawer
+// shows, so the list is the same wherever it is drawn. A leading symbol is
+// ignored when sorting, so "*arr suite" sits among the As instead of ahead of
+// everything.
+func All() []Preset {
+	out := make([]Preset, len(all))
+	copy(out, all)
+	sort.SliceStable(out, func(i, j int) bool { return sortKey(out[i].Name) < sortKey(out[j].Name) })
+	return out
+}
+
+func sortKey(name string) string {
+	return strings.ToLower(strings.TrimLeft(strings.TrimSpace(name), "*_-#~ "))
+}
 
 // Get finds a preset by ID.
 func Get(id string) (Preset, bool) {
@@ -722,6 +770,38 @@ func Get(id string) (Preset, bool) {
 		}
 	}
 	return Preset{}, false
+}
+
+// ProtectionProfile builds the response hardening a preset suggests for one
+// hostname. The name carries the host for the same reason the WAF profile does,
+// and the row stays editable in the console like any other.
+func (p Preset) ProtectionProfile(hostname string) model.ProtectionProfile {
+	name := p.Name + " hardening"
+	if hostname != "" {
+		name += " (" + hostname + ")"
+	}
+	out := model.ProtectionProfile{
+		Name:              name,
+		ForceHTTPS:        true,
+		HSTS:              true,
+		HSTSSubdomains:    true,
+		FrameOptions:      "sameorigin",
+		NoSniff:           true,
+		ReferrerPolicy:    "strict-origin-when-cross-origin",
+		PermissionsPolicy: defaultPermissions,
+		HideServer:        true,
+	}
+	if v := strings.TrimSpace(p.Protection.FrameOptions); v != "" {
+		out.FrameOptions = v
+	}
+	if v := strings.TrimSpace(p.Protection.ReferrerPolicy); v != "" {
+		out.ReferrerPolicy = v
+	}
+	if v := strings.TrimSpace(p.Protection.PermissionsPolicy); v != "" {
+		out.PermissionsPolicy = v
+	}
+	out.CSP = strings.TrimSpace(p.Protection.CSP)
+	return out
 }
 
 // Profile builds the WAF profile a preset suggests for one hostname. The name

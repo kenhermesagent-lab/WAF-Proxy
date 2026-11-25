@@ -366,13 +366,17 @@ export default function Proxies({
               {drawerTab === "overview" && (
                 <>
                   {!draft.id && (
-                    <Field label="Application preset" hint={chosenPreset ? `${chosenPreset.description} Creates an editable WAF profile.` : "A preset fills in the WAF profile for this site; it is not applied automatically."}>
+                    <Field label="Application preset" hint={chosenPreset ? `${chosenPreset.description} Creates an editable WAF profile and a protection profile with the headers this app needs.` : "A preset fills in the WAF and protection profiles for this site; it is not applied automatically."}>
                       <select
                         value={draft.preset}
                         onChange={(e) =>
                           patch((d) => {
                             d.preset = e.target.value;
                             const pre = presets.find((p) => p.id === d.preset);
+                            // The preset brings its own hardening; drop an explicit
+                            // choice so the server can create it. Clearing the
+                            // preset falls back to the built-in profile.
+                            d.protection_profile_id = pre ? null : protections.find((p) => p.builtin)?.id ?? null;
                             if (!pre) return;
                             if (pre.gate && d.gate_mode === "off" && gateAccounts > 0) d.gate_mode = pre.gate;
                             // The suggested body settings are prefilled and visible on

@@ -12,6 +12,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.73.0] — 2026-11-25
+
+### Added
+
+- **Every application preset now ships the response hardening that fits it.** Creating a site from a
+  preset used to fill in only the WAF profile, so a site created that way carried no hardening headers
+  of its own; the preset now also creates and attaches a protection profile named `<app> hardening
+  (<host>)` — HTTPS forced, HSTS with subdomains, framing limited to the same origin, MIME sniffing and
+  server banners off, the referrer cut to the origin across sites, and camera, microphone and location
+  denied. The two apps that record from the browser get those features back for their own origin:
+  Nextcloud (Talk calls record audio, video and the screen) and Open WebUI (voice input). Both profiles
+  are ordinary editable rows, and a protection profile chosen by hand still wins over the preset's.
+
+### Changed
+
+- **The application preset list is alphabetical.** The API returns the catalogue sorted by the name the
+  drawer shows, so every client draws the same order; a leading symbol is ignored when sorting, which
+  keeps "*arr suite" among the As instead of ahead of everything.
+
 ## [1.72.3] — 2026-11-25
 
 ### Fixed

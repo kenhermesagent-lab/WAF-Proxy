@@ -184,7 +184,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		p.GateSecret = enc
 	}
-	var fromPreset *int64
+	var fromPreset, fromPresetProtection *int64
 	if in.Preset != "" {
 		pre, ok := preset.Get(in.Preset)
 		if !ok {
@@ -198,13 +198,29 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		p.ProfileID = &prof.ID
 		fromPreset = &prof.ID
+		// The preset ships the response hardening that fits the application, so
+		// a site starts with headers made for it instead of the generic set. An
+		// explicit protection profile in the request still wins.
+		if p.ProtectionProfileID == nil {
+			pp := pre.ProtectionProfile(p.Hostname)
+			if err := s.db(r).CreateProtectionProfile(&pp); err != nil {
+				_ = s.db(r).DeleteProfile(*fromPreset)
+				writeError(w, http.StatusInternalServerError, "cannot create the preset's protection profile")
+				return
+			}
+			p.ProtectionProfileID = &pp.ID
+			fromPresetProtection = &pp.ID
+		}
 	}
 	id, err := s.db(r).CreateProxy(p)
 	if err != nil {
-		// The profile was only created for this proxy; leaving it behind would
-		// litter the list every time a duplicate hostname was offered.
+		// Both profiles were only created for this proxy; leaving them behind
+		// would litter the list every time a duplicate hostname was offered.
 		if fromPreset != nil {
 			_ = s.db(r).DeleteProfile(*fromPreset)
+		}
+		if fromPresetProtection != nil {
+			_ = s.db(r).DeleteProtectionProfile(*fromPresetProtection)
 		}
 		writeError(w, http.StatusConflict, "hostname already exists")
 		return

@@ -129,6 +129,66 @@ func TestBodyCeilingsStayInMemoryBudget(t *testing.T) {
 	}
 }
 
+// The drawer draws the list in the order the API returns it, so the order is
+// the library's, not each caller's.
+func TestPresetsComeBackAlphabetical(t *testing.T) {
+	list := All()
+	if len(list) < 5 {
+		t.Fatalf("got %d presets", len(list))
+	}
+	for i := 1; i < len(list); i++ {
+		if sortKey(list[i-1].Name) > sortKey(list[i].Name) {
+			t.Fatalf("%q comes before %q", list[i-1].Name, list[i].Name)
+		}
+	}
+	// A leading symbol sorts under its letter instead of ahead of everything.
+	for _, p := range list {
+		if strings.HasPrefix(p.Name, "*") && sortKey(p.Name) == p.Name {
+			t.Errorf("%s keeps its symbol in the sort key", p.ID)
+		}
+	}
+}
+
+// Every preset ships response hardening that fits the app: the conservative
+// baseline, and the browser features the app actually uses allowed back for its
+// own origin.
+func TestProtectionProfilesFitTheApp(t *testing.T) {
+	browserApps := map[string]string{"nextcloud": "microphone=(self)", "openwebui": "microphone=(self)"}
+	for _, p := range All() {
+		prof := p.ProtectionProfile("app.example.com")
+		if prof.ID != 0 || prof.Builtin {
+			t.Errorf("%s built a profile that looks already stored: %+v", p.ID, prof)
+		}
+		if want := p.Name + " hardening (app.example.com)"; prof.Name != want {
+			t.Errorf("%s protection profile name = %q, want %q", p.ID, prof.Name, want)
+		}
+		if !prof.ForceHTTPS || !prof.HSTS || !prof.HSTSSubdomains || !prof.NoSniff || !prof.HideServer {
+			t.Errorf("%s ships a profile without the baseline hardening: %+v", p.ID, prof)
+		}
+		switch prof.FrameOptions {
+		case "sameorigin", "deny", "off":
+		default:
+			t.Errorf("%s frame options = %q", p.ID, prof.FrameOptions)
+		}
+		if prof.ReferrerPolicy == "" {
+			t.Errorf("%s has no referrer policy", p.ID)
+		}
+		wantFeature, records := browserApps[p.ID]
+		if !records && strings.Contains(prof.PermissionsPolicy, "=(self)") {
+			t.Errorf("%s allows a browser feature without recording why", p.ID)
+		}
+		if records && !strings.Contains(prof.PermissionsPolicy, wantFeature) {
+			t.Errorf("%s must allow %s, got %q", p.ID, wantFeature, prof.PermissionsPolicy)
+		}
+	}
+	// The list above is only useful while every app it names exists.
+	for id := range browserApps {
+		if _, ok := Get(id); !ok {
+			t.Errorf("preset %q is missing", id)
+		}
+	}
+}
+
 func TestProfileCarriesTheHostname(t *testing.T) {
 	p, _ := Get("nextcloud")
 	prof := p.Profile("cloud.example.com")

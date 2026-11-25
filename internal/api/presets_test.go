@@ -55,6 +55,25 @@ func TestPresetBecomesAnEditableProfile(t *testing.T) {
 		t.Fatalf("profile did not take the preset's values: %+v", prof)
 	}
 
+	// The preset ships response hardening too, attached to the same site and
+	// editable like any other protection profile.
+	if created.ProtectionProfileID == nil {
+		t.Fatal("the created proxy has no protection profile")
+	}
+	protection, err := srv.st.GetProtectionProfile(*created.ProtectionProfileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if protection.Name != "Nextcloud hardening (cloud.example.com)" {
+		t.Fatalf("protection profile name = %q", protection.Name)
+	}
+	if !protection.ForceHTTPS || !protection.HSTS || !protection.NoSniff || !protection.HideServer {
+		t.Fatalf("protection profile is missing the baseline hardening: %+v", protection)
+	}
+	if !strings.Contains(protection.PermissionsPolicy, "microphone=(self)") {
+		t.Fatalf("Nextcloud's calls were not allowed: %q", protection.PermissionsPolicy)
+	}
+
 	// The profile is a normal row: editing it through the API works, including
 	// clearing the limits the preset set.
 	rec = authed(t, srv, token, csrf, http.MethodPut, "/api/profiles/"+strconv.FormatInt(*created.ProfileID, 10),

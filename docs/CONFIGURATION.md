@@ -239,7 +239,7 @@ summary.
 
 | Field | What it does |
 |---|---|
-| Application preset | Only when creating. Fills in a WAF profile tailored to the application; it creates an editable profile, it is not a locked mode. |
+| Application preset | Only when creating. Fills in a WAF profile and a protection profile tailored to the application; both are editable rows, not a locked mode. |
 | Hostname | The SNI name clients request. Must be covered by the certificate. |
 | Access profile | One choice that carries the site's lists, WAF profile and protection profile. Selecting one clears both per-site overrides; the protection override has no field here and is API-only. |
 | WAF profile | Per-site override of the access profile's WAF profile. |
@@ -342,7 +342,8 @@ site unless the upstream overrides them. They are not all exposed in the drawer.
 
 ### Application presets
 
-Presets create an editable WAF profile; they do not lock the site into a mode. The catalogue is:
+Presets create an editable WAF profile and an editable protection profile; they do not lock the site
+into a mode. The list is alphabetical by application. The catalogue is:
 Nextcloud, Jellyfin, Plex Media Server, Home Assistant, Proxmox VE, Vaultwarden, Gitea / Forgejo,
 Paperless-ngx, Grafana, Uptime Kuma, Mealie, Navidrome, PhotoPrism, Syncthing, n8n, BookStack,
 Cal.com, the \*arr suite (Sonarr, Radarr, Lidarr, Readarr, Prowlarr), Immich, Firefly III,
@@ -351,6 +352,14 @@ Guacamole, Actual Budget, read-later (Karakeep, Linkwarden), feed readers (Fresh
 wikis and notes (Outline, Wiki.js, Docmost, Memos), file sync (Seafile, ownCloud), file managers
 (FileBrowser, copyparty), Stirling-PDF, Matrix (Synapse, Conduit), DNS consoles (Pi-hole, AdGuard
 Home, Technitium) and Generic web application.
+
+Each preset also ships its **protection profile**, named `<app> hardening (<host>)` and attached to the
+site: HTTPS forced, HSTS with subdomains, framing limited to the same origin, MIME sniffing and server
+banners off, the referrer limited to the origin across sites, and camera, microphone and location
+denied. Where an app uses a browser feature it is allowed back for that app's own origin only —
+Nextcloud's Talk records audio, video and the screen, and Open WebUI's voice input records the
+microphone. Choosing a preset clears an explicitly chosen protection profile so the app's own is
+created; picking a different profile afterwards still wins, and both profiles stay editable.
 
 Immich, Nextcloud and the file-sync preset also suggest a site body ceiling, body-skip paths and a
 body deadline for whole-file uploads. They are prefilled in the drawer and stay editable, and the

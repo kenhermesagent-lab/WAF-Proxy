@@ -542,6 +542,16 @@ export interface Preset {
   proxy_max_body: number;
   body_skip_paths: string[];
   steps: string[];
+  // protection is the response hardening the preset ships beside its WAF
+  // profile; only the fields the app needs differently are set.
+  protection: PresetProtection;
+}
+
+export interface PresetProtection {
+  permissions_policy: string;
+  frame_options: string;
+  csp: string;
+  referrer_policy: string;
 }
 
 export interface Policy {
