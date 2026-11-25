@@ -1090,6 +1090,13 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   .page-head { flex-direction: column; gap: 8px; }
   .page-head .actions { margin-left: 0; }
   .page-head h2 { font-size: 18px; }
+  /* The help button is the only action on most pages; beside the description
+     it costs one tap, on a line of its own it costs a row. */
+  .page-head:has(> .actions > .icon-btn:only-child) { flex-direction: row; align-items: flex-start; gap: 4px 10px; }
+  .page-head:has(> .actions > .icon-btn:only-child) > div:first-child { flex: 1 1 auto; min-width: 0; }
+  /* One scroll container: the page. A 70vh table pane inside a phone page
+     nests two scrollbars and hides rows behind the second. */
+  .table-wrap { max-height: none; }
   .user-btn .user-name { display: none; }
   .toast-stack { right: 10px; bottom: 10px; width: calc(100vw - 20px); }
   .hide-phone { display: none !important; }
@@ -1146,6 +1153,35 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 @media (max-width: 760px) {
   .ban-move-grid { grid-template-columns: 1fr; }
   .log-request { max-width: 80px; }
+}
+
+/* ---------- drawer form rows ----------
+   A drawer row is a grid while there is room and a stack on a phone, where
+   several inputs and a remove button do not fit the drawer's width. */
+.upstream-row, .skip-row, .route-row { display: grid; gap: 8px; align-items: start; margin-bottom: 8px; }
+.upstream-row { grid-template-columns: minmax(0, 1fr) 90px auto; }
+.skip-row { grid-template-columns: 100px minmax(0, 1fr) minmax(0, 1fr) auto; }
+.route-row { grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1.3fr) auto; }
+
+@media (max-width: 560px) {
+  .upstream-row { grid-template-columns: 90px minmax(0, 1fr) auto; }
+  .upstream-row > .field:first-child { grid-column: 1 / -1; grid-row: 1; }
+  .upstream-row > .field:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .upstream-row > button { grid-column: 3; grid-row: 2; }
+  /* The kind or method stays beside its remove button; the path and the
+     target get a line of their own instead of 90px of a URL. */
+  .skip-row, .route-row { grid-template-columns: 96px minmax(0, 1fr) auto; }
+  .skip-row > .field:nth-child(1), .route-row > .field:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .skip-row > .field:nth-child(2), .route-row > .field:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+  .skip-row > .field:nth-child(3), .route-row > .field:nth-child(3) { grid-column: 1 / -1; grid-row: 3; }
+  .skip-row > button, .route-row > button { grid-column: 3; grid-row: 1; }
+}
+
+/* A hostname is one token: at phone width the card scrolls sideways rather
+   than breaking it over four lines. */
+@media (max-width: 760px) {
+  .proxies-table { min-width: 620px; }
+  .proxies-table th, .proxies-table td { white-space: nowrap; }
 }
 
 /* ---------- accessibility + print ---------- */

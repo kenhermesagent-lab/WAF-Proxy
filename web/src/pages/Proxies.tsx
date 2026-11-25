@@ -278,7 +278,7 @@ export default function Proxies({
               </Empty>
             ) : (
               <TableWrap>
-                <table>
+                <table className="proxies-table">
                   <thead>
                     <tr>
                       <th className="sortable" onClick={() => sortBy("hostname")}>Hostname {arrow("hostname")}</th>
@@ -461,7 +461,7 @@ export default function Proxies({
               {drawerTab === "routing" && (
                 <>
                   {draft.upstreams.map((u, i) => (
-                    <div key={i} className="upstream-row" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 90px auto", gap: 8, alignItems: "start", marginBottom: 8 }}>
+                    <div key={i} className="upstream-row">
                       <Field label={i === 0 ? "Upstream URL" : `Upstream ${i + 1}`}>
                         <input value={u.url} placeholder="http://10.0.0.10:8080" onChange={(e) => patch((d) => { d.upstreams[i] = { ...d.upstreams[i], url: e.target.value }; })} />
                       </Field>
@@ -525,7 +525,7 @@ export default function Proxies({
                     A skip path streams its request body to the app without buffering or inspection, so uploads of any size pass. Method, path and header rules, bans, lists, rate limits and the access gate still apply; only the body is unseen, and neither the body deadline nor the site's upstream timeout cuts it short. A client that stops sending for two minutes is dropped.
                   </p>
                   {draft.body_skip.map((s, i) => (
-                    <div key={i} style={{ display: "grid", gridTemplateColumns: "100px minmax(0,1fr) minmax(0,1fr) auto", gap: 8, alignItems: "start", marginBottom: 8 }}>
+                    <div key={i} className="skip-row">
                       <Field label={i === 0 ? "Method" : `Skip ${i + 1}`}>
                         <select value={s.method} onChange={(e) => patch((d) => { d.body_skip[i] = { ...d.body_skip[i], method: e.target.value }; })}>
                           <option value="POST">POST</option>
@@ -612,7 +612,7 @@ export default function Proxies({
                 <>
                   {draft.routes.length === 0 && <p className="faint small-text">No redirects or aliases. Add one to send a path to another origin.</p>}
                   {draft.routes.map((rt, i) => (
-                    <div key={i} style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr) minmax(0,1.3fr) auto", gap: 8, alignItems: "start", marginBottom: 8 }}>
+                    <div key={i} className="route-row">
                       <Field label={i === 0 ? "Kind" : `Route ${i + 1}`}>
                         <select value={rt.kind} onChange={(e) => patch((d) => { d.routes[i] = { ...d.routes[i], kind: e.target.value }; })}>
                           <option value="redirect">redirect</option>
