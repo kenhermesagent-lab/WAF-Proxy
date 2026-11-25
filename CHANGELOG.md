@@ -12,6 +12,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.72.3] — 2026-11-25
+
+### Fixed
+
+- **The WAF now sees the request's own framing, so a real upload is no longer scored as a protocol
+  violation.** Go's HTTP server moves `Content-Length` into `Request.ContentLength` and
+  `Transfer-Encoding` into `Request.TransferEncoding`, leaving neither in the header map, so every POST
+  and PUT the proxy inspected looked like a request carrying no framing at all. CRS 920180 matched all
+  of them, charging each one the `protocol-violation` notice score, and any further notice on top — a
+  Seafile `/seafhttp/upload-aj/` upload was the reported case — tipped the total over the threshold and
+  answered 403. The engine is handed the framing the request actually carried: `Transfer-Encoding` when
+  the request is chunked, otherwise `Content-Length`, never both.
+
 ## [1.72.2] — 2026-11-25
 
 ### Fixed

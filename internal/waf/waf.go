@@ -580,6 +580,20 @@ func (e *Engine) InspectAllWith(r *http.Request, body []byte, clientIP netip.Add
 		}
 	}
 	tx.AddRequestHeader("Host", r.Host)
+	// Go's server takes the framing out of Header and leaves it on the request:
+	// Content-Length becomes r.ContentLength and Transfer-Encoding becomes
+	// r.TransferEncoding. The CRS rules that read the header form (920180 for a
+	// POST with neither, 920181 and 921110 for both) would otherwise fire on
+	// every request this proxy forwards, scoring a legitimate upload as a
+	// protocol violation. A request carries one framing or the other, never
+	// both, so a chunked request gets its Transfer-Encoding and no length.
+	if te := r.TransferEncoding; len(te) > 0 {
+		for _, v := range te {
+			tx.AddRequestHeader("Transfer-Encoding", v)
+		}
+	} else if r.ContentLength >= 0 && len(r.Header.Values("Content-Length")) == 0 {
+		tx.AddRequestHeader("Content-Length", strconv.FormatInt(r.ContentLength, 10))
+	}
 	tx.ProcessRequestHeaders()
 	if len(body) > 0 {
 		// Coraza interrupts on SecRequestBodyLimit with rule 0, which reads
