@@ -25,6 +25,9 @@ type UtilHour struct {
 	ProxyTx  float64   `json:"proxy_tx"`
 	Reqs     int64     `json:"reqs"`
 	Blocked  int64     `json:"blocked"`
+	// Samples is how many live readings the hour holds. A backfilled hour has
+	// none: its request counts came from the event log, not from the collector.
+	Samples int64 `json:"samples"`
 }
 
 // RollupUtilization folds one reading into its hour. Load and rates become a
@@ -59,7 +62,7 @@ func (s *Store) RollupUtilization(now time.Time, smp UtilSample) error {
 
 // UtilizationHours returns the stored hours since a point in time, oldest first.
 func (s *Store) UtilizationHours(since time.Time) ([]UtilHour, error) {
-	rows, err := s.db.Query(`SELECT hour, cpu, mem_used, mem_total, wan_rx, wan_tx, proxy_rx, proxy_tx, reqs, blocked
+	rows, err := s.db.Query(`SELECT hour, cpu, mem_used, mem_total, wan_rx, wan_tx, proxy_rx, proxy_tx, reqs, blocked, samples
 		FROM utilization WHERE hour >= ? ORDER BY hour`, stamp(since))
 	if err != nil {
 		return nil, err
@@ -70,13 +73,32 @@ func (s *Store) UtilizationHours(since time.Time) ([]UtilHour, error) {
 		var u UtilHour
 		var hour string
 		if err := rows.Scan(&hour, &u.CPU, &u.MemUsed, &u.MemTotal, &u.WANRx, &u.WANTx, &u.ProxyRx, &u.ProxyTx,
-			&u.Reqs, &u.Blocked); err != nil {
+			&u.Reqs, &u.Blocked, &u.Samples); err != nil {
 			return nil, err
 		}
 		u.Hour = parseStamp(hour)
 		out = append(out, u)
 	}
 	return out, rows.Err()
+}
+
+// BackfillUtilization writes the request and block counts of every hour the
+// event log still holds for the hours that have no row yet, so an upgrade shows
+// the traffic history the log already had. A backfilled row has no samples: it
+// carries counts only, never invented load or throughput. Live hours keep their
+// own counts, so running this again is cheap and changes nothing.
+func (s *Store) BackfillUtilization(since time.Time) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO utilization(hour, reqs, blocked, samples)
+		SELECT b.hour, b.reqs, b.blocked, 0 FROM (
+			SELECT strftime('%Y-%m-%dT%H:00:00Z', ts) AS hour, COUNT(*) AS reqs,
+			       SUM(CASE WHEN action IN ('block','ban','challenge') THEN 1 ELSE 0 END) AS blocked
+			FROM events WHERE ts >= ? GROUP BY 1
+		) b LEFT JOIN utilization u ON u.hour = b.hour
+		WHERE u.hour IS NULL`, stamp(since))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // DeleteUtilizationBefore drops hourly rows older than the retention window.

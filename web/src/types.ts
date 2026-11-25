@@ -743,6 +743,8 @@ export interface UtilHour {
   proxy_tx: number;
   reqs: number;
   blocked: number;
+  // Zero for an hour backfilled from the event log: counts only, no load.
+  samples: number;
 }
 
 export interface GlobePoint {

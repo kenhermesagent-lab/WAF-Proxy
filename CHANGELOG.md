@@ -12,6 +12,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.72.1] — 2026-11-24
+
+### Added
+
+- **The Utilization charts have history on the first start.** Every hour the event log still holds gets its
+  request and block counts filled in before the first chart is drawn, so an upgrade does not open on 30 empty days.
+  Only hours without a row are written, and only counts: load and throughput still begin at the first sample the
+  service takes, and those two charts start there instead of drawing the backfilled hours as a false zero. A
+  restart finds every hour already filled and writes nothing.
+
+### Fixed
+
+- **The uptime table and the anomaly events table keep a hostname whole** at phone and tablet widths. A long
+  `immich.kendk.duckdns.org` used to break into five slices in a 42px column; the card now scrolls instead, and the
+  anomaly table leaves its Baseline column out on phones where the drawer still shows it.
+- **The live load charts label their hours by clock time**, so five evenly spaced points inside one day no longer
+  all read as the same date.
+
 ## [1.72.0] — 2026-11-24
 
 ### Added

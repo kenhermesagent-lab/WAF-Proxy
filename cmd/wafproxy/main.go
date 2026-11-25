@@ -1267,6 +1267,13 @@ func utilizationLoop(ctx context.Context, st *store.Store, met *metrics.Collecto
 			log.Warn("utilization retention failed", "err", err)
 		}
 	}
+	// An upgrade already has event history, so the request and block charts
+	// start at the retention edge instead of at the first sample.
+	if n, err := st.BackfillUtilization(time.Now().Add(-keep)); err != nil {
+		log.Warn("utilization backfill failed", "err", err)
+	} else if n > 0 {
+		log.Info("utilization backfilled from the event log", "hours", n)
+	}
 	save()
 	t := time.NewTicker(5 * time.Minute)
 	defer t.Stop()

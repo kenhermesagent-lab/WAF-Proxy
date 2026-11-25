@@ -67,13 +67,22 @@ function Utilization({ onError }: { onError: (m: string) => void }) {
     );
   }
 
-  const labels = rows.map((h) => {
-    const d = new Date(h.hour);
-    if (Number.isNaN(d.getTime())) return "";
-    return rows.length <= 48
-      ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      : d.toLocaleDateString([], { month: "short", day: "numeric" });
-  });
+  // Hours backfilled from the event log carry no load or throughput sample, so
+  // those two charts start at the first hour the collector actually saw instead
+  // of drawing a false zero.
+  const live = rows.filter((h) => h.samples > 0);
+  // Clock times while the plotted list fits in two days, dates beyond it; five
+  // evenly spaced dates inside one day would all read "Nov 24".
+  const labelsAt = (list: UtilHour[]) =>
+    list.map((h) => {
+      const d = new Date(h.hour);
+      if (Number.isNaN(d.getTime())) return "";
+      return list.length <= 48
+        ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : d.toLocaleDateString([], { month: "short", day: "numeric" });
+    });
+  const labels = labelsAt(rows);
+  const liveLabels = labelsAt(live);
   const memPct = (h: UtilHour) => (h.mem_total ? (h.mem_used / h.mem_total) * 100 : 0);
   const pctFmt = (n: number) => `${n.toFixed(0)}%`;
   const countFmt = (n: number) =>
@@ -81,28 +90,36 @@ function Utilization({ onError }: { onError: (m: string) => void }) {
 
   return (
     <div className="grid" style={{ gap: 12 }}>
-      <Card title="CPU and memory" sub="Host load, averaged over each hour.">
-        <Chart
-          series={[
-            { label: "CPU", color: "#4f8cff", values: rows.map((h) => h.cpu), area: true },
-            { label: "Memory", color: "#e5a54b", values: rows.map(memPct) },
-          ]}
-          labels={labels}
-          height={200}
-          format={pctFmt}
-        />
+      <Card title="CPU and memory" sub="Host load, averaged over each hour since the service started.">
+        {live.length === 0 ? (
+          <Empty title="No load samples yet" icon="chart">Load is sampled every five minutes; the first hour fills in shortly.</Empty>
+        ) : (
+          <Chart
+            series={[
+              { label: "CPU", color: "#4f8cff", values: live.map((h) => h.cpu), area: true },
+              { label: "Memory", color: "#e5a54b", values: live.map(memPct) },
+            ]}
+            labels={liveLabels}
+            height={200}
+            format={pctFmt}
+          />
+        )}
       </Card>
 
-      <Card title="Network throughput" sub="WAN rates over the hour, in and out.">
-        <Chart
-          series={[
-            { label: "Inbound", color: "#4f8cff", values: rows.map((h) => h.wan_rx), area: true },
-            { label: "Outbound", color: "#3ecf8e", values: rows.map((h) => h.wan_tx), area: true },
-          ]}
-          labels={labels}
-          height={200}
-          format={fmtBps}
-        />
+      <Card title="Network throughput" sub="WAN rates over the hour, in and out, since the service started.">
+        {live.length === 0 ? (
+          <Empty title="No throughput samples yet" icon="chart">Rates are sampled every five minutes; the first hour fills in shortly.</Empty>
+        ) : (
+          <Chart
+            series={[
+              { label: "Inbound", color: "#4f8cff", values: live.map((h) => h.wan_rx), area: true },
+              { label: "Outbound", color: "#3ecf8e", values: live.map((h) => h.wan_tx), area: true },
+            ]}
+            labels={liveLabels}
+            height={200}
+            format={fmtBps}
+          />
+        )}
       </Card>
 
       <Card title="Requests and blocks" sub="Request counts per hour from the event log, blocked traffic overlaid.">
@@ -118,7 +135,8 @@ function Utilization({ onError }: { onError: (m: string) => void }) {
       </Card>
 
       <p className="faint small-text" style={{ marginBottom: 0 }}>
-        Hourly rows are kept for 30 days, the same window as the event log.
+        Request and block counts are backfilled from the event log for every hour it still holds; load and throughput
+        start at the first sample after the service started. Hourly rows are kept for 30 days.
       </p>
     </div>
   );
@@ -259,7 +277,7 @@ export default function Statistics({
         {(uptime?.proxies ?? []).length === 0 && <Empty>No proxies configured.</Empty>}
       </div>
       {(uptime?.targets ?? []).length > 0 && (
-        <div className="table-wrap"><table>
+        <div className="table-wrap"><table className="uptime-table">
           <thead>
             <tr><th>Proxy / backend</th><th>State</th><th className="num">24h uptime</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">HTTP</th><th className="hide-tablet">Last check</th><th className="hide-tablet">Detail</th></tr>
           </thead>

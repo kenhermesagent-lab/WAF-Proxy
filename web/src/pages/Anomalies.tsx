@@ -224,14 +224,14 @@ export default function Anomalies({
         {events.length === 0 ? (
           <Empty>Nothing detected yet. Events appear after a minute of traffic above a threshold.</Empty>
         ) : (
-          <div className="table-wrap"><table>
+          <div className="table-wrap"><table className="anomaly-table">
             <thead>
               <tr>
                 <th>When</th>
                 <th>Detection</th>
                 <th>Proxy</th>
                 <th>Value</th>
-                <th>Baseline</th>
+                <th className="hide-phone">Baseline</th>
                 <th>State</th>
                 <th />
               </tr>
@@ -243,7 +243,7 @@ export default function Anomalies({
                   <td><Badge tone={TONE[e.kind] || "info"}>{LABELS[e.kind] || e.kind}</Badge></td>
                   <td className="mono">{e.proxy_host || `#${e.proxy_id}`}</td>
                   <td>{e.detail}</td>
-                  <td className="muted">{e.baseline > 0 ? fmtValue(e.kind, e.baseline) : "—"}</td>
+                  <td className="muted hide-phone">{e.baseline > 0 ? fmtValue(e.kind, e.baseline) : "—"}</td>
                   <td>
                     {e.state === "open" ? (
                       <Badge tone="bad">open</Badge>
