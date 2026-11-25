@@ -718,6 +718,26 @@ CREATE TABLE IF NOT EXISTS scan_schedules (
   signature TEXT NOT NULL DEFAULT '',
   updated_by TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS scan_findings (
+  site_id INTEGER NOT NULL DEFAULT 0,
+  key TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT '',
+  stage TEXT NOT NULL DEFAULT '',
+  class TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  severity TEXT NOT NULL DEFAULT '',
+  cvss REAL NOT NULL DEFAULT 0,
+  exploitation TEXT NOT NULL DEFAULT '',
+  cve_ids TEXT NOT NULL DEFAULT '',
+  product TEXT NOT NULL DEFAULT '',
+  version TEXT NOT NULL DEFAULT '',
+  recommendation TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'open',
+  first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL,
+  PRIMARY KEY (site_id, key)
+);
 CREATE TABLE IF NOT EXISTS vuln_sources (
   source TEXT PRIMARY KEY,
   last_ok TEXT NOT NULL DEFAULT '',
@@ -732,7 +752,7 @@ CREATE TABLE IF NOT EXISTS vuln_sources (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "31"
+const schemaVersion = "32"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {

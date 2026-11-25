@@ -39,6 +39,11 @@ func (s *Store) ListScanSchedules() ([]model.ScanSchedule, error) {
 // SaveScanSchedule stores a site's cadence and triggers. The signature is the
 // last run's own record, so a save from the page never clears it.
 func (s *Store) SaveScanSchedule(sched model.ScanSchedule) error {
+	// A tenant's save always lands on the tenant's own site, never on the id in
+	// the body.
+	if s.site != 0 {
+		sched.SiteID = s.site
+	}
 	_, err := s.db.Exec(`INSERT INTO scan_schedules(site_id, cadence, hour, day, enabled, triggers, updated_by)
 		VALUES(?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(site_id) DO UPDATE SET cadence = excluded.cadence, hour = excluded.hour,

@@ -46,6 +46,7 @@ var TableClasses = map[string]TableClass{
 	// a promoted standby does not answer "unknown" until its first sync.
 	"vuln_sources":   ClassReplicated,
 	"scan_schedules": ClassReplicated,
+	"scan_findings":  ClassReplicated,
 
 	// Streamed per-record state.
 	"sessions":         ClassStreamed,

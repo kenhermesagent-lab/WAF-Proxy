@@ -6,6 +6,32 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
 
+// A tenant's save lands on the tenant's own site even when the body names
+// another one, and the default site is left untouched.
+func TestScanScheduleUsesStoreSite(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	site, err := st.CreateSite("bravo", "Bravo", "console.bravo.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bravo := st.InSite(site.ID)
+	if err := bravo.SaveScanSchedule(model.ScanSchedule{
+		SiteID: st.SiteID(), Cadence: "daily", Hour: 2, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if sched, err := bravo.ScanSchedule(site.ID); err != nil || sched == nil {
+		t.Fatalf("the tenant's own schedule = %+v, %v", sched, err)
+	}
+	if sched, err := st.ScanSchedule(st.SiteID()); err != nil || sched != nil {
+		t.Fatalf("the default site gained a schedule: %+v, %v", sched, err)
+	}
+}
+
 // The schedule survives a save intact, and a page save does not clear the
 // signature the last run recorded.
 func TestScanScheduleRoundTrip(t *testing.T) {

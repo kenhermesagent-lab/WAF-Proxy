@@ -39,6 +39,9 @@ var Areas = []Area{
 // Permission returns the "area.action" token for an area.
 func Permission(area, action string) string { return area + "." + action }
 
+// SecurityRun starts a scan without granting schedule or limit changes.
+const SecurityRun = "security.run"
+
 // Allows reports whether a permission list grants want. A wildcard grants
 // everything, and a write grant implies the matching read.
 func Allows(permissions []string, want string) bool {
@@ -55,7 +58,7 @@ func Allows(permissions []string, want string) bool {
 
 // Valid reports whether token is a known permission or the wildcard.
 func Valid(token string) bool {
-	if token == Admin {
+	if token == Admin || token == SecurityRun {
 		return true
 	}
 	for _, a := range Areas {
@@ -116,7 +119,7 @@ func Builtins() []model.Role {
 	return []model.Role{
 		{Name: "Administrator", Description: "Full access, including accounts and system settings.", Builtin: true, Permissions: []string{Admin}},
 		{Name: "Operator", Description: "Runs the gateway: proxies, policies, certificates, feeds and streaming, without account or system changes.", Builtin: true,
-			Permissions: withWrites("policies", "proxies", "streaming", "certificates", "sources")},
+			Permissions: append(withWrites("policies", "proxies", "streaming", "certificates", "sources"), SecurityRun)},
 		{Name: "Read-only", Description: "Sees every page and setting but cannot change anything.", Builtin: true, Permissions: allRead()},
 		{Name: "Viewer", Description: "Sees the dashboard and traffic logs only.", Builtin: true,
 			Permissions: []string{Permission("dashboard", "read"), Permission("traffic", "read")}},
@@ -130,6 +133,7 @@ func Builtins() []model.Role {
 				Permission("sources", "read"), Permission("sources", "write"),
 				Permission("accounts", "read"), Permission("accounts", "write"),
 				Permission("settings", "read"), Permission("settings", "write"),
+				Permission("security", "read"), SecurityRun,
 			}},
 	}
 }

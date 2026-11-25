@@ -67,4 +67,7 @@ type ScanFinding struct {
 	Version        string   `json:"version,omitempty"`
 	Recommendation string   `json:"recommendation"`
 	Note           string   `json:"note,omitempty"`
+	// State is open, accepted or resolved. FirstSeen survives every merge.
+	State     string    `json:"state,omitempty"`
+	FirstSeen time.Time `json:"first_seen,omitempty"`
 }

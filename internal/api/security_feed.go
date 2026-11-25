@@ -37,10 +37,23 @@ type securityFeedSource struct {
 // when each last synced, how large it is and whether it is stale. A source that
 // has never synced is stale, never current.
 func (s *Server) getSecurityFeed(w http.ResponseWriter, r *http.Request) {
-	known, err := s.db(r).VulnSources()
+	sources, err := securityFeedSources(s.db(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sources":           sources,
+		"storage_cap_bytes": securityStorageCap,
+	})
+}
+
+// securityFeedSources reports each known source, including one that has never
+// synced, which is stale rather than current.
+func securityFeedSources(st *store.Store) ([]securityFeedSource, error) {
+	known, err := st.VulnSources()
+	if err != nil {
+		return nil, err
 	}
 	byName := make(map[string]store.VulnSource, len(known))
 	for _, src := range known {
@@ -61,8 +74,5 @@ func (s *Server) getSecurityFeed(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, row)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"sources":           out,
-		"storage_cap_bytes": securityStorageCap,
-	})
+	return out, nil
 }

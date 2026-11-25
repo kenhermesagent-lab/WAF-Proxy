@@ -3006,6 +3006,167 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+  /api/security/feed/sync:
+    post:
+      operationId: postApiSecurityFeedSync
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/security/findings:
+    get:
+      operationId: getApiSecurityFindings
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/security/findings/{key}:
+    patch:
+      operationId: patchApiSecurityFindingsKey
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/security/limits:
+    get:
+      operationId: getApiSecurityLimits
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+    put:
+      operationId: putApiSecurityLimits
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/security/overview:
+    get:
+      operationId: getApiSecurityOverview
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/security/runs:
+    get:
+      operationId: getApiSecurityRuns
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+    post:
+      operationId: postApiSecurityRuns
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/security/runs/{id}:
+    get:
+      operationId: getApiSecurityRunsId
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/security/schedule:
+    get:
+      operationId: getApiSecuritySchedule
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+    put:
+      operationId: putApiSecuritySchedule
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/sessions:
     get:
       operationId: getApiSessions

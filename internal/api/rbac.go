@@ -28,6 +28,11 @@ func permissionFor(r *http.Request) string {
 	if path == "/api/simulate" {
 		return rbac.Permission("policies", "read")
 	}
+	// Starting a scan is its own grant: schedule and limit changes need the
+	// area's write permission instead.
+	if path == "/api/security/runs" && r.Method == http.MethodPost {
+		return rbac.SecurityRun
+	}
 	// A rollback checks the owning entity's write permission itself, because
 	// the area depends on the audited entity rather than the route.
 	if path != "/api/audit" && strings.HasPrefix(path, "/api/audit") && r.Method == http.MethodPost {

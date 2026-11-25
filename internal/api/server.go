@@ -125,6 +125,10 @@ type Server struct {
 	// haOps runs the HA mutations; nil means the routes answer 409. haMu and
 	// haLog keep the process-local action history the page shows.
 	haOps HAOps
+	// securityWAN builds the published endpoint a scan connects to. Nil means
+	// https://<hostname>; tests point it at a local listener.
+	securityWAN func(hostname string) string
+
 	// haChange starts or stops the HA loops after the switch is saved. It can
 	// refuse, and the save is then rolled back. It reports whether the caller
 	// must restart the process.
@@ -416,7 +420,18 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/simulate", s.authed(s.simulate))
 	m.HandleFunc("GET /api/gate-failures", s.authed(s.listGateFailures))
 
+	m.HandleFunc("GET /api/security/overview", s.authed(s.getSecurityOverview))
+	m.HandleFunc("GET /api/security/runs", s.authed(s.listSecurityRuns))
+	m.HandleFunc("POST /api/security/runs", s.authed(s.createSecurityRun))
+	m.HandleFunc("GET /api/security/runs/{id}", s.authed(s.getSecurityRun))
+	m.HandleFunc("GET /api/security/findings", s.authed(s.listSecurityFindings))
+	m.HandleFunc("PATCH /api/security/findings/{key}", s.authed(s.patchSecurityFinding))
 	m.HandleFunc("GET /api/security/feed", s.authed(s.getSecurityFeed))
+	m.HandleFunc("POST /api/security/feed/sync", s.authed(s.syncSecurityFeed))
+	m.HandleFunc("GET /api/security/schedule", s.authed(s.getSecuritySchedule))
+	m.HandleFunc("PUT /api/security/schedule", s.authed(s.putSecuritySchedule))
+	m.HandleFunc("GET /api/security/limits", s.authed(s.getSecurityLimits))
+	m.HandleFunc("PUT /api/security/limits", s.authed(s.putSecurityLimits))
 	m.HandleFunc("GET /api/events/export.csv", s.authed(s.exportEventsCSV))
 	m.HandleFunc("GET /api/events/incident.md", s.authed(s.logIncidentReportMarkdown))
 	m.HandleFunc("GET /api/ips", s.authed(s.listIPs))
