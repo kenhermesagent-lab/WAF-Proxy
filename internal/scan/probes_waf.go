@@ -16,10 +16,10 @@ func wafClasses(probePath string) []ProbeClass {
 		queryClass(StageWAF, "xss-javascript-url", probePath, "next", `javascript:alert(1)`),
 		queryClass(StageWAF, "xss-svg-event", probePath, "q", `<svg/onload=alert(1)>`),
 
-		queryClass(StageWAF, "cmdi-semicolon", probePath, "host", `127.0.0.1;id`),
-		queryClass(StageWAF, "cmdi-pipe", probePath, "host", `127.0.0.1|id`),
-		queryClass(StageWAF, "cmdi-subshell", probePath, "host", `$(id)`),
-		queryClass(StageWAF, "cmdi-backtick", probePath, "host", "`id`"),
+		queryClass(StageWAF, "cmdi-semicolon", probePath, "host", `127.0.0.1;cat /etc/passwd`),
+		queryClass(StageWAF, "cmdi-pipe", probePath, "host", `127.0.0.1|cat /etc/passwd`),
+		queryClass(StageWAF, "cmdi-subshell", probePath, "host", `$(cat /etc/passwd)`),
+		queryClass(StageWAF, "cmdi-backtick", probePath, "host", "`cat /etc/passwd`"),
 
 		queryClass(StageWAF, "lfi-traversal", probePath, "file", `../../etc/passwd`),
 		queryClass(StageWAF, "lfi-file-scheme", probePath, "file", `file:///etc/passwd`),
