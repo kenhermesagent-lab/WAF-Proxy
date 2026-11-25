@@ -4,6 +4,7 @@ import { api } from "../api";
 import { bundleMode, hitsByBundle, profileBundleBadges } from "../bundles";
 import { COUNTRIES, countryFlag, countryName } from "../countries";
 import { confirmDialog, Badge, Card, Empty, Field, Modal, PageHead, PageTabs, errText, fmtAgo } from "../ui";
+import EndToEndCheck from "../components/EndToEndCheck";
 import { NAV, type NavTab } from "../nav";
 import { ASNRecommendations, ASNSuggestion, Ban, BundleHit, BundlesSnapshot, GlobalLists, Policy, PolicyPreflight, Profile, Proxy } from "../types";
 import AccessLists from "../components/AccessLists";
@@ -984,6 +985,7 @@ export default function Policies({
         </>
       )}
       {tab === "bots" && <BotFilter onError={onError} onOK={onOK} />}
+      {tab === "check" && <EndToEndCheck proxies={proxies} onError={onError} />}
 
 
       {profile && (

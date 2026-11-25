@@ -400,6 +400,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/analytics", s.authed(s.getAnalytics))
 	m.HandleFunc("GET /api/utilization", s.authed(s.getUtilization))
 	m.HandleFunc("GET /api/uptime", s.authed(s.getUptime))
+	m.HandleFunc("GET /api/uptime/history", s.authed(s.getUptimeHistory))
 	m.HandleFunc("GET /api/events", s.authed(s.listEvents))
 	m.HandleFunc("GET /api/log-views", s.authed(s.listLogViews))
 	m.HandleFunc("PUT /api/log-views/{name}", s.authed(s.saveLogView))

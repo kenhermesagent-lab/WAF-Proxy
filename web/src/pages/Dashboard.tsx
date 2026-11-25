@@ -7,6 +7,7 @@ import Icon from "../components/Icon";
 import { countryFlag, countryName } from "../countries";
 import { Badge, Card, Empty, Info, PageHead, Skeleton, TableWrap, fmtAgo, fmtBps, fmtBytes, fmtTime } from "../ui";
 import CapacityCard, { Capacity } from "../components/CapacityCard";
+import Simulator from "../components/Simulator";
 import UsageCard from "../components/UsageCard";
 import { AnomalyEvent, Cert, Event, Feed, GlobeHit, GlobePoint, Metrics, Proxy, Reach, UpdatesSnapshot, Uptime } from "../types";
 import { nearMissTotal, reachedGlobePoints } from "../reach";
@@ -45,6 +46,7 @@ export default function Dashboard({
   const [hits, setHits] = useState<GlobeHit[]>([]);
   const [reach, setReach] = useState<Reach | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
+  const [why, setWhy] = useState<Event | null>(null);
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [uptime, setUptime] = useState<Uptime | null>(null);
   const [certs, setCerts] = useState<Cert[]>([]);
@@ -695,7 +697,7 @@ export default function Dashboard({
           <Empty title="No blocked requests" icon="shield">The most recent policy blocks will show up here.</Empty>
         ) : (
           <TableWrap>
-            <table>
+            <table className="table-compact">
               <thead>
                 <tr>
                   <th>Time</th>
@@ -705,6 +707,7 @@ export default function Dashboard({
                   <th className="hide-tablet">Stage</th>
                   <th className="hide-narrow">Rule</th>
                   <th className="num">Status</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -713,13 +716,16 @@ export default function Dashboard({
                     <td className="muted" title={fmtTime(e.ts)} style={{ whiteSpace: "nowrap" }}>{fmtAgo(e.ts)}</td>
                     <td>
                       <button className="link-cell mono" style={{ fontSize: 11.5 }} onClick={() => onOpenSource(e.src_ip)} title={`Investigate ${e.src_ip}`}>{e.src_ip}</button>
-                      <div className="faint small-text">{countryName(e.country) || e.country || "—"} · AS{e.asn || "?"}</div>
+                      <div className="faint small-text" style={{ fontSize: 10.5 }}>{countryName(e.country) || e.country || "—"} · AS{e.asn || "?"}</div>
                     </td>
-                    <td className="muted hide-tablet">{e.host}</td>
-                    <td className="mono recent-request">{e.method} {e.path}</td>
+                    <td className="muted hide-tablet" style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.host}>{e.host}</td>
+                    <td className="mono recent-request" title={`${e.method} ${e.path}${e.query ? `?${e.query}` : ""}`}>{e.method} {e.path}</td>
                     <td className="hide-tablet"><Badge tone="bad">{e.stage}</Badge></td>
                     <td className="muted recent-rule hide-narrow" title={e.rule_msg || e.rule_id}>{e.rule_msg || e.rule_id || "—"}</td>
                     <td className="num">{e.status}</td>
+                    <td className="right" style={{ whiteSpace: "nowrap" }}>
+                      <button className="small" onClick={() => setWhy(e)} title="Replay this request through the policy pipeline">Why?</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -727,6 +733,8 @@ export default function Dashboard({
           </TableWrap>
         )}
       </Card>
+
+      {why && <Simulator event={why} onClose={() => setWhy(null)} onError={onError} />}
 
       {mapOpen && (
         <AttackMap

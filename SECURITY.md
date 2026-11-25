@@ -13,7 +13,7 @@ database schema and the unit files.
 
 | Version | Supported |
 |---|---|
-| 1.74.x | Yes |
+| 1.75.x | Yes |
 | 1.73.x | Yes — until 1.75.0 ships |
 | 1.72.x | No |
 | 1.70.x | Yes — until 1.71.0 ships |

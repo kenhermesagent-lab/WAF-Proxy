@@ -3,6 +3,7 @@ import { api } from "../api";
 import { countryFlag, countryName } from "../countries";
 import { Analytics, GateFailure, Uptime, UptimeTarget, UtilHour } from "../types";
 import Chart from "../components/Chart";
+import UptimeDrawer from "../components/UptimeDrawer";
 import { Badge, Card, Empty, PageHead, PageTabs, errText, fmtAgo, fmtBps, fmtBytes, fmtTime } from "../ui";
 
 const TABS = [
@@ -142,11 +143,11 @@ function Utilization({ onError }: { onError: (m: string) => void }) {
   );
 }
 
-function UptimeRow({ t }: { t: UptimeTarget }) {
+function UptimeRow({ t, onOpen }: { t: UptimeTarget; onOpen: () => void }) {
   return (
-    <tr>
+    <tr className="clickable-row" onClick={onOpen} title="Open the 24-hour history">
       <td className="proxy-cell">
-        <div>{t.proxy_host}</div>
+        <button className="link-cell" onClick={onOpen}>{t.proxy_host}</button>
         <div className="mono faint" style={{ fontSize: 11 }}>{t.url || "no enabled upstream"}</div>
       </td>
       <td>{stateBadge(t.state)}</td>
@@ -176,6 +177,7 @@ export default function Statistics({
   const [uptime, setUptime] = useState<Uptime | null>(null);
   const [failures, setFailures] = useState<GateFailure[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uptimeDrawer, setUptimeDrawer] = useState<{ id: number; host: string } | null>(null);
 
   const loadStats = () => {
     setLoading(true);
@@ -282,14 +284,16 @@ export default function Statistics({
             <tr><th>Proxy / backend</th><th>State</th><th className="num">24h uptime</th><th className="num hide-tablet">Latency</th><th className="num hide-tablet">HTTP</th><th className="hide-tablet">Last check</th><th className="hide-tablet">Detail</th></tr>
           </thead>
           <tbody>
-            {uptime?.targets.map((t) => <UptimeRow key={t.id} t={t} />)}
+            {uptime?.targets.map((t) => (
+              <UptimeRow key={t.id} t={t} onOpen={() => setUptimeDrawer({ id: t.proxy_id, host: t.proxy_host })} />
+            ))}
           </tbody>
         </table></div>
       )}
       <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
         Every enabled upstream is checked with an HTTP HEAD request every 30 seconds. A backend returning 5xx or
         timing out is marked down, and the transition is sent to the notification channels that have
-        <code> Backend up/down</code> enabled.
+        <code> Backend up/down</code> enabled. Select a proxy for its 24-hour latency, outages and slow stretches.
       </p>
     </Card>
   );
@@ -495,6 +499,15 @@ export default function Statistics({
             A permanent ban here also covers the whole address at the proxy and in nftables, and is listed under Policies.
           </p>
         </Card>
+      )}
+
+      {uptimeDrawer && (
+        <UptimeDrawer
+          proxyId={uptimeDrawer.id}
+          proxyHost={uptimeDrawer.host}
+          onClose={() => setUptimeDrawer(null)}
+          onError={onError}
+        />
       )}
     </div>
   );

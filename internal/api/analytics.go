@@ -100,6 +100,39 @@ func (s *Server) getUptime(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snap)
 }
 
+// getUptimeHistory serves the latency samples, outages and slow spans behind
+// one proxy, which is what the monitor's drawer shows.
+func (s *Server) getUptimeHistory(w http.ResponseWriter, r *http.Request) {
+	if s.uptime == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"targets": []any{}})
+		return
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("proxy_id")), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "proxy_id is required")
+		return
+	}
+	proxies, err := s.db(r).ListProxies()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	known := false
+	for _, p := range proxies {
+		if p.ID == id {
+			known = true
+			break
+		}
+	}
+	if !known {
+		writeError(w, http.StatusNotFound, "unknown proxy")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"targets": s.uptime.History(id), "generated_at": time.Now(),
+	})
+}
+
 // hoursBefore reads the hours selector, which runs to the 30 days the event log
 // keeps, and returns the start of that window.
 func hoursBefore(r *http.Request, fallback int) time.Time {

@@ -12,6 +12,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.75.0] — 2026-11-25
+
+### Added
+
+- **Uptime history.** Each proxy row in Statistics → Uptime monitor opens a drawer with the last 24
+  hours of probes: a latency chart, every outage with when it started, when it recovered and the
+  error, and the stretches that were slow but not down. `GET /api/uptime/history?proxy_id=` serves it.
+- **End-to-end check.** A new Policies tab replays a chosen kind of traffic (browser, upload,
+  download, backup client, API call, media segment) from a chosen source address through the real
+  pipeline and lists the stages in order, naming the first one that refuses and what to change.
+
+### Changed
+
+- **Recent blocked requests on the Dashboard** packs its columns and has a Why? button on every row,
+  so the replay is one click away instead of a trip to the log.
+
 ## [1.74.2] — 2026-11-25
 
 ### Fixed

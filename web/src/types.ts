@@ -736,6 +736,48 @@ export interface UptimeTarget {
   checks_24: number;
 }
 
+// One probe of the 24-hour uptime history: the latency chart and the outage
+// and slow-span lists are built from these.
+export interface UptimeSample {
+  at: string;
+  ms: number;
+  code: number;
+  ok: boolean;
+  error?: string;
+}
+
+export interface UptimeIncident {
+  start: string;
+  end?: string | null;
+  checks: number;
+  error: string;
+}
+
+export interface UptimeSlowSpan {
+  start: string;
+  end: string;
+  checks: number;
+  avg_ms: number;
+  max_ms: number;
+}
+
+export interface UptimeStats {
+  checks: number;
+  up: number;
+  avg_ms: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  max_ms: number;
+}
+
+export interface UptimeHistory extends UptimeTarget {
+  samples: UptimeSample[];
+  incidents: UptimeIncident[];
+  slow: UptimeSlowSpan[];
+  stats: UptimeStats;
+}
+
 export interface Uptime {
   process_uptime_s: number;
   targets: UptimeTarget[];

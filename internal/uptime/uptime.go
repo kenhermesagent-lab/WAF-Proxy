@@ -63,9 +63,63 @@ type Snapshot struct {
 	CheckedAt      time.Time     `json:"checked_at"`
 }
 
+// Sample is one probe result, kept for the 24-hour latency history.
+type Sample struct {
+	At    time.Time `json:"at"`
+	MS    int64     `json:"ms"`
+	Code  int       `json:"code"`
+	OK    bool      `json:"ok"`
+	Error string    `json:"error,omitempty"`
+}
+
+// Incident is one run of consecutive failed probes.
+type Incident struct {
+	Start  time.Time  `json:"start"`
+	End    *time.Time `json:"end"`
+	Checks int        `json:"checks"`
+	Error  string     `json:"error"`
+}
+
+// SlowSpan is a run of probes that took far longer than the target's usual
+// latency, which is what an operator looks for after a report of "it was slow".
+type SlowSpan struct {
+	Start  time.Time `json:"start"`
+	End    time.Time `json:"end"`
+	Checks int       `json:"checks"`
+	AvgMS  int64     `json:"avg_ms"`
+	MaxMS  int64     `json:"max_ms"`
+}
+
+// Stats summarises the successful samples of one target.
+type Stats struct {
+	Checks int   `json:"checks"`
+	Up     int   `json:"up"`
+	AvgMS  int64 `json:"avg_ms"`
+	P50MS  int64 `json:"p50_ms"`
+	P95MS  int64 `json:"p95_ms"`
+	P99MS  int64 `json:"p99_ms"`
+	MaxMS  int64 `json:"max_ms"`
+}
+
+// History is the uptime analytics of one probed target.
+type History struct {
+	Target
+	Samples   []Sample   `json:"samples"`
+	Incidents []Incident `json:"incidents"`
+	Slow      []SlowSpan `json:"slow"`
+	Stats     Stats      `json:"stats"`
+}
+
 type targetState struct {
 	Target
 	history []bool
+	samples []Sample
+	// incidents holds closed outages; an outage still running is appended when
+	// the history is read, so a reader never sees it without an end.
+	incidents  []Incident
+	downSince  time.Time
+	downChecks int
+	downError  string
 }
 
 // Manager probes all configured upstreams on an interval.
@@ -206,6 +260,8 @@ func (m *Manager) Check(ctx context.Context) Snapshot {
 		if prev.history == nil && result.State != StateUnknown {
 			prev.history = []bool{result.State == StateUp}
 		}
+		prev.recordSample(now)
+		prev.trackIncident(now)
 		prev.Uptime24, prev.Checks24 = uptime(prev.history)
 		m.targets[result.ID] = prev
 	}
@@ -251,6 +307,151 @@ func (m *Manager) probe(ctx context.Context, id string, p model.Proxy, raw strin
 		return out
 	}
 	out.State = StateUp
+	return out
+}
+
+// recordSample appends the probe that just ran and drops anything older than
+// the 24-hour window, so the ring never grows with uptime.
+func (t *targetState) recordSample(now time.Time) {
+	if t.State == StateUnknown {
+		return
+	}
+	t.samples = append(t.samples, Sample{At: now, MS: t.LatencyMS, Code: t.StatusCode,
+		OK: t.State == StateUp, Error: t.Error})
+	cutoff := now.Add(-historyWindow)
+	drop := 0
+	for drop < len(t.samples) && t.samples[drop].At.Before(cutoff) {
+		drop++
+	}
+	if drop > 0 {
+		t.samples = t.samples[drop:]
+	}
+}
+
+// trackIncident opens an outage on the first failed probe and closes it on the
+// next success, so the drawer can say when a backend went down and came back.
+func (t *targetState) trackIncident(now time.Time) {
+	if t.State == StateDown {
+		if t.downSince.IsZero() {
+			t.downSince = now
+		}
+		t.downChecks++
+		t.downError = t.Error
+		return
+	}
+	if t.downSince.IsZero() {
+		return
+	}
+	end := now
+	t.incidents = append(t.incidents, Incident{Start: t.downSince, End: &end,
+		Checks: t.downChecks, Error: t.downError})
+	t.downSince, t.downChecks, t.downError = time.Time{}, 0, ""
+	cutoff := now.Add(-historyWindow)
+	kept := t.incidents[:0]
+	for _, inc := range t.incidents {
+		if inc.End != nil && inc.End.Before(cutoff) {
+			continue
+		}
+		kept = append(kept, inc)
+	}
+	t.incidents = kept
+}
+
+// History returns the samples, outages and slow spans of every target behind
+// one proxy.
+func (m *Manager) History(proxyID int64) []History {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []History{}
+	for _, t := range m.targets {
+		if t.ProxyID != proxyID {
+			continue
+		}
+		h := History{Target: t.Target, Samples: append([]Sample{}, t.samples...),
+			Incidents: append([]Incident{}, t.incidents...)}
+		if !t.downSince.IsZero() {
+			h.Incidents = append(h.Incidents, Incident{Start: t.downSince,
+				Checks: t.downChecks, Error: t.downError})
+		}
+		h.Stats = stats(t.samples)
+		h.Slow = slowSpans(t.samples, h.Stats)
+		out = append(out, h)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].URL < out[j].URL })
+	return out
+}
+
+func stats(samples []Sample) Stats {
+	out := Stats{Checks: len(samples)}
+	lat := make([]int64, 0, len(samples))
+	var sum int64
+	for _, s := range samples {
+		if !s.OK {
+			continue
+		}
+		out.Up++
+		lat = append(lat, s.MS)
+		sum += s.MS
+	}
+	if len(lat) == 0 {
+		return out
+	}
+	sort.Slice(lat, func(i, j int) bool { return lat[i] < lat[j] })
+	out.AvgMS = sum / int64(len(lat))
+	out.P50MS = percentile(lat, 50)
+	out.P95MS = percentile(lat, 95)
+	out.P99MS = percentile(lat, 99)
+	out.MaxMS = lat[len(lat)-1]
+	return out
+}
+
+func percentile(sorted []int64, p int) int64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	i := (p*len(sorted)+99)/100 - 1
+	if i < 0 {
+		i = 0
+	}
+	if i >= len(sorted) {
+		i = len(sorted) - 1
+	}
+	return sorted[i]
+}
+
+// slowSpans groups consecutive successful probes that took at least 250 ms and
+// twice the median, so a single slow probe does not read as an incident.
+func slowSpans(samples []Sample, st Stats) []SlowSpan {
+	threshold := int64(250)
+	if twice := 2 * st.P50MS; twice > threshold {
+		threshold = twice
+	}
+	out := []SlowSpan{}
+	var cur *SlowSpan
+	var sum int64
+	for _, s := range samples {
+		if !s.OK || s.MS < threshold {
+			if cur != nil && cur.Checks >= 2 {
+				cur.AvgMS = sum / int64(cur.Checks)
+				out = append(out, *cur)
+			}
+			cur, sum = nil, 0
+			continue
+		}
+		if cur == nil {
+			cur = &SlowSpan{Start: s.At}
+		}
+		cur.End = s.At
+		cur.Checks++
+		sum += s.MS
+		if s.MS > cur.MaxMS {
+			cur.MaxMS = s.MS
+		}
+	}
+	if cur != nil && cur.Checks >= 2 {
+		cur.AvgMS = sum / int64(cur.Checks)
+		out = append(out, *cur)
+	}
 	return out
 }
 

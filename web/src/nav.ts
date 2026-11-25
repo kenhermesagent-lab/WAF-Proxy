@@ -75,6 +75,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
           { id: "access", label: "Access profiles" },
           { id: "lists", label: "Lists" },
           { id: "bots", label: "Bot filter" },
+          { id: "check", label: "End-to-end check" },
         ],
       },
       { id: "logs", label: "Logs", icon: "logs", permission: "traffic.read", hint: "Request event log" },

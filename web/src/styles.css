@@ -1388,3 +1388,8 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 .intel-meter { height: 5px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; }
 .intel-meter i { display: block; height: 100%; border-radius: 999px; background: #14b8a6; }
 @media (max-width: 900px) { .intel-grid { grid-template-columns: 1fr; } }
+
+/* A row that opens a detail panel, and the dashboard's compressed table. */
+.clickable-row { cursor: pointer; }
+.table-compact th, .table-compact td { padding: 6px 8px; }
+.table-compact th { font-size: 10.5px; }

@@ -377,6 +377,36 @@ HTTP/1.1. A `body-skip` row appears when the site's Protection tab streams this 
 entry and its trust lists; if the entry matched but the client is not in those lists, the row says
 so and the body was inspected.
 
+## Uptime history
+
+The monitor keeps the last 24 hours of probes: one sample every 30 seconds per enabled upstream, plus
+the outages it saw and the stretches that were merely slow. Open **Statistics → Uptime monitor** and
+select a proxy to see it.
+
+- **Latency** is the time to first byte of the HTTP HEAD probe, so it measures the network and the
+  backend's header path, not the body of a download.
+- **Outages** list when the probe started failing, when it recovered and the error the probe saw.
+  An outage that is still running shows as ongoing.
+- **Slow stretches** are runs of at least two probes above 250 ms and twice the median. A single slow
+  probe is noise and is not reported.
+
+The history lives in memory and starts again when the service restarts, because a probe is not an
+event and does not warrant a table of its own. The down and recovery transitions are also sent to the
+notification channels with **Backend up/down** enabled, and those notifications are retained.
+
+## End-to-end check
+
+**Policies → End-to-end check** answers "would this request get through?" without sending anything to
+the app. Choose the proxy, the source address and the kind of traffic (a browser page view, a Seafile
+upload, a download, an rclone backup, a JSON API call or a media segment); the request is replayed
+through the same pipeline as live traffic and the stages are listed in the order they run.
+
+The first stage that refuses is the answer, and it names the rule or list responsible. `body-skip`
+appears where the path matches a skip entry, saying whether the body would be streamed or inspected
+for that source. The access gate, rate limiter and forward auth are deliberately not performed — a
+check must not spend limit or create a session — so a request that passes here can still be refused
+by a gate login or a spent rate limit.
+
 ## Capacity and disk
 
 - 2 vCPU / 4 GB / 30 GB is the floor; 4 vCPU / 8 GB / 50 GB is comfortable for a home edge.
