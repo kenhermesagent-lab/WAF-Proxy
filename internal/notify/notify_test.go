@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
@@ -280,6 +281,47 @@ func TestPerChannelRoutesGateEachChannel(t *testing.T) {
 	}
 	if !strings.Contains(settings["routes"], `"permanent_ban":["webhook"]`) || !strings.Contains(settings["routes"], `"ban":[]`) {
 		t.Fatalf("routes = %s", settings["routes"])
+	}
+}
+
+// Security findings route by their own classes: a muted ordinary finding stays
+// out of the queue while a known-exploited one still reaches the webhook.
+func TestSecurityKindsRoute(t *testing.T) {
+	f := newNotifyFixture(t)
+	if err := f.st.SetSettings(map[string]string{
+		"notify_routes": `{"security_new":[],"security_kev":["webhook"]}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.mgr.EnqueueSecurityFindings([]model.ScanFinding{
+		{Key: "exposure:/.env", Title: "The application serves /.env", Severity: "high"},
+		{Key: "cve:CVE-2024-0001:jenkins", Title: "Jenkins 2.401.3 matches CVE-2024-0001",
+			Severity: "high", Exploitation: "kev"},
+	})
+	f.mgr.process(false)
+
+	if n := atomic.LoadInt32(f.hits); n != 1 {
+		t.Fatalf("delivered %d alert(s), want only the known-exploited finding", n)
+	}
+	if f.mgr.EventEnabled(KindSecurityNew) {
+		t.Fatal("a muted security class still counts as enabled")
+	}
+	if !f.mgr.EventEnabled(KindSecurityKEV) {
+		t.Fatal("the known-exploited class counts as muted")
+	}
+}
+
+// A finding that stays open alerts once, keyed by the finding key, not once per
+// run.
+func TestSecurityFindingAlertDedupesByKey(t *testing.T) {
+	f := newNotifyFixture(t)
+	finding := model.ScanFinding{Key: "exposure:/.env", Title: "The application serves /.env", Severity: "medium"}
+	f.mgr.EnqueueSecurityFindings([]model.ScanFinding{finding})
+	f.mgr.EnqueueSecurityFindings([]model.ScanFinding{finding})
+	f.mgr.process(false)
+
+	if n := atomic.LoadInt32(f.hits); n != 1 {
+		t.Fatalf("delivered %d alert(s) for one finding, want 1", n)
 	}
 }
 

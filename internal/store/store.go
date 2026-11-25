@@ -708,6 +708,16 @@ CREATE TABLE IF NOT EXISTS ha_applied (
   applied_at TEXT NOT NULL,
   PRIMARY KEY (origin, origin_seq)
 );
+CREATE TABLE IF NOT EXISTS scan_schedules (
+  site_id INTEGER PRIMARY KEY,
+  cadence TEXT NOT NULL DEFAULT 'weekly',
+  hour INTEGER NOT NULL DEFAULT 3,
+  day INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  triggers TEXT NOT NULL DEFAULT '',
+  signature TEXT NOT NULL DEFAULT '',
+  updated_by TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS vuln_sources (
   source TEXT PRIMARY KEY,
   last_ok TEXT NOT NULL DEFAULT '',
@@ -722,7 +732,7 @@ CREATE TABLE IF NOT EXISTS vuln_sources (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "30"
+const schemaVersion = "31"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {

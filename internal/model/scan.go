@@ -36,6 +36,19 @@ type ScanEvidence struct {
 	Note       string  `json:"note,omitempty"`
 }
 
+// ScanSchedule is one site's scan cadence and triggers. Signature is what the
+// last run recorded, so the next tick can skip a site that has not changed.
+type ScanSchedule struct {
+	SiteID    int64    `json:"site_id"`
+	Cadence   string   `json:"cadence"`
+	Hour      int      `json:"hour"`
+	Day       int      `json:"day"`
+	Enabled   bool     `json:"enabled"`
+	Triggers  []string `json:"triggers,omitempty"`
+	Signature string   `json:"-"`
+	UpdatedBy string   `json:"updated_by,omitempty"`
+}
+
 // ScanFinding is one issue a scan proved, or could not rule out. Key is stable
 // across runs so a finding can be tracked as new, still open or resolved
 // without diffing evidence rows.

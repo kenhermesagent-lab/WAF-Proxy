@@ -41,6 +41,14 @@ const (
 	KindCrowdSecBan  = "crowdsec"
 )
 
+// Security scan finding classes. A known-exploited finding gets its own class
+// so it can be kept immediate while ordinary findings are muted or digested.
+const (
+	KindSecurityNew      = "security_new"
+	KindSecurityKEV      = "security_kev"
+	KindSecurityResolved = "security_resolved"
+)
+
 // RouteChannels are the delivery channels an event can be routed to.
 var RouteChannels = []string{"telegram", "email", "webhook"}
 
@@ -52,6 +60,9 @@ var EventKinds = []EventKind{
 	{Kind: "uptime", Label: "Backend up/down"},
 	{Kind: "update", Label: "Application update"},
 	{Kind: "crowdsec", Label: "CrowdSec ban"},
+	{Kind: KindSecurityNew, Label: "Security scan: new finding"},
+	{Kind: KindSecurityKEV, Label: "Security scan: exploited vulnerability"},
+	{Kind: KindSecurityResolved, Label: "Security scan: finding resolved"},
 	{Kind: "egress_spike", Label: "Outbound traffic spike"},
 	{Kind: "rate_spike", Label: "Request-rate spike"},
 	{Kind: "auth_burst", Label: "Authentication failure burst"},
@@ -133,6 +144,42 @@ func (m *Manager) Enqueue(kind, text, dedupe string, immediate bool) {
 		default:
 		}
 	}
+}
+
+// EnqueueSecurityFindings alerts on a run's findings. A known-exploited finding
+// is immediate even at a low score, a critical or high finding is immediate, and
+// the rest wait for the digest. The finding key is the dedupe key, so a finding
+// that stays open is one alert rather than one per run.
+func (m *Manager) EnqueueSecurityFindings(findings []model.ScanFinding) {
+	for _, f := range findings {
+		kind, immediate := KindSecurityNew, false
+		switch {
+		case f.Exploitation == "kev":
+			kind, immediate = KindSecurityKEV, true
+		case f.Severity == "critical" || f.Severity == "high":
+			immediate = true
+		}
+		m.Enqueue(kind, securityFindingText(f), "finding:"+f.Key, immediate)
+	}
+}
+
+// EnqueueSecurityResolved reports findings that are gone, once per key.
+func (m *Manager) EnqueueSecurityResolved(findings []model.ScanFinding) {
+	for _, f := range findings {
+		m.Enqueue(KindSecurityResolved, "Resolved: "+f.Title, "resolved:"+f.Key, false)
+	}
+}
+
+func securityFindingText(f model.ScanFinding) string {
+	severity := strings.ToUpper(f.Severity)
+	if f.Exploitation == "kev" {
+		severity += " · CISA KEV"
+	}
+	text := severity + ": " + f.Title
+	if f.Recommendation != "" {
+		text += " — " + f.Recommendation
+	}
+	return text
 }
 
 // BanClass is the routing class for a ban, from its source. CrowdSec decisions

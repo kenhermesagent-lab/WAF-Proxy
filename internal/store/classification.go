@@ -44,7 +44,8 @@ var TableClasses = map[string]TableClass{
 	"audit_snapshots":     ClassReplicated,
 	// The last good vulnerability snapshot travels with the configuration, so
 	// a promoted standby does not answer "unknown" until its first sync.
-	"vuln_sources": ClassReplicated,
+	"vuln_sources":   ClassReplicated,
+	"scan_schedules": ClassReplicated,
 
 	// Streamed per-record state.
 	"sessions":         ClassStreamed,
