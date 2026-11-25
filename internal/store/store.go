@@ -555,6 +555,7 @@ CREATE TABLE IF NOT EXISTS gate_users (
   password_hash TEXT NOT NULL,
   totp_secret TEXT NOT NULL DEFAULT '',
   totp_enabled INTEGER NOT NULL DEFAULT 0,
+  totp_last_step INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS gate_acl (
@@ -679,7 +680,7 @@ CREATE TABLE IF NOT EXISTS ha_applied (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "27"
+const schemaVersion = "28"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -711,6 +712,7 @@ func (s *Store) migrateAddColumns() error {
 		{"events", "city", `ALTER TABLE events ADD COLUMN city TEXT NOT NULL DEFAULT ''`},
 		{"events", "query", `ALTER TABLE events ADD COLUMN query TEXT NOT NULL DEFAULT ''`},
 		{"users", "totp_last_step", `ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
+		{"gate_users", "totp_last_step", `ALTER TABLE gate_users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
 		{"users", "role_id", `ALTER TABLE users ADD COLUMN role_id INTEGER NOT NULL DEFAULT 0`},
 		{"users", "auth_source", `ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'`},
 		// Password-reset mail goes to the administrator's own address.

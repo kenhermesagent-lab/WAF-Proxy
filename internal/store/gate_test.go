@@ -5,6 +5,38 @@ import (
 	"time"
 )
 
+// A claimed authenticator step is spent: the same code, and any older one, is
+// refused, while the next step still signs in.
+func TestClaimGateTOTPStepIsMonotonic(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	id, err := st.CreateGateUser("visitor", "hash", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		step int64
+		want bool
+	}{
+		{100, true},
+		{100, false},
+		{99, false},
+		{101, true},
+	} {
+		got, err := st.ClaimGateTOTPStep(id, tc.step)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
+			t.Errorf("step %d claimed = %v, want %v", tc.step, got, tc.want)
+		}
+	}
+}
+
 func TestGateFailureReportGroupsByAddressUsernameAndProxy(t *testing.T) {
 	st, err := Open(t.TempDir())
 	if err != nil {

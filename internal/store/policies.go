@@ -515,6 +515,24 @@ func (s *Store) UpdateGateUser(id int64, hash, totpSecret string, totpEnabled bo
 	return err
 }
 
+// ClaimGateTOTPStep records the time step of an accepted gate authenticator
+// code and reports whether it was still unused. The UPDATE is conditional, so
+// one code cannot sign in twice: a code captured on the wire is dead once the
+// visitor has spent it. Gate accounts travel as configuration snapshots, so a
+// step claimed here reaches a paired node with the next one.
+func (s *Store) ClaimGateTOTPStep(id, step int64) (bool, error) {
+	res, err := s.db.Exec(`UPDATE gate_users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ? AND (? = 0 OR site_id = ?)`,
+		step, id, step, s.site, s.site)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
 // DeleteGateUser removes a gate account together with its ACL rows and visitor
 // sessions. Leaving the sessions behind would keep a deleted account logged in
 // until they expired.

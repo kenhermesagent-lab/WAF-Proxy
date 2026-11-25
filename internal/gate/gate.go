@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -105,12 +106,29 @@ func (g *Gate) Handle(w http.ResponseWriter, r *http.Request, p *model.Proxy, sr
 	}
 
 	if r.URL.Path == LoginPath && r.Method == http.MethodPost {
+		if isCrossSite(r) {
+			// Refused without recording a failure, so a page embedding this post
+			// cannot spend a visitor's address against the ban ladder.
+			http.Error(w, "cross-site request refused", http.StatusForbidden)
+			return true
+		}
 		g.login(w, r, p, src)
 		return true
 	}
 	// Never reveal a different response for unknown paths while unauthenticated.
 	g.renderLogin(w, p, r.URL.RequestURI(), "", http.StatusOK)
 	return true
+}
+
+// isCrossSite reports whether a browser sent this post from another origin. A
+// request carrying neither header comes from a non-browser client, which a
+// third-party page cannot drive.
+func isCrossSite(r *http.Request) bool {
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		return err != nil || !strings.EqualFold(u.Host, r.Host)
+	}
+	return strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site")
 }
 
 func isHealthPath(path string) bool {
@@ -169,10 +187,7 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 		} else if auth.VerifyPassword(user.PasswordHash, password) {
 			ok = g.allowed(p.ID, user.Username)
 			if ok && p.GateMode == "accounts_totp" {
-				secret, serr := g.box.Open(user.TOTPSecret)
-				if serr != nil || !user.TOTPEnabled || !auth.ValidateTOTP(secret, totp, g.now()) {
-					ok = false
-				}
+				ok = g.claimTOTP(user, totp)
 			}
 		}
 	}
@@ -208,6 +223,25 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 		next = "/"
 	}
 	http.Redirect(w, r, next, http.StatusSeeOther)
+}
+
+// claimTOTP verifies an authenticator code and spends its time step, so the
+// same code cannot sign in twice.
+func (g *Gate) claimTOTP(user *model.GateUser, code string) bool {
+	secret, err := g.box.Open(user.TOTPSecret)
+	if err != nil || !user.TOTPEnabled {
+		return false
+	}
+	step, valid := auth.ValidateTOTPStep(secret, code, g.now())
+	if !valid {
+		return false
+	}
+	claimed, err := g.st.ClaimGateTOTPStep(user.ID, step)
+	if err != nil {
+		g.log.Error("claim gate totp step", "err", err)
+		return false
+	}
+	return claimed
 }
 
 func (g *Gate) allowed(proxyID int64, username string) bool {
