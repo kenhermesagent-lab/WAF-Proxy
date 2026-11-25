@@ -2992,6 +2992,20 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+  /api/security/feed:
+    get:
+      operationId: getApiSecurityFeed
+      tags: [security]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/sessions:
     get:
       operationId: getApiSessions

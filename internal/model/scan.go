@@ -35,3 +35,23 @@ type ScanEvidence struct {
 	Detail     string  `json:"detail,omitempty"`
 	Note       string  `json:"note,omitempty"`
 }
+
+// ScanFinding is one issue a scan proved, or could not rule out. Key is stable
+// across runs so a finding can be tracked as new, still open or resolved
+// without diffing evidence rows.
+type ScanFinding struct {
+	Key            string   `json:"key"`
+	SiteID         int64    `json:"site_id,omitempty"`
+	Target         string   `json:"target,omitempty"`
+	Stage          string   `json:"stage"`
+	Class          string   `json:"class"`
+	Title          string   `json:"title"`
+	Severity       string   `json:"severity"`
+	CVSS           float64  `json:"cvss,omitempty"`
+	Exploitation   string   `json:"exploitation,omitempty"`
+	CVEIDs         []string `json:"cve_ids,omitempty"`
+	Product        string   `json:"product,omitempty"`
+	Version        string   `json:"version,omitempty"`
+	Recommendation string   `json:"recommendation"`
+	Note           string   `json:"note,omitempty"`
+}

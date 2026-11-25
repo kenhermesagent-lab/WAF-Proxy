@@ -38,6 +38,20 @@ const (
 	// NotApplicable means the site's mode makes the check meaningless, such as
 	// the session probes on an external forward-auth provider.
 	NotApplicable Verdict = "not-applicable"
+	// Unknown means the answer could not be established: a feed was stale, the
+	// application could not be identified, or an advisory lookup failed. It is
+	// never a clean result.
+	Unknown Verdict = "unknown"
+)
+
+// Finding severities, from docs/SECURITY-SCAN.md §4.
+const (
+	SeverityCritical = "critical"
+	SeverityHigh     = "high"
+	SeverityMedium   = "medium"
+	SeverityLow      = "low"
+	SeverityInfo     = "info"
+	SeverityUnknown  = "unknown"
 )
 
 // Probe is one request sent through the published path and to the upstream.

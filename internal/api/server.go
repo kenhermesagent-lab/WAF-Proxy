@@ -415,6 +415,8 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/log-views/{name}", s.authed(s.deleteLogView))
 	m.HandleFunc("POST /api/simulate", s.authed(s.simulate))
 	m.HandleFunc("GET /api/gate-failures", s.authed(s.listGateFailures))
+
+	m.HandleFunc("GET /api/security/feed", s.authed(s.getSecurityFeed))
 	m.HandleFunc("GET /api/events/export.csv", s.authed(s.exportEventsCSV))
 	m.HandleFunc("GET /api/events/incident.md", s.authed(s.logIncidentReportMarkdown))
 	m.HandleFunc("GET /api/ips", s.authed(s.listIPs))

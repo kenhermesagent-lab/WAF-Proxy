@@ -1,0 +1,31 @@
+{
+  "signatures": [
+    {"product": "nginx", "label": "nginx", "header": "Server", "pattern": "(?i)^nginx(?:/([0-9][0-9.]*))?", "confidence": "high"},
+    {"product": "openresty", "label": "OpenResty", "header": "Server", "pattern": "(?i)^openresty(?:/([0-9][0-9.]*))?", "confidence": "high"},
+    {"product": "apache", "label": "Apache httpd", "header": "Server", "pattern": "(?i)^apache(?:/([0-9][0-9.]*))?", "confidence": "high"},
+    {"product": "caddy", "label": "Caddy", "header": "Server", "pattern": "(?i)^caddy(?:/([0-9][0-9.]*))?", "confidence": "high"},
+    {"product": "litespeed", "label": "LiteSpeed", "header": "Server", "pattern": "(?i)^litespeed", "confidence": "medium"},
+    {"product": "iis", "label": "Microsoft IIS", "header": "Server", "pattern": "(?i)^microsoft-iis/([0-9][0-9.]*)", "confidence": "high"},
+    {"product": "jetty", "label": "Jetty", "header": "Server", "pattern": "(?i)^jetty(?:\\(([0-9][0-9.]*)\\))?", "confidence": "medium"},
+    {"product": "tomcat", "label": "Apache Tomcat", "header": "Server", "pattern": "(?i)^apache-coyote/([0-9][0-9.]*)", "confidence": "high"},
+    {"product": "php", "label": "PHP", "header": "X-Powered-By", "pattern": "(?i)^php/([0-9][0-9.]*)", "confidence": "high"},
+    {"product": "express", "label": "Express", "header": "X-Powered-By", "pattern": "(?i)^express", "confidence": "low"},
+    {"product": "jenkins", "label": "Jenkins", "header": "X-Jenkins", "pattern": "^([0-9][0-9.]*)$", "confidence": "high", "package": "org.jenkins-ci.main:jenkins-core", "ecosystem": "Maven"},
+    {"product": "kibana", "label": "Kibana", "header": "Kbn-Version", "pattern": "^([0-9][0-9.]*)$", "confidence": "high"},
+    {"product": "minio", "label": "MinIO", "header": "Server", "pattern": "(?i)^minio", "confidence": "medium", "package": "github.com/minio/minio", "ecosystem": "Go"},
+    {"product": "jellyfin", "label": "Jellyfin", "header": "Server", "pattern": "(?i)^jellyfin", "confidence": "medium"},
+    {"product": "nextcloud", "label": "Nextcloud", "endpoint": "/status.php", "pattern": "\"productname\":\"Nextcloud\"", "version_pattern": "\"versionstring\":\"([0-9][^\"]*)\"", "confidence": "high"},
+    {"product": "owncloud", "label": "ownCloud", "endpoint": "/status.php", "pattern": "\"productname\":\"ownCloud\"", "version_pattern": "\"versionstring\":\"([0-9][^\"]*)\"", "confidence": "high"},
+    {"product": "grafana", "label": "Grafana", "endpoint": "/api/health", "pattern": "\"database\":\"ok\"", "version_pattern": "\"version\":\"([0-9][^\"]*)\"", "confidence": "high", "package": "github.com/grafana/grafana", "ecosystem": "Go"},
+    {"product": "elasticsearch", "label": "Elasticsearch", "endpoint": "/", "pattern": "\"cluster_name\"", "version_pattern": "\"number\"\\s*:\\s*\"([0-9][^\"]*)\"", "confidence": "high"},
+    {"product": "wordpress", "label": "WordPress", "pattern": "(?i)wp-content|content=\"WordPress", "version_pattern": "(?i)content=\"WordPress ([0-9][^\"]*)\"", "confidence": "high"},
+    {"product": "drupal", "label": "Drupal", "pattern": "(?i)Drupal.settings|content=\"Drupal", "version_pattern": "(?i)content=\"Drupal ([0-9][0-9.]*)", "confidence": "high"},
+    {"product": "joomla", "label": "Joomla", "pattern": "(?i)/media/system/js/|content=\"Joomla", "version_pattern": "(?i)content=\"Joomla!? ([0-9][0-9.]*)", "confidence": "medium"},
+    {"product": "gitlab", "label": "GitLab", "pattern": "(?i)content=\"GitLab|gon\\.gitlab_url", "version_pattern": "(?i)content=\"GitLab ([0-9][0-9.]*)", "confidence": "medium"},
+    {"product": "gitea", "label": "Gitea", "pattern": "(?i)content=\"Gitea", "version_pattern": "(?i)content=\"Gitea ([0-9][0-9.]*)", "confidence": "high"},
+    {"product": "phpmyadmin", "label": "phpMyAdmin", "pattern": "(?i)phpMyAdmin", "version_pattern": "(?i)phpMyAdmin ([0-9][0-9.]*)", "confidence": "medium"},
+    {"product": "mattermost", "label": "Mattermost", "pattern": "(?i)content=\"Mattermost|mattermost", "version_pattern": "(?i)content=\"Mattermost ([0-9][0-9.]*)", "confidence": "low", "package": "github.com/mattermost/mattermost-server", "ecosystem": "Go"},
+    {"product": "zabbix", "label": "Zabbix", "pattern": "(?i)zabbix", "confidence": "low"},
+    {"product": "portainer", "label": "Portainer", "pattern": "(?i)portainer", "confidence": "medium"}
+  ]
+}

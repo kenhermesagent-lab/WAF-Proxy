@@ -708,11 +708,21 @@ CREATE TABLE IF NOT EXISTS ha_applied (
   applied_at TEXT NOT NULL,
   PRIMARY KEY (origin, origin_seq)
 );
+CREATE TABLE IF NOT EXISTS vuln_sources (
+  source TEXT PRIMARY KEY,
+  last_ok TEXT NOT NULL DEFAULT '',
+  last_error TEXT NOT NULL DEFAULT '',
+  etag TEXT NOT NULL DEFAULT '',
+  sha256 TEXT NOT NULL DEFAULT '',
+  bytes INTEGER NOT NULL DEFAULT 0,
+  records INTEGER NOT NULL DEFAULT 0,
+  payload BLOB
+);
 `
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "29"
+const schemaVersion = "30"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {

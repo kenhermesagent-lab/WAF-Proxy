@@ -28,6 +28,7 @@ var Areas = []Area{
 	{"streaming", "Streaming forwarders"},
 	{"certificates", "Certificates"},
 	{"sources", "Threat feeds, CrowdSec and agents"},
+	{"security", "Security scan: runs, findings and vulnerability feeds"},
 	{"settings", "Settings, GeoIP, notifications and backup"},
 	{"accounts", "Administrator accounts and roles"},
 	{"sites", "Sites: create, edit and remove tenants"},
