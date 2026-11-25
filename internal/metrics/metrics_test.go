@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -138,5 +140,43 @@ func TestParseMeminfoSubtractsAvailable(t *testing.T) {
 	used, total, ok := parseMeminfo(strings.NewReader(mem))
 	if !ok || total != 8000000*1024 || used != 5000000*1024 {
 		t.Fatalf("parseMeminfo = %d/%d ok=%v, want 5000000/8000000 kB", used, total, ok)
+	}
+}
+
+// The state is the token after the timeout; [ASSURED] and [UNREPLIED] are
+// flags, and a stateless protocol has no state field at all.
+func TestParseConntrackReadsTheStateToken(t *testing.T) {
+	const table = `ipv4     2 tcp      6 431999 ESTABLISHED src=192.168.1.10 dst=1.1.1.1 sport=56912 dport=443 src=1.1.1.1 dst=192.168.1.10 sport=443 dport=56912 [ASSURED] mark=0 use=2
+ipv4     2 tcp      6 117 ESTABLISHED src=192.168.1.10 dst=1.1.1.1 sport=56913 dport=443 src=1.1.1.1 dst=192.168.1.10 sport=443 dport=56913 [ASSURED] mark=0 use=1
+ipv4     2 tcp      6 117 TIME_WAIT src=192.168.1.10 dst=1.1.1.1 sport=56914 dport=443 src=1.1.1.1 dst=192.168.1.10 sport=443 dport=56914 [ASSURED] mark=0 use=1
+ipv4     2 udp     17 29 src=192.168.1.10 dst=8.8.8.8 sport=5353 dport=53 src=8.8.8.8 dst=192.168.1.10 sport=53 dport=5353 mark=0 use=1
+ipv4     2 icmp    1 30 src=192.168.1.10 dst=1.1.1.1 type=8 code=0 id=4211 [UNREPLIED] src=1.1.1.1 dst=192.168.1.10 type=0 code=0 id=4211 mark=0 use=1
+`
+	s := parseConntrack(strings.NewReader(table))
+	if !s.Available || !s.States {
+		t.Fatalf("available = %v, states = %v, want both true", s.Available, s.States)
+	}
+	if s.Active != 5 || s.Established != 2 || s.TimeWait != 1 {
+		t.Fatalf("active = %d, established = %d, time_wait = %d, want 5, 2, 1", s.Active, s.Established, s.TimeWait)
+	}
+}
+
+func TestReadConntrackCount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nf_conntrack_count")
+	if err := os.WriteFile(path, []byte("742\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := readConntrackCount(path); !ok || n != 742 {
+		t.Fatalf("readConntrackCount = %d, %v, want 742, true", n, ok)
+	}
+	if _, ok := readConntrackCount(filepath.Join(t.TempDir(), "missing")); ok {
+		t.Fatal("a missing count file reported a count")
+	}
+	garbage := filepath.Join(t.TempDir(), "nf_conntrack_count")
+	if err := os.WriteFile(garbage, []byte("garbage\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readConntrackCount(garbage); ok {
+		t.Fatal("an unparseable count file reported a count")
 	}
 }

@@ -355,6 +355,11 @@ site's console is reached at its own `console_host`:
   small. Watch the database size in the logs at debug level and the host disk.
 - Raise `net.netfilter.nf_conntrack_max` on the host if session counts climb; a scan flood
   can exhaust the default table and look like an outage.
+- The **Sessions** card reads the host's conntrack table, which is readable by root only
+  (`/proc/net/nf_conntrack` is mode 0440). The container runs unprivileged, so it shows the
+  live count from `nf_conntrack_count` and says the state table is root-readable; run the
+  binary as root if you want the established/time-wait breakdown, and do not grant
+  `CAP_DAC_READ_SEARCH` just for a dashboard line.
 - The WAF is the expensive stage. Measured Coraza+CRS cost on the reference sandbox was
   about 3 ms per inspected request per core (see [BENCHMARKS.md](BENCHMARKS.md)); size for
   bursts, and use `Static/CDN` or a higher-profile tuning only where appropriate.

@@ -862,7 +862,7 @@ export interface Metrics {
   wan: Iface;
   lan: Iface;
   history: MetricsHistoryPoint[];
-  sessions: { active: number; established: number; time_wait: number; available: boolean };
+  sessions: { active: number; established: number; time_wait: number; available: boolean; states: boolean };
   proxies: Record<string, { requests: number; blocked: number; bytes_in: number; bytes_out: number }>;
   dual_nic: boolean;
   proxy: Flow;

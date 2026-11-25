@@ -49,12 +49,14 @@ type Flow struct {
 	OutTot uint64  `json:"out_total"`
 }
 
-// Sessions summarises conntrack state.
+// Sessions summarises conntrack state. States is false when only the count was
+// readable: Active is still exact, Established and TimeWait are unknown.
 type Sessions struct {
 	Active      int  `json:"active"`
 	Established int  `json:"established"`
 	TimeWait    int  `json:"time_wait"`
 	Available   bool `json:"available"`
+	States      bool `json:"states"`
 }
 
 // Counters are per-proxy totals.
@@ -379,33 +381,44 @@ func (c *Collector) sampleConntrack() {
 	c.mu.Unlock()
 }
 
+const (
+	conntrackPath      = "/proc/net/nf_conntrack"
+	conntrackCountPath = "/proc/sys/net/netfilter/nf_conntrack_count"
+)
+
 func (c *Collector) sampleConntrackLocked() {
-	f, err := os.Open("/proc/net/nf_conntrack")
-	if err != nil {
-		c.sessions = Sessions{Available: false}
+	if f, err := os.Open(conntrackPath); err == nil {
+		defer f.Close()
+		c.sessions = parseConntrack(f)
 		return
 	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
+	// The table is root-readable only (0440) while the count is world-readable,
+	// so a process that dropped root still reports a live count.
+	if n, ok := readConntrackCount(conntrackCountPath); ok {
+		c.sessions = Sessions{Active: n, Available: true}
+		return
+	}
+	c.sessions = Sessions{}
+}
+
+// parseConntrack counts states in /proc/net/nf_conntrack. The state is the
+// token after the timeout; the bracketed ones are flags such as [ASSURED]. A
+// stateless protocol (udp, icmp) puts its first attribute in that place.
+func parseConntrack(r io.Reader) Sessions {
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	s := Sessions{Available: true}
+	s := Sessions{Available: true, States: true}
 	lines := 0
 	for sc.Scan() {
 		lines++
 		if lines > 200000 {
 			break
 		}
-		line := sc.Text()
-		i := strings.Index(line, " [")
-		if i < 0 {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 6 || strings.ContainsRune(fields[5], '=') {
 			continue
 		}
-		rest := line[i+2:]
-		state := ""
-		if j := strings.IndexByte(rest, ']'); j > 0 {
-			state = rest[:j]
-		}
-		switch state {
+		switch fields[5] {
 		case "ESTABLISHED":
 			s.Established++
 		case "TIME_WAIT":
@@ -413,7 +426,19 @@ func (c *Collector) sampleConntrackLocked() {
 		}
 	}
 	s.Active = lines
-	c.sessions = s
+	return s
+}
+
+func readConntrackCount(path string) (int, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // splitLocked divides the WAN interface into proxy and non-proxy traffic. The

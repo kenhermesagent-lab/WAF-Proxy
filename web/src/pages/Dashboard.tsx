@@ -473,9 +473,11 @@ export default function Dashboard({
               <div className="kpi-label">Sessions</div>
               <div className="kpi-value">{metrics.sessions.active.toLocaleString()}</div>
               <div className="kpi-sub">
-                {metrics.sessions.available
-                  ? `${metrics.sessions.established.toLocaleString()} established · ${metrics.sessions.time_wait} time-wait`
-                  : "conntrack unavailable"}
+                {!metrics.sessions.available
+                  ? "conntrack unavailable"
+                  : metrics.sessions.states
+                    ? `${metrics.sessions.established.toLocaleString()} established · ${metrics.sessions.time_wait} time-wait`
+                    : "count only · the state table is root-readable"}
               </div>
               <div className="facts" style={{ marginTop: 10 }}>
                 <span><b>{metrics.wan.name || "—"}</b> WAN</span>
