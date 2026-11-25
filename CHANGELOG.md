@@ -12,6 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.74.2] — 2026-11-25
+
+### Fixed
+
+- **A WAF event kept the rule's own message.** The handler replaced it with the rule label, so a
+  refusal read as `protocol-violation` with no hint which check fired — the restricted-header rule
+  920450 says which header it objected to (`HTTP header is restricted by policy (/expect/)`), and
+  that text was being discarded. The Why panel now shows that sentence, the matched rule beside it,
+  and the names of the WAF, access and response profiles instead of bare ids, in a panel coloured by
+  the recorded verdict.
+
 ## [1.74.1] — 2026-11-25
 
 ### Fixed

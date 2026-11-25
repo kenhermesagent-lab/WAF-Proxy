@@ -1,7 +1,20 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Modal, errText } from "../ui";
-import { Event, Profile, Proxy, SimException, SimResult } from "../types";
+import {
+  AccessProfile, Event, Profile, ProtectionProfile, Proxy, SimException, SimResult,
+} from "../types";
+
+// named renders a profile id as "Seafile WAF (#1097)".
+function named(list: { id: number; name: string }[], id: number | null | undefined): string {
+  if (id == null) return "—";
+  const found = list.find((p) => p.id === id);
+  return `${found ? found.name : "missing"} (#${id})`;
+}
+
+function megabytes(bytes: number): string {
+  return bytes ? `${Math.round(bytes / (1 << 20))} MiB` : "host default";
+}
 
 // Simulator replays one logged event through the policy pipeline without
 // touching the upstream, so an operator can see which stage refused it.
@@ -11,7 +24,9 @@ export default function Simulator({ event, onClose, onError }: {
   onError: (m: string) => void;
 }) {
   const [proxy, setProxy] = useState<Proxy | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [access, setAccess] = useState<AccessProfile[]>([]);
+  const [protection, setProtection] = useState<ProtectionProfile[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [form, setForm] = useState({
     method: event.method,
@@ -34,11 +49,15 @@ export default function Simulator({ event, onClose, onError }: {
         const found = (list ?? []).find((p) => p.hostname === event.host) ?? null;
         setProxy(found);
         setLoaded(true);
-        if (found?.profile_id) {
+        if (found) {
           api.get<Profile[]>("/api/profiles")
-            .then((profiles) => {
-              if (live) setProfile((profiles ?? []).find((p) => p.id === found.profile_id) ?? null);
-            })
+            .then((list) => { if (live) setProfiles(list ?? []); })
+            .catch(() => undefined);
+          api.get<AccessProfile[]>("/api/access-profiles")
+            .then((list) => { if (live) setAccess(list ?? []); })
+            .catch(() => undefined);
+          api.get<ProtectionProfile[]>("/api/protection-profiles")
+            .then((list) => { if (live) setProtection(list ?? []); })
             .catch(() => undefined);
         }
       })
@@ -84,6 +103,10 @@ export default function Simulator({ event, onClose, onError }: {
     }
   };
 
+  const blocked = (event.action || "allow") !== "allow";
+  const profile = profiles.find((p) => p.id === proxy?.profile_id) ?? null;
+  const skips = proxy?.body_skip?.length ?? 0;
+
   return (
     <Modal title={`Why was this request handled this way? · ${event.host}`} onClose={onClose}>
       <div className="grid" style={{ gap: 12 }}>
@@ -91,32 +114,68 @@ export default function Simulator({ event, onClose, onError }: {
           Replays the request through the policy pipeline in this process. Nothing is sent to the
           upstream and no rate limit is spent.
         </p>
-        <div className="grid" style={{ gap: 6 }}>
-          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
-            <Badge tone={event.action === "allow" ? "ok" : "bad"}>{event.action || "allow"}</Badge>
-            <span className="muted">{event.status} · {event.stage || "—"}</span>
-            {event.rule_id && <span className="mono">rule {event.rule_id}</span>}
-            <span className="faint">{event.latency_ms} ms · {new Date(event.ts).toLocaleString()}</span>
+        <div
+          style={{
+            border: `1px solid ${blocked ? "var(--danger-border)" : "var(--border)"}`,
+            borderLeft: `3px solid ${blocked ? "var(--danger)" : "var(--ok)"}`,
+            background: blocked ? "var(--danger-soft)" : "transparent",
+            borderRadius: 8,
+            padding: "11px 14px",
+            display: "grid",
+            gap: 9,
+          }}
+        >
+          <div className="row" style={{ flexWrap: "wrap", gap: 10, alignItems: "baseline" }}>
+            <Badge tone={blocked ? "bad" : "ok"}>{event.action || "allow"}</Badge>
+            <strong>{event.status}</strong>
+            <span className="muted">{event.stage || "—"}</span>
+            {event.rule_id && (
+              <span className="mono" style={{ fontSize: 15, fontWeight: 600 }}>rule {event.rule_id}</span>
+            )}
+            <span className="faint" style={{ marginLeft: "auto" }}>
+              {event.latency_ms} ms · {new Date(event.ts).toLocaleString()}
+            </span>
           </div>
-          {event.rule_msg && <div className="muted">{event.rule_msg}</div>}
-          {event.request_id && <div className="faint mono">request {event.request_id}</div>}
+          {event.rule_msg && (
+            <div style={{ fontSize: 13, fontWeight: 500 }}>{event.rule_msg}</div>
+          )}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "max-content 1fr",
+              gap: "3px 16px",
+              fontSize: 12,
+            }}
+          >
+            <span className="faint">Site</span>
+            <span>{event.host} · site #{proxy?.id ?? "?"}</span>
+            {proxy && (<>
+              <span className="faint">WAF</span>
+              <span>
+                {proxy.waf_mode || "inherit"} · profile {named(profiles, proxy.profile_id)}
+              </span>
+              <span className="faint">Body</span>
+              <span>
+                {skips} skip {skips === 1 ? "path" : "paths"} · ceiling {megabytes(proxy.max_body)}
+                {profile && ` · WAF inspects ${Math.round(profile.max_body / 1024)} KiB`}
+              </span>
+              <span className="faint">Access</span>
+              <span>
+                profile {named(access, proxy.access_profile_id)} · gate {proxy.gate_mode || "off"}
+              </span>
+              <span className="faint">Response</span>
+              <span>headers {named(protection, proxy.protection_profile_id)}</span>
+            </>)}
+            {event.request_id && (<>
+              <span className="faint">Request</span>
+              <span className="mono">{event.request_id}</span>
+            </>)}
+          </div>
           <div className="faint">
-            Recorded when the request was served, above; the replay below is what the current
-            configuration would do to the same request.
+            Recorded when the request was served; the replay below is what the current configuration
+            would do to the same request.
           </div>
         </div>
-        {proxy && (
-          <div className="faint" style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-            <span>site #{proxy.id}</span>
-            <span>WAF {proxy.waf_mode || "inherit"}</span>
-            <span>profile {proxy.profile_id ?? "default"}</span>
-            <span>access profile {proxy.access_profile_id ?? "—"}</span>
-            <span>gate {proxy.gate_mode || "off"}</span>
-            <span>body-skip {proxy.body_skip?.length ?? 0}</span>
-            <span>ceiling {proxy.max_body ? `${Math.round(proxy.max_body / (1 << 20))} MiB` : "host default"}</span>
-            {profile && <span>WAF body limit {Math.round(profile.max_body / 1024)} KiB</span>}
-          </div>
-        )}
         <div className="row grow">
           <div className="field">
             <label>Method</label>

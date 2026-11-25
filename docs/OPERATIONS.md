@@ -362,6 +362,7 @@ Common refusals and what they mean:
 | 920180 | waf | POST with neither `Content-Length` nor `Transfer-Encoding` | a streamed body removes it; on a buffered body the client is sending no framing |
 | 920420 | waf | request content type outside CRS's list | a streamed body removes it; otherwise allow the type or skip the path |
 | 920440 | waf | URL ends in a restricted extension (`.dll`, `.bat`, `.ini`, `.asa`) | the file-sync preset excepts it |
+| 920450 | waf | a request header outside CRS's restricted set; the message names it (`(/expect/)`, `(/content-range/)`, `(/content-encoding/)`) | except 920450 in the profile if the client legitimately sends it, otherwise stop sending it |
 | 949110 | waf | inbound anomaly score above the profile threshold | the matched rules listed under it are the ones to except |
 | 200004 | waf | body larger than the profile's WAF inspection limit | stream the path, or raise `max body` on the protection profile |
 | 200005 | waf | the engine could not consume the body | report it; the proxy fails closed rather than forwarding unseen |

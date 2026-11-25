@@ -372,7 +372,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		event.Stage, event.RuleID, event.RuleMsg = verdict.Stage, verdict.Rule, verdict.Reason
 		if info.Matched {
 			event.RuleID = itoa(info.RuleID)
-			event.RuleMsg = info.Label
+			// The reason is the rule's own message and names what it objected
+			// to ("... restricted by policy (/expect/)"); replacing it with the
+			// label left the operator with "protocol-violation" and nothing to
+			// act on.
+			if event.RuleMsg == "" {
+				event.RuleMsg = info.Label
+			}
 		}
 		if verdict.Action == "block" {
 			blocked = true
