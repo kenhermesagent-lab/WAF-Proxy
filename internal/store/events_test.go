@@ -135,3 +135,32 @@ func testProxy(t *testing.T, st *Store, host string) int64 {
 	}
 	return id
 }
+
+// The query is what the WAF inspected, so the log and its replay have to carry
+// it rather than showing a path that would have been allowed.
+func TestEventQueryRoundTrips(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	pid := testProxy(t, st, "app.example.com")
+	now := time.Now().UTC()
+	if err := st.InsertEvents([]model.Event{{
+		TS: now, ProxyID: &pid, Host: "app.example.com", SrcIP: "203.0.113.7",
+		Method: "GET", Path: "/search", Query: "q=1%27+OR+%271%27%3D%271", Status: 403,
+		Action: "block", Stage: "waf", RuleID: "942100", RuleMsg: "sqli: SQL Injection Attack",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	list, _, err := st.QueryEvents(EventFilter{From: now.Add(-time.Minute), To: now.Add(time.Minute)})
+	if err != nil || len(list) != 1 {
+		t.Fatalf("events = %d, %v", len(list), err)
+	}
+	if list[0].Path != "/search" || list[0].Query != "q=1%27+OR+%271%27%3D%271" {
+		t.Fatalf("path/query = %q/%q", list[0].Path, list[0].Query)
+	}
+	if list[0].RuleID != "942100" || list[0].RuleMsg != "sqli: SQL Injection Attack" {
+		t.Fatalf("rule = %q/%q", list[0].RuleID, list[0].RuleMsg)
+	}
+}

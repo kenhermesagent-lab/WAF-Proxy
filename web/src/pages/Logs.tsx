@@ -459,11 +459,16 @@ export default function Logs({
                     </td>
                     <td className="muted hide-tablet">{e.host}</td>
                     <td className="mono">
-                      <span className="log-request">{e.method} {e.path}</span>
+                      <span className="log-request" title={e.query ? `${e.method} ${e.path}?${e.query}` : undefined}>
+                        {e.method} {e.path}{e.query ? `?${e.query}` : ""}
+                      </span>
                       <div className="phone-only"><Badge tone={e.status >= 400 ? "bad" : ""}>{e.status}</Badge></div>
                     </td>
                     <td className="hide-tablet"><Badge tone={e.action === "allow" ? "" : e.action === "log" ? "info" : "bad"}>{e.stage || "—"}</Badge></td>
-                    <td className="muted hide-tablet" title={e.rule_msg || e.rule_id} style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.rule_msg || e.rule_id || "—"}</td>
+                    <td className="muted hide-tablet" title={[e.rule_id, e.rule_msg].filter(Boolean).join(" · ")} style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {e.rule_id && <span className="mono" style={{ marginRight: 6 }}>{e.rule_id}</span>}
+                      {e.rule_msg || (e.rule_id ? "" : "—")}
+                    </td>
                     <td className="num hide-narrow">{e.status}</td>
                     <td className="num hide-tablet">{e.latency_ms} ms</td>
                     <td className="num hide-tablet">{e.bytes_out}</td>

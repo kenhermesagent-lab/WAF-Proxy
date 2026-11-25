@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
@@ -139,6 +140,35 @@ func (s *Server) simulate(w http.ResponseWriter, r *http.Request) {
 		UA: hreq.Header.Get("User-Agent"), Addr: addr, Loc: loc, Body: body, HTTP: hreq,
 	})
 	res.Truncated = truncated
+	res.Notes = append(res.Notes, "the replay is HTTP/1.1 and carries no headers the event did not record")
+
+	// The body-skip decision is a proxy setting, not a policy stage, so it is
+	// answered here: it is the difference between an upload the WAF never sees
+	// and one it buffers, which is what an operator is looking for.
+	engine := s.policyFor(r)
+	preq := &policy.Request{Proxy: site, Host: site.Hostname, Method: method, Path: u.Path,
+		Query: u.RawQuery, Addr: addr, Loc: loc}
+	if entry, trusted := proxy.SkipMatch(site.BodySkip, method, u.Path, func(ids []int64) bool {
+		return engine.InList(preq, ids)
+	}); entry != nil {
+		entryText := strings.ToUpper(entry.Method) + " " + entry.Prefix
+		names := s.listNames(r, entry.ListIDs)
+		stage := policy.SimStage{Stage: "body-skip", Verdict: "stream",
+			Reason: "body streams to the app without inspection (" + entryText + ")"}
+		if trusted {
+			if len(names) > 0 {
+				stage.Reason += "; trusted sources: " + strings.Join(names, ", ")
+			}
+		} else {
+			stage.Verdict = "inspected"
+			stage.Reason = entryText + " matches, but this client is not in its trust lists"
+			if len(names) > 0 {
+				stage.Reason += " (" + strings.Join(names, ", ") + ")"
+			}
+			stage.Reason += ", so the body is inspected"
+		}
+		res.Stages = append(res.Stages, stage)
+	}
 
 	if res.Verdict.Action != "block" && res.Verdict.Action != "ban" {
 		routes, err := s.db(r).ListRoutes(site.ID)
@@ -168,4 +198,19 @@ func (s *Server) simulate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, res)
+}
+
+// listNames resolves trust-list ids for the console. A deleted list is named as
+// missing rather than dropped, so a narrowed entry never reads as unnarrowed.
+func (s *Server) listNames(r *http.Request, ids []int64) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		l, err := s.db(r).GetAccessList(id)
+		if err != nil || l == nil {
+			out = append(out, "#"+strconv.FormatInt(id, 10)+" (missing)")
+			continue
+		}
+		out = append(out, l.Name)
+	}
+	return out
 }

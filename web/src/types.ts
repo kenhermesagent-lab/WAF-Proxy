@@ -681,6 +681,7 @@ export interface Event {
   asn: number;
   method: string;
   path: string;
+  query?: string;
   status: number;
   bytes_in: number;
   bytes_out: number;
@@ -690,6 +691,7 @@ export interface Event {
   rule_msg: string;
   action: string;
   ua: string;
+  request_id?: string;
 }
 
 export interface AnalyticsBucket {

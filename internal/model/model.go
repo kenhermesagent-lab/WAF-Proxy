@@ -469,6 +469,7 @@ type Event struct {
 	Lon       float64   `json:"lon"`
 	Method    string    `json:"method"`
 	Path      string    `json:"path"`
+	Query     string    `json:"query,omitempty"`
 	Status    int       `json:"status"`
 	BytesIn   int64     `json:"bytes_in"`
 	BytesOut  int64     `json:"bytes_out"`

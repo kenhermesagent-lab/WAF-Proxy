@@ -423,3 +423,24 @@ func TestBodySkipWildcardCoversASubtree(t *testing.T) {
 		}
 	}
 }
+
+// The console asks which entry matched and whether the source was trusted, so a
+// still-inspected upload can say why instead of looking like a missing entry.
+func TestSkipMatchReportsAnUntrustedEntry(t *testing.T) {
+	entries := []model.BodySkip{
+		{Method: "POST", Prefix: "/seafhttp/*", ListIDs: []int64{7}},
+		{Method: "POST", Prefix: "/api/assets"},
+	}
+	trusted := func(ids []int64) bool { return false }
+	entry, ok := SkipMatch(entries, "POST", "/seafhttp/upload-aj/x", trusted)
+	if entry == nil || ok || entry.Prefix != "/seafhttp/*" {
+		t.Fatalf("entry = %+v, trusted = %v, want the untrusted /seafhttp/* entry", entry, ok)
+	}
+	entry, ok = SkipMatch(entries, "POST", "/api/assets", trusted)
+	if entry == nil || !ok {
+		t.Fatalf("an entry without lists was not trusted: %+v %v", entry, ok)
+	}
+	if entry, _ := SkipMatch(entries, "GET", "/seafhttp/x", trusted); entry != nil {
+		t.Fatalf("a GET matched POST entry %q", entry.Prefix)
+	}
+}

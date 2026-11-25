@@ -15,9 +15,10 @@ export default function Simulator({ event, onClose, onError }: {
   const [form, setForm] = useState({
     method: event.method,
     path: event.path,
-    query: "",
+    query: event.query ?? "",
     body: "",
     client_ip: event.src_ip,
+    headers: event.ua ? { "User-Agent": event.ua } : {},
   });
   const [result, setResult] = useState<SimResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -81,6 +82,31 @@ export default function Simulator({ event, onClose, onError }: {
           Replays the request through the policy pipeline in this process. Nothing is sent to the
           upstream and no rate limit is spent.
         </p>
+        <div className="grid" style={{ gap: 6 }}>
+          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+            <Badge tone={event.action === "allow" ? "ok" : "bad"}>{event.action || "allow"}</Badge>
+            <span className="muted">{event.status} · {event.stage || "—"}</span>
+            {event.rule_id && <span className="mono">rule {event.rule_id}</span>}
+            <span className="faint">{event.latency_ms} ms · {new Date(event.ts).toLocaleString()}</span>
+          </div>
+          {event.rule_msg && <div className="muted">{event.rule_msg}</div>}
+          {event.request_id && <div className="faint mono">request {event.request_id}</div>}
+          <div className="faint">
+            Recorded when the request was served, above; the replay below is what the current
+            configuration would do to the same request.
+          </div>
+        </div>
+        {proxy && (
+          <div className="faint" style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+            <span>site #{proxy.id}</span>
+            <span>WAF {proxy.waf_mode || "inherit"}</span>
+            <span>profile {proxy.profile_id ?? "default"}</span>
+            <span>access profile {proxy.access_profile_id ?? "—"}</span>
+            <span>gate {proxy.gate_mode || "off"}</span>
+            <span>body-skip {proxy.body_skip?.length ?? 0}</span>
+            <span>ceiling {proxy.max_body ? `${Math.round(proxy.max_body / (1 << 20))} MiB` : "host default"}</span>
+          </div>
+        )}
         <div className="row grow">
           <div className="field">
             <label>Method</label>
@@ -102,7 +128,10 @@ export default function Simulator({ event, onClose, onError }: {
         <div className="field">
           <label>Body</label>
           <textarea rows={3} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />
-          <div className="faint">The body is not recorded, so it starts empty.</div>
+          <div className="faint">
+            The body is not recorded, so it starts empty. The query and user agent are filled from
+            the event; no other headers were recorded.
+          </div>
         </div>
         <div className="row">
           <button className="primary" onClick={run} disabled={busy || !proxy}>

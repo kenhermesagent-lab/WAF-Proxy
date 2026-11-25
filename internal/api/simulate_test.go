@@ -102,3 +102,50 @@ func TestSimulateTruncatesTheBody(t *testing.T) {
 		t.Fatalf("status = %d, truncated = %v, want a truncated 200", code, res.Truncated)
 	}
 }
+
+// A skip path is a proxy setting, not a policy stage, so the replay has to say
+// what the body did: streamed to the app or buffered for inspection.
+func TestSimulateShowsTheBodySkipDecision(t *testing.T) {
+	srv, token, csrf := newSettingsServer(t)
+	st := srv.st
+	profiles, err := st.ListProfiles()
+	if err != nil || len(profiles) == 0 {
+		t.Fatalf("profiles: %v", err)
+	}
+	id, err := st.CreateProxy(&model.Proxy{
+		Hostname: "upload.example.com", Enabled: true, ProfileID: &profiles[0].ID, WAFMode: "block",
+		BodySkip: []model.BodySkip{{Method: "POST", Prefix: "/seafhttp/upload-aj/*"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, res := simulate(t, srv, token, csrf,
+		fmt.Sprintf(`{"proxy_id":%d,"method":"POST","path":"/seafhttp/upload-aj/45caf4b6","client_ip":"192.0.2.10"}`, id))
+	if code != http.StatusOK {
+		t.Fatalf("simulation = %d", code)
+	}
+	var stage *policy.SimStage
+	for i := range res.Stages {
+		if res.Stages[i].Stage == "body-skip" {
+			stage = &res.Stages[i]
+		}
+	}
+	if stage == nil {
+		t.Fatalf("no body-skip stage in %+v", res.Stages)
+	}
+	if stage.Verdict != "stream" || !strings.Contains(stage.Reason, "POST /seafhttp/upload-aj/*") {
+		t.Fatalf("stage = %+v, want a streamed body naming the entry", stage)
+	}
+
+	code, res = simulate(t, srv, token, csrf,
+		fmt.Sprintf(`{"proxy_id":%d,"method":"POST","path":"/api/assets","client_ip":"192.0.2.10"}`, id))
+	if code != http.StatusOK {
+		t.Fatalf("simulation = %d", code)
+	}
+	for _, s := range res.Stages {
+		if s.Stage == "body-skip" {
+			t.Fatalf("a non-matching path reported a body-skip stage: %+v", s)
+		}
+	}
+}

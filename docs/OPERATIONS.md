@@ -347,6 +347,23 @@ site's console is reached at its own `console_host`:
   passwords as needed. Gate modes are forced to `off`.
 - The export is plaintext. Store it accordingly; it contains internal addresses and policy.
 
+## Reading an event
+
+The log's **Rule** column is the rule id followed by what the rule said, so a CRS block reads
+`920180 protocol-violation: POST without Content-Length and Transfer-Encoding`. The **Stage**
+column says which layer decided: `body-limit` (site ceiling), `waf`, `list-block` /
+`list-allow` / `whitelist` (a named list or access profile), `feed`, `country-block`,
+`admin-path`, `method`, `rate-limit`, `gate`, `body-skip`.
+
+**Why?** shows the event exactly as it was recorded at the top — action, status, stage, rule id,
+message, latency — and then replays the same request against the current configuration. The two
+differ when the settings changed since, when the request depended on state the replay does not
+spend (rate limits, bans, the rate counter), or when it depended on data events do not store: the
+body is empty, only the user agent and query are restored from the event, and the replay is
+HTTP/1.1. A `body-skip` row appears when the site's Protection tab streams this path, naming the
+entry and its trust lists; if the entry matched but the client is not in those lists, the row says
+so and the body was inspected.
+
 ## Capacity and disk
 
 - 2 vCPU / 4 GB / 30 GB is the floor; 4 vCPU / 8 GB / 50 GB is comfortable for a home edge.

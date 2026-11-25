@@ -12,6 +12,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.74.0] — 2026-11-25
+
+### Added
+
+- **The Why? panel now separates what happened from what would happen.** It opens with the event
+  as it was recorded — action, status, stage, rule id, message, latency, request id — then the
+  site's effective settings (WAF mode, protection profile, access profile, gate, body-skip count,
+  ceiling), and only then the replay. A replay that disagrees with the log is the interesting case,
+  and the two were previously indistinguishable.
+- **The replay shows the body-skip decision.** A `body-skip` row names the entry that matched and
+  its trust lists; when the path matches but the client is not in those lists it says so and that
+  the body was inspected, which is the question a refused upload actually asks. The panel also
+  says the replay is HTTP/1.1 and carries only the user agent and query the event stored.
+- **Events record the request query**, so the log shows `POST /path?query` and the replay sends
+  the query the WAF inspected instead of a bare path that would have been allowed.
+
+### Fixed
+
+- **The Rule column shows the numeric CRS rule id next to its label.** It rendered the message
+  first, so a WAF block read only `protocol-violation` and the rule that fired — 920180, 942100 —
+  was hidden behind it. The id is now its own column value and the tooltip carries both.
+
 ## [1.73.4] — 2026-11-25
 
 ### Added

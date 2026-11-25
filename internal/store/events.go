@@ -21,15 +21,15 @@ func (s *Store) InsertEvents(events []model.Event) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	stmt, err := tx.Prepare(`INSERT INTO events(ts, proxy_id, host, src_ip, country, city, asn, lat, lon, method, path,
-		status, bytes_in, bytes_out, latency_ms, stage, rule_id, rule_msg, action, ua, sample)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		query, status, bytes_in, bytes_out, latency_ms, stage, rule_id, rule_msg, action, ua, sample)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	for _, e := range events {
 		if _, err := stmt.Exec(stamp(e.TS), e.ProxyID, e.Host, e.SrcIP, e.Country, trim(e.City, 96), e.ASN, e.Lat, e.Lon, e.Method, trim(e.Path, 512),
-			e.Status, e.BytesIn, e.BytesOut, e.LatencyMS, e.Stage, e.RuleID, trim(e.RuleMsg, 256), e.Action,
+			trim(e.Query, 512), e.Status, e.BytesIn, e.BytesOut, e.LatencyMS, e.Stage, e.RuleID, trim(e.RuleMsg, 256), e.Action,
 			trim(e.UA, 256), maxInt(e.Sample, 1)); err != nil {
 			return err
 		}
@@ -64,7 +64,7 @@ func (s *Store) QueryEvents(f EventFilter) ([]model.Event, int, error) {
 		limit = 100
 	}
 	args = append(args, limit, maxInt(f.Offset, 0))
-	rows, err := s.db.Query(`SELECT id, ts, proxy_id, host, src_ip, country, asn, lat, lon, method, path, status,
+	rows, err := s.db.Query(`SELECT id, ts, proxy_id, host, src_ip, country, asn, lat, lon, method, path, query, status,
 		bytes_in, bytes_out, latency_ms, stage, rule_id, rule_msg, action, ua, sample
 		FROM events WHERE `+conds+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
@@ -141,7 +141,7 @@ func (s *Store) EachEvent(f EventFilter, limit int, fn func(model.Event) error) 
 	}
 	conds, args := s.eventWhere(f)
 	args = append(args, limit)
-	rows, err := s.db.Query(`SELECT id, ts, proxy_id, host, src_ip, country, asn, lat, lon, method, path, status,
+	rows, err := s.db.Query(`SELECT id, ts, proxy_id, host, src_ip, country, asn, lat, lon, method, path, query, status,
 		bytes_in, bytes_out, latency_ms, stage, rule_id, rule_msg, action, ua, sample
 		FROM events WHERE `+conds+` ORDER BY id DESC LIMIT ?`, args...)
 	if err != nil {
@@ -235,7 +235,7 @@ func scanEvent(row interface{ Scan(...any) error }) (*model.Event, error) {
 	var ts string
 	var proxyID *int64
 	if err := row.Scan(&e.ID, &ts, &proxyID, &e.Host, &e.SrcIP, &e.Country, &e.ASN, &e.Lat, &e.Lon, &e.Method, &e.Path,
-		&e.Status, &e.BytesIn, &e.BytesOut, &e.LatencyMS, &e.Stage, &e.RuleID, &e.RuleMsg, &e.Action,
+		&e.Query, &e.Status, &e.BytesIn, &e.BytesOut, &e.LatencyMS, &e.Stage, &e.RuleID, &e.RuleMsg, &e.Action,
 		&e.UA, &e.Sample); err != nil {
 		return nil, err
 	}

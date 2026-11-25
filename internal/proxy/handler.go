@@ -103,7 +103,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	event := model.Event{
 		TS: start, ProxyID: &e.proxy.ID, Host: host, SrcIP: ip.String(), RequestID: rw.requestID,
 		Country: loc.Country, City: loc.City, ASN: loc.ASN, Lat: loc.Lat, Lon: loc.Lon,
-		Method: r.Method, Path: r.URL.Path, UA: r.UserAgent(), Sample: 1,
+		Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, UA: r.UserAgent(), Sample: 1,
 	}
 	blocked := false
 	defer func() {
@@ -744,7 +744,18 @@ func estimateBody(r *http.Request, hardBody int64) int64 {
 // The prefix matches whole path segments, so "/api/assets" does not exempt
 // "/api/assetsfoo". inLists is consulted only when an entry names lists.
 func bodySkipped(entries []model.BodySkip, method, path string, inLists func([]int64) bool) bool {
-	for _, e := range entries {
+	entry, trusted := SkipMatch(entries, method, path, inLists)
+	return entry != nil && trusted
+}
+
+// SkipMatch returns the body-skip entry whose method and path match, and whether
+// its trust lists admit the source. A nil entry means nothing matched; a non-nil
+// entry with trusted false means the path is exempt only for the named sources,
+// which the console shows so an upload that is still inspected says why.
+func SkipMatch(entries []model.BodySkip, method, path string, inLists func([]int64) bool) (*model.BodySkip, bool) {
+	var untrusted *model.BodySkip
+	for i := range entries {
+		e := &entries[i]
 		if !strings.EqualFold(strings.TrimSpace(e.Method), method) {
 			continue
 		}
@@ -752,11 +763,14 @@ func bodySkipped(entries []model.BodySkip, method, path string, inLists func([]i
 			continue
 		}
 		if len(e.ListIDs) > 0 && (inLists == nil || !inLists(e.ListIDs)) {
+			if untrusted == nil {
+				untrusted = e
+			}
 			continue
 		}
-		return true
+		return e, true
 	}
-	return false
+	return untrusted, false
 }
 
 // pathPrefix matches a configured prefix as whole path segments. A trailing
