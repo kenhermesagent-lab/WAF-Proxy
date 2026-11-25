@@ -128,6 +128,35 @@ func TestGateProbesCapAtTwoFailures(t *testing.T) {
 	}
 }
 
+// Two runs inside the ten-minute window the ladder measures must not add up to
+// a ban: failures an earlier run already recorded come out of this run's budget.
+func TestGateProbesHonourEarlierFailures(t *testing.T) {
+	var failures int32
+	target, runner := newGateRun(t, "passphrase", passphraseGate(&failures))
+
+	rows := runner.RunGate(context.Background(), target, GateOptions{Pause: -1, PriorFailures: 1})
+	if got := atomic.LoadInt32(&failures); got != 0 {
+		t.Fatalf("a run with one earlier failure sent %d, want 0", got)
+	}
+	row := findRow(t, rows, "G6")
+	if row.Verdict != string(NotRun) || !strings.Contains(row.Note, "already recorded") {
+		t.Fatalf("G6 with a spent ladder = %q (%s), want a not-tested row naming the earlier failure", row.Verdict, row.Note)
+	}
+	if row := findRow(t, rows, "G7"); !strings.Contains(row.Note, "1 already recorded") {
+		t.Fatalf("G7 does not report the earlier failure: %s", row.Note)
+	}
+
+	// A caller cannot raise the budget past the ladder's own threshold.
+	atomic.StoreInt32(&failures, 0)
+	rows = runner.RunGate(context.Background(), target, GateOptions{Pause: -1, MaxFailures: 99})
+	if got := atomic.LoadInt32(&failures); got != 2 {
+		t.Fatalf("a raised budget sent %d failures, want the ladder's two", got)
+	}
+	if row := findRow(t, rows, "G7"); !strings.Contains(row.Note, "2 deliberate") {
+		t.Fatalf("G7 does not report the two failures: %s", row.Note)
+	}
+}
+
 // A forward-auth gate is not ours: the session probes are reported not
 // applicable, and the suite never posts a login at it.
 func TestGateProbesSkipInForwardAuthMode(t *testing.T) {

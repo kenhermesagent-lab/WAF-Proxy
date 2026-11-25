@@ -27,12 +27,9 @@ import (
 const (
 	// StageGate labels the access-gate evidence rows.
 	StageGate = "gate"
-	// gateConfigMethod marks a check that reads configuration instead of
+	// configMethod marks a check that reads configuration instead of
 	// sending a request.
-	gateConfigMethod = "CONFIG"
-	// defaultGateFailures is the credential-failure budget. The ladder bans on
-	// the third failure in ten minutes, so a run sends at most two.
-	defaultGateFailures = 2
+	configMethod = "CONFIG"
 	// defaultGatePause spaces the two failure probes so they do not arrive as a
 	// burst. A caller may shorten it, but only a test should.
 	defaultGatePause = 30 * time.Second
@@ -59,6 +56,10 @@ type GateOptions struct {
 	ConsoleHost string
 	// MaxFailures caps the credential failures a run may cause. Zero means two.
 	MaxFailures int
+	// PriorFailures is what an earlier run in the same ten-minute window the
+	// ladder measures already recorded against this address. It comes out of
+	// the budget, so two runs close together cannot add up to a ban.
+	PriorFailures int
 	// Pause spaces the two failure probes. Zero means the default; a negative
 	// value sends them back to back, which only a test does.
 	Pause time.Duration
@@ -85,8 +86,16 @@ type gateSuite struct {
 // off.
 func (r *Runner) RunGate(ctx context.Context, target Target, opts GateOptions) []model.ScanEvidence {
 	s := &gateSuite{r: r, target: target, opts: opts, mode: gateMode(target.Proxy)}
-	if s.opts.MaxFailures <= 0 {
-		s.opts.MaxFailures = defaultGateFailures
+	// No caller may spend the ladder's last failure, whatever it asks for, and
+	// failures an earlier run recorded in the same window count against it.
+	if s.opts.MaxFailures <= 0 || s.opts.MaxFailures > gate.BanFailures10m-1 {
+		s.opts.MaxFailures = gate.BanFailures10m - 1
+	}
+	if s.opts.PriorFailures > 0 {
+		s.opts.MaxFailures -= s.opts.PriorFailures
+		if s.opts.MaxFailures < 0 {
+			s.opts.MaxFailures = 0
+		}
 	}
 	if s.opts.Pause == 0 {
 		s.opts.Pause = defaultGatePause
@@ -108,7 +117,7 @@ func (r *Runner) RunGate(ctx context.Context, target Target, opts GateOptions) [
 	if s.mode == "forward_auth" {
 		rows = append(rows, s.f1(ctx), s.f2(ctx), s.f3(ctx))
 		rows = append(rows, s.evidence(
-			gateProbe("G3-G12", gateConfigMethod, target.Proxy.Hostname, nil), NotApplicable,
+			gateProbe("G3-G12", configMethod, target.Proxy.Hostname, nil), NotApplicable,
 			"the gate is an external forward-auth provider, so its session controls are not ours to test", nil))
 		return rows
 	}
@@ -288,10 +297,14 @@ func (s *gateSuite) g6(ctx context.Context) model.ScanEvidence {
 // the thresholds come from the gate itself so the report cannot drift from the
 // code that bans.
 func (s *gateSuite) g7() model.ScanEvidence {
-	p := gateProbe("G7", gateConfigMethod, s.target.Proxy.Hostname, nil)
+	p := gateProbe("G7", configMethod, s.target.Proxy.Hostname, nil)
+	prior := ""
+	if s.opts.PriorFailures > 0 {
+		prior = fmt.Sprintf("; %d already recorded in the last ten minutes by an earlier run", s.opts.PriorFailures)
+	}
 	return s.evidence(p, Passed, fmt.Sprintf(
-		"armed, not tripped: %d deliberate failure(s) this run; the ladder bans at %d failures in ten minutes, %d in 24 hours and after %d days with failures",
-		s.failures, gate.BanFailures10m, gate.BanFailures24h, gate.BanCleanDays), nil)
+		"armed, not tripped: %d deliberate failure(s) this run%s; the ladder bans at %d failures in ten minutes, %d in 24 hours and after %d days with failures",
+		s.failures, prior, gate.BanFailures10m, gate.BanFailures24h, gate.BanCleanDays), nil)
 }
 
 // g8 compares a wrong password for the real scan account with one for a name
@@ -429,7 +442,7 @@ func (s *gateSuite) g12(ctx context.Context) []model.ScanEvidence {
 
 // g13 records what the site's gate mode means for the scan.
 func (s *gateSuite) g13() model.ScanEvidence {
-	p := gateProbe("G13", gateConfigMethod, s.target.Proxy.Hostname, nil)
+	p := gateProbe("G13", configMethod, s.target.Proxy.Hostname, nil)
 	if s.mode == "off" {
 		return s.evidence(p, NotApplicable,
 			"the gate is off; if this hostname serves an admin UI that is a configuration finding, not an attack", nil)
@@ -491,8 +504,8 @@ func (s *gateSuite) f3(ctx context.Context) model.ScanEvidence {
 func (s *gateSuite) uniformFailures(ctx context.Context, p Probe, user1, pass1, user2, pass2 string) model.ScanEvidence {
 	if s.failures+2 > s.opts.MaxFailures {
 		return s.evidence(p, NotRun, fmt.Sprintf(
-			"not tested: the run may cause %d credential failure(s) and the ladder bans on the third in ten minutes",
-			s.opts.MaxFailures), nil)
+			"not tested: %d failure(s) are already recorded in the last ten minutes and the run may cause %d more; the ladder bans on the third",
+			s.opts.PriorFailures, s.opts.MaxFailures), nil)
 	}
 	first, err := s.badLogin(ctx, user1, pass1)
 	if err != nil {
