@@ -12,6 +12,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.73.3] — 2026-11-25
+
+### Security
+
+- **The access gate no longer reveals which accounts exist.** A login naming an account that does
+  not exist was answered without running a password hash, so the response time told an attacker
+  which gate usernames were real — a gap the console login had already closed with its dummy
+  verification. The gate now spends the same argon2id derivation, and the page, rate limits,
+  lockouts and bans are unchanged.
+
 ## [1.73.2] — 2026-11-25
 
 ### Added

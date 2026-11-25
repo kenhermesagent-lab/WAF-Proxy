@@ -47,6 +47,11 @@ type Gate struct {
 	OnBan func(ip, reason string, permanent bool)
 }
 
+// dummyVerify spends one argon2 derivation so a login for an account that does
+// not exist costs what a wrong password costs. It is a variable so a test can
+// observe the work without timing it.
+var dummyVerify = auth.DummyVerify
+
 // New returns a gate bound to the store and ban engine.
 func New(st *store.Store, box *crypto.Box, bans *ban.Engine, log *slog.Logger) *Gate {
 	return &Gate{
@@ -142,7 +147,7 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 			g.log.Error("check username ban", "err", err)
 		}
 		if banned {
-			auth.DummyVerify(password)
+			dummyVerify(password)
 			g.fail(w, p, src, username, "blocked-username")
 			return
 		}
@@ -157,7 +162,11 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 		}
 	default: // accounts, accounts_totp
 		user, err := g.st.GateUserByUsername(username)
-		if err == nil && user != nil && auth.VerifyPassword(user.PasswordHash, password) {
+		if err != nil || user == nil {
+			// An unknown account must cost what a wrong password costs, or the
+			// form tells an attacker which gate usernames exist.
+			dummyVerify(password)
+		} else if auth.VerifyPassword(user.PasswordHash, password) {
 			ok = g.allowed(p.ID, user.Username)
 			if ok && p.GateMode == "accounts_totp" {
 				secret, serr := g.box.Open(user.TOTPSecret)
