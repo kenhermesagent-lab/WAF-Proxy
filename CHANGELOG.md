@@ -12,6 +12,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.75.2] — 2026-11-25
+
+### Fixed
+
+- **"Back up now" names the missing destination instead of a raw `mkdir` error.** A node whose backup form
+  was never saved has no directory, and a manual run wrote to an empty path and reported
+  `mkdir : no such file or directory`. A run now reads the stored configuration through the same
+  validation the form uses, so the operator is told which field to fill.
+
 ## [1.75.1] — 2026-11-25
 
 ### Fixed

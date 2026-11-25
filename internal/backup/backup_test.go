@@ -142,6 +142,23 @@ func TestRunDailyWritesDailyFilesAndKeepsItsCount(t *testing.T) {
 
 func discardLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
+// A node whose backup form was never saved has no destination, so a manual run
+// must name the missing field instead of reporting an empty mkdir.
+func TestRunNowRefusesAnUnconfiguredDestination(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := crypto.New(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(st, box, discardLog(), func() ([]byte, error) { return []byte("{}\n"), nil })
+	if _, err := m.RunNow(); err == nil || !strings.Contains(err.Error(), "backup directory") {
+		t.Fatalf("err = %v, want the missing directory named", err)
+	}
+}
+
 // A prune that fails after the copy is on disk must not turn a good backup into
 // a failed run: the file is reported as written and the old copy stays.
 func TestPruneFailureStillReportsTheFileWritten(t *testing.T) {

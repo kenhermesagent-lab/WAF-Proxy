@@ -359,6 +359,12 @@ func (m *Manager) perform(t tier) (Status, error) {
 	if err != nil {
 		return m.finish(t, "", err)
 	}
+	// A run reads the stored configuration, which the form may never have
+	// saved. Without this the write goes to an empty path and the operator sees
+	// the mkdir errno instead of the field that is missing.
+	if msg := cfg.Validate(); msg != "" {
+		return m.finish(t, "", errors.New(msg))
+	}
 	data, err := m.produce()
 	if err != nil {
 		return m.finish(t, "", err)
