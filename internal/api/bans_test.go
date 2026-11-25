@@ -158,6 +158,46 @@ func TestRollupMovesPermanentBansIntoALocalFeed(t *testing.T) {
 	}
 }
 
+// A ban nested inside another ban collapses into one entry when the list is
+// loaded, which is correct; the rollup must not read that as a failed load.
+func TestRollupAcceptsNestedBans(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	srv.cfg.DataDir = t.TempDir()
+	srv.feeds = intel.New(st, slog.New(slog.NewTextHandler(io.Discard, nil)), 0)
+
+	for _, cidr := range []string{"198.51.100.0/24", "198.51.100.7"} {
+		body := `{"cidr":"` + cidr + `","reason":"nested rollup test","permanent":true}`
+		req := httptest.NewRequest(http.MethodPost, "/api/bans", strings.NewReader(body))
+		req.Host = "gui.local"
+		req.RemoteAddr = "10.0.0.10:5000"
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		req.Header.Set("X-CSRF-Token", csrf)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("POST /api/bans %s = %d: %s", cidr, rec.Code, rec.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/bans/rollup", nil)
+	req.Host = "gui.local"
+	req.RemoteAddr = "10.0.0.10:5000"
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	req.Header.Set("X-CSRF-Token", csrf)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/bans/rollup = %d: %s", rec.Code, rec.Body.String())
+	}
+	bans, err := st.ListBans(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bans) != 0 {
+		t.Fatalf("bans left in the table: %+v", bans)
+	}
+}
+
 // TestRollupKeepsBansWhenTheListCannotLoad proves the fail-safe: with no feed
 // engine to load the list, nothing is deleted and the request fails loudly.
 func TestRollupKeepsBansWhenTheListCannotLoad(t *testing.T) {

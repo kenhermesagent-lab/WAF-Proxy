@@ -234,7 +234,7 @@ func (s *Store) PurgeBans() error {
 func (s *Store) ListFeeds() ([]model.Feed, error) {
 	rows, err := s.db.Query(`SELECT id, name, url, action, interval_s, enabled, builtin, local, always_block, filename,
 		local_path, etag, last_modified, last_fetch, last_count, state, last_error FROM feeds
-		WHERE (site_id = 0 OR site_id = ?) ORDER BY id`, s.site)
+		WHERE (site_id = 0 OR ? = 0 OR site_id = ?) ORDER BY id`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +266,7 @@ func (s *Store) FeedByID(id int64) (*model.Feed, error) {
 	var lastFetch sql.NullString
 	err := s.db.QueryRow(`SELECT id, name, url, action, interval_s, enabled, builtin, local, always_block, filename,
 		local_path, etag, last_modified, last_fetch, last_count, state, last_error
-		FROM feeds WHERE id = ? AND (site_id = 0 OR site_id = ?)`, id, s.site).Scan(&f.ID, &f.Name, &f.URL, &f.Action, &f.IntervalS, &enabled, &builtin,
+		FROM feeds WHERE id = ? AND (site_id = 0 OR ? = 0 OR site_id = ?)`, id, s.site, s.site).Scan(&f.ID, &f.Name, &f.URL, &f.Action, &f.IntervalS, &enabled, &builtin,
 		&local, &always, &f.Filename, &f.LocalPath, &f.ETag, &f.LastModified, &lastFetch, &f.LastCount, &f.State, &f.LastError)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -285,7 +285,7 @@ func (s *Store) FeedByID(id int64) (*model.Feed, error) {
 // UpdateFeedFetch records the result of a feed refresh.
 func (s *Store) UpdateFeedFetch(id int64, etag, lastModified string, count int, state, lastErr string) error {
 	_, err := s.db.Exec(`UPDATE feeds SET etag = ?, last_modified = ?, last_fetch = ?, last_count = ?,
-		state = ?, last_error = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
+		state = ?, last_error = ? WHERE id = ? AND (site_id = 0 OR ? = 0 OR site_id = ?)`,
 		etag, lastModified, stamp(time.Now()), count, state, lastErr, id, s.site, s.site)
 	return err
 }
@@ -293,8 +293,8 @@ func (s *Store) UpdateFeedFetch(id int64, etag, lastModified string, count int, 
 // UpdateFeed writes operator-editable feed fields. The source URL is fixed at
 // creation so a local upload cannot be redirected to a remote fetch.
 func (s *Store) UpdateFeed(f *model.Feed) error {
-	_, err := s.db.Exec(`UPDATE feeds SET action = ?, interval_s = ?, enabled = ? WHERE id = ? AND site_id = ?`,
-		f.Action, f.IntervalS, b2i(f.Enabled), f.ID, s.site)
+	_, err := s.db.Exec(`UPDATE feeds SET action = ?, interval_s = ?, enabled = ? WHERE id = ? AND (site_id = 0 OR ? = 0 OR site_id = ?)`,
+		f.Action, f.IntervalS, b2i(f.Enabled), f.ID, s.site, s.site)
 	return err
 }
 
@@ -318,7 +318,7 @@ func (s *Store) CreateFeed(f *model.Feed) (int64, error) {
 // DeleteFeed removes a custom feed and reports whether a row was deleted, so a
 // built-in feed is not confused with a database failure.
 func (s *Store) DeleteFeed(id int64) (bool, error) {
-	res, err := s.db.Exec(`DELETE FROM feeds WHERE id = ? AND builtin = 0 AND site_id = ?`, id, s.site)
+	res, err := s.db.Exec(`DELETE FROM feeds WHERE id = ? AND builtin = 0 AND (site_id = 0 OR ? = 0 OR site_id = ?)`, id, s.site, s.site)
 	if err != nil {
 		return false, err
 	}

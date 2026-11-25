@@ -6,8 +6,9 @@ import (
 	"testing"
 )
 
-// A remote feed must not be able to block the operator's own network or the
-// cloud metadata address.
+// A remote feed must not be able to block the operator's own network, the
+// cloud metadata address, or the documentation ranges the console uses as
+// example clients. FireHOL lists all three test nets as bogons.
 func TestFilterPublicDropsNonPublicRanges(t *testing.T) {
 	in := []netip.Prefix{
 		netip.MustParsePrefix("203.0.113.0/24"),
@@ -22,11 +23,20 @@ func TestFilterPublicDropsNonPublicRanges(t *testing.T) {
 		netip.MustParsePrefix("2001:db8::/32"),
 	}
 	kept, skipped := filterPublic(in)
-	if skipped != 8 {
-		t.Fatalf("skipped %d, want 8", skipped)
+	if skipped != 10 {
+		t.Fatalf("skipped %d, want 10", skipped)
 	}
-	if len(kept) != 2 || kept[0].String() != "203.0.113.0/24" || kept[1].String() != "2001:db8::/32" {
-		t.Fatalf("kept %v", kept)
+	if len(kept) != 0 {
+		t.Fatalf("kept %v, want nothing", kept)
+	}
+}
+
+// An ordinary public prefix from a feed is still applied.
+func TestFilterPublicKeepsRealAddresses(t *testing.T) {
+	kept, skipped := filterPublic([]netip.Prefix{netip.MustParsePrefix("52.94.0.0/16"),
+		netip.MustParsePrefix("8.8.8.8/32")})
+	if skipped != 0 || len(kept) != 2 {
+		t.Fatalf("kept %v, skipped %d, want both kept", kept, skipped)
 	}
 }
 

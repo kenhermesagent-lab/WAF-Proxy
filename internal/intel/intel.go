@@ -424,9 +424,10 @@ func (m *Manager) Refresh(ctx context.Context, id int64) {
 	m.rebuild()
 }
 
-// filterPublic drops loopback, private, link-local, multicast and unspecified
-// prefixes from a remote feed: one that lists 10.0.0.0/8 or 169.254.169.254
-// would otherwise block the operator's own network or the metadata endpoint.
+// filterPublic drops loopback, private, link-local, multicast, unspecified and
+// documentation prefixes from a remote feed: one that lists 10.0.0.0/8 or
+// 169.254.169.254 would otherwise block the operator's own network or the
+// metadata endpoint, and the test ranges only appear in feeds as bogons.
 // Uploaded lists are not filtered here, because blocking a private range on
 // purpose is a legitimate choice for a local list.
 func filterPublic(prefixes []netip.Prefix) (kept []netip.Prefix, skipped int) {
@@ -434,13 +435,32 @@ func filterPublic(prefixes []netip.Prefix) (kept []netip.Prefix, skipped int) {
 	for _, p := range prefixes {
 		a := p.Addr()
 		if a.IsUnspecified() || a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() ||
-			a.IsLinkLocalMulticast() || a.IsMulticast() {
+			a.IsLinkLocalMulticast() || a.IsMulticast() || isDocumentation(a) {
 			skipped++
 			continue
 		}
 		kept = append(kept, p)
 	}
 	return kept, skipped
+}
+
+// documentation holds the RFC 5737 and RFC 3849 ranges. No client is ever
+// addressed from them, so a bogon entry for one only shows up as a block on the
+// console's own example addresses.
+var documentation = []netip.Prefix{
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("2001:db8::/32"),
+}
+
+func isDocumentation(a netip.Addr) bool {
+	for _, p := range documentation {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // Parse extracts prefixes from common text feed formats.

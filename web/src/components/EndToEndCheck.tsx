@@ -79,7 +79,7 @@ const TRAFFIC: Traffic[] = [
     query: "",
     body: "x".repeat(16 << 10),
     headers: { "User-Agent": "rclone/v1.68.0", "Content-Type": "application/octet-stream" },
-    why: "A client that is not a browser: the bot filter and the content-type list are the usual refusals.",
+    why: "A client that is not a browser: PUT and application/octet-stream are refused by the WAF method and content-type rules unless the profile allows them, and the bot filter judges the user agent.",
   },
   {
     id: "api",
@@ -126,25 +126,46 @@ function advice(stage: string): string {
   switch (stage) {
     case "permanent-ban":
     case "temp-ban":
-      return "The address is banned. Policies → Bans lists it; remove it there.";
-    case "asn-block":
-      return "The source's network is blocked for this site. Policies → Bans (ASN) or the site's access profile.";
-    case "geo-block":
-      return "The source's country is blocked for this site. Policies → Bans (country).";
+      return "The address is banned. Policies → Bans lists it; unban it there.";
+    case "permanent-ban-list":
+      return "A rolled-up permanent ban covers it. Remove the address from the \"Permanent bans (rolled up)\" list under Threat intel; editing the file alone is overwritten by the next rollup.";
+    case "feed":
+      return "A threat feed lists the address. Threat intel shows which feed matched and whether it blocks, challenges or only logs.";
+    case "global-list":
+    case "list-block":
+      return "A blocklist applied to this site lists the address or its country. Policies → Lists.";
     case "list-allow":
       return "The site only admits listed sources. Add the address to its whitelist in Policies → Lists, or to the body-skip entry's trust list.";
-    case "list-block":
-      return "The address is on a blocklist applied to this site. Policies → Lists.";
+    case "profile-block":
+      return "The site's access profile blocks this address or country. Policies → Access profiles.";
+    case "profile-allow":
+      return "The site's access profile only admits the addresses or countries it lists. Policies → Access profiles.";
+    case "country-allow":
+      return "Only the countries the access profile lists are admitted. Policies → Access profiles.";
+    case "country-block":
+      return "The source's country is blocked for this site. Policies → Access profiles.";
+    case "asn-block":
+      return "The source's network is blocked for this site. Policies → Bans (ASN) or the site's access profile.";
     case "admin-path":
       return "The path is an admin path and the source is not an admin address. Policies → Profiles → admin addresses.";
     case "decoy":
+    case "decoy-host":
       return "The path is a decoy: any request to it is a block. That is the intended answer for a scanner.";
+    case "login-limit":
+      return "Too many gate logins from this source; three failures in ten minutes earn a ban.";
+    case "rate-limit":
+    case "dos":
+      return "The client exceeded its request rate. This replay never spends the limiter, so a real client can still be refused here.";
+    case "method":
+      return "The method is not allowed for this site. Policies → Access profiles lists the allowed methods.";
+    case "protocol":
+      return "The protocol-level check refused it; TRACE and malformed framing are always refused.";
+    case "unknown-host":
+      return "No proxy answers this hostname. Check the site's hostname and the Host header the client sends.";
     case "waf":
       return "A WAF rule refused it. The rule id and its message are below; the profile's exceptions take it out.";
     case "body-limit":
       return "The body is larger than the site's ceiling. Raise the ceiling or stream the path under body-skip.";
-    case "rate-limit":
-      return "The client exceeded its request rate. This replay never spends the limiter, so a real client can still be refused here.";
     default:
       return "";
   }

@@ -2,13 +2,16 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/netmatch"
 )
 
 // permanentFeedName is the single local threat list that permanent bans are
@@ -34,6 +37,22 @@ func (s *Server) rollupBans(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "there are no permanent bans to roll up")
 		return
 	}
+
+	// A ban nested inside another collapses into one list entry when the feed is
+	// loaded, so the success check below compares against the aggregated count.
+	// A ban that cannot be written as an entry aborts the rollup: the row would
+	// be deleted without the address staying blocked.
+	written := make([]netip.Prefix, 0, len(permanent))
+	for _, b := range permanent {
+		p, err := netmatch.ParsePrefix(b.CIDR)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError,
+				"the ban "+b.CIDR+" cannot be written as a threat-list entry, so the bans were kept")
+			return
+		}
+		written = append(written, p)
+	}
+	expected := len(netmatch.Aggregate(written))
 
 	dir := filepath.Join(s.cfg.DataDir, "feeds")
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -106,11 +125,15 @@ func (s *Server) rollupBans(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	s.feeds.Refresh(ctx, feedID)
 	loaded, loadErr := s.db(r).FeedByID(feedID)
-	if loadErr != nil || loaded.State != "ok" || loaded.LastCount != len(permanent) {
+	count, detail := 0, ""
+	if loaded != nil {
+		count, detail = loaded.LastCount, loaded.LastError
+	}
+	if loadErr != nil || loaded == nil || loaded.State != "ok" || count != expected {
 		_, _ = s.db(r).DeleteFeed(feedID)
-		reason := "the new threat list did not load, so the bans were kept"
-		if loaded != nil && loaded.LastError != "" {
-			reason = "the new threat list did not load (" + loaded.LastError + "), so the bans were kept"
+		reason := fmt.Sprintf("the new threat list did not load (%d of %d entries), so the bans were kept", count, expected)
+		if detail != "" {
+			reason = "the new threat list did not load (" + detail + "), so the bans were kept"
 		}
 		writeError(w, http.StatusBadGateway, reason)
 		return

@@ -12,6 +12,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.75.1] — 2026-11-25
+
+### Fixed
+
+- **Rolling permanent bans into a local threat list no longer fails when one ban contains another.**
+  The list collapses a ban nested inside a wider one into a single entry, and the rollup compared that
+  collapsed count with the number of ban rows, so a correct list read as a failed load and the bans
+  were kept. It now compares against the aggregated count and names the counts when it does fail.
+- **A feed added in the console is seen by the intel engine.** The feed queries treated an unscoped
+  handle as "site 0 only" instead of "every site", so any feed belonging to a site — including the
+  rolled-up ban list and every feed created on a node with sites — was invisible to the engine that
+  loads it, and stayed at `pending` with no entries.
+- **Remote feeds no longer carry the documentation ranges.** FireHOL lists 192.0.2.0/24,
+  198.51.100.0/24 and 203.0.113.0/24 as bogons, and those are the addresses the console pre-fills as
+  an example client, so the first replay of an untouched install reported a threat-feed block that
+  had nothing to do with the site.
+- **The end-to-end check explains every stage that can refuse**, including a rolled-up ban list, a
+  threat feed, a block or allow list, an access profile, the gate login limit and an unknown host.
+
 ## [1.75.0] — 2026-11-25
 
 ### Added

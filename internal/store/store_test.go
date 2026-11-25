@@ -290,3 +290,58 @@ func TestSeedFeedsRetiresDeadBuiltins(t *testing.T) {
 		}
 	}
 }
+
+// A feed created from a site's console must be visible to the unscoped handle
+// the intel engine uses, or its refresh records nothing and the console reads a
+// feed that never loads. Another site must still not see it.
+func TestFeedsAreVisibleToTheUnscopedEngine(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	site := st.InSite(7)
+	id, err := site.CreateFeed(&model.Feed{Name: "site feed", Local: true, Enabled: true,
+		Filename: "list.txt", LocalPath: "/tmp/list.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := st.Unscoped()
+	feeds, err := engine.ListFeeds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range feeds {
+		if f.ID == id {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the engine's ListFeeds does not include the site's feed %d", id)
+	}
+	loaded, err := engine.FeedByID(id)
+	if err != nil || loaded.LocalPath != "/tmp/list.txt" {
+		t.Fatalf("engine FeedByID = (%+v, %v), want the local path", loaded, err)
+	}
+	if err := engine.UpdateFeedFetch(id, "", "", 3, "ok", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := site.FeedByID(id); err != nil || got.State != "ok" || got.LastCount != 3 {
+		t.Fatalf("after the engine recorded the load: %+v %v", got, err)
+	}
+	other, err := st.InSite(8).ListFeeds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range other {
+		if f.ID == id {
+			t.Fatal("another site sees this site's feed")
+		}
+	}
+	removed, err := engine.DeleteFeed(id)
+	if err != nil || !removed {
+		t.Fatalf("engine delete = (%v, %v), want (true, nil)", removed, err)
+	}
+}
