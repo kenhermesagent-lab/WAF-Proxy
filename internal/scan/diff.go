@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
 	"strings"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/gate"
 )
 
-// answer is one response, reduced to what the comparison needs.
+// answer is one response, reduced to what the comparison needs. Headers are
+// kept only so preflight can see CF-Ray and decide which path the probe took.
 type answer struct {
 	status int
+	header http.Header
 	body   []byte
 }
 

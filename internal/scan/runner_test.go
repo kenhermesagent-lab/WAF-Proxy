@@ -146,26 +146,39 @@ func TestRunnerStopsOnSustained429(t *testing.T) {
 	}
 }
 
-// A refused control means the class proves nothing: the block could be a
-// blanket refusal rather than a rule.
-func TestControlRefusalDowngradesBlocks(t *testing.T) {
+// A refused control means the class proves nothing: the refusal could be a
+// blanket rule. The rest of the class is not sent, because more requests into a
+// refusal only deepen a rate limit.
+func TestControlRefusalSkipsClass(t *testing.T) {
 	up := newUpstream(t)
 	wan := newWAN(t, up, func(*http.Request) bool { return true })
 	r := NewRunner(endpoint(t, wan, "app.example.com"), endpoint(t, up.srv, "app.example.com"), 0)
 
 	rows, err := r.Run(context.Background(), []Probe{
-		{Stage: "waf", Class: "sqli", Method: http.MethodGet, Path: "/", Query: "id=1", Control: true},
-		{Stage: "waf", Class: "sqli", Method: http.MethodGet, Path: "/", Query: "id=attack"},
+		{Stage: "waf", Class: "sqli", Method: http.MethodGet, Path: "/.wafscan/test", Query: "id=1", Control: true},
+		{Stage: "waf", Class: "sqli", Method: http.MethodGet, Path: "/.wafscan/test", Query: "id=attack"},
+		{Stage: "waf", Class: "sqli", Method: http.MethodGet, Path: "/.wafscan/test", Query: "id=more"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, row := range rows {
-		if row.Verdict != string(Inconclusive) {
-			t.Fatalf("%s = %q, want inconclusive", row.Detail, row.Verdict)
+	if rows[0].Verdict != string(Inconclusive) || rows[0].Note != "the control request was refused too" {
+		t.Fatalf("control = %q (%s), want inconclusive with the refusal named", rows[0].Verdict, rows[0].Note)
+	}
+	for _, row := range rows[1:] {
+		if row.Verdict != string(NotRun) || row.Note != skipControl {
+			t.Fatalf("%s = %q (%s), want not-run because the control was refused", row.Detail, row.Verdict, row.Note)
 		}
-		if row.Note != "the control request was refused too" {
-			t.Fatalf("note = %q", row.Note)
+	}
+	// The control itself is compared on both sides; the payloads are not sent
+	// anywhere once it is refused.
+	methods, paths := up.seen()
+	if len(methods) != 1 {
+		t.Fatalf("the upstream saw %d request(s), want only the control", len(methods))
+	}
+	for _, path := range paths {
+		if !strings.Contains(path, "id=1") {
+			t.Fatalf("a payload reached the upstream after its control was refused: %s", path)
 		}
 	}
 }

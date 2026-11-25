@@ -25,6 +25,10 @@ const (
 	Inconclusive Verdict = "inconclusive"
 	// NotRun means the probe was refused by the runner or did not answer.
 	NotRun Verdict = "not-run"
+	// NotBlocked means a WAN-only probe was not refused. Its upstream half is
+	// skipped on purpose, so this says the edge accepted the shape, not that the
+	// application was reached.
+	NotBlocked Verdict = "not-blocked"
 )
 
 // Probe is one request sent through the published path and to the upstream.
@@ -37,8 +41,23 @@ type Probe struct {
 	Header http.Header
 	Body   string
 	// Control marks the benign request for a class. If the control is refused,
-	// every block in that class proves nothing.
+	// the rest of the class is not sent: a blanket refusal cannot be told apart
+	// from a rule.
 	Control bool
+	// Skip is why the probe is not sent. Preflight and the catalogue set it, and
+	// it becomes the evidence note.
+	Skip string
+	// WANOnly marks a probe that is never replayed at the upstream. Note says
+	// why, because the missing half has to be visible in the report.
+	WANOnly bool
+	// Raw is the complete wire request for a shape net/http cannot build. It is
+	// only ever written to the published endpoint.
+	Raw string
+	// HostOverride replaces the Host header for casing and trailing-dot probes
+	// that must still reach the same site.
+	HostOverride string
+	// Note is stored with the evidence row when the verdict needs explaining.
+	Note string
 }
 
 // Endpoint is one side of the comparison: where the scanner connects, and the
