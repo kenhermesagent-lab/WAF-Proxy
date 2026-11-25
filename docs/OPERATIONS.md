@@ -355,6 +355,18 @@ column says which layer decided: `body-limit` (site ceiling), `waf`, `list-block
 `list-allow` / `whitelist` (a named list or access profile), `feed`, `country-block`,
 `admin-path`, `method`, `rate-limit`, `gate`, `body-skip`.
 
+Common refusals and what they mean:
+
+| Rule | Stage | What it is | Where to look |
+| --- | --- | --- | --- |
+| 920180 | waf | POST with neither `Content-Length` nor `Transfer-Encoding` | a streamed body removes it; on a buffered body the client is sending no framing |
+| 920420 | waf | request content type outside CRS's list | a streamed body removes it; otherwise allow the type or skip the path |
+| 920440 | waf | URL ends in a restricted extension (`.dll`, `.bat`, `.ini`, `.asa`) | the file-sync preset excepts it |
+| 949110 | waf | inbound anomaly score above the profile threshold | the matched rules listed under it are the ones to except |
+| 200004 | waf | body larger than the profile's WAF inspection limit | stream the path, or raise `max body` on the protection profile |
+| 200005 | waf | the engine could not consume the body | report it; the proxy fails closed rather than forwarding unseen |
+| — | body-limit | body above the site ceiling | raise the ceiling or stream the path |
+
 **Why?** shows the event exactly as it was recorded at the top — action, status, stage, rule id,
 message, latency — and then replays the same request against the current configuration. The two
 differ when the settings changed since, when the request depended on state the replay does not

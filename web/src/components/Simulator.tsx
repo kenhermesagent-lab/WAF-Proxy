@@ -11,6 +11,7 @@ export default function Simulator({ event, onClose, onError }: {
   onError: (m: string) => void;
 }) {
   const [proxy, setProxy] = useState<Proxy | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [form, setForm] = useState({
     method: event.method,
@@ -30,8 +31,16 @@ export default function Simulator({ event, onClose, onError }: {
     api.get<Proxy[]>("/api/proxies")
       .then((list) => {
         if (!live) return;
-        setProxy((list ?? []).find((p) => p.hostname === event.host) ?? null);
+        const found = (list ?? []).find((p) => p.hostname === event.host) ?? null;
+        setProxy(found);
         setLoaded(true);
+        if (found?.profile_id) {
+          api.get<Profile[]>("/api/profiles")
+            .then((profiles) => {
+              if (live) setProfile((profiles ?? []).find((p) => p.id === found.profile_id) ?? null);
+            })
+            .catch(() => undefined);
+        }
       })
       .catch((e) => {
         if (!live) return;
@@ -105,6 +114,7 @@ export default function Simulator({ event, onClose, onError }: {
             <span>gate {proxy.gate_mode || "off"}</span>
             <span>body-skip {proxy.body_skip?.length ?? 0}</span>
             <span>ceiling {proxy.max_body ? `${Math.round(proxy.max_body / (1 << 20))} MiB` : "host default"}</span>
+            {profile && <span>WAF body limit {Math.round(profile.max_body / 1024)} KiB</span>}
           </div>
         )}
         <div className="row grow">

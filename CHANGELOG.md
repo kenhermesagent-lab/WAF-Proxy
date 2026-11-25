@@ -12,6 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.74.1] — 2026-11-25
+
+### Fixed
+
+- **A WAF body-limit refusal no longer reports itself as a protocol violation.** Rule 200004 was
+  labelled `protocol-violation`, the same tag the framing rules use, so an upload refused for being
+  larger than the profile's inspection limit looked like a Content-Length problem and sent the
+  investigation after framing. It is now `waf-body-limit` (and 200005 is `waf-inspection`), and the
+  message names the limit in bytes, so the two can never be confused again. The Why panel also
+  shows the profile's WAF body limit beside the site ceiling.
+
 ## [1.74.0] — 2026-11-25
 
 ### Added

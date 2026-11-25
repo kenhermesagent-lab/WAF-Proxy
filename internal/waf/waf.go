@@ -613,7 +613,8 @@ func (e *Engine) InspectAllWith(r *http.Request, body []byte, clientIP netip.Add
 		// before any scanning so a large body is never walked.
 		if e.maxBody > 0 && int64(len(body)) > e.maxBody {
 			return Result{Matched: true, Blocked: true, RuleID: 200004, ProfileID: e.id, Paranoia: e.paranoia,
-				Message: "request body rejected by the WAF body limit", Label: "protocol-violation"}, nil
+				Message: fmt.Sprintf("request body is larger than this profile's %d byte WAF inspection limit", e.maxBody),
+				Label:   "waf-body-limit"}, nil
 		}
 		// XXE cannot be a Coraza rule: its XML processor drops the DOCTYPE
 		// directive and nothing populates REQUEST_BODY, so only the raw bytes
@@ -628,8 +629,8 @@ func (e *Engine) InspectAllWith(r *http.Request, body []byte, clientIP netip.Add
 			res.Matched = true
 			res.Blocked = true
 			res.RuleID = 200004
-			res.Message = "request body rejected by the WAF body limit"
-			res.Label = "protocol-violation"
+			res.Message = fmt.Sprintf("request body is larger than this profile's %d byte WAF inspection limit", e.maxBody)
+			res.Label = "waf-body-limit"
 			return res, nil
 		}
 	}
@@ -638,7 +639,7 @@ func (e *Engine) InspectAllWith(r *http.Request, body []byte, clientIP netip.Add
 		res.Blocked = true
 		res.RuleID = 200005
 		res.Message = "request body could not be inspected"
-		res.Label = "protocol-violation"
+		res.Label = "waf-inspection"
 		return res, nil
 	}
 
@@ -820,8 +821,11 @@ func Label(ruleID int) string {
 	case 944100:
 		return "log4shell"
 	}
-	if ruleID == 0 {
-		return "waf"
+	switch ruleID {
+	case 200004:
+		return "waf-body-limit"
+	case 200005:
+		return "waf-inspection"
 	}
 	return "waf"
 }
