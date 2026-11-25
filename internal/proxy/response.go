@@ -60,7 +60,12 @@ func (w *responseWriter) WriteHeader(code int) {
 		}
 	}
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Referrer-Policy", "no-referrer")
+	// strict-origin-when-cross-origin, never no-referrer: under a no-referrer
+	// policy a browser sends "Origin: null" on same-origin HTML form posts, and
+	// an app that verifies its CSRF origin (Django, so Seafile's login) rejects
+	// every submit. This still keeps full URLs, and the query strings in them,
+	// away from other origins.
+	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 	h.Set("Cross-Origin-Opener-Policy", "same-origin")
 	if w.protection != nil {
 		applyProtection(h, w.protection, w.secure)

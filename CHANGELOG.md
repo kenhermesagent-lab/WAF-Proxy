@@ -12,7 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
-## [Unreleased]
+## [1.72.2] — 2026-11-25
 
 ### Fixed
 
@@ -23,6 +23,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   builds its absolute URLs from it, to refuse or misrender. A peer in `WAFPROXY_TRUSTED_PROXIES` may now
   name the scheme in `X-Forwarded-Proto`, and only that peer may: a client's own header is still dropped.
   A TLS connection to the WAN listener, and a site with no trusted proxy, behave exactly as before.
+- **The proxied default `Referrer-Policy` no longer breaks same-origin form posts.** The baseline header
+  was `no-referrer`, and a browser under that policy sends `Origin: null` on a same-origin HTML form
+  submit. An app that verifies its CSRF origin then refuses every sign-in — Django reports
+  `Origin checking failed - null does not match any trusted origins`, which is what Seafile's login did.
+  The baseline is now `strict-origin-when-cross-origin`, the value a protection profile already
+  defaulted to: other origins still learn nothing but the host, and full URLs keep their query strings
+  out of their logs. A profile's own `Referrer-Policy` still replaces the baseline, `no-referrer`
+  included.
 
 ## [1.72.1] — 2026-11-24
 
