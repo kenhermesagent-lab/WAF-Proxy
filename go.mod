@@ -8,6 +8,7 @@ require (
 	github.com/corazawaf/coraza/v3 v3.8.1
 	github.com/getkin/kin-openapi v0.153.0
 	github.com/go-acme/lego/v4 v4.35.2
+	github.com/go-ldap/ldap/v3 v3.4.10
 	github.com/jlaffaye/ftp v0.2.4
 	github.com/miekg/dns v1.1.73
 	github.com/oschwald/maxminddb-golang/v2 v2.9.1
@@ -20,7 +21,8 @@ require (
 )
 
 require (
-	github.com/alexbrainman/sspi v0.0.0-20180613141037-e580b900e9f5 // indirect
+	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
+	github.com/alexbrainman/sspi v0.0.0-20231016080023-1a75b4708caa // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.6 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.32.16 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.15 // indirect
@@ -40,6 +42,7 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/corazawaf/libinjection-go v0.3.3 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
+	github.com/go-asn1-ber/asn1-ber v1.5.7 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-openapi/jsonpointer v0.22.5 // indirect

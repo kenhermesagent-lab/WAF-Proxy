@@ -12,7 +12,21 @@ function permissionLabel(token: string, areas: PermissionArea[]): string {
   return `${label} — ${action === "write" ? "change" : "view"}`;
 }
 
-export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m: string) => void; onOK: (m: string) => void }) {
+export default function Team({
+  me,
+  onError,
+  onOK,
+  section = "all",
+}: {
+  me: Me | null;
+  onError: (m: string) => void;
+  onOK: (m: string) => void;
+  // Account splits these into the Admins and Roles tabs. The combined form is
+  // kept for existing embeds.
+  section?: "all" | "admins" | "roles";
+}) {
+  const showAdmins = section !== "roles";
+  const showRoles = section !== "admins";
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [areas, setAreas] = useState<PermissionArea[]>([]);
@@ -156,7 +170,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
 
   return (
     <>
-      <Card
+      {showAdmins && <Card
         title={`Administrators (${users.length})`}
         actions={
           canManage && (
@@ -183,6 +197,11 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
                     <td>
                       <span className="mono">{u.username}</span>
                       {u.username === me?.username && <span className="faint" style={{ fontSize: 11 }}> · you</span>}
+                      {u.auth_source && u.auth_source !== "local" && (
+                        <span style={{ marginLeft: 6 }}>
+                          <Badge tone="info">{u.auth_source === "ldap" ? "LDAP/AD" : u.auth_source.toUpperCase()}</Badge>
+                        </span>
+                      )}
                     </td>
                     <td>
                       {u.email ? (
@@ -208,12 +227,18 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
                         <span className="muted">{u.role || "—"}</span>
                       )}
                     </td>
-                    <td>{u.totp_enabled ? <Badge tone="ok">enrolled</Badge> : <Badge tone="warn">missing</Badge>}</td>
+                    <td>
+                      {u.auth_source && u.auth_source !== "local"
+                        ? <Badge tone="info">directory</Badge>
+                        : u.totp_enabled ? <Badge tone="ok">enrolled</Badge> : <Badge tone="warn">missing</Badge>}
+                    </td>
                     <td className="muted hide-compact">{fmtTime(u.created_at)}</td>
                     <td className="right" style={{ whiteSpace: "nowrap" }}>
                       {canManage && (
                         <>
-                          <button className="small" onClick={() => resetPassword(u)}>Reset password</button>{" "}
+                          {(!u.auth_source || u.auth_source === "local") && (
+                            <><button className="small" onClick={() => resetPassword(u)}>Reset password</button>{" "}</>
+                          )}
                           <button className="small danger" disabled={u.username === me?.username} onClick={() => removeUser(u)}>Delete</button>
                         </>
                       )}
@@ -228,9 +253,9 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
           Each account signs in with its own password and authenticator. A new account's secret and recovery codes are
           shown once, when it is created. An account without an email address cannot receive password-reset links.
         </p>
-      </Card>
+      </Card>}
 
-      <Card
+      {showRoles && <Card
         title="Roles"
         actions={canManage && <button className="small" onClick={() => setDraft(newRole())}>New role</button>}
       >
@@ -266,7 +291,7 @@ export default function Team({ me, onError, onOK }: { me: Me | null; onError: (m
           A role grants view or change on each area. Built-in roles cannot be edited or deleted, so there is always a
           known-good Administrator, Operator, Read-only and Viewer to fall back on.
         </p>
-      </Card>
+      </Card>}
 
       {mailInvite && (
         <Modal title="Invite administrator" onClose={() => setMailInvite(null)}>

@@ -3,7 +3,7 @@ package api
 import "net/http"
 
 // activeSessions lists the administrators signed in right now, with the address
-// and browser each session came from. permissionFor makes it settings.read
+// and browser each session came from. permissionFor makes it accounts.read
 // only, and the store never returns a session identifier.
 func (s *Server) activeSessions(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie(sessionCookie)

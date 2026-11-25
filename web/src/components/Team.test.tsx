@@ -63,13 +63,38 @@ function mockTeam() {
   });
 }
 
-function renderAccount(account: Me, onError = vi.fn(), onOK = vi.fn()) {
+function renderAccount(
+  account: Me,
+  tab = "account",
+  onError = vi.fn(),
+  onOK = vi.fn(),
+  tabs: { id: string; label: string }[] = [],
+  onTab = vi.fn(),
+) {
   return render(
-    <Account me={account} onError={onError} onOK={onOK} onSignedOut={vi.fn()} />,
+    <Account me={account} onError={onError} onOK={onOK} onSignedOut={vi.fn()} tab={tab} tabs={tabs} onTab={onTab} />,
   );
 }
 
 describe("Account administrators and roles", () => {
+  it("shows the horizontal account menu and switches tabs", async () => {
+    get.mockImplementation(async () => ({ devices: [] }));
+    const onTab = vi.fn();
+    renderAccount(me(["*"], "Administrator"), "account", vi.fn(), vi.fn(), [
+      { id: "account", label: "Account" },
+      { id: "admins", label: "Admins" },
+      { id: "roles", label: "Roles" },
+      { id: "tacacs", label: "TACACS+" },
+      { id: "radius", label: "RADIUS" },
+      { id: "ldap", label: "LDAP/AD" },
+    ], onTab);
+
+    expect(await screen.findByRole("tab", { name: "Account" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "TACACS+" }));
+    expect(onTab).toHaveBeenCalledWith("tacacs");
+  });
+
+
   beforeEach(() => {
     get.mockReset();
     // Account always asks for the signed-in administrator's remembered
@@ -95,15 +120,19 @@ describe("Account administrators and roles", () => {
 
   it("shows accounts to a read-only account admin without any controls", async () => {
     mockTeam();
-    renderAccount(me(["accounts.read"], "Read-only"));
+    const admins = renderAccount(me(["accounts.read"], "Read-only"), "admins");
 
     expect(await screen.findByText("Administrators (1)")).toBeTruthy();
-    expect(screen.getByText("Roles")).toBeTruthy();
     expect(screen.getByText("admin")).toBeTruthy();
+    expect(screen.queryByText("Roles")).toBeNull();
     expect(screen.queryByRole("button", { name: "Add administrator" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "New role" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reset password" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    admins.unmount();
+
+    renderAccount(me(["accounts.read"], "Read-only"), "roles");
+    expect(await screen.findByRole("heading", { name: "Roles" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "New role" })).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
@@ -111,9 +140,9 @@ describe("Account administrators and roles", () => {
     mockTeam();
     post.mockResolvedValue({ id: 2 });
     const onOK = vi.fn();
-    renderAccount(me(["*"], "Administrator"), vi.fn(), onOK);
+    renderAccount(me(["*"], "Administrator"), "roles", vi.fn(), onOK);
 
-    await screen.findByText("Administrators (1)");
+    await screen.findByRole("heading", { name: "Roles" });
     fireEvent.click(screen.getByRole("button", { name: "New role" }));
 
     const modal = document.querySelector(".modal") as HTMLElement;
@@ -135,9 +164,9 @@ describe("Account administrators and roles", () => {
 
   it("refuses to submit a role with no permissions", async () => {
     mockTeam();
-    renderAccount(me(["*"], "Administrator"));
+    renderAccount(me(["*"], "Administrator"), "roles");
 
-    await screen.findByText("Administrators (1)");
+    await screen.findByRole("heading", { name: "Roles" });
     fireEvent.click(screen.getByRole("button", { name: "New role" }));
 
     const modal = document.querySelector(".modal") as HTMLElement;

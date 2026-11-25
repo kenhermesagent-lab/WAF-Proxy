@@ -165,10 +165,25 @@ export const NAV_UTILITY: NavItem[] = [
       { id: "threat-intel", label: "Threat intel" },
       { id: "activity", label: "Activity" },
       { id: "readiness", label: "Readiness" },
+      { id: "migration", label: "Migration" },
       { id: "about", label: "About" },
     ],
   },
-  { id: "account", label: "Account", icon: "user", hint: "Password, authenticator and team" },
+  {
+    id: "account",
+    label: "Account",
+    icon: "user",
+    hint: "Your account, administrators, roles and directories",
+    defaultTab: "account",
+    tabs: [
+      { id: "account", label: "Account" },
+      { id: "admins", label: "Admins", permission: "accounts.read" },
+      { id: "roles", label: "Roles", permission: "accounts.read" },
+      { id: "tacacs", label: "TACACS+", permission: "accounts.read" },
+      { id: "radius", label: "RADIUS", permission: "accounts.read" },
+      { id: "ldap", label: "LDAP/AD", permission: "accounts.read" },
+    ],
+  },
 ];
 
 export const NAV: NavItem[] = [...NAV_GROUPS.flatMap((g) => g.items), ...NAV_UTILITY];

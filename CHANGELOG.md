@@ -12,6 +12,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.76.0] — 2026-11-25
+
+### Added
+
+- **Console administrators can sign in through TACACS+, RADIUS or LDAP/Active Directory.** Each directory has its own
+  sealed settings on the Account page. TACACS+ and LDAP map a returned role, privilege level or group to a console
+  role; RADIUS answers yes or no and assigns the chosen default role. A local password account is never shadowed by a
+  directory username, and an accepted directory user is provisioned locally with an `auth_source` so the Admins table
+  can show where the account came from.
+- **The Account page is split into Account, Admins, Roles, TACACS+, RADIUS and LDAP/AD tabs.** Account keeps the
+  signed-in administrator's password, authenticator, alert email and remembered devices; Admins shows live sessions
+  and account administration; Roles shows the role editor.
+- **Settings → Migration imports hostnames from another reverse proxy.** Nginx Proxy Manager, Zoraxy, Traefik, Caddy,
+  Nginx/SWAG, HAProxy and Apache can be read from a live URL or an uploaded file. A preview shows the hostnames,
+  upstreams, redirects, access lists and certificates before any row is written, and certificate pairs are imported
+  only when the operator asks for them.
+
+### Security
+
+- **TACACS+ authorization is mandatory.** A server that denies shell authorization, or whose authorization service is
+  unreachable, now refuses the console sign-in instead of granting the provider's default role. A denial also stops
+  the attempt from falling through to another configured directory.
+
+### Changed
+
+- **TACACS+ login falls back to the ASCII prompt dialogue.** PAP is still tried first, but a server that rejects PAP or
+  answers with GETUSER/GETPASS now receives the standard ASCII username and password prompts, so servers that only
+  implement ASCII login can authenticate console administrators.
+
 ## [1.75.2] — 2026-11-25
 
 ### Fixed

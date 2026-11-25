@@ -2,7 +2,7 @@
 openapi: 3.0.3
 info:
   title: WAF-Proxy admin API
-  version: "1.75.2"
+  version: "1.76.0"
   description: |
     Routes registered by the admin console. Every `/api` route except setup,
     login, health and version requires the session cookie and, for mutations,
@@ -1461,6 +1461,76 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+  /api/console-auth:
+    get:
+      operationId: getApiConsoleAuth
+      tags: [console-auth]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/console-auth/{kind}:
+    delete:
+      operationId: deleteApiConsoleAuthKind
+      tags: [console-auth]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+    put:
+      operationId: putApiConsoleAuthKind
+      tags: [console-auth]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/console-auth/{kind}/test:
+    post:
+      operationId: postApiConsoleAuthKindTest
+      tags: [console-auth]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/crowdsec:
     get:
       operationId: getApiCrowdsec
@@ -2349,6 +2419,34 @@ paths:
     get:
       operationId: getApiMetrics
       tags: [metrics]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/migrate/apply:
+    post:
+      operationId: postApiMigrateApply
+      tags: [migrate]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
+  /api/migrate/preview:
+    post:
+      operationId: postApiMigratePreview
+      tags: [migrate]
       summary: Authed
       security:
         - sessionCookie: []

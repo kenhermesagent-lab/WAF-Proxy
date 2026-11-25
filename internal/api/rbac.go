@@ -35,7 +35,8 @@ func permissionFor(r *http.Request) string {
 	}
 	area := "settings"
 	switch {
-	case strings.HasPrefix(path, "/api/users"), strings.HasPrefix(path, "/api/roles"):
+	case strings.HasPrefix(path, "/api/users"), strings.HasPrefix(path, "/api/roles"),
+		strings.HasPrefix(path, "/api/console-auth"), path == "/api/sessions":
 		area = "accounts"
 	case strings.HasPrefix(path, "/api/metrics"), strings.HasPrefix(path, "/api/capacity"),
 		strings.HasPrefix(path, "/api/globe"), strings.HasPrefix(path, "/api/reach"),
@@ -47,7 +48,8 @@ func permissionFor(r *http.Request) string {
 		strings.HasPrefix(path, "/api/utilization"),
 		strings.HasPrefix(path, "/api/gate-failures"), strings.HasPrefix(path, "/api/anomaly"):
 		area = "traffic"
-	case strings.HasPrefix(path, "/api/proxies"), strings.HasPrefix(path, "/api/presets"):
+	case strings.HasPrefix(path, "/api/proxies"), strings.HasPrefix(path, "/api/presets"),
+		strings.HasPrefix(path, "/api/migrate"):
 		area = "proxies"
 	case strings.HasPrefix(path, "/api/streaming"):
 		area = "streaming"
@@ -75,6 +77,18 @@ func permissionFor(r *http.Request) string {
 		action = "read"
 	}
 	return rbac.Permission(area, action)
+}
+
+// sessionCan applies a permission with the same legacy fallback as authorize:
+// a session from before RBAC has no role and no permission list.
+func sessionCan(sess *store.Session, want string) bool {
+	if sess == nil {
+		return false
+	}
+	if sess.Role == "" && len(sess.Permissions) == 0 {
+		return true
+	}
+	return sess.Can(want)
 }
 
 // authorize refuses a request whose session lacks the route's permission.
@@ -336,6 +350,10 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if in.Password != "" {
+		if target.AuthSource != "" && target.AuthSource != "local" {
+			writeError(w, http.StatusConflict, "this account signs in through its directory; change the password there")
+			return
+		}
 		hash, err := auth.HashPassword(in.Password)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())

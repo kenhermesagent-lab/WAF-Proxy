@@ -8,6 +8,7 @@ import type { AuditEntry, CrowdSecStatus, GeoIPStatus, IntelStatus, Me } from ".
 import { describePlan, quotaTone, quotaView } from "../threatintel";
 import BackupCard from "../components/BackupCard";
 import UpdatesPage from "./Updates";
+import Migration from "./Migration";
 import Readiness from "./Readiness";
 
 type Settings = Record<string, string>;
@@ -752,6 +753,14 @@ export default function SettingsPage({ onError, onOK, version = "", me, onMeChan
             <p>What a hardened install has that a working one may not. Every row links to the control that fixes it.</p>
           </div>
           <Readiness me={me ?? null} onError={onError} head={false} />
+        </section>
+
+        <section id="migration" hidden={shown !== "migration"} className="settings-section card">
+          <div className="section-head">
+            <h2>Migration</h2>
+            <p>Move hostnames here from another reverse proxy. Preview first; nothing is written until you import the rows you keep.</p>
+          </div>
+          <Migration onError={onError} onOK={onOK} />
         </section>
 
         <section id="about" hidden={shown !== "about"} className="settings-section card">

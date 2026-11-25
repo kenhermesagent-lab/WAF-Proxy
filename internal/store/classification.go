@@ -31,6 +31,7 @@ var TableClasses = map[string]TableClass{
 	"certificates":        ClassReplicated,
 	"dns_credentials":     ClassReplicated,
 	"auth_providers":      ClassReplicated,
+	"console_auth":        ClassReplicated,
 	"feeds":               ClassReplicated,
 	"policies":            ClassReplicated,
 	"gate_users":          ClassReplicated,

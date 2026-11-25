@@ -185,6 +185,7 @@ export interface Me {
   base_domain: string;
   totp_enabled: boolean;
   email: string;
+  auth_source?: string;
   role: string;
   permissions: string[];
   // The effective HA switch and, while it is on, this node's role. The nav
@@ -245,7 +246,31 @@ export interface AdminUser {
   role_id: number;
   role: string;
   totp_enabled: boolean;
+  auth_source?: string;
   created_at: string;
+}
+
+// One external console directory. TACACS+ and LDAP can assign a role from a
+// returned AV pair or group; RADIUS is authentication only.
+export interface ConsoleAuth {
+  id: number;
+  kind: string;
+  enabled: boolean;
+  host: string;
+  port: number;
+  base_dn: string;
+  bind_dn: string;
+  user_filter: string;
+  group_filter: string;
+  email_attr: string;
+  use_tls: boolean;
+  start_tls: boolean;
+  skip_verify: boolean;
+  timeout_seconds: number;
+  default_role_id: number;
+  role_map: string;
+  has_secret?: boolean;
+  has_bind_password?: boolean;
 }
 
 // can() mirrors the server's permission check so the console hides what the

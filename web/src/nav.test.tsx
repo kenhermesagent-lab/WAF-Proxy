@@ -35,6 +35,22 @@ describe("navAllowed", () => {
   });
 });
 
+describe("account tabs", () => {
+  const account = NAV.find((n) => n.id === "account");
+  if (!account?.tabs) throw new Error("the account tabs are missing from NAV");
+
+  it("splits the account page into admins, roles and directories", () => {
+    expect(account.tabs?.map((t) => t.id)).toEqual(["account", "admins", "roles", "tacacs", "radius", "ldap"]);
+  });
+
+  it("gates the administrator tabs on accounts.read", () => {
+    const admins = account.tabs?.find((t) => t.id === "admins");
+    if (!admins) throw new Error("the admins tab is missing");
+    expect(tabAllowed(admins, asMe({ permissions: [] }))).toBe(false);
+    expect(tabAllowed(admins, asMe({ permissions: ["accounts.read"] }))).toBe(true);
+  });
+});
+
 describe("routeFromHash", () => {
   it("maps a canonical page hash to its page and default tab", () => {
     expect(routeFromHash("#/policies")).toEqual({ page: "policies", tab: "bans" });

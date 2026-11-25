@@ -302,6 +302,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/geoip", s.authed(s.getGeoIP))
 	m.HandleFunc("POST /api/geoip/install", s.authed(s.installGeoIP))
 
+	m.HandleFunc("POST /api/migrate/preview", s.authed(s.previewMigration))
+	m.HandleFunc("POST /api/migrate/apply", s.authed(s.applyMigration))
+
 	m.HandleFunc("GET /api/proxies", s.authed(s.listProxies))
 	m.HandleFunc("POST /api/proxies", s.authed(s.createProxy))
 	m.HandleFunc("PUT /api/proxies/{id}", s.authed(s.updateProxy))
@@ -312,6 +315,11 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/profiles", s.authed(s.createProfile))
 	m.HandleFunc("PUT /api/profiles/{id}", s.authed(s.updateProfile))
 	m.HandleFunc("DELETE /api/profiles/{id}", s.authed(s.deleteProfile))
+
+	m.HandleFunc("GET /api/console-auth", s.authed(s.listConsoleAuth))
+	m.HandleFunc("PUT /api/console-auth/{kind}", s.authed(s.putConsoleAuth))
+	m.HandleFunc("DELETE /api/console-auth/{kind}", s.authed(s.deleteConsoleAuth))
+	m.HandleFunc("POST /api/console-auth/{kind}/test", s.authed(s.testConsoleAuth))
 
 	m.HandleFunc("GET /api/auth-providers", s.authed(s.listAuthProviders))
 	m.HandleFunc("POST /api/auth-providers", s.authed(s.createAuthProvider))
@@ -1091,17 +1099,36 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "account temporarily locked")
 		return
 	}
-	user, err := s.db(r).UserByUsername(req.Username)
-	if err != nil || user == nil {
-		// Spend the same argon2 work as a real account so response timing does
-		// not reveal whether a username exists.
-		auth.DummyVerify(req.Password)
-		writeError(w, http.StatusUnauthorized, "invalid credentials")
-		return
+	user, lookupErr := s.db(r).UserByUsername(req.Username)
+	source := ""
+	if user != nil {
+		source = user.AuthSource
+		if source == "" {
+			source = "local"
+		}
 	}
-	if !auth.VerifyPassword(user.PasswordHash, req.Password) {
-		writeError(w, http.StatusUnauthorized, "invalid credentials")
-		return
+	externalDetail := ""
+	if source == "local" {
+		if lookupErr != nil || !auth.VerifyPassword(user.PasswordHash, req.Password) {
+			writeError(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+	} else {
+		// Unknown and directory-backed accounts go to the configured external
+		// providers. A local password account is never shadowed by a directory
+		// user of the same name.
+		externalUser, detail, err := s.externalLogin(r, r.Context(), req.Username, req.Password, source)
+		if err != nil {
+			if source == "" {
+				// Spend the same argon2 work as a real account so response timing
+				// does not reveal whether a username exists.
+				auth.DummyVerify(req.Password)
+			}
+			writeError(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		user = externalUser
+		externalDetail = detail
 	}
 	recoveryUsed := false
 	trusted := false
@@ -1149,7 +1176,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true,
 		Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode, Expires: expires,
 	})
-	detail := ""
+	detail := externalDetail
 	if recoveryUsed {
 		detail = "recovery code"
 	}
@@ -1159,7 +1186,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	out := map[string]any{
 		"username": user.Username, "csrf": csrf, "expires_at": expires.Format(time.RFC3339),
-		"recovery_used": recoveryUsed,
+		"recovery_used": recoveryUsed, "auth_source": sourceOrLocal(user.AuthSource),
 	}
 	// A recovery code means the authenticator is gone. Prepare a replacement
 	// now, so the console can offer it before the operator leaves the page.
@@ -1178,6 +1205,20 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func sourceOrLocal(source string) string {
+	if source == "" {
+		return "local"
+	}
+	return source
+}
+
+func accountSource(user *store.User) string {
+	if user == nil {
+		return ""
+	}
+	return user.AuthSource
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -1209,6 +1250,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		"base_domain": kv["base_domain"], "expires_at": sess.ExpiresAt,
 		"totp_enabled": user != nil && user.TOTPEnabled,
 		"email":        email,
+		"auth_source":  sourceOrLocal(accountSource(user)),
 		"role":         sess.Role, "permissions": sess.Permissions,
 		"can_switch": canSwitch,
 	}
@@ -1546,8 +1588,12 @@ func keys(m map[string]string) []string {
 // ---------- helpers ----------
 
 func decode(r *http.Request, v any) error {
+	return decodeLimit(r, v, 2<<20)
+}
+
+func decodeLimit(r *http.Request, v any, max int64) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 2<<20))
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, max))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return err

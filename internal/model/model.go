@@ -151,6 +151,33 @@ type AuthProvider struct {
 	HasSecret bool   `json:"has_secret"`
 }
 
+// ConsoleAuth is one external directory used to sign administrators in to the
+// console. TACACS+ and LDAP can return a role or group for role assignment;
+// RADIUS is authentication only and uses DefaultRoleID.
+type ConsoleAuth struct {
+	ID              int64     `json:"id"`
+	Kind            string    `json:"kind"` // tacacs | radius | ldap
+	Enabled         bool      `json:"enabled"`
+	Host            string    `json:"host"`
+	Port            int       `json:"port"`
+	Secret          string    `json:"-"`
+	HasSecret       bool      `json:"has_secret"`
+	BaseDN          string    `json:"base_dn"`
+	BindDN          string    `json:"bind_dn"`
+	BindPassword    string    `json:"-"`
+	HasBindPassword bool      `json:"has_bind_password"`
+	UserFilter      string    `json:"user_filter"`
+	GroupFilter     string    `json:"group_filter"`
+	EmailAttr       string    `json:"email_attr"`
+	UseTLS          bool      `json:"use_tls"`
+	StartTLS        bool      `json:"start_tls"`
+	SkipVerify      bool      `json:"skip_verify"`
+	TimeoutSeconds  int       `json:"timeout_seconds"`
+	DefaultRoleID   int64     `json:"default_role_id"`
+	RoleMap         string    `json:"role_map"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
 // ProtectionProfile is a named set of response-hardening options a proxy can
 // apply, so a site gets HSTS, clickjacking and MIME-sniffing protection without
 // every application having to set its own headers.
@@ -259,7 +286,7 @@ type Route struct {
 	Query  string `json:"query,omitempty"`  // "name=value"
 	Regex  bool   `json:"regex,omitempty"`
 	// Upstream overrides the site's pool for this route. Timeout bounds the
-	// exchange in seconds. Status is the redirect code (301, 307 or 308).
+	// exchange in seconds. Status is the redirect code (301, 302, 307 or 308).
 	Upstream string `json:"upstream,omitempty"`
 	Timeout  int    `json:"timeout,omitempty"`
 	Status   int    `json:"status,omitempty"`

@@ -22,7 +22,7 @@ const DefaultSiteSlug = "default"
 // site.
 var scopedTables = []string{
 	"users", "sessions", "profiles", "certificates", "dns_credentials",
-	"auth_providers", "proxies", "protection_profiles", "access_profiles",
+	"auth_providers", "console_auth", "proxies", "protection_profiles", "access_profiles",
 	"access_lists", "policies", "bans", "feeds", "alerts", "audit",
 	"gate_users", "agent_deliveries", "agent_links", "anomaly_events",
 	"gate_failures", "gate_sessions", "username_bans", "mcp_tokens", "log_views",
@@ -297,6 +297,12 @@ var adoptMerges = map[string]string{
 				PARTITION BY cidr
 				ORDER BY permanent DESC, COALESCE(expires_at, '9999') DESC, created_at DESC, id DESC
 			) AS rn FROM bans WHERE site_id IN (0, ?)
+		) WHERE rn = 1)`,
+	"console_auth": `DELETE FROM console_auth WHERE site_id IN (0, ?) AND id NOT IN (
+		SELECT id FROM (
+			SELECT id, ROW_NUMBER() OVER (
+				PARTITION BY kind ORDER BY created_at DESC, id DESC
+			) AS rn FROM console_auth WHERE site_id IN (0, ?)
 		) WHERE rn = 1)`,
 	"log_views": `DELETE FROM log_views WHERE site_id IN (0, ?) AND (name, site_id) NOT IN (
 		SELECT name, site_id FROM (

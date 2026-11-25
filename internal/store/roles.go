@@ -158,13 +158,14 @@ type UserSummary struct {
 	RoleID      int64     `json:"role_id"`
 	Role        string    `json:"role"`
 	TOTPEnabled bool      `json:"totp_enabled"`
+	AuthSource  string    `json:"auth_source"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
 // ListUsers returns every administrator account with its role name.
 func (s *Store) ListUsers() ([]UserSummary, error) {
 	rows, err := s.db.Query(`SELECT u.id, u.username, u.email, u.role_id, COALESCE(r.name, ''),
-		u.totp_enabled, u.created_at
+		u.totp_enabled, u.auth_source, u.created_at
 		FROM users u LEFT JOIN roles r ON r.id = u.role_id
 		WHERE (? = 0 OR u.site_id = ?) ORDER BY u.id`, s.site, s.site)
 	if err != nil {
@@ -176,7 +177,7 @@ func (s *Store) ListUsers() ([]UserSummary, error) {
 		var u UserSummary
 		var totp int
 		var created string
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.RoleID, &u.Role, &totp, &created); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.RoleID, &u.Role, &totp, &u.AuthSource, &created); err != nil {
 			return nil, err
 		}
 		u.TOTPEnabled = i2b(totp)

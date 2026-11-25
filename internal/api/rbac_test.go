@@ -1,6 +1,9 @@
 package api
 
 import (
+	"archive/zip"
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/rbac"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
@@ -21,8 +25,13 @@ func TestPermissionForMapsRoutes(t *testing.T) {
 		{http.MethodGet, "/api/events", "traffic.read"},
 		{http.MethodPost, "/api/proxies", "proxies.write"},
 		{http.MethodGet, "/api/certs", "certificates.read"},
+		{http.MethodPost, "/api/migrate/preview", "proxies.write"},
+		{http.MethodPost, "/api/migrate/apply", "proxies.write"},
 		{http.MethodPost, "/api/feeds", "sources.write"},
 		{http.MethodGet, "/api/users", "accounts.read"},
+		{http.MethodGet, "/api/sessions", "accounts.read"},
+		{http.MethodGet, "/api/console-auth", "accounts.read"},
+		{http.MethodPut, "/api/console-auth/tacacs", "accounts.write"},
 		{http.MethodPut, "/api/settings", "settings.write"},
 		{http.MethodPost, "/api/updates/apply", "system.write"},
 		{http.MethodGet, "/api/protection-profiles/audit", "policies.read"},
@@ -35,6 +44,89 @@ func TestPermissionForMapsRoutes(t *testing.T) {
 		if got := permissionFor(r); got != tc.want {
 			t.Errorf("%s %s = %q, want %q", tc.method, tc.path, got, tc.want)
 		}
+	}
+}
+
+func TestMigrationWritesNeedResourcePermissions(t *testing.T) {
+	srv, st, _, _ := newObservabilityServer(t)
+	role := &model.Role{
+		Name: "Proxy operator",
+		Permissions: []string{
+			rbac.Permission("proxies", "write"),
+			rbac.Permission("certificates", "read"),
+		},
+	}
+	if err := st.CreateRole(role); err != nil {
+		t.Fatal(err)
+	}
+	uid, err := st.CreateUserWithRole("proxy-only", "unused", "", "", false, role.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateSession("proxy-token", uid, "proxy-csrf", "10.0.0.12", "test", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.SetSetting("base_domain", "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	certPEM, keyPEM := selfSignedPEM(t, []string{"app.example.com"})
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	files := map[string]string{
+		"app.conf": `server {
+  listen 443 ssl;
+  server_name app.example.com;
+  ssl_certificate /etc/ssl/app/fullchain.pem;
+  ssl_certificate_key /etc/ssl/app/privkey.pem;
+  location / { proxy_pass http://10.0.0.5:8080; }
+}`,
+		"etc/ssl/app/fullchain.pem": certPEM,
+		"etc/ssl/app/privkey.pem":   keyPEM,
+	}
+	for name, content := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(content))
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	content := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	body, _ := json.Marshal(migrationApply{
+		Source: "nginx",
+		Hosts: []migrationHost{{
+			Hostname: "app.example.com", Upstreams: []string{"http://10.0.0.5:8080"},
+			Enabled: true, CertRef: "/etc/ssl/app/fullchain.pem", CertKeyRef: "/etc/ssl/app/privkey.pem",
+			AccessList: "office",
+		}},
+		AccessLists: []migrationAccessList{{Name: "office", Allow: []string{"203.0.113.10"}}},
+		Connection:  migrationRequest{Source: "nginx", Mode: "upload", Content: content},
+	})
+	rec := postJSON(t, srv, "proxy-token", "proxy-csrf", "/api/migrate/apply", string(body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply with certificate = %d: %s", rec.Code, rec.Body.String())
+	}
+	var result migrationResult
+	decodeJSON(t, rec, &result)
+	problems := strings.Join(result.Problems, " ")
+	if result.Certificates != 0 || !strings.Contains(problems, "certificates.write") {
+		t.Fatalf("certificate was imported without permission: %+v", result)
+	}
+	if result.AccessLists != 0 || !strings.Contains(problems, "policies.write") {
+		t.Fatalf("access list was imported without permission: %+v", result)
+	}
+	if certs, err := st.ListCerts(); err != nil || len(certs) != 0 {
+		t.Fatalf("certificates created without permission: %+v, %v", certs, err)
+	}
+	if lists, err := st.ListAccessLists(); err != nil || len(lists) != 0 {
+		t.Fatalf("access lists created without permission: %+v, %v", lists, err)
+	}
+	if host, err := st.ProxyByHost("app.example.com"); err != nil || host.CertID != nil || host.AccessProfileID != nil {
+		t.Fatalf("host should import without a certificate or access list: %+v, %v", host, err)
 	}
 }
 

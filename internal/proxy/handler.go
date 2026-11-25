@@ -544,7 +544,9 @@ func (s *Server) applyRoutes(w http.ResponseWriter, r *http.Request, e *edge) (m
 	switch rt.Kind {
 	case model.RouteRedirect:
 		status := rt.Status
-		if status != http.StatusMovedPermanently && status != http.StatusTemporaryRedirect && status != http.StatusPermanentRedirect {
+		switch status {
+		case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		default:
 			status = http.StatusFound
 		}
 		http.Redirect(w, r, target, status)

@@ -510,6 +510,7 @@ export default function App() {
                   onError={onError}
                   onOK={onOK}
                   onSignedOut={() => { setCSRF(""); setMe(null); setPhase("login"); }}
+                  {...tabProps("account")}
                 />
               )}
             </PageBoundary>

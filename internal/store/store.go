@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS users (
   recovery_codes TEXT NOT NULL DEFAULT '',
   totp_last_step INTEGER NOT NULL DEFAULT 0,
   role_id INTEGER NOT NULL DEFAULT 0,
+  auth_source TEXT NOT NULL DEFAULT 'local',
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS roles (
@@ -340,6 +341,29 @@ CREATE TABLE IF NOT EXISTS auth_providers (
   header TEXT NOT NULL DEFAULT 'X-Wafproxy-Auth',
   secret TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS console_auth (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  host TEXT NOT NULL DEFAULT '',
+  port INTEGER NOT NULL DEFAULT 0,
+  secret TEXT NOT NULL DEFAULT '',
+  base_dn TEXT NOT NULL DEFAULT '',
+  bind_dn TEXT NOT NULL DEFAULT '',
+  bind_password TEXT NOT NULL DEFAULT '',
+  user_filter TEXT NOT NULL DEFAULT '',
+  group_filter TEXT NOT NULL DEFAULT '',
+  email_attr TEXT NOT NULL DEFAULT 'mail',
+  use_tls INTEGER NOT NULL DEFAULT 0,
+  start_tls INTEGER NOT NULL DEFAULT 0,
+  skip_verify INTEGER NOT NULL DEFAULT 0,
+  timeout_seconds INTEGER NOT NULL DEFAULT 8,
+  default_role_id INTEGER NOT NULL DEFAULT 0,
+  role_map TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  site_id INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(site_id, kind)
 );
 CREATE TABLE IF NOT EXISTS proxies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -655,7 +679,7 @@ CREATE TABLE IF NOT EXISTS ha_applied (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "26"
+const schemaVersion = "27"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -688,6 +712,7 @@ func (s *Store) migrateAddColumns() error {
 		{"events", "query", `ALTER TABLE events ADD COLUMN query TEXT NOT NULL DEFAULT ''`},
 		{"users", "totp_last_step", `ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
 		{"users", "role_id", `ALTER TABLE users ADD COLUMN role_id INTEGER NOT NULL DEFAULT 0`},
+		{"users", "auth_source", `ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'`},
 		// Password-reset mail goes to the administrator's own address.
 		{"users", "email", `ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''`},
 		// A remembered browser lists its user agent and address, so Account can
@@ -1003,6 +1028,7 @@ type User struct {
 	TOTPEnabled  bool
 	Recovery     string
 	RoleID       int64
+	AuthSource   string
 	CreatedAt    time.Time
 }
 
@@ -1055,7 +1081,7 @@ func scanUser(row interface {
 	var u User
 	var created string
 	var enabled int
-	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.TOTPSecret, &enabled, &u.Recovery, &u.RoleID, &created)
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.TOTPSecret, &enabled, &u.Recovery, &u.RoleID, &u.AuthSource, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1069,13 +1095,13 @@ func scanUser(row interface {
 
 // UserByUsername loads an administrator by name.
 func (s *Store) UserByUsername(username string) (*User, error) {
-	return scanUser(s.db.QueryRow(`SELECT id, username, email, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at
+	return scanUser(s.db.QueryRow(`SELECT id, username, email, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, auth_source, created_at
 		FROM users WHERE username = ? AND (? = 0 OR site_id = ?)`, username, s.site, s.site))
 }
 
 // UserByID loads an administrator by ID.
 func (s *Store) UserByID(id int64) (*User, error) {
-	return scanUser(s.db.QueryRow(`SELECT id, username, email, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, created_at
+	return scanUser(s.db.QueryRow(`SELECT id, username, email, password_hash, totp_secret, totp_enabled, recovery_codes, role_id, auth_source, created_at
 		FROM users WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
 }
 
