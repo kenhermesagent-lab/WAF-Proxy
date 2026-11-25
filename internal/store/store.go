@@ -622,6 +622,36 @@ CREATE TABLE IF NOT EXISTS gate_sessions (
   expires_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_gate_sessions_exp ON gate_sessions(expires_at);
+CREATE TABLE IF NOT EXISTS scan_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id INTEGER NOT NULL DEFAULT 0,
+  target TEXT NOT NULL DEFAULT '',
+  trigger TEXT NOT NULL DEFAULT '',
+  actor TEXT NOT NULL DEFAULT '',
+  path TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL,
+  ended_at TEXT NOT NULL DEFAULT '',
+  verdicts TEXT NOT NULL DEFAULT '',
+  skipped_reason TEXT NOT NULL DEFAULT '',
+  agent_node TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS scan_evidence (
+  run_id INTEGER NOT NULL REFERENCES scan_runs(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  stage TEXT NOT NULL DEFAULT '',
+  class TEXT NOT NULL DEFAULT '',
+  method TEXT NOT NULL DEFAULT '',
+  path TEXT NOT NULL DEFAULT '',
+  verdict TEXT NOT NULL DEFAULT '',
+  wan_status INTEGER NOT NULL DEFAULT 0,
+  upstream_status INTEGER NOT NULL DEFAULT 0,
+  wan_hash TEXT NOT NULL DEFAULT '',
+  upstream_hash TEXT NOT NULL DEFAULT '',
+  similarity REAL NOT NULL DEFAULT 0,
+  detail TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (run_id, seq)
+);
 CREATE TABLE IF NOT EXISTS username_bans (
   username TEXT PRIMARY KEY,
   reason TEXT NOT NULL,
