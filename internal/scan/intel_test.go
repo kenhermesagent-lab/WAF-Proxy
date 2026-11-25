@@ -188,6 +188,56 @@ func TestNoBodyStoredForSecretBearingPaths(t *testing.T) {
 	}
 }
 
+// An empty OSV answer cannot be told apart from a package name or version OSV
+// does not know, so it is unknown, never clean.
+func TestEmptyOSVAnswerIsUnknownNotClean(t *testing.T) {
+	component := Component{
+		Product: "grafana", Label: "Grafana", Version: "10.2.0",
+		Package: "github.com/grafana/grafana", Ecosystem: "Go", Confidence: "high",
+	}
+	fresh := &KEV{FetchedAt: time.Now(), SHA256: "fresh", Entries: map[string]KEVEntry{}}
+
+	findings, report := Intel{KEV: fresh, Advisories: fakeAdvisories{}}.Join(context.Background(), []Component{component})
+	if !report.Unknown {
+		t.Fatal("an empty OSV answer passed as clean")
+	}
+	if len(findings) != 0 {
+		t.Fatalf("findings = %+v, want none from an empty answer", findings)
+	}
+	if reasons := strings.Join(report.Reasons, " "); !strings.Contains(reasons, "unknown, not clean") {
+		t.Fatalf("the report does not say why it is unknown: %s", reasons)
+	}
+}
+
+// OSV's Go ranges are semantic versions with a leading v; the fingerprint table
+// reads a bare version from a page, so the query must carry the prefix.
+func TestOSVNormalizesGoVersion(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(body))
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+
+	osv := &OSV{BaseURL: srv.URL, Client: srv.Client(), Cache: NewOSVCache(1 << 20)}
+	if _, err := osv.Advisories(context.Background(), "github.com/grafana/grafana", "Go", "10.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := osv.Advisories(context.Background(), "org.jenkins-ci.main:jenkins-core", "Maven", "2.401.3"); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("made %d OSV queries, want 2", len(bodies))
+	}
+	if !strings.Contains(bodies[0], `"version":"v10.2.0"`) {
+		t.Fatalf("Go query = %s, want the version prefixed with v", bodies[0])
+	}
+	if !strings.Contains(bodies[1], `"version":"2.401.3"`) {
+		t.Fatalf("Maven query = %s, want the version unchanged", bodies[1])
+	}
+}
+
 // The advisory cache never grows past its cap, however many versions a scan
 // meets, and it drops the least recently used answer first.
 func TestOSVCacheStaysUnderCap(t *testing.T) {

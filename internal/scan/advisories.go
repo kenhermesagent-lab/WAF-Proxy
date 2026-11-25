@@ -205,6 +205,7 @@ func (o *OSV) Advisories(ctx context.Context, pkg, ecosystem, version string) ([
 	if o.Cache == nil {
 		o.Cache = NewOSVCache(osvCacheCap)
 	}
+	version = normalizeVersion(ecosystem, version)
 	key := ecosystem + "/" + pkg + "@" + version
 	if cached, ok := o.Cache.get(key); ok {
 		return cached, nil
@@ -246,6 +247,20 @@ func (o *OSV) Advisories(ctx context.Context, pkg, ecosystem, version string) ([
 	}
 	o.Cache.put(key, advisories)
 	return advisories, nil
+}
+
+// normalizeVersion puts the version in the form the ecosystem's advisories use.
+// OSV's Go ranges are semantic versions, which carry the leading v; an
+// unprefixed version can match no range and look clean.
+func normalizeVersion(ecosystem, version string) string {
+	version = strings.TrimSpace(version)
+	if !strings.EqualFold(ecosystem, "Go") || version == "" {
+		return version
+	}
+	if version[0] >= '0' && version[0] <= '9' {
+		return "v" + version
+	}
+	return version
 }
 
 func parseOSV(raw []byte) ([]Advisory, error) {
@@ -384,9 +399,14 @@ func (in Intel) Join(ctx context.Context, comps []Component) ([]model.ScanFindin
 			})
 			continue
 		}
-		if len(advisories) == 0 && exploitation == ExploitationUnknown {
+		if len(advisories) == 0 {
+			// An empty answer cannot be told apart from a package name or version
+			// OSV does not know, so it is unknown, never clean.
+			report.Unknown = true
 			report.Reasons = append(report.Reasons, fmt.Sprintf(
-				"%s %s: OSV returned no advisory, but exploitation status is unknown", c.Label, c.Version))
+				"%s %s: OSV returned no advisory, which cannot be told apart from a package or version OSV does not know, so this is unknown, not clean",
+				c.Label, c.Version))
+			continue
 		}
 		for _, a := range advisories {
 			report.Advisories++
