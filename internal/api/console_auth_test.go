@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -189,6 +190,141 @@ func acceptAnyRADIUS(t *testing.T, secret string) {
 			_, _ = pc.WriteTo(reply, addr)
 		}
 	}()
+}
+
+// TestTACACSRejectionStopsTheDirectoryChain proves the fail-closed promise at
+// the login API: a TACACS+ server that accepts the password but denies (or
+// cannot answer) authorization must end the attempt, even though a permissive
+// RADIUS provider is configured next and would otherwise grant a role.
+func TestTACACSRejectionStopsTheDirectoryChain(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		unreachable bool
+	}{
+		{name: "authorization denied"},
+		{name: "authorization unreachable", unreachable: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, st, _, _ := newObservabilityServer(t)
+			adminRole := st.AdminRoleID()
+			acceptAnyRADIUS(t, "radius-secret")
+			radiusSecret, err := srv.box.Seal("radius-secret")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := st.SaveConsoleAuth(&model.ConsoleAuth{Kind: "radius", Enabled: true, Host: "127.0.0.1",
+				Port: radiusPort, Secret: radiusSecret, TimeoutSeconds: 3, DefaultRoleID: adminRole}); err != nil {
+				t.Fatal(err)
+			}
+			port := fakeTACACS(t, "tacacs-secret", tc.unreachable)
+			tacacsSecret, err := srv.box.Seal("tacacs-secret")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The default role is deliberately set: authorization, not the
+			// fallback, must decide this sign-in.
+			if err := st.SaveConsoleAuth(&model.ConsoleAuth{Kind: "tacacs", Enabled: true, Host: "127.0.0.1",
+				Port: port, Secret: tacacsSecret, TimeoutSeconds: 3, DefaultRoleID: adminRole, RoleMap: "15=Operator"}); err != nil {
+				t.Fatal(err)
+			}
+
+			login := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"carol","password":"hunter2"}`))
+			login.Host = "gui.local"
+			login.RemoteAddr = "10.0.0.11:5000"
+			login.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(rec, login)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("TACACS+ %s fell through: login = %d: %s", tc.name, rec.Code, rec.Body.String())
+			}
+			if user, err := st.UserByUsername("carol"); err == nil {
+				t.Fatalf("TACACS+ %s fell through and provisioned %+v", tc.name, user)
+			}
+		})
+	}
+}
+
+// fakeTACACS starts a TACACS+ server that passes PAP authentication and then
+// denies authorization, or closes the authorization connection when
+// unreachable is set. It returns the TCP port to configure.
+func fakeTACACS(t *testing.T, secret string, unreachable bool) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go serveFakeTACACS(conn, secret, unreachable)
+		}
+	}()
+	return ln.Addr().(*net.TCPAddr).Port
+}
+
+func serveFakeTACACS(conn net.Conn, secret string, unreachable bool) {
+	defer conn.Close()
+	head := make([]byte, 12)
+	if _, err := io.ReadFull(conn, head); err != nil {
+		return
+	}
+	session := binary.BigEndian.Uint32(head[4:8])
+	body := make([]byte, binary.BigEndian.Uint32(head[8:12]))
+	if _, err := io.ReadFull(conn, body); err != nil {
+		return
+	}
+	if head[3]&1 == 0 {
+		body = tacacsTestPad(body, session, secret, head[0], head[2])
+	}
+	switch head[1] {
+	case 1: // authentication: accept the PAP credentials
+		if head[2] != 1 || len(body) < 8 {
+			return
+		}
+		_ = tacacsTestReply(conn, 1, 2, session, []byte{0x01, 0, 0, 0, 0}, secret)
+	case 2: // authorization: deny, or drop the connection
+		if unreachable {
+			return
+		}
+		_ = tacacsTestReply(conn, 2, 2, session, []byte{0x10, 0, 0, 0, 0, 0}, secret)
+	}
+}
+
+func tacacsTestReply(conn net.Conn, typ, seq byte, session uint32, body []byte, secret string) error {
+	obfuscated := tacacsTestPad(body, session, secret, 0xc0, seq)
+	head := make([]byte, 12)
+	head[0] = 0xc0
+	head[1] = typ
+	head[2] = seq
+	binary.BigEndian.PutUint32(head[4:8], session)
+	binary.BigEndian.PutUint32(head[8:12], uint32(len(obfuscated)))
+	_, err := conn.Write(append(head, obfuscated...))
+	return err
+}
+
+// tacacsTestPad mirrors RFC 8907 obfuscation so the API's TACACS+ client can
+// decode the fake server's replies.
+func tacacsTestPad(body []byte, session uint32, secret string, version, seq byte) []byte {
+	out := make([]byte, len(body))
+	var prev []byte
+	sessionBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(sessionBytes, session)
+	for off := 0; off < len(body); off += md5.Size {
+		h := md5.New()
+		h.Write(sessionBytes)
+		h.Write([]byte(secret))
+		h.Write([]byte{version, seq})
+		h.Write(prev)
+		prev = h.Sum(nil)
+		for i := 0; i < md5.Size && off+i < len(body); i++ {
+			out[off+i] = body[off+i] ^ prev[i]
+		}
+	}
+	return out
 }
 
 func jsonNumber(n int64) string { return strconv.FormatInt(n, 10) }

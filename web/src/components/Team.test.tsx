@@ -153,11 +153,11 @@ describe("Account administrators and roles", () => {
     fireEvent.click(within(modal).getByRole("button", { name: "Create role" }));
 
     await waitFor(() =>
-      expect(post).toHaveBeenCalledWith("/api/roles", expect.objectContaining({
+      expect(post).toHaveBeenCalledWith("/api/roles", {
         name: "Auditor",
         description: "Reads traffic and certificates",
         permissions: ["dashboard.read", "traffic.read"],
-      })),
+      }),
     );
     expect(onOK).toHaveBeenCalledWith("Role created");
   });

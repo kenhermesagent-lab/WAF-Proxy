@@ -145,8 +145,11 @@ export default function Team({
     if (!draft) return;
     setBusy(true);
     try {
-      if (draft.id === 0) await api.post("/api/roles", draft);
-      else await api.put(`/api/roles/${draft.id}`, draft);
+      // The role row also carries id and builtin for display; the API accepts
+      // only the editable fields and rejects unknown JSON fields.
+      const payload = { name: draft.name, description: draft.description, permissions: draft.permissions };
+      if (draft.id === 0) await api.post("/api/roles", payload);
+      else await api.put(`/api/roles/${draft.id}`, payload);
       onOK(draft.id === 0 ? "Role created" : `${draft.name} saved`);
       setDraft(null);
       load();

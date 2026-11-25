@@ -129,7 +129,27 @@ export default function ConsoleAuthForm({
   const save = async () => {
     setSaving(true);
     try {
-      const body = { ...draft };
+      // Send only the editable fields. The loaded provider also carries id,
+      // kind, created_at and the has_* display flags, and the API rejects
+      // unknown JSON fields.
+      const body = {
+        enabled: draft.enabled,
+        host: draft.host,
+        port: draft.port,
+        secret: draft.secret,
+        base_dn: draft.base_dn,
+        bind_dn: draft.bind_dn,
+        bind_password: draft.bind_password,
+        user_filter: draft.user_filter,
+        group_filter: draft.group_filter,
+        email_attr: draft.email_attr,
+        use_tls: draft.use_tls,
+        start_tls: draft.start_tls,
+        skip_verify: draft.skip_verify,
+        timeout_seconds: draft.timeout_seconds,
+        default_role_id: draft.default_role_id,
+        role_map: draft.role_map,
+      };
       const saved = await api.put<ConsoleAuth>(`/api/console-auth/${kind}`, body);
       setDraft(toDraft(saved, kind));
       onOK(`${label.title} settings saved`);
