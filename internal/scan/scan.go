@@ -29,6 +29,15 @@ const (
 	// skipped on purpose, so this says the edge accepted the shape, not that the
 	// application was reached.
 	NotBlocked Verdict = "not-blocked"
+	// Passed means a gate check whose expectation held and which observed no
+	// attack: cookie rotation, uniform failures, an armed ladder.
+	Passed Verdict = "passed"
+	// Failed means a gate check that should have held did not. It is a finding,
+	// not a probe that reached the application.
+	Failed Verdict = "failed"
+	// NotApplicable means the site's mode makes the check meaningless, such as
+	// the session probes on an external forward-auth provider.
+	NotApplicable Verdict = "not-applicable"
 )
 
 // Probe is one request sent through the published path and to the upstream.

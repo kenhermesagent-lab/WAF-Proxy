@@ -201,3 +201,97 @@ func TestGateUserEditRejectsShortPassword(t *testing.T) {
 		t.Fatalf("short password on create = %d, want 400: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestScanOnlyGateAccountIsSealedAndBound proves the scanner account is minted
+// as a machine credential: flagged scan_only, sealed for the scanner, bound to
+// the hostnames named at creation, and listed with the scanner as its origin.
+func TestScanOnlyGateAccountIsSealedAndBound(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	h := &gateUserHarness{t: t, srv: srv, st: st, token: token, csrf: csrf}
+	proxyID, err := st.CreateProxy(&model.Proxy{Hostname: "app.example.com", Enabled: true, GateMode: "accounts"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := h.do(http.MethodPost, "/api/gate-users", map[string]any{
+		"username": "scanner", "scan_only": true, "proxies": []int64{proxyID},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create scan account = %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ID           int64  `json:"id"`
+		ScanOnly     bool   `json:"scan_only"`
+		ScanPassword string `json:"scan_password"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	}
+	if !created.ScanOnly || created.ScanPassword == "" {
+		t.Fatalf("scan account response = %+v, want a generated password shown once", created)
+	}
+
+	account, err := st.ScanGateUser(proxyID)
+	if err != nil {
+		t.Fatalf("the scan account was not bound: %v", err)
+	}
+	if !account.ScanOnly || account.Origin != "scanner" || account.ScanSecret == "" {
+		t.Fatalf("stored scan account = %+v", account)
+	}
+	plain, err := srv.box.Open(account.ScanSecret)
+	if err != nil || plain != created.ScanPassword {
+		t.Fatalf("sealed scan password = %q, %v; want the one shown once", plain, err)
+	}
+	if !auth.VerifyPassword(account.PasswordHash, created.ScanPassword) {
+		t.Fatal("the scan account's hash does not verify the generated password")
+	}
+	acl, err := st.GateACL(proxyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acl) != 1 || acl[0] != "scanner" {
+		t.Fatalf("bound hostnames = %v, want the scanner only", acl)
+	}
+
+	// The list names the scanner as the account's origin and never carries the
+	// sealed password back out.
+	list := h.do(http.MethodGet, "/api/gate-users", nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("list = %d: %s", list.Code, list.Body.String())
+	}
+	if !strings.Contains(list.Body.String(), `"origin":"scanner"`) {
+		t.Fatalf("the list does not name the scanner origin: %s", list.Body.String())
+	}
+	if strings.Contains(list.Body.String(), created.ScanPassword) {
+		t.Fatal("the account list leaked the scan password")
+	}
+
+	// A scanner cannot produce a one-time code, so a second factor is refused.
+	rec = h.do(http.MethodPost, "/api/gate-users", map[string]any{
+		"username": "scanner-totp", "scan_only": true, "totp_enabled": true,
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("scan account with TOTP = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	rec = h.do(http.MethodPut, fmt.Sprintf("/api/gate-users/%d", created.ID), map[string]any{"totp_enabled": true})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("enabling TOTP on a scan account = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+
+	// A password change must move the sealed copy with the hash.
+	rec = h.do(http.MethodPut, fmt.Sprintf("/api/gate-users/%d", created.ID), map[string]any{"password": "rotated-scan-password-1"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rotate scan password = %d: %s", rec.Code, rec.Body.String())
+	}
+	account, err = st.ScanGateUser(proxyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err = srv.box.Open(account.ScanSecret)
+	if err != nil || plain != "rotated-scan-password-1" {
+		t.Fatalf("sealed password after rotation = %q, %v", plain, err)
+	}
+	if !auth.VerifyPassword(account.PasswordHash, "rotated-scan-password-1") {
+		t.Fatal("the rotated hash does not verify the rotated password")
+	}
+}

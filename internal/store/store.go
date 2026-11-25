@@ -556,6 +556,8 @@ CREATE TABLE IF NOT EXISTS gate_users (
   totp_secret TEXT NOT NULL DEFAULT '',
   totp_enabled INTEGER NOT NULL DEFAULT 0,
   totp_last_step INTEGER NOT NULL DEFAULT 0,
+  scan_only INTEGER NOT NULL DEFAULT 0,
+  scan_secret TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS gate_acl (
@@ -710,7 +712,7 @@ CREATE TABLE IF NOT EXISTS ha_applied (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "28"
+const schemaVersion = "29"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -743,6 +745,11 @@ func (s *Store) migrateAddColumns() error {
 		{"events", "query", `ALTER TABLE events ADD COLUMN query TEXT NOT NULL DEFAULT ''`},
 		{"users", "totp_last_step", `ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
 		{"gate_users", "totp_last_step", `ALTER TABLE gate_users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`},
+		// A scanner account is a machine credential: flagged so the gate never
+		// grants it an unbound host, and carrying its password sealed so the
+		// scanner can sign in without the operator pasting it into a run.
+		{"gate_users", "scan_only", `ALTER TABLE gate_users ADD COLUMN scan_only INTEGER NOT NULL DEFAULT 0`},
+		{"gate_users", "scan_secret", `ALTER TABLE gate_users ADD COLUMN scan_secret TEXT NOT NULL DEFAULT ''`},
 		{"users", "role_id", `ALTER TABLE users ADD COLUMN role_id INTEGER NOT NULL DEFAULT 0`},
 		{"users", "auth_source", `ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'`},
 		// Password-reset mail goes to the administrator's own address.

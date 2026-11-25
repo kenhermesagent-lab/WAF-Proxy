@@ -103,7 +103,7 @@ func (f *gateFixture) login(t *testing.T, username, password, code string) *http
 
 func sessionCookie(rec *httptest.ResponseRecorder) *http.Cookie {
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == cookieName {
+		if c.Name == CookieName {
 			return c
 		}
 	}

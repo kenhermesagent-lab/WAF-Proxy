@@ -2370,9 +2370,11 @@ func (s *Server) listGateUsers(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createGateUser(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Username    string `json:"username"`
-		Password    string `json:"password"`
-		TOTPEnabled bool   `json:"totp_enabled"`
+		Username    string  `json:"username"`
+		Password    string  `json:"password"`
+		TOTPEnabled bool    `json:"totp_enabled"`
+		ScanOnly    bool    `json:"scan_only"`
+		Proxies     []int64 `json:"proxies"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
@@ -2381,6 +2383,10 @@ func (s *Server) createGateUser(w http.ResponseWriter, r *http.Request) {
 	in.Username = strings.TrimSpace(in.Username)
 	if in.Username == "" {
 		writeError(w, http.StatusBadRequest, "username is required")
+		return
+	}
+	if in.ScanOnly {
+		s.createScanGateUser(w, r, in.Username, in.Password, in.TOTPEnabled, in.Proxies)
 		return
 	}
 	hash, err := auth.HashPassword(in.Password)
@@ -2417,6 +2423,62 @@ func (s *Server) createGateUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// createScanGateUser mints the machine account the security scanner signs in
+// with. The password is sealed beside its hash so a run can use it without the
+// operator pasting a plaintext credential into the scanner, and the account is
+// bound to the hostnames named here, never to all of them.
+func (s *Server) createScanGateUser(w http.ResponseWriter, r *http.Request, username, password string, totp bool, proxies []int64) {
+	if totp {
+		// A scanner cannot produce a one-time code, so an account it signs in
+		// with must not have a second factor the run can never satisfy.
+		writeError(w, http.StatusBadRequest, "a scan account cannot use TOTP")
+		return
+	}
+	generated := false
+	if password == "" {
+		var raw [24]byte
+		if _, err := rand.Read(raw[:]); err != nil {
+			writeError(w, http.StatusInternalServerError, "cannot generate credential")
+			return
+		}
+		password = hex.EncodeToString(raw[:])
+		generated = true
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sealed, err := s.box.Seal(password)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "encryption error")
+		return
+	}
+	id, err := s.db(r).CreateScanGateUser(username, hash, sealed)
+	if err != nil {
+		writeError(w, http.StatusConflict, "username already exists")
+		return
+	}
+	for _, proxyID := range proxies {
+		if err := s.db(r).AddGateACL(proxyID, username); err != nil {
+			// A half-bound machine account is worse than none: remove it rather
+			// than leave one that some hostnames already accept.
+			_ = s.db(r).DeleteGateUser(id)
+			writeError(w, http.StatusNotFound, "proxy not found")
+			return
+		}
+	}
+	resp := map[string]any{"id": id, "username": username, "scan_only": true}
+	if generated {
+		// Shown once, the way a TOTP secret is: a caller that did not supply a
+		// password needs the one that was generated.
+		resp["scan_password"] = password
+	}
+	sess := sessionFrom(r)
+	s.db(r).AddAudit(sess.Username, "gate_user.create", username, clientIP(r))
+	writeJSON(w, http.StatusCreated, resp)
+}
+
 func (s *Server) updateGateUser(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -2442,12 +2504,25 @@ func (s *Server) updateGateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	if target.ScanOnly && in.TOTPEnabled != nil && *in.TOTPEnabled {
+		writeError(w, http.StatusBadRequest, "a scan account cannot use TOTP")
+		return
+	}
 	hash := target.PasswordHash
+	scanSeal := ""
 	if in.Password != "" {
 		hash, err = auth.HashPassword(in.Password)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
+		}
+		if target.ScanOnly {
+			// The sealed copy has to move with the hash, or the scanner keeps a
+			// password the gate no longer accepts.
+			if scanSeal, err = s.box.Seal(in.Password); err != nil {
+				writeError(w, http.StatusInternalServerError, "encryption error")
+				return
+			}
 		}
 	}
 	secret := target.TOTPSecret
@@ -2481,6 +2556,12 @@ func (s *Server) updateGateUser(w http.ResponseWriter, r *http.Request) {
 	if err := s.db(r).UpdateGateUser(id, hash, secret, enabled); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot update")
 		return
+	}
+	if scanSeal != "" {
+		if err := s.db(r).UpdateGateUserScanSecret(id, scanSeal); err != nil {
+			writeError(w, http.StatusInternalServerError, "cannot update")
+			return
+		}
 	}
 	if in.Password != "" {
 		// A credential change must end the sessions opened with the old one.

@@ -142,16 +142,19 @@ func TestRestoreRefusesSnapshotFromAnOlderSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snap.SchemaVersion = "27"
+	// One migration behind: this release writes schemaVersion, and the node that
+	// produced the dump still ran the previous one.
+	const previous = "28"
+	snap.SchemaVersion = previous
 	// A dump that would empty the table, so a restore that reached the clear
 	// step would leave no keeper behind.
 	snap.Tables["gate_users"] = TableDump{Columns: []string{"id"}}
 
 	err = st.Restore(snap)
 	if err == nil {
-		t.Fatal("a snapshot from schema 27 was accepted")
+		t.Fatalf("a snapshot from schema %s was accepted", previous)
 	}
-	if !strings.Contains(err.Error(), `"27"`) || !strings.Contains(err.Error(), `"28"`) {
+	if !strings.Contains(err.Error(), `"`+previous+`"`) || !strings.Contains(err.Error(), `"`+schemaVersion+`"`) {
 		t.Fatalf("the refusal does not name both schemas: %v", err)
 	}
 	if _, err := st.GateUserByUsername("keeper"); err != nil {

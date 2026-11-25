@@ -27,9 +27,22 @@ import (
 
 const (
 	// LoginPath is intercepted by the proxy before routing.
-	LoginPath    = "/__wafproxy/gate"
-	cookieName   = "__wfp_gate"
+	LoginPath = "/__wafproxy/gate"
+	// CookieName is the session cookie. The scanner needs it to prove a
+	// tampered or signed-out cookie is refused, so it is part of the contract.
+	CookieName   = "__wfp_gate"
 	maxFormBytes = 4096
+)
+
+const (
+	// BanFailures10m, BanFailures24h and BanCleanDays are the escalation ladder.
+	// The security scanner reads them to prove the ladder is armed and to keep
+	// its deliberate failures under the first threshold.
+	BanFailures10m = 3
+	BanFailures24h = 10
+	BanCleanDays   = 3
+	banShortTTL    = 15 * time.Minute
+	banLongTTL     = 24 * time.Hour
 )
 
 // Gate evaluates and serves the access gate.
@@ -99,7 +112,7 @@ func (g *Gate) Handle(w http.ResponseWriter, r *http.Request, p *model.Proxy, sr
 		return g.forwardAuth(w, r, p)
 	}
 
-	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
+	if c, err := r.Cookie(CookieName); err == nil && c.Value != "" {
 		if _, ok := g.st.LookupGateSession(c.Value, p.ID); ok {
 			return false
 		}
@@ -185,7 +198,7 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 			// form tells an attacker which gate usernames exist.
 			dummyVerify(password)
 		} else if auth.VerifyPassword(user.PasswordHash, password) {
-			ok = g.allowed(p.ID, user.Username)
+			ok = g.allowed(p.ID, user)
 			if ok && p.GateMode == "accounts_totp" {
 				ok = g.claimTOTP(user, totp)
 			}
@@ -211,7 +224,7 @@ func (g *Gate) login(w http.ResponseWriter, r *http.Request, p *model.Proxy, src
 	_ = g.st.ClearGateFailures(ip)
 	g.limiter.Reset("user:" + username)
 	http.SetCookie(w, &http.Cookie{
-		Name:     cookieName,
+		Name:     CookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
@@ -244,19 +257,22 @@ func (g *Gate) claimTOTP(user *model.GateUser, code string) bool {
 	return claimed
 }
 
-func (g *Gate) allowed(proxyID int64, username string) bool {
-	if banned, err := g.st.UsernameBanned(username); err != nil || banned {
+func (g *Gate) allowed(proxyID int64, user *model.GateUser) bool {
+	if banned, err := g.st.UsernameBanned(user.Username); err != nil || banned {
 		return false
 	}
 	acl, err := g.st.GateACL(proxyID)
 	if err != nil {
 		return false
 	}
+	// An empty ACL means every account may pass, which is fine for a human
+	// account an operator created. A scanner account is a machine credential
+	// that must only ever reach the hostnames it was explicitly bound to.
 	if len(acl) == 0 {
-		return true
+		return !user.ScanOnly
 	}
 	for _, name := range acl {
-		if name == username {
+		if name == user.Username {
 			return true
 		}
 	}
@@ -273,12 +289,12 @@ func (g *Gate) fail(w http.ResponseWriter, p *model.Proxy, src netip.Addr, usern
 	var ttl time.Duration
 	permanent := false
 	switch {
-	case days >= 3 && last24h >= 10:
+	case days >= BanCleanDays && last24h >= BanFailures24h:
 		permanent = true
-	case last24h >= 10:
-		ttl = 24 * time.Hour
-	case last10m >= 3:
-		ttl = 15 * time.Minute
+	case last24h >= BanFailures24h:
+		ttl = banLongTTL
+	case last10m >= BanFailures10m:
+		ttl = banShortTTL
 	}
 	if ttl > 0 || permanent {
 		if _, err := g.bans.Add(ip, fmt.Sprintf("access gate: %s (%d failures/24h)", reason, last24h), "gate", "gate", ttl); err != nil {

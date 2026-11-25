@@ -458,7 +458,7 @@ func (s *Store) RecentAlerts(limit int) ([]model.Alert, error) {
 
 // ListGateUsers returns all gate accounts.
 func (s *Store) ListGateUsers() ([]model.GateUser, error) {
-	rows, err := s.db.Query(`SELECT id, username, password_hash, totp_secret, totp_enabled, created_at
+	rows, err := s.db.Query(`SELECT id, username, password_hash, totp_secret, totp_enabled, scan_only, created_at
 		FROM gate_users WHERE (? = 0 OR site_id = ?) ORDER BY username`, s.site, s.site)
 	if err != nil {
 		return nil, err
@@ -467,12 +467,14 @@ func (s *Store) ListGateUsers() ([]model.GateUser, error) {
 	out := []model.GateUser{}
 	for rows.Next() {
 		var u model.GateUser
-		var enabled int
+		var enabled, scanOnly int
 		var created string
-		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.TOTPSecret, &enabled, &created); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.TOTPSecret, &enabled, &scanOnly, &created); err != nil {
 			return nil, err
 		}
 		u.TOTPEnabled = i2b(enabled)
+		u.ScanOnly = i2b(scanOnly)
+		u.Origin = gateUserOrigin(u.ScanOnly)
 		u.CreatedAt = parseStamp(created)
 		out = append(out, u)
 	}
@@ -484,9 +486,10 @@ func (s *Store) GateUserByUsername(username string) (*model.GateUser, error) {
 	var u model.GateUser
 	var enabled int
 	var created string
-	err := s.db.QueryRow(`SELECT id, username, password_hash, totp_secret, totp_enabled, created_at
+	var scanOnly int
+	err := s.db.QueryRow(`SELECT id, username, password_hash, totp_secret, totp_enabled, scan_only, created_at
 		FROM gate_users WHERE username = ? AND (? = 0 OR site_id = ?)`, username, s.site, s.site).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.TOTPSecret, &enabled, &created)
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.TOTPSecret, &enabled, &scanOnly, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -494,8 +497,19 @@ func (s *Store) GateUserByUsername(username string) (*model.GateUser, error) {
 		return nil, err
 	}
 	u.TOTPEnabled = i2b(enabled)
+	u.ScanOnly = i2b(scanOnly)
+	u.Origin = gateUserOrigin(u.ScanOnly)
 	u.CreatedAt = parseStamp(created)
 	return &u, nil
+}
+
+// gateUserOrigin names what an account is for, which the account list shows
+// beside the username.
+func gateUserOrigin(scanOnly bool) string {
+	if scanOnly {
+		return "scanner"
+	}
+	return "operator"
 }
 
 // CreateGateUser inserts a gate account.
@@ -508,10 +522,55 @@ func (s *Store) CreateGateUser(username, hash, totpSecret string, totpEnabled bo
 	return res.LastInsertId()
 }
 
+// CreateScanGateUser inserts a scanner account. The password hash lets the gate
+// verify the sign-in; the sealed copy is what the scanner opens, so the run can
+// sign in without the operator handing it a plaintext credential again.
+func (s *Store) CreateScanGateUser(username, hash, sealedPassword string) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO gate_users(username, password_hash, totp_secret, totp_enabled, scan_only, scan_secret, created_at, site_id)
+		VALUES(?, ?, '', 0, 1, ?, ?, ?)`, username, hash, sealedPassword, stamp(time.Now()), s.site)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// ScanGateUser returns the scanner account bound to one proxy, sealed password
+// included. ErrNotFound means no account is bound to that hostname, which is how
+// a scan reports the authenticated gate probes as not tested.
+func (s *Store) ScanGateUser(proxyID int64) (*model.GateUser, error) {
+	var u model.GateUser
+	var enabled int
+	var created string
+	err := s.db.QueryRow(`SELECT g.id, g.username, g.password_hash, g.scan_secret, g.totp_enabled, g.created_at
+		FROM gate_users g JOIN gate_acl a ON a.username = g.username
+		WHERE a.proxy_id = ? AND g.scan_only = 1 AND (? = 0 OR g.site_id = ?) LIMIT 1`, proxyID, s.site, s.site).
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.ScanSecret, &enabled, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	u.TOTPEnabled = i2b(enabled)
+	u.ScanOnly = true
+	u.Origin = gateUserOrigin(true)
+	u.CreatedAt = parseStamp(created)
+	return &u, nil
+}
+
 // UpdateGateUser updates a gate account's secret material.
 func (s *Store) UpdateGateUser(id int64, hash, totpSecret string, totpEnabled bool) error {
 	_, err := s.db.Exec(`UPDATE gate_users SET password_hash = ?, totp_secret = ?, totp_enabled = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
 		hash, totpSecret, b2i(totpEnabled), id, s.site, s.site)
+	return err
+}
+
+// UpdateGateUserScanSecret keeps the sealed copy of a scan account's password
+// in step with its hash. Without it a password change would leave the scanner
+// holding a credential the gate no longer accepts.
+func (s *Store) UpdateGateUserScanSecret(id int64, sealed string) error {
+	_, err := s.db.Exec(`UPDATE gate_users SET scan_secret = ? WHERE id = ? AND scan_only = 1 AND (? = 0 OR site_id = ?)`,
+		sealed, id, s.site, s.site)
 	return err
 }
 
@@ -597,6 +656,19 @@ func (s *Store) SetGateACL(proxyID int64, usernames []string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// AddGateACL binds one account to one proxy without disturbing the names
+// already bound. A scanner account is created once and then bound to each
+// hostname it is allowed to test.
+func (s *Store) AddGateACL(proxyID int64, username string) error {
+	if ok, err := s.ownsProxy(proxyID); err != nil {
+		return err
+	} else if !ok {
+		return ErrNotFound
+	}
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO gate_acl(proxy_id, username) VALUES(?, ?)`, proxyID, username)
+	return err
 }
 
 // GateACL returns the accounts allowed through one proxy.

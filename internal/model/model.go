@@ -523,12 +523,21 @@ type Flow struct {
 
 // GateUser is an account allowed through the per-proxy access gate.
 type GateUser struct {
-	ID           int64     `json:"id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"`
-	TOTPSecret   string    `json:"-"`
-	TOTPEnabled  bool      `json:"totp_enabled"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           int64  `json:"id"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"-"`
+	TOTPSecret   string `json:"-"`
+	TOTPEnabled  bool   `json:"totp_enabled"`
+	// ScanOnly marks an account the security scanner signs in with. It is bound
+	// to named hostnames and never inherits the "empty ACL means every host"
+	// rule, so a machine credential cannot open a site nobody bound it to.
+	ScanOnly bool `json:"scan_only"`
+	// ScanSecret is the sealed scan password, present only for a scan-only row.
+	// It is never returned by the API.
+	ScanSecret string `json:"-"`
+	// Origin names who the account is for: "scanner" for a scan-only row.
+	Origin    string    `json:"origin,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // UsernameBan denies a gate username without deleting its account. It also
