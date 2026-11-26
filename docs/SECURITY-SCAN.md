@@ -41,7 +41,7 @@ Four consequences worth stating plainly:
   the node bound (a wildcard bind dials loopback) at the listener's address and port, with the
   proxy's hostname as `Host` and as the certificate name. A connection that is accepted and then
   never answers within the probe timeout is a timeout like any other, so a hostname that takes
-  the connection and stalls still falls back. The fallback trusts this node's internal CA root
+  the connection and stalls still falls back. Both endpoints trust this node's internal CA root
   alongside the system store, so a site issued by it completes the handshake even though no
   client device has that root; a certificate the listener cannot back with either is not
   retried, because the listener presents the same name, so the error is reported instead. The

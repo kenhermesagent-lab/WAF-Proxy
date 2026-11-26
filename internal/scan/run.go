@@ -50,9 +50,10 @@ type ExecuteDeps struct {
 	// with the hostname as Host and TLS SNI only when the published hostname
 	// does not resolve, refuses the connection or times out.
 	WANFallback func(hostname string) string
-	// WANRoots trusts the certificate the listener presents. A site issued by
-	// this node's internal CA has a certificate no system store knows, so the
-	// fallback cannot complete a handshake without it. Nil uses system roots.
+	// WANRoots trusts the certificate both endpoints present. A site issued by
+	// this node's internal CA has a certificate no system store knows, so
+	// neither the published hostname nor the listener fallback can complete a
+	// handshake without it. Nil uses system roots.
 	WANRoots *x509.CertPool
 	// Trust mints the token that marks probes as this run's. Nil sends none.
 	Trust *scantrust.Registry
@@ -266,7 +267,7 @@ func resolveTarget(d ExecuteDeps, proxy model.Proxy) (Target, error) {
 			// it. The hostname is also the Host header and certificate name on
 			// the listener fallback, which is dialled only when the hostname
 			// does not resolve, refuses the connection or times out.
-			WAN:      Endpoint{URL: wan, Host: proxy.Hostname, TLSName: proxy.Hostname},
+			WAN:      Endpoint{URL: wan, Host: proxy.Hostname, TLSName: proxy.Hostname, Roots: d.WANRoots},
 			Fallback: fallback,
 			Upstream: Endpoint{URL: u, Host: proxy.Hostname},
 		}, nil

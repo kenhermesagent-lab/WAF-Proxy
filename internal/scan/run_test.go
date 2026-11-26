@@ -2,6 +2,13 @@ package scan
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -9,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
@@ -94,6 +102,63 @@ func TestExecuteRecordsTheListenerFallback(t *testing.T) {
 	}
 }
 
+// assertEdgeThenFallback runs one site while the fronting proxy answers and
+// again once it stops. The first run must record `edge` with no fallback row;
+// the second must record `local` with the endpoint row naming the listener that
+// answered and the hostname that did not. seen reports the probes the listener
+// received through the proxy and whether the site hostname reached it as Host.
+func assertEdgeThenFallback(t *testing.T, st *store.Store, rec model.Proxy, deps ExecuteDeps, edgeURL, listenerURL string, stop func(), seen func() (int, bool)) {
+	t.Helper()
+
+	run, err := Execute(context.Background(), deps, rec, TriggerManual, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Path != PathEdge {
+		t.Fatalf("path = %q, want %q while the proxy answers with CF-Ray", run.Path, PathEdge)
+	}
+	evidence, err := st.ListScanEvidence(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range evidence {
+		if row.Class == "endpoint" {
+			t.Fatalf("edge run recorded a listener-fallback row: %+v", row)
+		}
+	}
+	probes, siteHost := seen()
+	if probes == 0 {
+		t.Fatal("no probe reached the listener through the proxy")
+	}
+	if !siteHost {
+		t.Fatal("the proxy never forwarded the site hostname as Host")
+	}
+
+	// The same site with the proxy stopped: the published hostname no longer
+	// answers, so the run falls back and says so in its first evidence row.
+	stop()
+	run, err = Execute(context.Background(), deps, rec, TriggerManual, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Path != PathLocal {
+		t.Fatalf("path = %q, want %q once the proxy is stopped", run.Path, PathLocal)
+	}
+	evidence, err = st.ListScanEvidence(run.ID)
+	if err != nil || len(evidence) == 0 {
+		t.Fatalf("evidence = %d rows, %v; want the endpoint row", len(evidence), err)
+	}
+	row := evidence[0]
+	if row.Stage != StagePreflight || row.Class != "endpoint" || row.Method != configMethod {
+		t.Fatalf("first row = %+v, want the preflight endpoint row", row)
+	}
+	for _, want := range []string{listenerURL + " (Host: app.example.com)", edgeURL, "did not answer"} {
+		if !strings.Contains(row.Note, want) {
+			t.Fatalf("endpoint note = %q; want it to contain %q", row.Note, want)
+		}
+	}
+}
+
 // A proxy in front of the listener that adds CF-Ray is the thing the edge path
 // claims to test, so the same site must record `edge` while that proxy answers
 // and `local` with the endpoint row once it stops.
@@ -127,7 +192,6 @@ func TestExecuteRecordsTheEdgePathAndTheFallbackWhenTheProxyStops(t *testing.T) 
 		return nil
 	}
 	edge := httptest.NewServer(edgeHandler)
-	edgeURL := edge.URL
 	defer edge.Close()
 
 	id, err := st.CreateProxy(&model.Proxy{Hostname: "app.example.com", Enabled: true})
@@ -146,67 +210,163 @@ func TestExecuteRecordsTheEdgePathAndTheFallbackWhenTheProxyStops(t *testing.T) 
 	deps := ExecuteDeps{
 		Store:       st,
 		OSV:         fakeAdvisories{},
-		WANBase:     func(string) string { return edgeURL },
+		WANBase:     func(string) string { return edge.URL },
 		WANFallback: func(string) string { return listener.URL },
 	}
+	seen := func() (int, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		probes, siteHost := 0, false
+		for i, p := range paths {
+			if strings.HasPrefix(p, ProbePathPrefix) {
+				probes++
+			}
+			if strings.EqualFold(hosts[i], "app.example.com") {
+				siteHost = true
+			}
+		}
+		return probes, siteHost
+	}
+	assertEdgeThenFallback(t, st, *proxy, deps, edge.URL, listener.URL, edge.Close, seen)
+}
 
-	run, err := Execute(context.Background(), deps, *proxy, TriggerManual, "tester")
+// tlsEdgeCert mints a CA and one certificate for the site hostname, the pair
+// the demo edge used. The scan is given the CA through WANRoots, so it must
+// verify both the proxy's certificate and the listener's.
+func tlsEdgeCert(t *testing.T, host string) (*x509.CertPool, tls.Certificate) {
+	t.Helper()
+	now := time.Now()
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.Path != PathEdge {
-		t.Fatalf("path = %q, want %q while the proxy answers with CF-Ray", run.Path, PathEdge)
+	ca := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "scan test CA"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
 	}
-	evidence, err := st.ListScanEvidence(run.ID)
+	caDER, err := x509.CreateCertificate(rand.Reader, ca, ca, &caKey.PublicKey, caKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, row := range evidence {
-		if row.Class == "endpoint" {
-			t.Fatalf("edge run recorded a listener-fallback row: %+v", row)
-		}
-	}
-	mu.Lock()
-	probes, siteHost := 0, false
-	for i, p := range paths {
-		if strings.HasPrefix(p, ProbePathPrefix) {
-			probes++
-		}
-		if strings.EqualFold(hosts[i], "app.example.com") {
-			siteHost = true
-		}
-	}
-	mu.Unlock()
-	if probes == 0 {
-		t.Fatal("no probe reached the listener through the proxy")
-	}
-	if !siteHost {
-		t.Fatal("the proxy never forwarded the site hostname as Host")
+	caCert, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	// The same site with the proxy stopped: the published hostname no longer
-	// answers, so the run falls back and says so in its first evidence row.
-	edge.Close()
-	run, err = Execute(context.Background(), deps, *proxy, TriggerManual, "tester")
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.Path != PathLocal {
-		t.Fatalf("path = %q, want %q once the proxy is stopped", run.Path, PathLocal)
+	leaf := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: host},
+		NotBefore:    now.Add(-time.Hour),
+		NotAfter:     now.Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{host},
 	}
-	evidence, err = st.ListScanEvidence(run.ID)
-	if err != nil || len(evidence) == 0 {
-		t.Fatalf("evidence = %d rows, %v; want the endpoint row", len(evidence), err)
+	leafDER, err := x509.CreateCertificate(rand.Reader, leaf, caCert, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
 	}
-	row := evidence[0]
-	if row.Stage != StagePreflight || row.Class != "endpoint" || row.Method != configMethod {
-		t.Fatalf("first row = %+v, want the preflight endpoint row", row)
+	pool := x509.NewCertPool()
+	pool.AddCert(caCert)
+	return pool, tls.Certificate{Certificate: [][]byte{leafDER}, PrivateKey: key}
+}
+
+// The TLS variant covers the certificate shape an edge actually presents: the
+// scan trusts a locally generated CA, so it verifies the proxy's certificate
+// for the site hostname and records `edge`, then falls back to the listener's
+// certificate from the same CA once the proxy stops.
+func TestExecuteRecordsTheEdgePathOverTLSAndTheFallbackWhenTheProxyStops(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, want := range []string{listener.URL + " (Host: app.example.com)", edgeURL, "did not answer"} {
-		if !strings.Contains(row.Note, want) {
-			t.Fatalf("endpoint note = %q; want it to contain %q", row.Note, want)
+	defer st.Close()
+
+	roots, cert := tlsEdgeCert(t, "app.example.com")
+	var mu sync.Mutex
+	var hosts, paths []string
+	record := func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hosts = append(hosts, r.Host)
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		w.WriteHeader(http.StatusNotFound)
+	}
+	// The node's WAN listener, presenting a certificate from the test CA.
+	listener := httptest.NewUnstartedServer(http.HandlerFunc(record))
+	listener.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+	listener.StartTLS()
+	defer listener.Close()
+
+	// The application behind the node, so the upstream half has an answer.
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer app.Close()
+
+	// The throwaway edge: TLS for the site hostname, Cloudflare's header on
+	// every answer, and a TLS forward to the listener that trusts the same CA.
+	target, err := url.Parse(listener.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edgeHandler := httputil.NewSingleHostReverseProxy(target)
+	edgeHandler.Transport = &http.Transport{TLSClientConfig: &tls.Config{
+		RootCAs: roots, ServerName: "app.example.com",
+	}}
+	edgeHandler.ModifyResponse = func(res *http.Response) error {
+		res.Header.Set("CF-Ray", "8a1b2c3d4e5f6a7b-AMS")
+		return nil
+	}
+	edge := httptest.NewUnstartedServer(edgeHandler)
+	edge.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+	edge.StartTLS()
+	defer edge.Close()
+
+	id, err := st.CreateProxy(&model.Proxy{Hostname: "app.example.com", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceUpstreams(id, []model.Upstream{
+		{ProxyID: id, URL: app.URL, Weight: 1, Enabled: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	proxy, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps := ExecuteDeps{
+		Store:       st,
+		OSV:         fakeAdvisories{},
+		WANBase:     func(string) string { return edge.URL },
+		WANFallback: func(string) string { return listener.URL },
+		WANRoots:    roots,
+	}
+	seen := func() (int, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		probes, siteHost := 0, false
+		for i, p := range paths {
+			if strings.HasPrefix(p, ProbePathPrefix) {
+				probes++
+			}
+			if strings.EqualFold(hosts[i], "app.example.com") {
+				siteHost = true
+			}
 		}
+		return probes, siteHost
 	}
+	assertEdgeThenFallback(t, st, *proxy, deps, edge.URL, listener.URL, edge.Close, seen)
 }
 
 // The shared run path records the run, its evidence and its verdict counts, and
