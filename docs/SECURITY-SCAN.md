@@ -2,9 +2,11 @@
 
 **Status:** built for 1.77.0. Steps 0–7 below landed: the runner and differential core, the probe
 path and preflight, the gate suite, fingerprints and the CVE join, the schedule and alerts, the
-API and permissions, and the page and docs. The hostname-first path has not been exercised
-against a real edge or hairpin-NAT path; the listener fallback is what a local run uses, so the
-page's `edge` claim remains unproven.
+API and permissions, and the page and docs. The hostname-first path has been exercised against a
+local reverse proxy standing in for the edge: with a proxy on the site's hostname at `:443`
+forwarding to the WAN listener and adding `CF-Ray`, the run recorded `path: edge`; with the same
+proxy stopped, the same site recorded `path: local` and one listener-fallback row. Neither run
+used Cloudflare itself, real DNS or hairpin NAT — see §1.
 **Page:** `#/security` — sidebar **System → Security scan**, between Cloudflare and Sites.
 **Mockup:** [`docs/design/security-scan-mockup.html`](design/security-scan-mockup.html)
 
@@ -46,10 +48,10 @@ Four consequences worth stating plainly:
   run records which endpoint answered: when the run proceeds after a fallback, its first
   evidence row names the listener
   and the failed hostname; a run that stops says so in its skip reason, including both
-  endpoints when both fail. Every run records the path it actually took: `edge` when the
-  response carries `CF-Ray` and the same probe id appears in the request log, `local` when it
-  did not. A `local` run says so on the page, and its findings are worded as this node's WAF,
-  never as the operator's edge.
+  endpoints when both fail. Every run records the path it actually took, decided by the
+  preflight answer alone: `edge` when the published answer carried `CF-Ray`, `local` when it did
+  not. A `local` run says so on the page, and its findings are worded as this node's WAF, never
+  as the operator's edge.
 - **A control probe decides whether "blocked" means anything.** One harmless request per class
   (`?id=1`, no payload) runs alongside the attack payloads. If the control is itself refused —
   Under Attack mode, a geo or ASN block, a rate limit — every block in that class becomes
@@ -77,6 +79,29 @@ Four consequences worth stating plainly:
   stored list is left exactly as it was, so the operator removes a path (or blocks the leak
   another way) and retries. It closes reachability, not the leak: removing the file is still the
   application's job.
+
+### What the local edge proof covered
+
+The path check was exercised end to end with a stand-in edge, not with Cloudflare. A throwaway
+TLS reverse proxy listened on the site's hostname at `:443`, forwarded each request to this
+node's WAN listener with the hostname as `Host` and as the certificate name, and added `CF-Ray`
+and `Server: cloudflare` to every answer; the site's name resolved to `127.0.0.1` inside a
+private network namespace, and the console trusted the proxy's certificate through its system
+store. The `Run scan` call the page makes then recorded `path: edge` for that site: 81 evidence
+rows, 74 of them addressed to the probe path, and no listener-fallback row, so the published
+hostname was dialled and answered by the proxy. With the proxy stopped, the same call on the
+same site recorded `path: local` with one fallback row naming `https://127.0.0.1:8443`
+(`Host: app.demo.test`) as the endpoint that answered and `https://app.demo.test` as the one
+that did not.
+
+That is what the flag does and does not mean. It proves the decision follows the answer, that a
+run through a fronting proxy is recorded as `edge`, and that a run without one is recorded as
+`local` with the endpoint evidence to match. It does not prove a run against Cloudflare's own
+edge: no Cloudflare proxy, real DNS record or hairpin-NAT path was involved, the certificate had
+to be trusted through the console's own store, and `CF-Ray` is read at face value, so anything
+that can answer on the hostname and set that header is recorded as an edge. The page's wording
+is sized to that: `edge` means the answer carried Cloudflare's header, not that Cloudflare's WAF
+was proven to stand in front.
 
 ### The scanner's own threat model
 
@@ -578,7 +603,7 @@ and no number is shown that the node cannot defend — states, not grades.
 | Risk | Why it is acceptable | Mitigation |
 |------|----------------------|------------|
 | A WAF miss reaches the app's 404 handler | The request is read-only and the path is random and unimplemented | Catch-all detection skips body probes; per-site opt-out |
-| The edge WAF is not exercised | The hostname is not routable from inside the node, so the scan falls back to the listener | `path: local` recorded and shown; findings name this node's WAF, never Cloudflare's |
+| The edge WAF is not exercised | When the hostname is not routable from inside the node the scan falls back to the listener; a local proxy test proved the `edge` path is recorded when the answer carries `CF-Ray`, but no Cloudflare edge was tested | `path: local` recorded and shown; findings name this node's WAF, never Cloudflare's |
 | A control probe is refused, hiding real misses | Under Attack mode or a geo block refuses everything | Every class becomes `inconclusive`, never "blocked" |
 | Edge rate limiting from probe bursts | Runs are short and capped | 12 req/s default, abort on `429`, jitter, quiet hours |
 | The gate ban ladder fires on the scan's own address | Two failures stay under the three-in-ten-minutes threshold | Hard cap of two failures per run, no lockout probe |
