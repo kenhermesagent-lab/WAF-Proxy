@@ -2,12 +2,24 @@ package api
 
 import (
 	"bytes"
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -449,6 +461,164 @@ func TestPageRunFallsBackToTheListenerWithSNI(t *testing.T) {
 	if len(got) == 0 || got[0] != "app.invalid" {
 		t.Fatalf("TLS SNI = %v, want app.invalid dialled at the listener", got)
 	}
+}
+
+// The successful fallback needs the scan to trust a local CA before it builds
+// its first TLS client, so the run happens in a child process with
+// SSL_CERT_FILE set. The parent only checks that the child passed.
+const fallbackHelperEnv = "WAFPROXY_FALLBACK_HELPER"
+
+func TestPageStartedFallbackEndToEnd(t *testing.T) {
+	if os.Getenv(fallbackHelperEnv) != "1" {
+		if runtime.GOOS != "linux" {
+			t.Skip("SSL_CERT_FILE trust is exercised on Linux")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestPageStartedFallbackEndToEnd$", "-test.v")
+		cmd.Env = append(os.Environ(), fallbackHelperEnv+"=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("the fallback helper failed: %v\n%s", err, out)
+		}
+		return
+	}
+
+	caPEM, leaf, err := pageFallbackCert("app.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(caFile, caPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SSL_CERT_FILE", caFile)
+
+	srv, st, token, csrf := newObservabilityServer(t)
+	var mu sync.Mutex
+	var gotHost, gotSNI string
+	wan := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		if gotHost == "" {
+			gotHost, gotSNI = r.Host, r.TLS.ServerName
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	wan.TLS = &tls.Config{Certificates: []tls.Certificate{leaf}}
+	wan.StartTLS()
+	t.Cleanup(wan.Close)
+	wan.Config.ErrorLog = log.New(io.Discard, "", 0)
+	srv.cfg.ListenWAN = strings.TrimPrefix(wan.URL, "https://")
+	if strings.HasSuffix(srv.cfg.ListenWAN, ":443") {
+		t.Fatalf("the fallback listener must not be on 443: %s", srv.cfg.ListenWAN)
+	}
+
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(app.Close)
+	id, err := st.CreateProxy(&model.Proxy{Hostname: "app.invalid", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceUpstreams(id, []model.Upstream{{ProxyID: id, URL: app.URL, Weight: 1, Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := securityDo(t, srv, http.MethodPost, "/api/security/runs", "gui.local", token, csrf,
+		map[string]any{"targets": []int64{id}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("run = %d (%s), want 201", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Runs []model.ScanRun `json:"runs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Runs) != 1 {
+		t.Fatalf("runs = %+v, want one", out.Runs)
+	}
+	run := out.Runs[0]
+	if run.Skipped != "" {
+		t.Fatalf("the trusted fallback stopped: %s", run.Skipped)
+	}
+	if run.Path != scan.PathLocal {
+		t.Fatalf("path = %q, want local", run.Path)
+	}
+	mu.Lock()
+	host, sni := gotHost, gotSNI
+	mu.Unlock()
+	if host != "app.invalid" || sni != "app.invalid" {
+		t.Fatalf("fallback request Host=%q SNI=%q, want app.invalid for both", host, sni)
+	}
+
+	evidence, err := st.ListScanEvidence(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var endpoint *model.ScanEvidence
+	for i := range evidence {
+		if evidence[i].Class == "endpoint" {
+			endpoint = &evidence[i]
+			break
+		}
+	}
+	if endpoint == nil {
+		t.Fatalf("no endpoint evidence row: %+v", evidence)
+	}
+	want := "https://" + srv.cfg.ListenWAN + " (Host: app.invalid)"
+	if !strings.Contains(endpoint.Note, want) || !strings.Contains(endpoint.Note, "https://app.invalid") || !strings.Contains(endpoint.Note, "did not answer") {
+		t.Fatalf("endpoint note = %q, want the listener, the hostname and its failure", endpoint.Note)
+	}
+	if len(evidence) < 2 {
+		t.Fatalf("evidence = %d rows, want the endpoint and at least one probe", len(evidence))
+	}
+}
+
+// pageFallbackCert issues a leaf for host from a throwaway CA that the child
+// process trusts through SSL_CERT_FILE.
+func pageFallbackCert(host string) ([]byte, tls.Certificate, error) {
+	now := time.Now()
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
+	caTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "fallback test CA"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
+	caCert, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
+	leafTmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: host},
+		DNSNames:     []string{host},
+		NotBefore:    now.Add(-time.Hour),
+		NotAfter:     now.Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, &leafKey.PublicKey, caKey)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), tls.Certificate{Certificate: [][]byte{leafDER}, PrivateKey: leafKey}, nil
 }
 
 // A standalone install has no active node to defer to, so the role check must
