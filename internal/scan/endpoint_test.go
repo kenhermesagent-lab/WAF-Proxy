@@ -2,12 +2,14 @@ package scan
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -49,6 +51,35 @@ func TestProbeClientUsesTheTLSName(t *testing.T) {
 	}
 	if got := tr.TLSClientConfig.ServerName; got != "app.example.com" {
 		t.Fatalf("TLS server name = %q, want app.example.com", got)
+	}
+}
+
+// Raw probes write their own TLS connection, so they must use the endpoint's
+// certificate name rather than the Host header.
+func TestRawProbeUsesTheEndpointTLSName(t *testing.T) {
+	var mu sync.Mutex
+	var sni string
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.TLS = &tls.Config{GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		mu.Lock()
+		sni = hello.ServerName
+		mu.Unlock()
+		return nil, nil
+	}}
+	srv.StartTLS()
+	defer srv.Close()
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	u, _ := url.Parse(srv.URL)
+	ep := Endpoint{URL: u, Host: "host-header.example.com", TLSName: "cert.example.com"}
+	raw := "GET / HTTP/1.1\r\nHost: host-header.example.com\r\nConnection: close\r\n\r\n"
+	if _, err := NewRunner(ep, ep, 0).sendRaw(context.Background(), raw); err == nil {
+		t.Fatal("the untrusted listener certificate was accepted")
+	}
+	mu.Lock()
+	got := sni
+	mu.Unlock()
+	if got != "cert.example.com" {
+		t.Fatalf("TLS SNI = %q, want the endpoint's TLS name", got)
 	}
 }
 

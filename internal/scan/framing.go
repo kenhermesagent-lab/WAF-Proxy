@@ -91,7 +91,11 @@ func (r *Runner) sendRaw(ctx context.Context, raw string) (answer, error) {
 	}
 	defer conn.Close()
 	if ep.URL.Scheme == "https" {
-		tlsConn := tls.Client(conn, &tls.Config{ServerName: ep.Host})
+		name := ep.TLSName
+		if name == "" {
+			name = ep.URL.Hostname()
+		}
+		tlsConn := tls.Client(conn, &tls.Config{ServerName: name})
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
 			return answer{}, err
 		}
