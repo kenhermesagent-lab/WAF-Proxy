@@ -42,10 +42,13 @@ type ExecuteDeps struct {
 	OSV         AdvisorySource
 	PerSecond   int
 	ConsoleHost string
-	// WANBase builds the published endpoint for a hostname. The console and the
-	// scheduler supply the node's WAN listener (PublishedBase), with the hostname
-	// sent as Host and TLS SNI; nil falls back to https://<hostname>.
+	// WANBase overrides the published hostname endpoint. Nil uses
+	// https://<hostname>, which is the edge path when the hostname resolves.
 	WANBase func(hostname string) string
+	// WANFallback builds the node's WAN listener (ListenerBase). It is dialled
+	// with the hostname as Host and TLS SNI only when the published hostname
+	// does not resolve or its port is unreachable.
+	WANFallback func(hostname string) string
 	// Trust mints the token that marks probes as this run's. Nil sends none.
 	Trust *scantrust.Registry
 	// Bans removes a ban this run left on the address it probed from.
@@ -121,6 +124,15 @@ func Execute(ctx context.Context, d ExecuteDeps, proxy model.Proxy, trigger, act
 		KEV: loadKEV(d.Store), Advisories: advisorySource(d), Now: d.Now,
 	})
 	evidence = append(evidence, backend...)
+	if preflight.Fallback != "" {
+		// The run used the listener because the hostname did not answer. A
+		// failed run's reason carries this; a successful one keeps it as its
+		// first evidence row so the operator can see which endpoint was dialled.
+		evidence = append([]model.ScanEvidence{{
+			Stage: StagePreflight, Class: "endpoint", Method: configMethod,
+			Verdict: string(Passed), Note: "dialled " + preflight.Endpoint + "; " + preflight.Fallback,
+		}}, evidence...)
+	}
 	cleanupScanBans(d.Bans, runner.Sources(), now)
 	for i := range evidence {
 		evidence[i].RunID = id
@@ -206,10 +218,10 @@ func verdictCounts(rows []model.ScanEvidence) string {
 	return string(raw)
 }
 
-// resolveTarget builds the two endpoints from the proxy record. The upstream is
-// the first enabled address the operator saved; the published side is the WAN
-// listener, never a free-form URL from the request, with the proxy hostname
-// carried as Host and TLS SNI.
+// resolveTarget builds the endpoints from the proxy record. The upstream is the
+// first enabled address the operator saved; the published side is the hostname
+// (the edge path when it resolves), with the node's WAN listener as the
+// fallback and the proxy hostname carried as Host and TLS SNI.
 func resolveTarget(d ExecuteDeps, proxy model.Proxy) (Target, error) {
 	base := "https://" + proxy.Hostname
 	if d.WANBase != nil {
@@ -218,6 +230,15 @@ func resolveTarget(d ExecuteDeps, proxy model.Proxy) (Target, error) {
 	wan, err := url.Parse(base)
 	if err != nil || wan.Host == "" {
 		return Target{}, fmt.Errorf("the published endpoint is not a URL: %q", base)
+	}
+	var fallback Endpoint
+	if d.WANFallback != nil {
+		raw := d.WANFallback(proxy.Hostname)
+		u, ferr := url.Parse(raw)
+		if ferr != nil || u.Host == "" {
+			return Target{}, fmt.Errorf("the fallback endpoint is not a URL: %q", raw)
+		}
+		fallback = Endpoint{URL: u, Host: proxy.Hostname, TLSName: proxy.Hostname}
 	}
 	ups, err := d.Store.ListUpstreams(proxy.ID)
 	if err != nil {
@@ -236,11 +257,12 @@ func resolveTarget(d ExecuteDeps, proxy model.Proxy) (Target, error) {
 		}
 		return Target{
 			Proxy: proxy,
-			// The listener address is dialled; the site hostname is the Host
-			// header and the certificate name. That is what lets a scan run
-			// against a hostname that does not resolve inside the node, or a
-			// WAN port that is not 443.
+			// The published hostname is dialled first, as a visitor would reach
+			// it. The hostname is also the Host header and certificate name on
+			// the listener fallback, which is dialled only when the hostname
+			// does not resolve or its port is unreachable.
 			WAN:      Endpoint{URL: wan, Host: proxy.Hostname, TLSName: proxy.Hostname},
+			Fallback: fallback,
 			Upstream: Endpoint{URL: u, Host: proxy.Hostname},
 		}, nil
 	}

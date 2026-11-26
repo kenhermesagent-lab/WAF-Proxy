@@ -65,11 +65,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   the rate or login limits, so a run can observe the `429` a stranger gets, and the refusal
   writes no ban. The token is held only for the run, never stored with the evidence and never
   forwarded to the backend.
-- **A page-started scan dials the WAN listener instead of assuming 443 and public DNS.** The
-  endpoint is derived from the proxy record and the bound WAN listener — scheme, address and
-  port — and the hostname travels as `Host` and TLS SNI, so a WAN port that is not 443 or a
-  hostname that does not resolve inside the node no longer fails every run. A skip or evidence
-  row now names the endpoint actually dialled and the transport error.
+- **A page-started scan tries the published hostname, then falls back to the WAN listener.** It
+  still dials `https://<hostname>` first, so an edge in front of the name is exercised when it
+  is routable. If the hostname does not resolve or its port is unreachable, it dials the bound
+  WAN listener at its own address and port with the hostname as `Host` and TLS SNI. A successful
+  run records the fallback as a preflight evidence row; a run that stops names the endpoint it
+  used and why in its skip reason, including both endpoints and their errors when both fail.
 - **A manual scan is no longer refused on a standalone node.** The run endpoint treated any role other than `leader`
   as a standby, so the Run scan button answered `409` on every non-HA install; only a standby refuses now.
 - **A run's path, its end time and the reason it stopped are recorded.** The path is proved after the row exists and

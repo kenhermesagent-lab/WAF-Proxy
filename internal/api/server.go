@@ -125,9 +125,9 @@ type Server struct {
 	// haOps runs the HA mutations; nil means the routes answer 409. haMu and
 	// haLog keep the process-local action history the page shows.
 	haOps HAOps
-	// securityWAN builds the published endpoint a scan connects to. Nil derives
-	// it from the WAN listener in cfg.ListenWAN and sends the site hostname as
-	// the Host header and TLS name. Tests point it at a local listener.
+	// securityWAN overrides the published hostname endpoint a scan connects to
+	// first. Nil uses https://<hostname>; tests point it at a local listener.
+	// The WAN listener fallback comes from cfg.ListenWAN.
 	securityWAN func(hostname string) string
 
 	// haChange starts or stops the HA loops after the switch is saved. It can

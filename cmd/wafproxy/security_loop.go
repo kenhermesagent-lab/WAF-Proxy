@@ -146,11 +146,11 @@ func securityScheduler(b *siteres.Bundle, box *crypto.Box, log *slog.Logger, cfg
 			if cfg != nil {
 				listen = cfg.ListenWAN
 			}
-			base := scan.PublishedBase(listen)
+			base := scan.ListenerBase(listen)
 			deps := scan.ExecuteDeps{
 				Store: b.Store, Box: box, Notify: b.Notify, PerSecond: scan.ProbesPerSecond(b.Store),
 				ConsoleHost: b.Site.ConsoleHost, Bans: b.Bans, Trust: b.ScanTrust,
-				WANBase: func(string) string { return base },
+				WANFallback: func(string) string { return base },
 			}
 			for _, p := range proxies {
 				if !p.Enabled || p.Maintenance {

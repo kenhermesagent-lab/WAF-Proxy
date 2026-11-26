@@ -2,9 +2,9 @@
 
 **Status:** built for 1.77.0. Steps 0–7 below landed: the runner and differential core, the probe
 path and preflight, the gate suite, fingerprints and the CVE join, the schedule and alerts, the
-API and permissions, and the page and docs. The scan dials the node's own listener, so a run
-records `local` unless that listener address is itself fronted; the page's `edge` claim is
-unproven against a real edge or hairpin-NAT path.
+API and permissions, and the page and docs. The hostname-first path has not been exercised
+against a real edge or hairpin-NAT path; the listener fallback is what a local run uses, so the
+page's `edge` claim remains unproven.
 **Page:** `#/security` — sidebar **System → Security scan**, between Cloudflare and Sites.
 **Mockup:** [`docs/design/security-scan-mockup.html`](design/security-scan-mockup.html)
 
@@ -32,18 +32,17 @@ page, because the page is only a view.
 
 Four consequences worth stating plainly:
 
-- **It tests this node's listener.** The published endpoint is derived from the proxy record
-  and the WAN listener, not assumed to be `https://<hostname>:443`: the scanner dials the
-  address and port the node bound (a wildcard bind dials loopback) over TLS, and sends the
-  proxy's hostname as `Host` and as the certificate name. The hostname no longer has to resolve
-  inside the node. Because the dial address is the listener, the probe measures *this node's*
-  WAF and gate and does not leave through an edge in front of the hostname; only a listener
-  address that is itself fronted can add `CF-Ray`. Every run records the path it actually took:
-  `edge` when the response carries `CF-Ray` and the same probe id appears in the request log,
-  `local` when it did not. A `local` run says so on the page, and its findings are worded as
-  this node's WAF, never as the operator's edge. A run that cannot reach the listener records
-  the URL it dialled, the `Host` it claimed and the transport error — not a bare "did not
-  answer".
+- **It tries the published hostname first, then falls back to this node's listener.** The
+  scanner dials `https://<hostname>` as a visitor would, so an edge in front of the name is
+  exercised whenever the hostname is routable from inside the node. If the hostname does not
+  resolve, or its port is unreachable, the scanner dials the WAN listener the node bound (a
+  wildcard bind dials loopback) at the listener's address and port, with the proxy's hostname
+  as `Host` and as the certificate name. The run records which endpoint answered: when the run
+  proceeds after a fallback, its first evidence row names the listener and the failed hostname;
+  a run that stops says so in its skip reason, including both endpoints when both fail. Every
+  run records the path it actually took: `edge` when the response carries `CF-Ray` and the same
+  probe id appears in the request log, `local` when it did not. A `local` run says so on the
+  page, and its findings are worded as this node's WAF, never as the operator's edge.
 - **A control probe decides whether "blocked" means anything.** One harmless request per class
   (`?id=1`, no payload) runs alongside the attack payloads. If the control is itself refused —
   Under Attack mode, a geo or ASN block, a rate limit — every block in that class becomes
@@ -55,8 +54,7 @@ Four consequences worth stating plainly:
   token does **not** skip the rate or login limits: a run must see the same `429` a stranger
   gets, and the refusal writes no ban for the scanner.
   Limits (below) still cap it at 12 requests/second, abort it on `429`, and hold gate-login
-  failures to two per run. A listener address that is itself fronted can still be limited by
-  whatever sits in front of it.
+  failures to two per run. A run that reaches an edge can still trip that edge's own limits.
 - **A WAF miss is visible to the app.** A 404 is still handled by the application process. The
   probe path is random and read-only, so the app does nothing with it, but the request does
   arrive. That is the point: an unarmed scanner cannot prove a bypass.
@@ -93,9 +91,10 @@ status code from one request. It is a comparison.
 
 Each probe is sent up to three times:
 
-1. **Through the published path** — `Host: <hostname>` to the node's own listener, dialled at
-   the WAN address and port derived from the listener rather than assumed to be port 443
-   (plus whatever actually fronts that address, as recorded by the path check above).
+1. **Through the published path** — `Host: <hostname>` to the published hostname first (the
+   edge path, plus whatever fronts it, as recorded by the path check above). If the hostname
+   does not resolve or its port is unreachable, the same request goes to the node's WAN
+   listener at the address and port it bound.
 2. **Directly to the upstream** — the same method, path, headers and body, sent to the
    upstream address in the proxy record, with `Host` preserved.
 3. **A benign control** — the same method and path with a harmless value and no payload, so a
@@ -128,8 +127,9 @@ the default rate.
 
 ### 3.1 Preflight (no attack traffic)
 
-The derived listener endpoint answers over TLS with the hostname as `Host` and SNI · which path
-the probe took (`edge` or `local`, see §1) · upstream answers · upstream TLS handshake, version
+The published hostname answers, or the listener fallback answers over TLS with the hostname as
+`Host` and SNI · which path the probe took (`edge` or `local`, see §1) · upstream answers ·
+upstream TLS handshake, version
 and cipher (if `https`) · whether the random probe path 404s · whether the benign control for
 each class answers `2xx`/`4xx` as expected · streaming routes excluded · site enabled or in
 maintenance · gate mode (`off`, `passphrase`, `accounts`, `accounts_totp`, `forward-auth`) ·
@@ -567,7 +567,7 @@ and no number is shown that the node cannot defend — states, not grades.
 | Risk | Why it is acceptable | Mitigation |
 |------|----------------------|------------|
 | A WAF miss reaches the app's 404 handler | The request is read-only and the path is random and unimplemented | Catch-all detection skips body probes; per-site opt-out |
-| The edge WAF is not exercised | The scan dials the node's own listener, so a front in front of the hostname is not traversed | `path: local` recorded and shown; findings name this node's WAF, never Cloudflare's |
+| The edge WAF is not exercised | The hostname is not routable from inside the node, so the scan falls back to the listener | `path: local` recorded and shown; findings name this node's WAF, never Cloudflare's |
 | A control probe is refused, hiding real misses | Under Attack mode or a geo block refuses everything | Every class becomes `inconclusive`, never "blocked" |
 | Edge rate limiting from probe bursts | Runs are short and capped | 12 req/s default, abort on `429`, jitter, quiet hours |
 | The gate ban ladder fires on the scan's own address | Two failures stay under the three-in-ten-minutes threshold | Hard cap of two failures per run, no lockout probe |

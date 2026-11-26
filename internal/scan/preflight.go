@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 
@@ -55,6 +57,11 @@ type Preflight struct {
 	Path       string
 	BodyProbes bool
 	Checks     []Check
+	// Endpoint is the published endpoint that answered, and Fallback explains a
+	// listener dial when the hostname did not. Both are empty when the hostname
+	// answered directly.
+	Endpoint string
+	Fallback string
 	// Skip is why no attack probe may run. Empty means the run can proceed.
 	Skip string
 }
@@ -63,11 +70,13 @@ func (p *Preflight) add(name string, ok bool, detail string) {
 	p.Checks = append(p.Checks, Check{Name: name, OK: ok, Detail: detail})
 }
 
-// Target is one hostname to scan: its proxy record and the two endpoints the
-// probes compare.
+// Target is one hostname to scan: its proxy record, the published endpoint, the
+// upstream the probes compare, and the listener fallback used when the hostname
+// does not resolve or its port is unreachable.
 type Target struct {
 	Proxy    model.Proxy
 	WAN      Endpoint
+	Fallback Endpoint
 	Upstream Endpoint
 }
 
@@ -124,12 +133,34 @@ func (r *Runner) RunPreflight(ctx context.Context, target Target) (*Preflight, e
 	}, 0)
 	wan, err := r.send(ctx, r.wanClient, r.wan, probe)
 	if err != nil {
-		note := r.unreachableNote("published", r.wan, err)
-		pf.add("published path", false, note)
-		pf.Skip = note
-		return pf, nil
+		primary := r.unreachableNote("published", r.wan, err)
+		fallback := target.Fallback
+		if fallback.URL == nil || !fallbackOn(err) {
+			pf.add("published path", false, primary)
+			pf.Skip = primary
+			return pf, nil
+		}
+		// The hostname does not resolve or its port does not answer. The node's
+		// own listener is the published path when no edge fronts it, and the
+		// same hostname travels as Host and SNI.
+		client := probeClient(false, fallback.TLSName)
+		fb, fbErr := r.send(ctx, client, fallback, probe)
+		if fbErr != nil {
+			note := primary + "; the listener endpoint " + fallback.Label() + " did not answer: " + shortError(fbErr)
+			pf.add("published path", false, note)
+			pf.Skip = note
+			return pf, nil
+		}
+		r.wan, r.wanClient = fallback, client
+		wan = fb
+		pf.Endpoint = fallback.Label()
+		pf.Fallback = primary
+		pf.add("published path", true, fmt.Sprintf(
+			"HTTP %d via %s; %s", wan.status, fallback.Label(), primary))
+	} else {
+		pf.Endpoint = r.wan.Label()
+		pf.add("published path", true, fmt.Sprintf("HTTP %d via %s", wan.status, pf.Endpoint))
 	}
-	pf.add("published path", true, fmt.Sprintf("HTTP %d", wan.status))
 	pf.add("probe path reachable", !wanRefusal(wan.status), probePathNote(wan.status))
 	if wan.header.Get("CF-Ray") != "" {
 		pf.Path = PathEdge
@@ -141,6 +172,9 @@ func (r *Runner) RunPreflight(ctx context.Context, target Target) (*Preflight, e
 	up, err := r.send(ctx, r.upClient, r.upstream, probe)
 	if err != nil {
 		note := r.unreachableNote("upstream", r.upstream, err)
+		if pf.Fallback != "" {
+			note += "; the published path was dialled at " + pf.Endpoint + " after " + pf.Fallback
+		}
 		pf.add("upstream", false, note)
 		pf.Skip = note
 		return pf, nil
@@ -158,6 +192,23 @@ func (r *Runner) RunPreflight(ctx context.Context, target Target) (*Preflight, e
 			"the application answers HTTP %d, not a 404; body probes are not sent", up.status))
 	}
 	return pf, nil
+}
+
+// fallbackOn reports a failure the listener may answer: the hostname did not
+// resolve, or the dial was refused or timed out. A TLS certificate error is not
+// one — the listener presents the same name and certificate — so it is reported
+// instead of retried.
+func fallbackOn(err error) bool {
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		return true
+	}
+	var op *net.OpError
+	if errors.As(err, &op) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // ProbeClass is one probe family: a benign control and the payloads that follow

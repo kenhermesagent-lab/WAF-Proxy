@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
@@ -33,6 +34,60 @@ func TestProbesPerSecondReadsTheSiteSetting(t *testing.T) {
 	}
 	if got := ProbesPerSecond(st); got != DefaultPerSecond {
 		t.Fatalf("out of range = %d, want the default", got)
+	}
+}
+
+// A successful run that used the listener fallback keeps the failed hostname
+// and the endpoint it dialled as its first evidence row, so the page can show
+// which path was actually taken.
+func TestExecuteRecordsTheListenerFallback(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer fallback.Close()
+	id, err := st.CreateProxy(&model.Proxy{Hostname: "app.example.com", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceUpstreams(id, []model.Upstream{
+		{ProxyID: id, URL: fallback.URL, Weight: 1, Enabled: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	proxy, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run, err := Execute(context.Background(), ExecuteDeps{
+		Store:       st,
+		OSV:         fakeAdvisories{},
+		WANBase:     func(string) string { return "https://127.0.0.1:1" },
+		WANFallback: func(string) string { return fallback.URL },
+	}, *proxy, TriggerManual, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Skipped != "" || run.Path != PathLocal {
+		t.Fatalf("run = %+v, want a local run that was not skipped", run)
+	}
+	evidence, err := st.ListScanEvidence(run.ID)
+	if err != nil || len(evidence) == 0 {
+		t.Fatalf("evidence = %d rows, %v; want the endpoint row", len(evidence), err)
+	}
+	row := evidence[0]
+	if row.Stage != StagePreflight || row.Class != "endpoint" || row.Method != configMethod {
+		t.Fatalf("first row = %+v, want the preflight endpoint row", row)
+	}
+	for _, want := range []string{fallback.URL + " (Host: app.example.com)", "https://127.0.0.1:1", "did not answer"} {
+		if !strings.Contains(row.Note, want) {
+			t.Fatalf("endpoint note = %q; want it to contain %q", row.Note, want)
+		}
 	}
 }
 

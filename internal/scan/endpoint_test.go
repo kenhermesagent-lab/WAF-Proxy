@@ -2,15 +2,19 @@ package scan
 
 import (
 	"context"
+	"io"
+	"log"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 )
 
-func TestPublishedBaseDialsTheListener(t *testing.T) {
+func TestListenerBaseDialsTheBoundAddress(t *testing.T) {
 	cases := map[string]string{
 		":8443":          "https://127.0.0.1:8443",
 		"0.0.0.0:8443":   "https://127.0.0.1:8443",
@@ -20,8 +24,8 @@ func TestPublishedBaseDialsTheListener(t *testing.T) {
 		"":               "https://127.0.0.1:443",
 	}
 	for listen, want := range cases {
-		if got := PublishedBase(listen); got != want {
-			t.Errorf("PublishedBase(%q) = %q, want %q", listen, got, want)
+		if got := ListenerBase(listen); got != want {
+			t.Errorf("ListenerBase(%q) = %q, want %q", listen, got, want)
 		}
 	}
 }
@@ -45,6 +49,85 @@ func TestProbeClientUsesTheTLSName(t *testing.T) {
 	}
 	if got := tr.TLSClientConfig.ServerName; got != "app.example.com" {
 		t.Fatalf("TLS server name = %q, want app.example.com", got)
+	}
+}
+
+// Only an unreachable endpoint triggers the listener fallback. A certificate
+// error is not retried: the listener presents the same name and certificate.
+func TestFallbackOnOnlyRetriesUnreachableEndpoints(t *testing.T) {
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	tlsSrv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	defer tlsSrv.Close()
+	if _, err := http.Get(tlsSrv.URL); err == nil {
+		t.Fatal("an untrusted certificate was accepted")
+	} else if fallbackOn(err) {
+		t.Fatalf("a certificate error was treated as unreachable: %v", err)
+	}
+	if _, err := http.Get("http://127.0.0.1:1"); err == nil {
+		t.Fatal("a closed port answered")
+	} else if !fallbackOn(err) {
+		t.Fatalf("a closed port did not trigger the fallback: %v", err)
+	}
+	if _, err := http.Get("http://scan-demo.invalid"); err == nil {
+		t.Fatal("a reserved hostname resolved")
+	} else if !fallbackOn(err) {
+		t.Fatalf("a DNS failure did not trigger the fallback: %v", err)
+	}
+}
+
+// A hostname that does not answer falls back to the node's listener with the
+// hostname as Host, and every later probe uses that endpoint.
+func TestPreflightFallsBackToTheListener(t *testing.T) {
+	var fallbackHits atomic.Int64
+	var sawHost atomic.Bool
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if sawHost.CompareAndSwap(false, true) && r.Host != "app.example.com" {
+			t.Errorf("fallback Host = %q, want app.example.com", r.Host)
+		}
+		fallbackHits.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer fallback.Close()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer up.Close()
+
+	primary, _ := url.Parse("https://127.0.0.1:1")
+	fb, _ := url.Parse(fallback.URL)
+	upURL, _ := url.Parse(up.URL)
+	target := Target{
+		Proxy:    model.Proxy{Hostname: "app.example.com", Enabled: true},
+		WAN:      Endpoint{URL: primary, Host: "app.example.com", TLSName: "app.example.com"},
+		Fallback: Endpoint{URL: fb, Host: "app.example.com", TLSName: "app.example.com"},
+		Upstream: Endpoint{URL: upURL, Host: "app.example.com"},
+	}
+	r := NewRunner(target.WAN, target.Upstream, 0)
+	pf, err := r.RunPreflight(context.Background(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pf.Skip != "" {
+		t.Fatalf("the listener fallback was skipped: %s", pf.Skip)
+	}
+	want := fallback.URL + " (Host: app.example.com)"
+	if pf.Endpoint != want {
+		t.Fatalf("endpoint = %q, want %q", pf.Endpoint, want)
+	}
+	if !strings.Contains(pf.Fallback, "https://127.0.0.1:1") || !strings.Contains(pf.Fallback, "did not answer") {
+		t.Fatalf("fallback reason = %q, want the failed hostname and its error", pf.Fallback)
+	}
+	if r.wan.Label() != want {
+		t.Fatalf("runner endpoint = %q, want the listener %q", r.wan.Label(), want)
+	}
+
+	if _, err := r.Run(context.Background(), []Probe{{
+		Stage: StageWAF, Class: "test", Method: http.MethodGet, Path: "/",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if fallbackHits.Load() == 0 {
+		t.Fatal("a later probe did not use the fallback endpoint")
 	}
 }
 

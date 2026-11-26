@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -372,25 +374,34 @@ func TestRemediateExposureRequiresSecurityWrite(t *testing.T) {
 	}
 }
 
-// A page-started scan dials the WAN listener the node bound, not 443 on the
-// public hostname, so a non-standard port is reachable.
-func TestPublishedWANBaseUsesTheListener(t *testing.T) {
+// The fallback base is derived from the bound WAN address and port, not 443 on
+// the public hostname.
+func TestListenerWANBaseUsesTheBoundAddress(t *testing.T) {
 	srv, _, _, _ := newObservabilityServer(t)
 	srv.cfg.ListenWAN = ":9443"
-	if got, want := srv.publishedWANBase(), "https://127.0.0.1:9443"; got != want {
-		t.Fatalf("published base = %q, want %q", got, want)
+	if got, want := srv.listenerWANBase(), "https://127.0.0.1:9443"; got != want {
+		t.Fatalf("listener base = %q, want %q", got, want)
 	}
 }
 
-// A page-started run dials the WAN listener from cfg.ListenWAN and sends the
-// proxy hostname as Host. This listener's certificate is untrusted, so the run
-// fails after dialling it and must record the endpoint and the reason rather
-// than a generic "did not answer" or an assumed app.example.com:443.
-func TestPageRunReportsTheDerivedEndpoint(t *testing.T) {
+// A page-started run tries the published hostname first, then dials the WAN
+// listener from cfg.ListenWAN with the hostname as Host and TLS SNI. The local
+// listener has no certificate the client trusts, so the run must fail after
+// that handshake and name the endpoint it dialled.
+func TestPageRunFallsBackToTheListenerWithSNI(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
-	wan := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var mu sync.Mutex
+	var snis []string
+	wan := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
+	wan.TLS = &tls.Config{GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		mu.Lock()
+		snis = append(snis, hello.ServerName)
+		mu.Unlock()
+		return nil, nil
+	}}
+	wan.StartTLS()
 	t.Cleanup(wan.Close)
 	wan.Config.ErrorLog = log.New(io.Discard, "", 0)
 	listen := strings.TrimPrefix(wan.URL, "https://")
@@ -400,7 +411,9 @@ func TestPageRunReportsTheDerivedEndpoint(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(app.Close)
-	id, err := st.CreateProxy(&model.Proxy{Hostname: "app.example.com", Enabled: true})
+	// .invalid never resolves, so the hostname attempt fails and the listener
+	// fallback is exercised.
+	id, err := st.CreateProxy(&model.Proxy{Hostname: "app.invalid", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,15 +436,18 @@ func TestPageRunReportsTheDerivedEndpoint(t *testing.T) {
 		t.Fatalf("runs = %+v, want one", out.Runs)
 	}
 	skip := out.Runs[0].Skipped
-	want := "https://" + listen + " (Host: app.example.com)"
+	want := "https://" + listen + " (Host: app.invalid)"
 	if !strings.Contains(skip, want) {
-		t.Fatalf("skip = %q; want the endpoint %q", skip, want)
+		t.Fatalf("skip = %q; want the listener endpoint %q", skip, want)
 	}
-	if !strings.Contains(skip, "did not answer") {
-		t.Fatalf("skip = %q; want the transport reason", skip)
+	if !strings.Contains(skip, "https://app.invalid") || !strings.Contains(skip, "did not answer") {
+		t.Fatalf("skip = %q; want the hostname attempt and the transport reason", skip)
 	}
-	if strings.Contains(skip, "app.example.com:443") {
-		t.Fatalf("skip = %q; the run still assumed the hostname on 443", skip)
+	mu.Lock()
+	got := append([]string(nil), snis...)
+	mu.Unlock()
+	if len(got) == 0 || got[0] != "app.invalid" {
+		t.Fatalf("TLS SNI = %v, want app.invalid dialled at the listener", got)
 	}
 }
 

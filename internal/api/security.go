@@ -508,27 +508,31 @@ func (s *Server) securityDeps(r *http.Request) scan.ExecuteDeps {
 	if s.notify != nil {
 		notifier = s.notify
 	}
-	wanBase := s.securityWAN
-	if wanBase == nil {
-		base := s.publishedWANBase()
-		wanBase = func(string) string { return base }
-	}
-	return scan.ExecuteDeps{
+	deps := scan.ExecuteDeps{
 		Store: s.db(r), Box: s.box, Notify: notifier, Bans: s.bans, Trust: trust,
-		PerSecond: s.securityPerSecond(r), ConsoleHost: s.consoleHost(r), WANBase: wanBase,
+		PerSecond: s.securityPerSecond(r), ConsoleHost: s.consoleHost(r),
 	}
+	if s.securityWAN != nil {
+		deps.WANBase = s.securityWAN
+	} else {
+		// The hostname is tried first, so an edge in front of it is still
+		// exercised. The listener is only the fallback for a hostname that
+		// does not resolve or a port that is unreachable.
+		deps.WANFallback = func(string) string { return s.listenerWANBase() }
+	}
+	return deps
 }
 
-// publishedWANBase derives the endpoint a scan dials from the WAN listener the
-// node actually bound. The site hostname is sent as Host and TLS SNI, so a
-// hostname that does not resolve here, or a listener that is not on 443, no
-// longer makes every page-started run fail before a probe is compared.
-func (s *Server) publishedWANBase() string {
+// listenerWANBase derives the listener endpoint a scan falls back to from the
+// WAN listener the node actually bound. The site hostname is sent as Host and
+// TLS SNI, so a hostname that does not resolve here, or a listener that is not
+// on 443, does not fail a run whose published hostname is unreachable.
+func (s *Server) listenerWANBase() string {
 	listen := ""
 	if s.cfg != nil {
 		listen = s.cfg.ListenWAN
 	}
-	return scan.PublishedBase(listen)
+	return scan.ListenerBase(listen)
 }
 
 func b2s(v bool) string {
