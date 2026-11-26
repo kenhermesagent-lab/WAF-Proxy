@@ -1018,6 +1018,8 @@ Settings switch exist only on the default site's console.
 
 ## Security scan
 
+![Security scan: posture, the findings that need attention, run history and feed freshness](screenshots/security.png)
+
 The mockup is [docs/design/security-scan-mockup.html](design/security-scan-mockup.html).
 
 *The **Security scan** page (`#/security`, under **System** between **Cloudflare** and

@@ -112,8 +112,9 @@ const schemaBlock = `    Proxy:
         retries: {type: integer}
         deny_paths:
           type: array
+          maxItems: 32
           items: {type: string}
-          description: Absolute paths this host refuses with 403 before the gate and WAF
+          description: Absolute paths this host refuses with 403 before the gate and WAF; at most 32
     Upstream:
       type: object
       properties:
@@ -295,12 +296,20 @@ const schemaBlock = `    Proxy:
         status: {type: string}
 `
 
+// extraResponse is a status a handler answers beyond the generic success,
+// session and invalid-body responses every route gets.
+type extraResponse struct {
+	code        string
+	description string
+}
+
 // shape describes the bodies a route accepts and returns, by API group.
 type shape struct {
 	request  string
 	response string
 	array    bool
 	text     bool
+	extra    []extraResponse
 }
 
 func shapeFor(r route) shape {
@@ -336,6 +345,13 @@ func shapeFor(r route) shape {
 			return shape{response: "NotificationReport"}
 		default:
 			return shape{request: "NotificationSettings", response: "Status"}
+		}
+	case "security":
+		if strings.HasSuffix(r.path, "/remediate") {
+			return shape{extra: []extraResponse{{
+				code:        "409",
+				description: "The finding is not open, its host already holds 32 blocked paths, or the node cannot run a scan (paused, or a standby)",
+			}}}
 		}
 	case "anomaly":
 		switch {
@@ -413,6 +429,9 @@ func render(routes []route, version string) []byte {
 			b.WriteString("        \"401\":\n          description: Missing or expired session\n")
 		}
 		b.WriteString("        \"400\":\n          description: Invalid request\n")
+		for _, x := range sh.extra {
+			b.WriteString("        \"" + x.code + "\":\n          description: " + x.description + "\n")
+		}
 	}
 	return []byte(b.String())
 }

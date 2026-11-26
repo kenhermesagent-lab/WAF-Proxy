@@ -137,6 +137,10 @@ its anomaly score, and **Why?** replays it against the current rules without tou
   profile — plus three built-in packs for secret probes, exploit payloads and scanner tools.
 - Access gates per site: shared passphrase, named accounts, or accounts plus TOTP. Lockout survives
   an IP change and the session cookie is bound to the client network.
+- A built-in scanner attacks this node's own published hostnames the way a stranger would: read-only,
+  every answer compared against a control, findings joined to CISA KEV and OSV, and an exposure closed
+  by a per-host path block plus a rerun that has to prove it. See
+  [docs/SECURITY-SCAN.md](docs/SECURITY-SCAN.md).
 
 **Front door**
 

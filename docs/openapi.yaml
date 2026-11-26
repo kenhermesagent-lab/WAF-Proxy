@@ -31,8 +31,9 @@ components:
         retries: {type: integer}
         deny_paths:
           type: array
+          maxItems: 32
           items: {type: string}
-          description: Absolute paths this host refuses with 403 before the gate and WAF
+          description: Absolute paths this host refuses with 403 before the gate and WAF; at most 32
     Upstream:
       type: object
       properties:
@@ -3076,6 +3077,8 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+        "409":
+          description: The finding is not open, its host already holds 32 blocked paths, or the node cannot run a scan (paused, or a standby)
   /api/security/limits:
     get:
       operationId: getApiSecurityLimits

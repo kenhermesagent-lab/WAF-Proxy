@@ -156,6 +156,10 @@ the page says so.
 exist to leak credentials.
 - An empty or failed advisory answer is `unknown`, never clean. A stale feed makes every
 dependent claim unknown, and `not run` and `inconclusive` are shown as not clean.
+- An exposure finding is closed only by a control and a proving rerun. *Block & retest* adds the
+leaking path to that hostname's own block list, which holds at most 32 paths like the editor: a
+full list is answered `409` and stores nothing, and the finding resolves only when the new run's
+evidence shows the path refused or gone.
 
 It is not a general-purpose penetration test, does not replace one, and cannot be aimed at a
 third party. The rules, the threat model and the residual risk are in

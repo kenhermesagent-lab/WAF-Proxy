@@ -7,10 +7,11 @@ page looks like before you open it.
 
 They were captured from the **v1.62.2** console (the version in the About card of each
 capture), with two tenant sites, nine proxies, certificates, bans, threat feeds and a week of
-traffic shaped by a daily curve. Two are the exception: `agent.png` was retaken on a **1.64.0**
+traffic shaped by a daily curve. Three are the exception: `agent.png` was retaken on a **1.64.0**
 build, the first version whose AI Agent Access page renders the gateway's tool catalog from
-`GET /api/mcp`, and `dashboard.png` on a **1.66.2** build, which added the host CPU and memory
-dials and the three/four-up strip. Everybody sees the full gallery in the
+`GET /api/mcp`, `dashboard.png` on a **1.66.2** build, which added the host CPU and memory
+dials and the three/four-up strip, and `security.png` on a **1.77.0** build, the first with the
+Security scan page. Everybody sees the full gallery in the
 [README console tour](../../README.md#console-tour); the guides below reuse the same files.
 
 | Image | Page | Also used in |
@@ -31,6 +32,7 @@ dials and the three/four-up strip. Everybody sees the full gallery in the
 | [streaming.png](streaming.png) | Streaming: byte-relay forwarders for media and game servers (taken before the 1.63.0 grouping) | [Configuration reference](../CONFIGURATION.md) |
 | [settings.png](settings.png) | Settings: network, protection, retention, backup, GeoIP | [Configuration reference](../CONFIGURATION.md) |
 | [readiness.png](readiness.png) | Readiness: scored hardening checklist | [Security policy](../../SECURITY.md), [Configuration reference](../CONFIGURATION.md) |
+| [security.png](security.png) | Security scan: posture, findings, run history and feed freshness (1.77.0) | [Security scan](../SECURITY-SCAN.md), [Configuration reference](../CONFIGURATION.md) |
 | [updates.png](updates.png) | Updates: application and host packages | [Configuration reference](../CONFIGURATION.md) |
 | [sites.png](sites.png) | Sites: tenant sites, console hosts and owned hostnames | [README console tour](../../README.md#console-tour) |
 | [ha.png](ha.png) | High availability: cluster state and node pairing | [README console tour](../../README.md#console-tour) |
