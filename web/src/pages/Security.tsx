@@ -506,7 +506,7 @@ export default function SecurityPage({
             <Card
               title={`Run #${detail.run.id} · ${detail.run.target}`}
               actions={<button onClick={() => setDetail(null)}>Close</button>}
-              sub="Each row is one probe. A local path means the request never left this node, so its findings are this node's WAF, not the operator's edge."
+              sub="Each row is one probe, except the endpoint row a fallback run starts with: it records the listener that answered and the published hostname that did not, and sends no request. A local path means the request never left this node, so its findings are this node's WAF, not the operator's edge."
             >
               {detail.run.abandoned ? (
                 <p><Badge tone="warn">This run never finished: the process died before it could close the run. Its evidence below is what it recorded, and it is not a clean result.</Badge></p>

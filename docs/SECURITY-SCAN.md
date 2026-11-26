@@ -35,14 +35,18 @@ Four consequences worth stating plainly:
 - **It tries the published hostname first, then falls back to this node's listener.** The
   scanner dials `https://<hostname>` as a visitor would, so an edge in front of the name is
   exercised whenever the hostname is routable from inside the node. If the hostname does not
-  resolve, or its port is unreachable, the scanner dials the WAN listener the node bound (a
-  wildcard bind dials loopback) at the listener's address and port, with the proxy's hostname
-  as `Host` and as the certificate name. The run records which endpoint answered: when the run
-  proceeds after a fallback, its first evidence row names the listener and the failed hostname;
-  a run that stops says so in its skip reason, including both endpoints when both fail. Every
-  run records the path it actually took: `edge` when the response carries `CF-Ray` and the same
-  probe id appears in the request log, `local` when it did not. A `local` run says so on the
-  page, and its findings are worded as this node's WAF, never as the operator's edge.
+  resolve, its port is unreachable, or the request times out, the scanner dials the WAN listener
+  the node bound (a wildcard bind dials loopback) at the listener's address and port, with the
+  proxy's hostname as `Host` and as the certificate name. A connection that is accepted and then
+  never answers within the probe timeout is a timeout like any other, so a hostname that takes
+  the connection and stalls still falls back. A certificate error is not retried: the listener
+  presents the same name, so the error is reported instead. The run records which endpoint
+  answered: when the run proceeds after a fallback, its first evidence row names the listener
+  and the failed hostname; a run that stops says so in its skip reason, including both
+  endpoints when both fail. Every run records the path it actually took: `edge` when the
+  response carries `CF-Ray` and the same probe id appears in the request log, `local` when it
+  did not. A `local` run says so on the page, and its findings are worded as this node's WAF,
+  never as the operator's edge.
 - **A control probe decides whether "blocked" means anything.** One harmless request per class
   (`?id=1`, no payload) runs alongside the attack payloads. If the control is itself refused —
   Under Attack mode, a geo or ASN block, a rate limit — every block in that class becomes
@@ -97,8 +101,8 @@ Each probe is sent up to three times:
 
 1. **Through the published path** — `Host: <hostname>` to the published hostname first (the
    edge path, plus whatever fronts it, as recorded by the path check above). If the hostname
-   does not resolve or its port is unreachable, the same request goes to the node's WAN
-   listener at the address and port it bound.
+   does not resolve, its port is unreachable or the request times out, the same request goes to
+   the node's WAN listener at the address and port it bound.
 2. **Directly to the upstream** — the same method, path, headers and body, sent to the
    upstream address in the proxy record, with `Host` preserved.
 3. **A benign control** — the same method and path with a harmless value and no payload, so a
