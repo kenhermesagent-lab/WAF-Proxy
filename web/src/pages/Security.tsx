@@ -201,9 +201,12 @@ export default function SecurityPage({
     api.get<Target[]>("/api/proxies").then((r) => setTargets(Array.isArray(r) ? r : [])).catch(() => undefined);
   };
 
-  useEffect(() => {
-    load();
-  }, []);
+  	// Refetch per tab, not once per mount: a scheduled run or a decision made
+	// in another window changes the findings, and a tab switch is the natural
+	// moment to show it rather than the stale list from first load.
+	useEffect(() => {
+		load();
+	}, [active]);
 
   const openDetail = async (id: number) => {
     try {

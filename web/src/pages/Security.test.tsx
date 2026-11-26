@@ -123,6 +123,17 @@ describe("Security scan page", () => {
     expect((screen.getByRole("button", { name: "Run scan" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("refetches on a tab switch instead of showing the first load", async () => {
+    const { rerender } = renderPage("overview");
+    await screen.findByText("Posture");
+    const before = get.mock.calls.length;
+
+    rerender(<SecurityPage me={reader} tab="findings" onTab={vi.fn()} onError={vi.fn()} onOK={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Findings" });
+    expect(get.mock.calls.length).toBeGreaterThan(before);
+    expect(get.mock.calls.slice(before).some(([path]) => path === "/api/security/findings")).toBe(true);
+  });
+
   it("shows a run that never finished as abandoned, not running", async () => {
     const dead = { ...run, id: 9, ended_at: undefined, started_at: new Date(Date.now() - 3 * 3600_000).toISOString(), abandoned: true };
     get.mockImplementation(async (path: string) => {
