@@ -33,8 +33,9 @@ type Run = {
   path: string;
   started_at: string;
   ended_at?: string;
-  verdicts?: string;
-  skipped_reason?: string;
+  	verdicts?: string;
+	skipped_reason?: string;
+	abandoned?: boolean;
 };
 
 type Evidence = {
@@ -150,7 +151,7 @@ function parseVerdicts(raw?: string): [string, number][] {
 }
 
 function duration(run: Run): string {
-  if (!run.ended_at) return "running";
+  if (!run.ended_at) return run.abandoned ? "abandoned" : "running";
   const ms = new Date(run.ended_at).getTime() - new Date(run.started_at).getTime();
   return ms < 1000 ? `${ms} ms` : `${Math.round(ms / 1000)} s`;
 }
@@ -421,7 +422,7 @@ export default function SecurityPage({
                         <td>{r.target}</td>
                         <td>{r.trigger}</td>
                         <td>{fmtTime(r.started_at)}</td>
-                        <td>{duration(r)}</td>
+                        <td>{r.abandoned ? <Badge tone="warn">abandoned</Badge> : duration(r)}</td>
                         <td>{r.skipped_reason ? <Badge tone="warn">{`skipped: ${r.skipped_reason}`}</Badge> : r.path || "—"}</td>
                         <td>{parseVerdicts(r.verdicts).map(([v, n]) => `${VERDICT[v]?.label ?? v} ${n}`).join(", ") || "—"}</td>
                         <td><button onClick={() => { onTab?.("scans"); openDetail(r.id); }}>Detail</button></td>
@@ -466,7 +467,7 @@ export default function SecurityPage({
                         <td>{r.trigger}</td>
                         <td>{r.actor || "—"}</td>
                         <td>{fmtTime(r.started_at)}</td>
-                        <td>{duration(r)}</td>
+                        <td>{r.abandoned ? <Badge tone="warn">abandoned</Badge> : duration(r)}</td>
                         <td>{r.skipped_reason ? <Badge tone="warn">{`skipped: ${r.skipped_reason}`}</Badge> : r.path || "—"}</td>
                         <td><button onClick={() => openDetail(r.id)}>Evidence</button></td>
                       </tr>
@@ -483,6 +484,9 @@ export default function SecurityPage({
               actions={<button onClick={() => setDetail(null)}>Close</button>}
               sub="Each row is one probe. A local path means the request never left this node, so its findings are this node's WAF, not the operator's edge."
             >
+              {detail.run.abandoned ? (
+                <p><Badge tone="warn">This run never finished: the process died before it could close the run. Its evidence below is what it recorded, and it is not a clean result.</Badge></p>
+              ) : null}
               {detail.run.skipped_reason ? (
                 <p><Badge tone="warn">{`This run stopped early: ${detail.run.skipped_reason}`}</Badge></p>
               ) : null}

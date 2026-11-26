@@ -123,6 +123,27 @@ describe("Security scan page", () => {
     expect((screen.getByRole("button", { name: "Run scan" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("shows a run that never finished as abandoned, not running", async () => {
+    const dead = { ...run, id: 9, ended_at: undefined, started_at: new Date(Date.now() - 3 * 3600_000).toISOString(), abandoned: true };
+    get.mockImplementation(async (path: string) => {
+      switch (path) {
+        case "/api/security/runs":
+          return { runs: [dead] };
+        case "/api/security/runs/9":
+          return { run: dead, evidence: [] };
+        default:
+          return {};
+      }
+    });
+    renderPage("scans");
+
+    expect((await screen.findAllByText("abandoned")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("running")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Evidence" }));
+    expect(await screen.findByText(/never finished: the process died/i)).toBeTruthy();
+  });
+
   it("renders a probe that did not run as not clean, never as blocked", async () => {
     renderPage("scans");
     fireEvent.click(await screen.findByRole("button", { name: "Evidence" }));

@@ -16,6 +16,22 @@ const (
 	securityMaxTargets       = 4
 )
 
+// securityRunAbandonedAfter is well past the five-minute run budget: a run
+// with no end after this long had its process die and will never finish.
+const securityRunAbandonedAfter = 15 * time.Minute
+
+// markAbandoned flags unfinished runs old enough that nothing can still be
+// working on them, so the page never shows a dead run as running.
+func markAbandoned(runs []model.ScanRun) []model.ScanRun {
+	now := time.Now()
+	for i := range runs {
+		if runs[i].EndedAt == nil && now.Sub(runs[i].StartedAt) > securityRunAbandonedAfter {
+			runs[i].Abandoned = true
+		}
+	}
+	return runs
+}
+
 // getSecurityOverview reports the site's posture, its open findings and what
 // each vulnerability source last answered. A feed that is stale makes the
 // posture unknown; only a run that found nothing and a fresh feed is covered.
@@ -30,6 +46,7 @@ func (s *Server) getSecurityOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
+	runs = markAbandoned(runs)
 	sources, err := securityFeedSources(s.db(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
@@ -82,7 +99,7 @@ func (s *Server) listSecurityRuns(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+	writeJSON(w, http.StatusOK, map[string]any{"runs": markAbandoned(runs)})
 }
 
 func (s *Server) getSecurityRun(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +112,7 @@ func (s *Server) getSecurityRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
+	runs = markAbandoned(runs)
 	var run *model.ScanRun
 	for i := range runs {
 		if runs[i].ID == id {

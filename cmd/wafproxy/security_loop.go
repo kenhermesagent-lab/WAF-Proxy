@@ -156,8 +156,9 @@ func securityScheduler(b *siteres.Bundle, box *crypto.Box, log *slog.Logger) *sc
 			return b.Store.SetScanSignature(siteID, signature)
 		},
 		RecordSkip: func(siteID int64, reason string) error {
+			now := time.Now()
 			_, err := b.Store.CreateScanRun(&model.ScanRun{
-				SiteID: siteID, Trigger: scan.TriggerSchedule, StartedAt: time.Now(), Skipped: reason,
+				SiteID: siteID, Trigger: scan.TriggerSchedule, StartedAt: now, EndedAt: &now, Skipped: reason,
 			})
 			return err
 		},

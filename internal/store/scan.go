@@ -8,9 +8,15 @@ import (
 
 // CreateScanRun records a scan that is about to start.
 func (s *Store) CreateScanRun(run *model.ScanRun) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO scan_runs(site_id, target, trigger, actor, path, started_at, agent_node)
-		VALUES(?, ?, ?, ?, ?, ?, ?)`,
-		s.site, run.Target, run.Trigger, run.Actor, run.Path, stamp(run.StartedAt), run.AgentNode)
+	// A skipped run is finished the moment it is written, so its end is set
+	// here; only a run that starts probing leaves it empty.
+	ended := ""
+	if run.EndedAt != nil {
+		ended = stamp(*run.EndedAt)
+	}
+	res, err := s.db.Exec(`INSERT INTO scan_runs(site_id, target, trigger, actor, path, started_at, ended_at, agent_node)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.site, run.Target, run.Trigger, run.Actor, run.Path, stamp(run.StartedAt), ended, run.AgentNode)
 	if err != nil {
 		return 0, err
 	}

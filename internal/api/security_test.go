@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -111,6 +112,57 @@ func TestTenantCannotScanForeignSite(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Fatalf("the refused run was still recorded: %+v", runs)
+	}
+}
+
+// A run whose process died leaves no end time. Once it is older than the run
+// budget it is reported abandoned, while one that just started still reads as
+// running (no abandoned flag).
+func TestUnfinishedRunShowsAbandoned(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	stale, err := st.CreateScanRun(&model.ScanRun{
+		Target: "app.example.com", Trigger: "schedule", StartedAt: time.Now().Add(-time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := st.CreateScanRun(&model.ScanRun{
+		Target: "app.example.com", Trigger: "manual", StartedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := securityDo(t, srv, http.MethodGet, "/api/security/runs", "gui.local", token, csrf, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET runs = %d", rec.Code)
+	}
+	var listed struct {
+		Runs []model.ScanRun `json:"runs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[int64]model.ScanRun{}
+	for _, run := range listed.Runs {
+		seen[run.ID] = run
+	}
+	if !seen[stale].Abandoned {
+		t.Fatalf("a run with no end an hour old was not abandoned: %+v", seen[stale])
+	}
+	if seen[fresh].Abandoned {
+		t.Fatalf("a run that just started was abandoned: %+v", seen[fresh])
+	}
+
+	rec = securityDo(t, srv, http.MethodGet, "/api/security/runs/"+strconv.FormatInt(stale, 10), "gui.local", token, csrf, nil)
+	var detail struct {
+		Run model.ScanRun `json:"run"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if !detail.Run.Abandoned {
+		t.Fatalf("the detail of an unfinished run was not abandoned: %+v", detail.Run)
 	}
 }
 

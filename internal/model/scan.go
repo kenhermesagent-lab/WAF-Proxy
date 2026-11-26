@@ -15,6 +15,10 @@ type ScanRun struct {
 	Verdicts  string     `json:"verdicts,omitempty"`
 	Skipped   string     `json:"skipped_reason,omitempty"`
 	AgentNode string     `json:"agent_node,omitempty"`
+	// Abandoned is computed when the run is read, not stored: a run with no end
+	// that is older than the run budget below crashed, and must never be shown
+	// as still running.
+	Abandoned bool `json:"abandoned,omitempty"`
 }
 
 // ScanEvidence is one probe's verdict. It keeps hashes and a redacted request
