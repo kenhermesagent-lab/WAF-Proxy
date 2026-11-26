@@ -67,10 +67,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   forwarded to the backend.
 - **A page-started scan tries the published hostname, then falls back to the WAN listener.** It
   still dials `https://<hostname>` first, so an edge in front of the name is exercised when it
-  is routable. If the hostname does not resolve or its port is unreachable, it dials the bound
-  WAN listener at its own address and port with the hostname as `Host` and TLS SNI. A successful
-  run records the fallback as a preflight evidence row; a run that stops names the endpoint it
-  used and why in its skip reason, including both endpoints and their errors when both fail.
+  is routable. If the hostname does not resolve, its port is unreachable or the request times
+  out, it dials the bound WAN listener at its own address and port with the hostname as `Host`
+  and TLS SNI. A successful run records the fallback as a preflight evidence row; a run that
+  stops names the endpoint it used and why in its skip reason, including both endpoints and
+  their errors when both fail.
+- **Block & retest refuses a 33rd blocked path instead of overrunning the site's limit.** The one-click
+  control appended the leaking path without the 32-path check the proxy editor applies, so a host already at
+  the limit reached 33 stored paths that its own editor then refused to save as a whole. The append is
+  validated first: a full list answers `409` with the limit, stores nothing and starts no rerun, and a list at
+  31 still takes its 32nd path.
 - **A manual scan is no longer refused on a standalone node.** The run endpoint treated any role other than `leader`
   as a standby, so the Run scan button answered `409` on every non-HA install; only a standby refuses now.
 - **A run's path, its end time and the reason it stopped are recorded.** The path is proved after the row exists and

@@ -47,7 +47,7 @@ type ExecuteDeps struct {
 	WANBase func(hostname string) string
 	// WANFallback builds the node's WAN listener (ListenerBase). It is dialled
 	// with the hostname as Host and TLS SNI only when the published hostname
-	// does not resolve or its port is unreachable.
+	// does not resolve, refuses the connection or times out.
 	WANFallback func(hostname string) string
 	// Trust mints the token that marks probes as this run's. Nil sends none.
 	Trust *scantrust.Registry
@@ -260,7 +260,7 @@ func resolveTarget(d ExecuteDeps, proxy model.Proxy) (Target, error) {
 			// The published hostname is dialled first, as a visitor would reach
 			// it. The hostname is also the Host header and certificate name on
 			// the listener fallback, which is dialled only when the hostname
-			// does not resolve or its port is unreachable.
+			// does not resolve, refuses the connection or times out.
 			WAN:      Endpoint{URL: wan, Host: proxy.Hostname, TLSName: proxy.Hostname},
 			Fallback: fallback,
 			Upstream: Endpoint{URL: u, Host: proxy.Hostname},

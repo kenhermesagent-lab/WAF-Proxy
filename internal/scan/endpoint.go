@@ -6,9 +6,9 @@ import (
 )
 
 // ListenerBase turns the node's WAN listener into the fallback URL a scan dials
-// when the published hostname does not resolve or its port is unreachable. The
-// site's hostname travels in the Host header and in TLS SNI, never in the dial
-// address.
+// when the published hostname does not resolve, refuses the connection or times
+// out. The site's hostname travels in the Host header and in TLS SNI, never in
+// the dial address.
 //
 // The WAN listener always terminates TLS; the plain-HTTP listener exists only
 // to answer ACME HTTP-01 and redirect visitors, so it is not the published

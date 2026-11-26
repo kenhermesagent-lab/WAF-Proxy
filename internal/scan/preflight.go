@@ -72,7 +72,7 @@ func (p *Preflight) add(name string, ok bool, detail string) {
 
 // Target is one hostname to scan: its proxy record, the published endpoint, the
 // upstream the probes compare, and the listener fallback used when the hostname
-// does not resolve or its port is unreachable.
+// does not resolve, refuses the connection or times out.
 type Target struct {
 	Proxy    model.Proxy
 	WAN      Endpoint
@@ -140,9 +140,9 @@ func (r *Runner) RunPreflight(ctx context.Context, target Target) (*Preflight, e
 			pf.Skip = primary
 			return pf, nil
 		}
-		// The hostname does not resolve or its port does not answer. The node's
-		// own listener is the published path when no edge fronts it, and the
-		// same hostname travels as Host and SNI.
+		// The hostname does not resolve, refuses the connection or times out.
+		// The node's own listener is the published path when no edge fronts it,
+		// and the same hostname travels as Host and SNI.
 		client := probeClient(false, fallback.TLSName, fallback.Roots)
 		fb, fbErr := r.send(ctx, client, fallback, probe)
 		if fbErr != nil {
