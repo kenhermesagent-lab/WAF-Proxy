@@ -4,7 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
@@ -85,6 +88,121 @@ func TestExecuteRecordsTheListenerFallback(t *testing.T) {
 		t.Fatalf("first row = %+v, want the preflight endpoint row", row)
 	}
 	for _, want := range []string{fallback.URL + " (Host: app.example.com)", "https://127.0.0.1:1", "did not answer"} {
+		if !strings.Contains(row.Note, want) {
+			t.Fatalf("endpoint note = %q; want it to contain %q", row.Note, want)
+		}
+	}
+}
+
+// A proxy in front of the listener that adds CF-Ray is the thing the edge path
+// claims to test, so the same site must record `edge` while that proxy answers
+// and `local` with the endpoint row once it stops.
+func TestExecuteRecordsTheEdgePathAndTheFallbackWhenTheProxyStops(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	var mu sync.Mutex
+	var hosts, paths []string
+	listener := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hosts = append(hosts, r.Host)
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer listener.Close()
+
+	// The throwaway proxy: it answers for the site's hostname, adds the header
+	// Cloudflare's edge adds, and forwards each request to the listener.
+	target, err := url.Parse(listener.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edgeHandler := httputil.NewSingleHostReverseProxy(target)
+	edgeHandler.ModifyResponse = func(res *http.Response) error {
+		res.Header.Set("CF-Ray", "8a1b2c3d4e5f6a7b-AMS")
+		return nil
+	}
+	edge := httptest.NewServer(edgeHandler)
+	edgeURL := edge.URL
+	defer edge.Close()
+
+	id, err := st.CreateProxy(&model.Proxy{Hostname: "app.example.com", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceUpstreams(id, []model.Upstream{
+		{ProxyID: id, URL: listener.URL, Weight: 1, Enabled: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	proxy, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps := ExecuteDeps{
+		Store:       st,
+		OSV:         fakeAdvisories{},
+		WANBase:     func(string) string { return edgeURL },
+		WANFallback: func(string) string { return listener.URL },
+	}
+
+	run, err := Execute(context.Background(), deps, *proxy, TriggerManual, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Path != PathEdge {
+		t.Fatalf("path = %q, want %q while the proxy answers with CF-Ray", run.Path, PathEdge)
+	}
+	evidence, err := st.ListScanEvidence(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range evidence {
+		if row.Class == "endpoint" {
+			t.Fatalf("edge run recorded a listener-fallback row: %+v", row)
+		}
+	}
+	mu.Lock()
+	probes, siteHost := 0, false
+	for i, p := range paths {
+		if strings.HasPrefix(p, ProbePathPrefix) {
+			probes++
+		}
+		if strings.EqualFold(hosts[i], "app.example.com") {
+			siteHost = true
+		}
+	}
+	mu.Unlock()
+	if probes == 0 {
+		t.Fatal("no probe reached the listener through the proxy")
+	}
+	if !siteHost {
+		t.Fatal("the proxy never forwarded the site hostname as Host")
+	}
+
+	// The same site with the proxy stopped: the published hostname no longer
+	// answers, so the run falls back and says so in its first evidence row.
+	edge.Close()
+	run, err = Execute(context.Background(), deps, *proxy, TriggerManual, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Path != PathLocal {
+		t.Fatalf("path = %q, want %q once the proxy is stopped", run.Path, PathLocal)
+	}
+	evidence, err = st.ListScanEvidence(run.ID)
+	if err != nil || len(evidence) == 0 {
+		t.Fatalf("evidence = %d rows, %v; want the endpoint row", len(evidence), err)
+	}
+	row := evidence[0]
+	if row.Stage != StagePreflight || row.Class != "endpoint" || row.Method != configMethod {
+		t.Fatalf("first row = %+v, want the preflight endpoint row", row)
+	}
+	for _, want := range []string{listener.URL + " (Host: app.example.com)", edgeURL, "did not answer"} {
 		if !strings.Contains(row.Note, want) {
 			t.Fatalf("endpoint note = %q; want it to contain %q", row.Note, want)
 		}
