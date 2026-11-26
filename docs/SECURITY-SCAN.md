@@ -64,8 +64,12 @@ Four consequences worth stating plainly:
   WAF, then reruns the target with trigger `remediation`. The finding resolves only when the new
   run's evidence shows the published path refused the probe or the application no longer serves
   it; a skipped, failed or still-reachable rerun leaves it open. The block never exempts the
-  scanner, so the rerun observes the same refusal a stranger gets. It closes reachability, not
-  the leak: removing the file is still the application's job.
+  scanner, so the rerun observes the same refusal a stranger gets. The host's block list holds at
+  most 32 paths, the same limit the editor enforces: a list already at 32 cannot take another
+  path, so *Block & retest* answers `409` with the limit, stores nothing and starts no rerun. The
+  stored list is left exactly as it was, so the operator removes a path (or blocks the leak
+  another way) and retries. It closes reachability, not the leak: removing the file is still the
+  application's job.
 
 ### The scanner's own threat model
 

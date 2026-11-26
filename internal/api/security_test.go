@@ -350,6 +350,55 @@ func TestRemediateExposureBlocksThePathAndResolvesOnProof(t *testing.T) {
 	}
 }
 
+// The 32nd path is still inside the editor's limit, so Block & retest must
+// append it: only the 33rd is refused.
+func TestRemediateExposureAppendsTheLastDenyPath(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	id := remediationFixture(t, srv, st, http.StatusForbidden)
+	proxy, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy.DenyPaths = make([]string, 31)
+	for i := range proxy.DenyPaths {
+		proxy.DenyPaths[i] = "/blocked/" + strconv.Itoa(i)
+	}
+	if err := st.UpdateProxy(proxy); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := securityDo(t, srv, http.MethodPost, "/api/security/findings/exposure%3A%2F.env/remediate", "gui.local", token, csrf, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("remediate = %d (%s), want the 32nd path accepted", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Proved  bool              `json:"proved"`
+		Run     model.ScanRun     `json:"run"`
+		Finding model.ScanFinding `json:"finding"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Proved || out.Run.Trigger != scan.TriggerRemediation || out.Finding.State != "resolved" {
+		t.Fatalf("remediation = %+v, want a proved run that resolved the finding", out)
+	}
+	stored, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.DenyPaths) != 32 {
+		t.Fatalf("stored deny paths = %v, want the full 32", stored.DenyPaths)
+	}
+	for i, p := range stored.DenyPaths[:31] {
+		if want := "/blocked/" + strconv.Itoa(i); p != want {
+			t.Fatalf("stored deny paths = %v, want the existing list kept", stored.DenyPaths)
+		}
+	}
+	if last := stored.DenyPaths[31]; last != "/.env" {
+		t.Fatalf("stored deny paths = %v, want /.env appended as the 32nd", stored.DenyPaths)
+	}
+}
+
 // The editor refuses a 33rd closed path, so Block & retest must refuse it too
 // instead of storing a list the editor cannot save.
 func TestRemediateExposureRespectsTheDenyPathLimit(t *testing.T) {
