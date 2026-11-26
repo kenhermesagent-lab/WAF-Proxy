@@ -733,6 +733,7 @@ CREATE TABLE IF NOT EXISTS scan_findings (
   version TEXT NOT NULL DEFAULT '',
   recommendation TEXT NOT NULL DEFAULT '',
   note TEXT NOT NULL DEFAULT '',
+  accepted_note TEXT NOT NULL DEFAULT '',
   state TEXT NOT NULL DEFAULT 'open',
   first_seen TEXT NOT NULL,
   last_seen TEXT NOT NULL,
@@ -752,7 +753,7 @@ CREATE TABLE IF NOT EXISTS vuln_sources (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "32"
+const schemaVersion = "33"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -790,6 +791,9 @@ func (s *Store) migrateAddColumns() error {
 		// scanner can sign in without the operator pasting it into a run.
 		{"gate_users", "scan_only", `ALTER TABLE gate_users ADD COLUMN scan_only INTEGER NOT NULL DEFAULT 0`},
 		{"gate_users", "scan_secret", `ALTER TABLE gate_users ADD COLUMN scan_secret TEXT NOT NULL DEFAULT ''`},
+		// The operator's acceptance reason is kept apart from the scan's own
+		// note, so a reopen does not overwrite it with the next run's evidence.
+		{"scan_findings", "accepted_note", `ALTER TABLE scan_findings ADD COLUMN accepted_note TEXT NOT NULL DEFAULT ''`},
 		{"users", "role_id", `ALTER TABLE users ADD COLUMN role_id INTEGER NOT NULL DEFAULT 0`},
 		{"users", "auth_source", `ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'`},
 		// Password-reset mail goes to the administrator's own address.

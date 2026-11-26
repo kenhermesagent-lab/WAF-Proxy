@@ -70,7 +70,10 @@ type ScanFinding struct {
 	Product        string   `json:"product,omitempty"`
 	Version        string   `json:"version,omitempty"`
 	Recommendation string   `json:"recommendation"`
-	Note           string   `json:"note,omitempty"`
+	// Note is the scan's own evidence for this finding. Reason is the
+	// operator's acceptance reason, kept apart so a reopen keeps it.
+	Note   string `json:"note,omitempty"`
+	Reason string `json:"reason,omitempty"`
 	// State is open, accepted or resolved. FirstSeen survives every merge.
 	State     string    `json:"state,omitempty"`
 	FirstSeen time.Time `json:"first_seen,omitempty"`

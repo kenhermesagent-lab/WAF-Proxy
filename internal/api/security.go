@@ -199,8 +199,8 @@ func (s *Server) patchSecurityFinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		State string  `json:"state"`
-		Note  *string `json:"note"`
+		State  string  `json:"state"`
+		Reason *string `json:"reason"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
@@ -226,14 +226,11 @@ func (s *Server) patchSecurityFinding(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	state, note := current.State, current.Note
+	state := current.State
 	if in.State != "" {
 		state = in.State
 	}
-	if in.Note != nil {
-		note = *in.Note
-	}
-	if err := s.db(r).UpdateScanFinding(key, state, note); err != nil {
+	if err := s.db(r).UpdateScanFinding(key, state, in.Reason); err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}

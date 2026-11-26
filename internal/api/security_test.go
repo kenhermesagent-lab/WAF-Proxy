@@ -166,6 +166,43 @@ func TestUnfinishedRunShowsAbandoned(t *testing.T) {
 	}
 }
 
+// Accepting stores the reason in its own field, and a reopen keeps it while
+// the scan's note stays what the run wrote.
+func TestAcceptedReasonSurvivesReopen(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	if _, _, err := st.MergeScanFindings(st.SiteID(), "app.example.com", []model.ScanFinding{{
+		Key: "exposure:/.env", Stage: "backend", Class: "exposure",
+		Title: "The application serves /.env", Severity: "high",
+		Recommendation: "Remove the file", Note: "served HTTP 200",
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := securityDo(t, srv, http.MethodPatch, "/api/security/findings/exposure%3A%2F.env", "gui.local", token, csrf,
+		map[string]any{"state": "accepted", "reason": "risk accepted until Q3"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accept = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	rec = securityDo(t, srv, http.MethodPatch, "/api/security/findings/exposure%3A%2F.env", "gui.local", token, csrf,
+		map[string]any{"state": "open"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reopen = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	rec = securityDo(t, srv, http.MethodGet, "/api/security/findings", "gui.local", token, csrf, nil)
+	var listed struct {
+		Findings []model.ScanFinding `json:"findings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil || len(listed.Findings) != 1 {
+		t.Fatalf("findings = %+v, %v", listed.Findings, err)
+	}
+	got := listed.Findings[0]
+	if got.State != "open" || got.Reason != "risk accepted until Q3" || got.Note != "served HTTP 200" {
+		t.Fatalf("after reopen: %+v, want open with the reason and the scan note kept", got)
+	}
+}
+
 // A standalone install has no active node to defer to, so the role check must
 // not refuse its manual runs. A foreign target is still a 404.
 func TestRunAllowedOnStandaloneNode(t *testing.T) {

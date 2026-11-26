@@ -67,7 +67,7 @@ function mockAPI() {
       case "/api/security/runs/7":
         return { run, evidence };
       case "/api/security/findings":
-        return { findings: [finding(), finding({ key: "exposure:/git", title: "git config exposed", state: "accepted", severity: "medium" })] };
+        return { findings: [finding(), finding({ key: "exposure:/git", title: "git config exposed", state: "accepted", severity: "medium", reason: "WAF rule blocks it", note: "scans say served 200" })] };
       case "/api/security/feed":
         return { sources: overview.sources, storage_cap_bytes: 30 << 20 };
       case "/api/security/schedule":
@@ -174,6 +174,8 @@ describe("Security scan page", () => {
     const acceptedRow = (await screen.findByText("git config exposed")).closest("tr");
     expect(acceptedRow).toBeTruthy();
     expect(within(acceptedRow as HTMLElement).getByText("accepted")).toBeTruthy();
+    expect(within(acceptedRow as HTMLElement).getByText(/Accepted reason: WAF rule blocks it/)).toBeTruthy();
+    expect(within(acceptedRow as HTMLElement).getByText(/Scan note: scans say served 200/)).toBeTruthy();
     expect(within(acceptedRow as HTMLElement).getByText("Accept…")).toHaveProperty("disabled", true);
 
     expect((screen.getAllByRole("button", { name: "Accept…" })[0] as HTMLButtonElement).title).toBe(
@@ -190,7 +192,7 @@ describe("Security scan page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accept with reason" }));
     expect(patch).toHaveBeenCalledWith("/api/security/findings/exposure%3A%2Fbilling.env", {
       state: "accepted",
-      note: "keys rotated, rule pending",
+      reason: "keys rotated, rule pending",
     });
   });
 

@@ -19,9 +19,10 @@ type Finding = {
   cve_ids?: string[];
   product?: string;
   version?: string;
-  recommendation: string;
-  note?: string;
-  state?: string;
+  	recommendation: string;
+	note?: string;
+	reason?: string;
+	state?: string;
   first_seen?: string;
 };
 
@@ -240,7 +241,8 @@ export default function SecurityPage({
   const decide = async (finding: Finding, state: string, reason: string) => {
     setBusy(finding.key);
     try {
-      await api.patch(`/api/security/findings/${encodeURIComponent(finding.key)}`, { state, note: reason });
+      		// The scan's note is the server's; only the acceptance reason is ours.
+		await api.patch(`/api/security/findings/${encodeURIComponent(finding.key)}`, { state, reason: reason || undefined });
       onOK(state === "accepted" ? "Finding accepted" : "Finding reopened for the next run");
       setAccepting(null);
       setNote("");
@@ -561,7 +563,8 @@ export default function SecurityPage({
                       <td>
                         <div>{f.title}</div>
                         <div className="muted">{f.recommendation}</div>
-                        {f.note ? <div className="muted">Note: {f.note}</div> : null}
+                        						{f.reason ? <div className="muted">Accepted reason: {f.reason}</div> : null}
+                        {f.note ? <div className="muted">Scan note: {f.note}</div> : null}
                         {f.cve_ids?.length ? <div className="muted">{f.cve_ids.join(", ")}</div> : null}
                       </td>
                       <td>{f.target || "—"}</td>
@@ -577,14 +580,14 @@ export default function SecurityPage({
                           <button
                             disabled={!canWrite || busy === f.key || f.state === "accepted"}
                             title={canWrite ? undefined : "Your role cannot change findings."}
-                            onClick={() => { setAccepting(f); setNote(f.note ?? ""); }}
+                            							onClick={() => { setAccepting(f); setNote(f.reason ?? ""); }}
                           >
                             Accept…
                           </button>
                           <button
                             disabled={!canWrite || busy === f.key || (f.state || "open") === "open"}
                             title={canWrite ? undefined : "Your role cannot change findings."}
-                            onClick={() => decide(f, "open", f.note ?? "")}
+                            							onClick={() => decide(f, "open", "")}
                           >
                             Reopen
                           </button>
@@ -769,7 +772,7 @@ export default function SecurityPage({
             </>
           }
         >
-          <p className="muted">The reason is stored with the finding and shown next to it until it is reopened.</p>
+          			<p className="muted">The reason is stored apart from the scan's own note, so it survives a reopen and is shown next to it.</p>
           <Field label="Why is this acceptable?">
             <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={4} />
           </Field>

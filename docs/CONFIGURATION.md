@@ -1081,7 +1081,7 @@ any CVE ids, whether CISA KEV names it, and a product and version when the banne
 endpoint reported one. States are `open`, `accepted` and `resolved`:
 
 - a finding keeps its first-seen time across runs;
-- accepting one requires a reason, which is shown next to it and survives later runs;
+- accepting one requires a reason, which is stored apart from the scan's own note, so it survives later runs and a reopen and is shown next to that note;
 - a resolved finding that the next run proves again reopens;
 - an open finding the next run no longer proves becomes resolved.
 
