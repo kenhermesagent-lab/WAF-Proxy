@@ -196,7 +196,8 @@ export default function SecurityPage({
     api.get<{ sources: FeedSource[]; storage_cap_bytes: number }>("/api/security/feed").then(setFeed).catch(() => undefined);
     api.get<{ schedule: Schedule }>("/api/security/schedule").then((r) => setSchedule(r.schedule)).catch(() => undefined);
     api.get<Limits>("/api/security/limits").then(setLimits).catch(() => undefined);
-    api.get<{ proxies: Target[] }>("/api/proxies").then((r) => setTargets(r.proxies ?? [])).catch(() => undefined);
+    // /api/proxies answers with a bare array, not a wrapper object.
+    api.get<Target[]>("/api/proxies").then((r) => setTargets(Array.isArray(r) ? r : [])).catch(() => undefined);
   };
 
   useEffect(() => {
@@ -421,8 +422,8 @@ export default function SecurityPage({
                         <td>{r.trigger}</td>
                         <td>{fmtTime(r.started_at)}</td>
                         <td>{duration(r)}</td>
-                        <td>{r.path || "—"}</td>
-                        <td>{parseVerdicts(r.verdicts).map(([v, n]) => `${v} ${n}`).join(", ") || "—"}</td>
+                        <td>{r.skipped_reason ? <Badge tone="warn">{`skipped: ${r.skipped_reason}`}</Badge> : r.path || "—"}</td>
+                        <td>{parseVerdicts(r.verdicts).map(([v, n]) => `${VERDICT[v]?.label ?? v} ${n}`).join(", ") || "—"}</td>
                         <td><button onClick={() => { onTab?.("scans"); openDetail(r.id); }}>Detail</button></td>
                       </tr>
                     ))}
@@ -466,7 +467,7 @@ export default function SecurityPage({
                         <td>{r.actor || "—"}</td>
                         <td>{fmtTime(r.started_at)}</td>
                         <td>{duration(r)}</td>
-                        <td>{r.path || "—"}</td>
+                        <td>{r.skipped_reason ? <Badge tone="warn">{`skipped: ${r.skipped_reason}`}</Badge> : r.path || "—"}</td>
                         <td><button onClick={() => openDetail(r.id)}>Evidence</button></td>
                       </tr>
                     ))}
@@ -482,9 +483,14 @@ export default function SecurityPage({
               actions={<button onClick={() => setDetail(null)}>Close</button>}
               sub="Each row is one probe. A local path means the request never left this node, so its findings are this node's WAF, not the operator's edge."
             >
+              {detail.run.skipped_reason ? (
+                <p><Badge tone="warn">{`This run stopped early: ${detail.run.skipped_reason}`}</Badge></p>
+              ) : null}
               <p>
                 <Badge tone={detail.run.path === "edge" ? "ok" : "info"}>Path: {detail.run.path || "unknown"}</Badge>{" "}
-                {detail.run.verdicts ? <span className="muted">{detail.run.verdicts}</span> : null}
+                <span className="muted">
+                  {parseVerdicts(detail.run.verdicts).map(([v, n]) => `${VERDICT[v]?.label ?? v} ${n}`).join(" · ")}
+                </span>
               </p>
               <TableWrap>
                 <table>

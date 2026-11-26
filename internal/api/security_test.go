@@ -114,6 +114,19 @@ func TestTenantCannotScanForeignSite(t *testing.T) {
 	}
 }
 
+// A standalone install has no active node to defer to, so the role check must
+// not refuse its manual runs. A foreign target is still a 404.
+func TestRunAllowedOnStandaloneNode(t *testing.T) {
+	srv, _, token, csrf := newObservabilityServer(t)
+	srv.haStatus = func() HAStatus { return HAStatus{Role: "standalone", State: "standalone"} }
+
+	rec := securityDo(t, srv, http.MethodPost, "/api/security/runs", "gui.local", token, csrf,
+		map[string]any{"targets": []int64{9999}})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("standalone run = %d (%s), want 404 for the missing target, not a role refusal", rec.Code, rec.Body.String())
+	}
+}
+
 // The single pause switch stops a manual run before any request is sent.
 func TestRunRefusedWhenPaused(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)

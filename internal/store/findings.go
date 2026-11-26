@@ -49,6 +49,11 @@ func (s *Store) MergeScanFindings(siteID int64, target string, found []model.Sca
 		if existed {
 			first = stamp(prev.FirstSeen)
 		}
+		// The stages build findings without a target; the run's hostname is the
+		// one that found them, so the page never shows a finding with no site.
+		if f.Target == "" {
+			f.Target = target
+		}
 		if !existed || prev.State == "resolved" {
 			f.State = state
 			opened = append(opened, f)

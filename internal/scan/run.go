@@ -103,12 +103,21 @@ func Execute(ctx context.Context, d ExecuteDeps, proxy model.Proxy, trigger, act
 	return finishRun(d, run, now, evidence, nil)
 }
 
-func finishRun(d ExecuteDeps, run model.ScanRun, now time.Time, evidence []model.ScanEvidence, runErr error) (model.ScanRun, error) {
+// finishRun closes the run with the time it actually ended. Using the start
+// timestamp here made every run's duration zero.
+func finishRun(d ExecuteDeps, run model.ScanRun, started time.Time, evidence []model.ScanEvidence, runErr error) (model.ScanRun, error) {
+	end := time.Now()
+	if d.Now != nil {
+		end = d.Now()
+	}
+	if end.Before(started) {
+		end = started
+	}
 	verdicts := verdictCounts(evidence)
-	if err := d.Store.FinishScanRun(run.ID, now, verdicts); err != nil {
+	if err := d.Store.FinishScanRun(run.ID, end, verdicts, run.Path, run.Skipped); err != nil {
 		return run, err
 	}
-	run.EndedAt = &now
+	run.EndedAt = &end
 	run.Verdicts = verdicts
 	return run, runErr
 }

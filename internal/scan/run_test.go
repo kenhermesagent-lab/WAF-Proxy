@@ -52,6 +52,18 @@ func TestExecuteRecordsARun(t *testing.T) {
 	if run.Path != PathLocal {
 		t.Fatalf("path = %q, want local for a listener without CF-Ray", run.Path)
 	}
+	// The path is proved after the row exists, so finish must persist it, and
+	// the end time must be the end rather than the start.
+	runs, err := st.ListScanRuns(5)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("stored runs = %+v, %v", runs, err)
+	}
+	if runs[0].Path != PathLocal {
+		t.Fatalf("stored path = %q, want it saved at finish", runs[0].Path)
+	}
+	if runs[0].EndedAt == nil || runs[0].EndedAt.Before(runs[0].StartedAt) {
+		t.Fatalf("started %v ended %v, want the end not before the start", runs[0].StartedAt, runs[0].EndedAt)
+	}
 	if run.Verdicts == "" {
 		t.Fatal("the run recorded no verdict counts")
 	}

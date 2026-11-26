@@ -267,9 +267,10 @@ func (r *Runner) exposure(ctx context.Context, target Target) ([]model.ScanEvide
 func exposureFinding(path, severity, note string) model.ScanFinding {
 	return model.ScanFinding{
 		Key: "exposure:" + path, Stage: StageBackend, Class: "exposure",
-		Title:    "The application serves " + path,
-		Severity: severity, Recommendation: "compensate",
-		Note: note + "; remove it from the web root, or keep the published path refused until it is gone",
+		Title:          "The application serves " + path,
+		Severity:       severity,
+		Recommendation: "Remove the file from the web root, or keep the published path refused until it is gone",
+		Note:           note,
 	}
 }
 

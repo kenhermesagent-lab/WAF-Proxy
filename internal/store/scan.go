@@ -17,10 +17,13 @@ func (s *Store) CreateScanRun(run *model.ScanRun) (int64, error) {
 	return res.LastInsertId()
 }
 
-// FinishScanRun closes a run with its verdict counts.
-func (s *Store) FinishScanRun(id int64, ended time.Time, verdicts string) error {
-	_, err := s.db.Exec(`UPDATE scan_runs SET ended_at = ?, verdicts = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
-		stamp(ended), verdicts, id, s.site, s.site)
+// FinishScanRun closes a run with its verdict counts, the path it proved and
+// the reason it stopped early. Path is only known after preflight, so it is
+// written here and not at INSERT.
+func (s *Store) FinishScanRun(id int64, ended time.Time, verdicts, path, skipped string) error {
+	_, err := s.db.Exec(`UPDATE scan_runs SET ended_at = ?, verdicts = ?, path = ?, skipped_reason = ?
+		WHERE id = ? AND (? = 0 OR site_id = ?)`,
+		stamp(ended), verdicts, path, skipped, id, s.site, s.site)
 	return err
 }
 

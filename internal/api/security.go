@@ -122,7 +122,12 @@ func (s *Server) createSecurityRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.haStatus != nil {
-		if status := s.haStatus(); status.Role != "" && status.Role != "leader" {
+		// A standalone install and an active node both scan; only a standby
+		// refuses, because two nodes scanning would double the traffic and the
+		// gate's failure budget.
+		switch s.haStatus().Role {
+		case "", "leader", "standalone", "active":
+		default:
 			writeError(w, http.StatusConflict, "only the active node runs scans")
 			return
 		}
