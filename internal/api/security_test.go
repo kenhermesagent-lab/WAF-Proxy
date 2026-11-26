@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -377,6 +379,59 @@ func TestPublishedWANBaseUsesTheListener(t *testing.T) {
 	srv.cfg.ListenWAN = ":9443"
 	if got, want := srv.publishedWANBase(), "https://127.0.0.1:9443"; got != want {
 		t.Fatalf("published base = %q, want %q", got, want)
+	}
+}
+
+// A page-started run dials the WAN listener from cfg.ListenWAN and sends the
+// proxy hostname as Host. This listener's certificate is untrusted, so the run
+// fails after dialling it and must record the endpoint and the reason rather
+// than a generic "did not answer" or an assumed app.example.com:443.
+func TestPageRunReportsTheDerivedEndpoint(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	wan := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(wan.Close)
+	wan.Config.ErrorLog = log.New(io.Discard, "", 0)
+	listen := strings.TrimPrefix(wan.URL, "https://")
+	srv.cfg.ListenWAN = listen
+
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(app.Close)
+	id, err := st.CreateProxy(&model.Proxy{Hostname: "app.example.com", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceUpstreams(id, []model.Upstream{{ProxyID: id, URL: app.URL, Weight: 1, Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := securityDo(t, srv, http.MethodPost, "/api/security/runs", "gui.local", token, csrf,
+		map[string]any{"targets": []int64{id}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("run = %d (%s), want 201", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Runs []model.ScanRun `json:"runs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Runs) != 1 {
+		t.Fatalf("runs = %+v, want one", out.Runs)
+	}
+	skip := out.Runs[0].Skipped
+	want := "https://" + listen + " (Host: app.example.com)"
+	if !strings.Contains(skip, want) {
+		t.Fatalf("skip = %q; want the endpoint %q", skip, want)
+	}
+	if !strings.Contains(skip, "did not answer") {
+		t.Fatalf("skip = %q; want the transport reason", skip)
+	}
+	if strings.Contains(skip, "app.example.com:443") {
+		t.Fatalf("skip = %q; the run still assumed the hostname on 443", skip)
 	}
 }
 
