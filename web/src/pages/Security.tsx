@@ -563,7 +563,7 @@ export default function SecurityPage({
                       <td>
                         <div>{f.title}</div>
                         <div className="muted">{f.recommendation}</div>
-                        						{f.reason ? <div className="muted">Accepted reason: {f.reason}</div> : null}
+                        {f.reason ? <div className="muted">Accepted reason: {f.reason}</div> : null}
                         {f.note ? <div className="muted">Scan note: {f.note}</div> : null}
                         {f.cve_ids?.length ? <div className="muted">{f.cve_ids.join(", ")}</div> : null}
                       </td>
@@ -580,7 +580,7 @@ export default function SecurityPage({
                           <button
                             disabled={!canWrite || busy === f.key || f.state === "accepted"}
                             title={canWrite ? undefined : "Your role cannot change findings."}
-                            							onClick={() => { setAccepting(f); setNote(f.reason ?? ""); }}
+                            onClick={() => { setAccepting(f); setNote(f.reason ?? ""); }}
                           >
                             Accept…
                           </button>

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
@@ -42,6 +43,27 @@ type ExecuteDeps struct {
 
 // sharedOSV keeps the advisory cache across runs.
 var sharedOSV = NewOSV()
+
+// DefaultPerSecond is the probe rate a site scans at until it sets its own.
+const DefaultPerSecond = 12
+
+// ProbesPerSecond reads a site's saved rate, clamped to the documented range.
+// The manual run and the scheduler both use it, so a limit set once applies to
+// every run.
+func ProbesPerSecond(st *store.Store) int {
+	if raw, err := st.GetSetting("security_probes_per_second"); err == nil {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 1 && n <= 50 {
+			return n
+		}
+	}
+	return DefaultPerSecond
+}
+
+// Paused reports whether the site's single pause switch is on.
+func Paused(st *store.Store) bool {
+	raw, err := st.GetSetting("security_paused")
+	return err == nil && raw == "1"
+}
 
 // Execute scans one proxy and records the run. A missing upstream or a refused
 // preflight is recorded as a skipped run, not an error the operator has to

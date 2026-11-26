@@ -134,7 +134,7 @@ func securityScheduler(b *siteres.Bundle, box *crypto.Box, log *slog.Logger) *sc
 			return securitySignature(b)
 		},
 		Run: func(ctx context.Context, siteID int64, trigger, signature string) error {
-			if paused, _ := b.Store.GetSetting("security_paused"); paused == "1" {
+			if scan.Paused(b.Store) {
 				return errors.New("security scanning is paused")
 			}
 			proxies, err := b.Store.ListProxies()
@@ -142,7 +142,7 @@ func securityScheduler(b *siteres.Bundle, box *crypto.Box, log *slog.Logger) *sc
 				return err
 			}
 			deps := scan.ExecuteDeps{
-				Store: b.Store, Box: box, Notify: b.Notify, PerSecond: 12,
+				Store: b.Store, Box: box, Notify: b.Notify, PerSecond: scan.ProbesPerSecond(b.Store),
 				ConsoleHost: b.Site.ConsoleHost,
 			}
 			for _, p := range proxies {

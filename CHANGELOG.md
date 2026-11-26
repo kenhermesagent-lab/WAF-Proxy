@@ -12,6 +12,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.77.0] — 2026-11-26
+
+### Added
+
+- **A built-in security scanner attacks this node's own published hostnames and records what each layer did.**
+  **System → Security scan** has five tabs: Overview (posture, open findings by severity, feed freshness), Scans (run
+  history and per-probe evidence), Findings (filterable, with the recommendation, CVE ids and KEV state),
+  Vulnerability feed (KEV/OSV freshness, storage, watched components) and Schedule. Starting a scan, deciding a
+  finding and changing the schedule or limits each have their own permission (`security.run`, `security.write`).
+- **One run path serves the button and the scheduler, and it is read-only toward the backend.**
+  `GET`/`HEAD`/`OPTIONS`/`TRACE` only, plus two `POST`s the scanner cannot choose: the gate's own login and a random
+  probe path preflight has proven returns the application's `404`. Targets are proxy-record ids this site may read,
+  resolved on the server; a foreign target is a `404` before anything is sent. At most four hostnames and 12 probes a
+  second by default, aborting on a sustained `429`, and at most two gate credential failures per run.
+- **Every probe is proved against a control.** WAN and direct-upstream answers are compared on status, headers, body
+  hash and similarity; a class whose control request is itself refused is reported `inconclusive`, and a catch-all
+  route skips body probes instead of sending them. Each run records the path it took: `edge` when the answer carried
+  Cloudflare's header, `local` when the request never left this node.
+- **Fingerprints and vulnerability data are joined to what the WAF let through.** The banner, generator meta and
+  public status endpoints identify the product and version; CISA KEV is snapshotted daily and OSV is queried per
+  component and cached. A stale or empty answer is `unknown`, never clean.
+- **Findings have a lifecycle and alert through the existing channels.** A stable key survives runs, `first_seen` is
+  kept, accepting requires a reason stored apart from the scan's own note (it survives a reopen), a resolved finding
+  reopens when a run proves it again, and an open one a run no longer proves becomes resolved. `security_new`,
+  `security_kev` and `security_resolved` dedupe by finding key.
+- **Scans can be scheduled per site, with triggers on top of the cadence.** Daily, weekly or monthly inside a UTC
+  hour with jitter, skipped when the proxy configuration and WAF-Proxy version are unchanged, plus config-change,
+  upgrade and new-KEV-match triggers. The loop runs on the active node only; a pause switch stops manual and
+  scheduled runs alike.
+
+### Security
+
+- **Gate authenticator codes are single-use now.** A code is claimed when the login succeeds, so a code observed on
+  the wire, or replayed within its window, is refused instead of working for about 90 seconds.
+- **Gate login refuses a cross-site post.** A login `POST` carrying a foreign `Origin` or `Sec-Fetch-Site` is answered
+  with the uniform failure page, so another page cannot drive passphrase guesses from a visitor's browser.
+
+### Fixed
+
+- **A manual scan is no longer refused on a standalone node.** The run endpoint treated any role other than `leader`
+  as a standby, so the Run scan button answered `409` on every non-HA install; only a standby refuses now.
+- **A run's path, its end time and the reason it stopped are recorded.** The path is proved after the row exists and
+  was never written, the end reused the start (every duration read `0 ms`), and a skipped run lost its reason.
+- **Findings carry the hostname that found them, and a run that never finished shows as abandoned.** The stages leave
+  the target empty, and a crashed run stayed "running" forever; an unfinished run older than the run budget is now
+  reported as abandoned.
+- **The page refreshes per tab, and an empty OSV answer is not clean.** Switching tabs refetched nothing, so a run
+  that resolved or reopened a finding stayed invisible until a reload; `/api/proxies` is a bare array the page now
+  reads, so hostnames can be chosen again.
+- **The scanner's rate limit applies to scheduled runs too.** The scheduler used a fixed 12 probes a second instead of
+  the site's saved limit.
+
 ## [1.76.0] — 2026-11-25
 
 ### Added

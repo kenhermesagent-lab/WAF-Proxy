@@ -11,10 +11,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scan"
 )
 
-const (
-	securityDefaultPerSecond = 12
-	securityMaxTargets       = 4
-)
+const securityMaxTargets = 4
 
 // securityRunAbandonedAfter is well past the five-minute run budget: a run
 // with no end after this long had its process die and will never finish.
@@ -390,18 +387,11 @@ func (s *Server) putSecurityLimits(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) securityPaused(r *http.Request) bool {
-	raw, err := s.db(r).GetSetting("security_paused")
-	return err == nil && raw == "1"
+	return scan.Paused(s.db(r))
 }
 
 func (s *Server) securityPerSecond(r *http.Request) int {
-	raw, err := s.db(r).GetSetting("security_probes_per_second")
-	if err == nil {
-		if n, err := strconv.Atoi(raw); err == nil && n >= 1 && n <= 50 {
-			return n
-		}
-	}
-	return securityDefaultPerSecond
+	return scan.ProbesPerSecond(s.db(r))
 }
 
 func (s *Server) securityDeps(r *http.Request) scan.ExecuteDeps {

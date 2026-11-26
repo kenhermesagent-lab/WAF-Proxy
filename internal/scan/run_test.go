@@ -10,6 +10,32 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
+// The saved rate applies to every run, and an out-of-range value falls back to
+// the default rather than reaching the runner.
+func TestProbesPerSecondReadsTheSiteSetting(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if got := ProbesPerSecond(st); got != DefaultPerSecond {
+		t.Fatalf("unset = %d, want %d", got, DefaultPerSecond)
+	}
+	if err := st.SetSetting("security_probes_per_second", "5"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ProbesPerSecond(st); got != 5 {
+		t.Fatalf("saved = %d, want 5", got)
+	}
+	if err := st.SetSetting("security_probes_per_second", "500"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ProbesPerSecond(st); got != DefaultPerSecond {
+		t.Fatalf("out of range = %d, want the default", got)
+	}
+}
+
 // The shared run path records the run, its evidence and its verdict counts, and
 // the endpoints it uses come from the proxy record, not the request.
 func TestExecuteRecordsARun(t *testing.T) {
