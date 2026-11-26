@@ -143,7 +143,7 @@ func (r *Runner) RunPreflight(ctx context.Context, target Target) (*Preflight, e
 		// The hostname does not resolve or its port does not answer. The node's
 		// own listener is the published path when no edge fronts it, and the
 		// same hostname travels as Host and SNI.
-		client := probeClient(false, fallback.TLSName)
+		client := probeClient(false, fallback.TLSName, fallback.Roots)
 		fb, fbErr := r.send(ctx, client, fallback, probe)
 		if fbErr != nil {
 			note := primary + "; the listener endpoint " + fallback.Label() + " did not answer: " + shortError(fbErr)

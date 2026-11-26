@@ -4,6 +4,7 @@
 package scan
 
 import (
+	"crypto/x509"
 	"net/http"
 	"net/url"
 )
@@ -92,6 +93,9 @@ type Endpoint struct {
 	// dial address (the listener) rather than the site's own name. Empty uses
 	// URL.Host.
 	TLSName string
+	// Roots overrides the system pool for a listener with a private CA. Nil
+	// uses the system roots.
+	Roots *x509.CertPool
 	// Insecure skips certificate verification for a backend that uses a
 	// self-signed one. The published side never sets it.
 	Insecure bool

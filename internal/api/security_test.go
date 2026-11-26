@@ -350,6 +350,51 @@ func TestRemediateExposureBlocksThePathAndResolvesOnProof(t *testing.T) {
 	}
 }
 
+// The editor refuses a 33rd closed path, so Block & retest must refuse it too
+// instead of storing a list the editor cannot save.
+func TestRemediateExposureRespectsTheDenyPathLimit(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	id := remediationFixture(t, srv, st, http.StatusForbidden)
+	proxy, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy.DenyPaths = make([]string, 32)
+	for i := range proxy.DenyPaths {
+		proxy.DenyPaths[i] = "/blocked/" + strconv.Itoa(i)
+	}
+	if err := st.UpdateProxy(proxy); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := securityDo(t, srv, http.MethodPost, "/api/security/findings/exposure%3A%2F.env/remediate", "gui.local", token, csrf, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("remediate = %d (%s), want a clean 409", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "32") {
+		t.Fatalf("remediate = %q, want the path limit", rec.Body.String())
+	}
+	stored, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.DenyPaths) != 32 {
+		t.Fatalf("stored deny paths = %d, want the list unchanged at 32", len(stored.DenyPaths))
+	}
+	for _, p := range stored.DenyPaths {
+		if p == "/.env" {
+			t.Fatal("the refused remediation still stored the path")
+		}
+	}
+	if runs, err := st.ListScanRuns(1); err != nil || len(runs) != 0 {
+		t.Fatalf("a refused remediation recorded a run: %+v, %v", runs, err)
+	}
+	findings, err := st.ListScanFindings("", "")
+	if err != nil || len(findings) != 1 || findings[0].State != "open" {
+		t.Fatalf("findings = %+v, %v; want the one open finding", findings, err)
+	}
+}
+
 // The block is saved, but a rerun that still reaches the file is not proof:
 // the finding stays open and says so.
 func TestRemediateExposureKeepsTheFindingWithoutProof(t *testing.T) {
@@ -397,10 +442,11 @@ func TestListenerWANBaseUsesTheBoundAddress(t *testing.T) {
 }
 
 // A page-started run tries the published hostname first, then dials the WAN
-// listener from cfg.ListenWAN with the hostname as Host and TLS SNI. The local
+// listener from cfg.ListenWAN with the hostname as Host and TLS SNI. This
 // listener has no certificate the client trusts, so the run must fail after
-// that handshake and name the endpoint it dialled.
-func TestPageRunFallsBackToTheListenerWithSNI(t *testing.T) {
+// that handshake and name the endpoint it dialled; TestPageStartedFallbackEndToEnd
+// covers the trusted certificate that lets it complete.
+func TestPageRunReportsAnUntrustedListenerCertificate(t *testing.T) {
 	srv, st, token, csrf := newObservabilityServer(t)
 	var mu sync.Mutex
 	var snis []string

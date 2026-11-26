@@ -1,12 +1,21 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"testing"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/gate"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
 )
 
 // A partial PUT carries only what the caller changed. It used to clear the
@@ -71,6 +80,73 @@ func TestPartialPutKeepsUpstreamsAndProfile(t *testing.T) {
 		t.Fatal(err)
 	} else if len(ups) != 0 {
 		t.Fatalf("an explicit empty upstream list did not clear the pool: %+v", ups)
+	}
+}
+
+// Removing a closed path through the site save reopens it: the stored list
+// loses the entry and the live proxy serves the upstream again.
+func TestRemoveDenyPathThroughProxySaveServesItAgain(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "served")
+	}))
+	t.Cleanup(app.Close)
+	id, err := st.CreateProxy(&model.Proxy{
+		Hostname: "app.example.com", Enabled: true, WAFMode: "off",
+		DenyPaths: []string{"/actuator", "/.env"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceUpstreams(id, []model.Upstream{{ProxyID: id, URL: app.URL, Weight: 1, Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	pol, err := policy.New(st, srv.bans, nil, nil, nil, srv.log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	px, err := proxy.New(proxy.Deps{
+		Store: st, Policy: pol, Gate: gate.New(st, srv.box, srv.bans, srv.log),
+		Bots:    botguard.New(bytes.Repeat([]byte{0x42}, 32), srv.bans, st, srv.log),
+		Bans:    srv.bans,
+		Geo:     geoip.Open(t.TempDir()),
+		Metrics: srv.metrics,
+		Log:     srv.log,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := px.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	srv.proxy, srv.policy = px, pol
+
+	get := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/actuator/env", nil)
+		req.Host = "app.example.com"
+		req.RemoteAddr = "10.0.0.11:5000"
+		rec := httptest.NewRecorder()
+		px.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := get(); rec.Code != http.StatusForbidden {
+		t.Fatalf("a closed path answered %d (%s), want 403", rec.Code, rec.Body.String())
+	}
+
+	rec := securityDo(t, srv, http.MethodPut, "/api/proxies/"+strconv.FormatInt(id, 10), "gui.local", token, csrf,
+		map[string]any{"deny_paths": []string{"/.env"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/proxies = %d: %s", rec.Code, rec.Body.String())
+	}
+	stored, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.DenyPaths) != 1 || stored.DenyPaths[0] != "/.env" {
+		t.Fatalf("stored deny paths = %v, want only /.env", stored.DenyPaths)
+	}
+	if rec := get(); rec.Code != http.StatusOK || rec.Body.String() != "served" {
+		t.Fatalf("reopened path answered %d %q, want the upstream", rec.Code, rec.Body.String())
 	}
 }
 

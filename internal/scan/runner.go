@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -57,18 +58,18 @@ func NewRunner(wan, upstream Endpoint, perSecond int) *Runner {
 	return &Runner{
 		wan:       wan,
 		upstream:  upstream,
-		wanClient: probeClient(false, wan.TLSName),
-		upClient:  probeClient(upstream.Insecure, upstream.TLSName),
+		wanClient: probeClient(false, wan.TLSName, wan.Roots),
+		upClient:  probeClient(upstream.Insecure, upstream.TLSName, upstream.Roots),
 		perSecond: perSecond,
 		sources:   map[string]struct{}{},
 	}
 }
 
-func probeClient(insecure bool, tlsName string) *http.Client {
+func probeClient(insecure bool, tlsName string, roots *x509.CertPool) *http.Client {
 	return &http.Client{
 		Timeout: probeTimeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure, ServerName: tlsName},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure, ServerName: tlsName, RootCAs: roots},
 		},
 		// A redirect is part of the answer: following it would hide the gate.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },

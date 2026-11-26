@@ -238,7 +238,12 @@ func (s *Server) remediateSecurityFinding(w http.ResponseWriter, r *http.Request
 	// affect any other hostname. It is idempotent: clicking twice adds no
 	// duplicate and still retests.
 	if !scan.PathBlocked(proxy.DenyPaths, exposedPath) {
-		proxy.DenyPaths = append(proxy.DenyPaths, exposedPath)
+		next := append(append([]string(nil), proxy.DenyPaths...), exposedPath)
+		if msg := validateDenyPaths(next); msg != "" {
+			writeError(w, http.StatusConflict, msg)
+			return
+		}
+		proxy.DenyPaths = next
 		if err := s.db(r).UpdateProxy(proxy); err != nil {
 			writeError(w, http.StatusInternalServerError, "cannot save the block")
 			return
