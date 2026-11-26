@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -263,6 +264,72 @@ func TestPreflightFallsBackOnATimeout(t *testing.T) {
 	}
 	if pf.Endpoint != fallback.URL+" (Host: app.example.com)" {
 		t.Fatalf("endpoint = %q, want the fallback", pf.Endpoint)
+	}
+}
+
+// A published hostname can accept the connection and then never answer. That
+// is a timeout, not a refusal, and the scan must still try the listener.
+func TestPreflightFallsBackWhenThePublishedHostTimesOut(t *testing.T) {
+	blackhole, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blackhole.Close()
+	var mu sync.Mutex
+	var held []net.Conn
+	go func() {
+		for {
+			conn, err := blackhole.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			held = append(held, conn)
+			mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, conn := range held {
+			_ = conn.Close()
+		}
+	})
+
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer fallback.Close()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer up.Close()
+
+	primary, _ := url.Parse("https://" + blackhole.Addr().String())
+	fb, _ := url.Parse(fallback.URL)
+	upURL, _ := url.Parse(up.URL)
+	target := Target{
+		Proxy:    model.Proxy{Hostname: "app.example.com", Enabled: true},
+		WAN:      Endpoint{URL: primary, Host: "app.example.com", TLSName: "app.example.com"},
+		Fallback: Endpoint{URL: fb, Host: "app.example.com"},
+		Upstream: Endpoint{URL: upURL, Host: "app.example.com"},
+	}
+	r := NewRunner(target.WAN, target.Upstream, 0)
+	// The listener accepts TCP but never speaks TLS, so the published probe
+	// waits for the client timeout instead of failing to connect.
+	r.wanClient.Timeout = 250 * time.Millisecond
+	pf, err := r.RunPreflight(context.Background(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pf.Skip != "" {
+		t.Fatalf("a timeout did not fall back: %s", pf.Skip)
+	}
+	if pf.Endpoint != fallback.URL+" (Host: app.example.com)" {
+		t.Fatalf("endpoint = %q, want the fallback", pf.Endpoint)
+	}
+	if !strings.Contains(strings.ToLower(pf.Fallback), "timeout") {
+		t.Fatalf("fallback reason = %q, want the timeout", pf.Fallback)
 	}
 }
 

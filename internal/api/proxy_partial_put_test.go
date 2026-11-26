@@ -150,6 +150,51 @@ func TestRemoveDenyPathThroughProxySaveServesItAgain(t *testing.T) {
 	}
 }
 
+// The editor saves the whole draft, not a one-field patch. Removing a closed
+// path there must reach the store, not just the request payload.
+func TestEditorSavePersistsARemovedDenyPath(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	id, err := st.CreateProxy(&model.Proxy{
+		Hostname: "app.example.com", Enabled: true, WAFMode: "off",
+		DenyPaths: []string{"/actuator", "/.env"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := securityDo(t, srv, http.MethodPut, "/api/proxies/"+strconv.FormatInt(id, 10), "gui.local", token, csrf, map[string]any{
+		"id":                    id,
+		"hostname":              "app.example.com",
+		"enabled":               true,
+		"profile_id":            nil,
+		"cert_id":               nil,
+		"protection_profile_id": nil,
+		"access_profile_id":     nil,
+		"auth_provider_id":      nil,
+		"gate_mode":             "off",
+		"fingerprint":           "strict",
+		"bot_level":             "light",
+		"maintenance":           false,
+		"waf_mode":              "off",
+		"max_body":              0,
+		"body_skip":             []any{},
+		"deny_paths":            []string{"/.env"},
+		"upstreams":             []map[string]any{{"url": "http://10.0.0.10:8080", "weight": 1, "enabled": true}},
+		"routes":                []any{},
+		"gate_users":            []any{},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/proxies = %d: %s", rec.Code, rec.Body.String())
+	}
+	stored, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.DenyPaths) != 1 || stored.DenyPaths[0] != "/.env" {
+		t.Fatalf("stored deny paths = %v, want only /.env", stored.DenyPaths)
+	}
+}
+
 // The body ceiling and the skip paths are part of the site's configuration, so
 // they round-trip, an explicit empty list clears them, and a bad entry is
 // refused instead of stored.
