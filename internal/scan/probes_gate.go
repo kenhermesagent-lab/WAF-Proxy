@@ -187,7 +187,7 @@ func (s *gateSuite) g1(ctx context.Context) model.ScanEvidence {
 	p := gateProbe("G1", http.MethodGet, "/", nil)
 	a, err := s.send(ctx, p)
 	if err != nil {
-		return s.evidence(p, NotRun, "the published path did not answer: "+shortError(err), nil)
+		return s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, err), nil)
 	}
 	if s.challenged(a) {
 		return s.evidence(p, BlockedGate, "an unauthenticated request was challenged", &a)
@@ -202,7 +202,7 @@ func (s *gateSuite) g2(ctx context.Context) []model.ScanEvidence {
 		p := gateProbe("G2", http.MethodGet, path, nil)
 		a, err := s.send(ctx, p)
 		if err != nil {
-			rows = append(rows, s.evidence(p, NotRun, "the published path did not answer: "+shortError(err), nil))
+			rows = append(rows, s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, err), nil))
 			continue
 		}
 		if s.challenged(a) {
@@ -227,7 +227,7 @@ func (s *gateSuite) g3(ctx context.Context) model.ScanEvidence {
 	p.Header = http.Header{"Cookie": {gate.CookieName + "=" + tampered(session)}}
 	a, sendErr := s.send(ctx, p)
 	if sendErr != nil {
-		return s.evidence(p, NotRun, "the published path did not answer: "+shortError(sendErr), nil)
+		return s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, sendErr), nil)
 	}
 	if s.challenged(a) {
 		return s.evidence(p, BlockedGate, "a session cookie with one byte changed was refused", &a)
@@ -246,7 +246,7 @@ func (s *gateSuite) g4(ctx context.Context) model.ScanEvidence {
 	user, pass := s.credentials()
 	a, err := s.login(ctx, user, pass, "/", fixated)
 	if err != nil {
-		return s.evidence(p, NotRun, "the gate login did not answer: "+shortError(err), nil)
+		return s.evidence(p, NotRun, s.r.unreachableNote("gate login", s.r.wan, err), nil)
 	}
 	if a.status != http.StatusSeeOther && a.status != http.StatusFound {
 		return s.evidence(p, Failed, fmt.Sprintf("the sign-in answered HTTP %d instead of redirecting", a.status), &a)
@@ -276,7 +276,7 @@ func (s *gateSuite) g5(ctx context.Context) model.ScanEvidence {
 	p.Header = http.Header{"Cookie": {gate.CookieName + "=" + session}}
 	a, sendErr := s.send(ctx, p)
 	if sendErr != nil {
-		return s.evidence(p, NotRun, "the published path did not answer: "+shortError(sendErr), nil)
+		return s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, sendErr), nil)
 	}
 	if s.challenged(a) {
 		return s.evidence(p, BlockedGate, "the old session cookie was refused after sign-out", &a)
@@ -339,7 +339,7 @@ func (s *gateSuite) g9(ctx context.Context) model.ScanEvidence {
 	p.Body = url.Values{"username": {user}, "password": {pass}, "next": {"/"}}.Encode()
 	a, err := s.send(ctx, p)
 	if err != nil {
-		return s.evidence(p, NotRun, "the published path did not answer: "+shortError(err), nil)
+		return s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, err), nil)
 	}
 	if a.status != http.StatusForbidden {
 		return s.evidence(p, Failed, fmt.Sprintf("a cross-origin login answered HTTP %d instead of 403", a.status), &a)
@@ -361,7 +361,7 @@ func (s *gateSuite) g10(ctx context.Context) model.ScanEvidence {
 	for _, next := range []string{"//evil.example", `/\evil.example`} {
 		a, err := s.login(ctx, user, pass, next, "")
 		if err != nil {
-			return s.evidence(p, NotRun, "the gate login did not answer: "+shortError(err), nil)
+			return s.evidence(p, NotRun, s.r.unreachableNote("gate login", s.r.wan, err), nil)
 		}
 		last = a
 		location := a.header.Get("Location")
@@ -380,7 +380,7 @@ func (s *gateSuite) g11Cache(ctx context.Context) model.ScanEvidence {
 	p := gateProbe("G11", http.MethodGet, "/", nil)
 	a, err := s.send(ctx, p)
 	if err != nil {
-		return s.evidence(p, NotRun, "the published path did not answer: "+shortError(err), nil)
+		return s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, err), nil)
 	}
 	if !strings.Contains(strings.ToLower(a.header.Get("Cache-Control")), "no-store") {
 		return s.evidence(p, Failed, "the gate challenge is cacheable: Cache-Control "+a.header.Get("Cache-Control"), &a)
@@ -400,7 +400,7 @@ func (s *gateSuite) g11SignedIn(ctx context.Context) model.ScanEvidence {
 	}
 	a, err := s.send(ctx, p)
 	if err != nil {
-		return s.evidence(p, NotRun, "the published path did not answer: "+shortError(err), nil)
+		return s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, err), nil)
 	}
 	if s.challenged(a) {
 		return s.evidence(p, BlockedGate, "an unauthenticated fetch could not return the signed-in page", &a)
@@ -428,7 +428,7 @@ func (s *gateSuite) g12(ctx context.Context) []model.ScanEvidence {
 		p := gateProbe("G12", http.MethodGet, shape.path, shape.header)
 		a, err := s.send(ctx, p)
 		if err != nil {
-			rows = append(rows, s.evidence(p, NotRun, "the published path did not answer: "+shortError(err), nil))
+			rows = append(rows, s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, err), nil))
 			continue
 		}
 		if s.challenged(a) {
@@ -460,7 +460,7 @@ func (s *gateSuite) f1(ctx context.Context) model.ScanEvidence {
 	}
 	a, err := s.send(ctx, p)
 	if err != nil {
-		return s.evidence(p, NotRun, "the published path did not answer: "+shortError(err), nil)
+		return s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, err), nil)
 	}
 	if a.status == http.StatusServiceUnavailable {
 		return s.evidence(p, Passed, "the site answered 503 with the provider unreachable", &a)
@@ -478,7 +478,7 @@ func (s *gateSuite) f2(ctx context.Context) model.ScanEvidence {
 	p := gateProbe("F2", http.MethodGet, "/", header)
 	a, err := s.send(ctx, p)
 	if err != nil {
-		return s.evidence(p, NotRun, "the published path did not answer: "+shortError(err), nil)
+		return s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, err), nil)
 	}
 	if s.challenged(a) {
 		return s.evidence(p, BlockedGate, "client-supplied identity headers did not open the site", &a)
@@ -491,7 +491,7 @@ func (s *gateSuite) f3(ctx context.Context) model.ScanEvidence {
 	p := gateProbe("F3", http.MethodGet, "/", nil)
 	a, err := s.send(ctx, p)
 	if err != nil {
-		return s.evidence(p, NotRun, "the published path did not answer: "+shortError(err), nil)
+		return s.evidence(p, NotRun, s.r.unreachableNote("published", s.r.wan, err), nil)
 	}
 	if a.status >= 300 && a.status < 400 && a.header.Get("Location") != "" {
 		return s.evidence(p, Passed, "the gate redirects to the provider", &a)

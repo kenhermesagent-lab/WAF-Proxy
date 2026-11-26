@@ -25,6 +25,7 @@ type Draft = {
   waf_mode: string;
   max_body: number;
   body_skip: BodySkip[];
+  deny_paths: string[];
   preset: string;
   upstreams: Upstream[];
   routes: Route[];
@@ -59,6 +60,7 @@ function emptyDraft(): Draft {
     waf_mode: "inherit",
     max_body: 0,
     body_skip: [],
+    deny_paths: [],
     preset: "",
     upstreams: [{ url: "http://10.0.0.10:8080", weight: 1, enabled: true }],
     routes: [],
@@ -161,6 +163,7 @@ export default function Proxies({
       waf_mode: p.waf_mode || "inherit",
       max_body: p.max_body ?? 0,
       body_skip: p.body_skip ?? [],
+      deny_paths: p.deny_paths ?? [],
       preset: "",
       upstreams: p.upstreams?.length ? p.upstreams : [{ url: "", weight: 1, enabled: true }],
       routes: p.routes ?? [],
@@ -173,8 +176,11 @@ export default function Proxies({
     setSaving(true);
     try {
       const { preset, ...rest } = draft;
-      if (draft.id) await api.put(`/api/proxies/${draft.id}`, rest);
-      else await api.post("/api/proxies", { ...rest, preset });
+      // An empty row is not a path; the API validates each entry, so drop it
+      // rather than refusing the whole save.
+      const payload = { ...rest, deny_paths: rest.deny_paths.map((p) => p.trim()).filter(Boolean) };
+      if (draft.id) await api.put(`/api/proxies/${draft.id}`, payload);
+      else await api.post("/api/proxies", { ...payload, preset });
       onOK(draft.id ? `${draft.hostname} updated` : `${draft.hostname} created`);
       setDraft(null);
       await load();
@@ -211,7 +217,7 @@ export default function Proxies({
   const patch = (fn: (d: Draft) => void) =>
     setDraft((d) => {
       if (!d) return d;
-      const next: Draft = { ...d, upstreams: [...d.upstreams], routes: [...d.routes], gate_users: [...d.gate_users], body_skip: [...d.body_skip] };
+      const next: Draft = { ...d, upstreams: [...d.upstreams], routes: [...d.routes], gate_users: [...d.gate_users], body_skip: [...d.body_skip], deny_paths: [...d.deny_paths] };
       fn(next);
       return next;
     });
@@ -561,6 +567,25 @@ export default function Proxies({
                   <p className="faint small-text" style={{ marginTop: 6 }}>
                     Without a trust list the prefix is skipped for every source. A trailing * covers everything below the prefix. Prefer a method and a narrow path, and leave the root out.
                   </p>
+                </div>
+                <div style={{ marginTop: 16 }}>
+                  <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>Closed paths</h3>
+                  <p className="faint small-text" style={{ margin: "0 0 8px" }}>
+                    This hostname answers these paths, and everything below them, with 403 before the access gate and WAF. The Security page's Block &amp; retest installs one when it closes an exposure; remove an entry here to reopen the path.
+                  </p>
+                  {draft.deny_paths.map((p, i) => (
+                    <div key={i} className="deny-row">
+                      <Field label={i === 0 ? "Path" : `Closed path ${i + 1}`} hint={i === 0 ? "Includes every path below it." : undefined}>
+                        <input placeholder="/actuator/env" value={p} onChange={(e) => patch((d) => { d.deny_paths[i] = e.target.value; })} />
+                      </Field>
+                      <button className="ghost" style={{ marginTop: 22 }} aria-label={`Remove closed path ${i + 1}`} onClick={() => patch((d) => { d.deny_paths.splice(i, 1); })}>
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <button className="small" onClick={() => patch((d) => { d.deny_paths.push(""); })}>
+                    <Icon name="plus" size={13} /> Add closed path
+                  </button>
                 </div>
                 </>
               )}

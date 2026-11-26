@@ -125,8 +125,9 @@ type Engine struct {
 	rl    *limiter
 
 	// ScanTrust validates a run token. A trusted request is this node's own
-	// scanner probing its published path: it is exempt from bans, decoys and
-	// rate limiting, so a probe cannot ban the address the node egresses from.
+	// scanner probing its published path: the decoy and ban rules are lifted so
+	// a probe cannot ban the address the node egresses from. The rate and login
+	// limits still apply, so a run observes the same 429 a stranger would.
 	// Nil trusts nothing, which is what tests and simulations get.
 	ScanTrust func(token string) bool
 
@@ -962,9 +963,13 @@ func (e *Engine) screen(req *Request, live bool) model.Verdict {
 	if rules.rateBurst > 0 {
 		dosBurst = rules.rateBurst
 	}
-	if live && !trusted {
+	// The scan token does not skip these: a run must see the same 429 a
+	// stranger gets, which is how it can report that the limit is armed. It is
+	// still exempt from the ban a strike-out would write, so a rate-limit
+	// refusal cannot make the scanner ban its own egress address.
+	if live {
 		if allowed, strikeOut := e.rl.Allow(rateKey(req), dosRPS, dosBurst, e.now()); !allowed {
-			if strikeOut {
+			if strikeOut && !trusted {
 				addr := req.Addr.String()
 				site := e.siteFor(req.Host)
 				go func() {

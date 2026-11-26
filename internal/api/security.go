@@ -508,10 +508,27 @@ func (s *Server) securityDeps(r *http.Request) scan.ExecuteDeps {
 	if s.notify != nil {
 		notifier = s.notify
 	}
+	wanBase := s.securityWAN
+	if wanBase == nil {
+		base := s.publishedWANBase()
+		wanBase = func(string) string { return base }
+	}
 	return scan.ExecuteDeps{
 		Store: s.db(r), Box: s.box, Notify: notifier, Bans: s.bans, Trust: trust,
-		PerSecond: s.securityPerSecond(r), ConsoleHost: s.consoleHost(r), WANBase: s.securityWAN,
+		PerSecond: s.securityPerSecond(r), ConsoleHost: s.consoleHost(r), WANBase: wanBase,
 	}
+}
+
+// publishedWANBase derives the endpoint a scan dials from the WAN listener the
+// node actually bound. The site hostname is sent as Host and TLS SNI, so a
+// hostname that does not resolve here, or a listener that is not on 443, no
+// longer makes every page-started run fail before a probe is compared.
+func (s *Server) publishedWANBase() string {
+	listen := ""
+	if s.cfg != nil {
+		listen = s.cfg.ListenWAN
+	}
+	return scan.PublishedBase(listen)
 }
 
 func b2s(v bool) string {

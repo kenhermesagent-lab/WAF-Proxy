@@ -42,8 +42,9 @@ type ExecuteDeps struct {
 	OSV         AdvisorySource
 	PerSecond   int
 	ConsoleHost string
-	// WANBase builds the published endpoint for a hostname; nil means
-	// https://<hostname>, which is what a real deployment uses.
+	// WANBase builds the published endpoint for a hostname. The console and the
+	// scheduler supply the node's WAN listener (PublishedBase), with the hostname
+	// sent as Host and TLS SNI; nil falls back to https://<hostname>.
 	WANBase func(hostname string) string
 	// Trust mints the token that marks probes as this run's. Nil sends none.
 	Trust *scantrust.Registry
@@ -205,9 +206,10 @@ func verdictCounts(rows []model.ScanEvidence) string {
 	return string(raw)
 }
 
-// resolveTarget builds the two endpoints from the proxy record. The upstream is the
-// first enabled address the operator saved; the published side is the hostname,
-// never a free-form URL from the request.
+// resolveTarget builds the two endpoints from the proxy record. The upstream is
+// the first enabled address the operator saved; the published side is the WAN
+// listener, never a free-form URL from the request, with the proxy hostname
+// carried as Host and TLS SNI.
 func resolveTarget(d ExecuteDeps, proxy model.Proxy) (Target, error) {
 	base := "https://" + proxy.Hostname
 	if d.WANBase != nil {
@@ -233,8 +235,12 @@ func resolveTarget(d ExecuteDeps, proxy model.Proxy) (Target, error) {
 			u.Scheme = "http"
 		}
 		return Target{
-			Proxy:    proxy,
-			WAN:      Endpoint{URL: wan, Host: proxy.Hostname},
+			Proxy: proxy,
+			// The listener address is dialled; the site hostname is the Host
+			// header and the certificate name. That is what lets a scan run
+			// against a hostname that does not resolve inside the node, or a
+			// WAN port that is not 443.
+			WAN:      Endpoint{URL: wan, Host: proxy.Hostname, TLSName: proxy.Hostname},
 			Upstream: Endpoint{URL: u, Host: proxy.Hostname},
 		}, nil
 	}

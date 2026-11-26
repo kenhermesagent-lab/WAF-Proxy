@@ -235,7 +235,7 @@ func (r *Runner) exposure(ctx context.Context, target Target) ([]model.ScanEvide
 		p := Probe{Stage: StageBackend, Class: "exposure", Method: http.MethodGet, Path: path}
 		up, err := r.send(ctx, r.upClient, target.Upstream, p)
 		if err != nil {
-			rows = append(rows, evidenceAt(r, rows, p, nil, NotRun, "the upstream did not answer: "+shortError(err)))
+			rows = append(rows, evidenceAt(r, rows, p, nil, NotRun, r.unreachableNote("upstream", r.upstream, err)))
 			continue
 		}
 		if up.status < 200 || up.status >= 300 || len(up.body) == 0 {
@@ -262,7 +262,7 @@ func (r *Runner) exposure(ctx context.Context, target Target) ([]model.ScanEvide
 		}
 		note := served
 		if wanErr != nil {
-			note += "; the published path did not answer: " + shortError(wanErr)
+			note += "; " + r.unreachableNote("published", r.wan, wanErr)
 		}
 		rows = append(rows, evidenceAt(r, rows, p, &up, ReachedBackend, note))
 		findings = append(findings, exposureFinding(path, exposureSeverity(path), note))

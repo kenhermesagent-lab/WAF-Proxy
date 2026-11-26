@@ -1072,7 +1072,7 @@ func run() error {
 	active.Add(func(ctx context.Context) { retentionLoop(ctx, st, log) })
 	active.Add(func(ctx context.Context) { utilizationLoop(ctx, st, met, log) })
 	active.Add(func(ctx context.Context) { certWatch(ctx, res, log) })
-	active.Add(func(ctx context.Context) { securityLoop(ctx, res, box, log) })
+	active.Add(func(ctx context.Context) { securityLoop(ctx, res, box, log, cfg) })
 	if startActive {
 		active.Start()
 	}

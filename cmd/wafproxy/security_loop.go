@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scan"
@@ -24,7 +25,7 @@ import (
 // securityLoop ticks the schedules and keeps the KEV snapshot fresh on the
 // active node. The first schedule check runs a minute after startup so a
 // window missed while the service was down is not lost.
-func securityLoop(ctx context.Context, res *siteres.Set, box *crypto.Box, log *slog.Logger) {
+func securityLoop(ctx context.Context, res *siteres.Set, box *crypto.Box, log *slog.Logger, cfg *config.Config) {
 	schedule := time.NewTicker(15 * time.Minute)
 	defer schedule.Stop()
 	kev := time.NewTicker(24 * time.Hour)
@@ -36,11 +37,11 @@ func securityLoop(ctx context.Context, res *siteres.Set, box *crypto.Box, log *s
 		case <-ctx.Done():
 			return
 		case <-first.C:
-			runSchedules(ctx, res, box, log)
+			runSchedules(ctx, res, box, log, cfg)
 		case <-schedule.C:
-			runSchedules(ctx, res, box, log)
+			runSchedules(ctx, res, box, log, cfg)
 		case <-kev.C:
-			syncKEVAndTrigger(ctx, res, box, log)
+			syncKEVAndTrigger(ctx, res, box, log, cfg)
 		}
 	}
 }
@@ -53,7 +54,7 @@ func bundleList(res *siteres.Set) []*siteres.Bundle {
 	return out
 }
 
-func runSchedules(ctx context.Context, res *siteres.Set, box *crypto.Box, log *slog.Logger) {
+func runSchedules(ctx context.Context, res *siteres.Set, box *crypto.Box, log *slog.Logger, cfg *config.Config) {
 	for _, b := range bundleList(res) {
 		sched, err := b.Store.ScanSchedule(b.Site.ID)
 		if err != nil || sched == nil || !sched.Enabled {
@@ -63,7 +64,7 @@ func runSchedules(ctx context.Context, res *siteres.Set, box *crypto.Box, log *s
 		if runs, err := b.Store.ListScanRuns(1); err == nil && len(runs) > 0 {
 			last = &runs[0].StartedAt
 		}
-		scheduler := securityScheduler(b, box, log)
+		scheduler := securityScheduler(b, box, log, cfg)
 		inputs := []scan.Input{{Schedule: *sched, LastRun: last, Signature: sched.Signature}}
 		if _, err := scheduler.Tick(ctx, inputs); err != nil {
 			log.Warn("security schedule", "site", b.Site.Slug, "err", err)
@@ -73,7 +74,7 @@ func runSchedules(ctx context.Context, res *siteres.Set, box *crypto.Box, log *s
 
 // syncKEVAndTrigger refreshes the snapshot and scans the sites whose open
 // findings name a product the new entries affect.
-func syncKEVAndTrigger(ctx context.Context, res *siteres.Set, box *crypto.Box, log *slog.Logger) {
+func syncKEVAndTrigger(ctx context.Context, res *siteres.Set, box *crypto.Box, log *slog.Logger, cfg *config.Config) {
 	st := res.Default().Store.Unscoped()
 	prev, _ := scan.LoadKEV(st)
 	next, changed, err := scan.NewKEVClient().Refresh(ctx, prev)
@@ -111,7 +112,7 @@ func syncKEVAndTrigger(ctx context.Context, res *siteres.Set, box *crypto.Box, l
 		if len(scan.KEVMatchesWatched(added, watched)) == 0 {
 			continue
 		}
-		scheduler := securityScheduler(b, box, log)
+		scheduler := securityScheduler(b, box, log, cfg)
 		if _, err := scheduler.TriggerNow(ctx, scan.Input{Schedule: *saved, Signature: saved.Signature}, scan.TriggerKEV); err != nil {
 			log.Warn("KEV-triggered scan", "site", b.Site.Slug, "err", err)
 		}
@@ -127,7 +128,7 @@ func hasTrigger(triggers []string, want string) bool {
 	return false
 }
 
-func securityScheduler(b *siteres.Bundle, box *crypto.Box, log *slog.Logger) *scan.Scheduler {
+func securityScheduler(b *siteres.Bundle, box *crypto.Box, log *slog.Logger, cfg *config.Config) *scan.Scheduler {
 	return &scan.Scheduler{
 		Leader: true,
 		Signature: func(int64) (string, error) {
@@ -141,9 +142,15 @@ func securityScheduler(b *siteres.Bundle, box *crypto.Box, log *slog.Logger) *sc
 			if err != nil {
 				return err
 			}
+			listen := ""
+			if cfg != nil {
+				listen = cfg.ListenWAN
+			}
+			base := scan.PublishedBase(listen)
 			deps := scan.ExecuteDeps{
 				Store: b.Store, Box: box, Notify: b.Notify, PerSecond: scan.ProbesPerSecond(b.Store),
 				ConsoleHost: b.Site.ConsoleHost, Bans: b.Bans, Trust: b.ScanTrust,
+				WANBase: func(string) string { return base },
 			}
 			for _, p := range proxies {
 				if !p.Enabled || p.Maintenance {

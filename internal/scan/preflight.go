@@ -124,8 +124,9 @@ func (r *Runner) RunPreflight(ctx context.Context, target Target) (*Preflight, e
 	}, 0)
 	wan, err := r.send(ctx, r.wanClient, r.wan, probe)
 	if err != nil {
-		pf.add("published path", false, shortError(err))
-		pf.Skip = "the published path did not answer"
+		note := r.unreachableNote("published", r.wan, err)
+		pf.add("published path", false, note)
+		pf.Skip = note
 		return pf, nil
 	}
 	pf.add("published path", true, fmt.Sprintf("HTTP %d", wan.status))
@@ -139,8 +140,9 @@ func (r *Runner) RunPreflight(ctx context.Context, target Target) (*Preflight, e
 
 	up, err := r.send(ctx, r.upClient, r.upstream, probe)
 	if err != nil {
-		pf.add("upstream", false, shortError(err))
-		pf.Skip = "the upstream did not answer"
+		note := r.unreachableNote("upstream", r.upstream, err)
+		pf.add("upstream", false, note)
+		pf.Skip = note
 		return pf, nil
 	}
 	pf.add("upstream", true, fmt.Sprintf("HTTP %d", up.status))

@@ -57,18 +57,18 @@ func NewRunner(wan, upstream Endpoint, perSecond int) *Runner {
 	return &Runner{
 		wan:       wan,
 		upstream:  upstream,
-		wanClient: probeClient(false),
-		upClient:  probeClient(upstream.Insecure),
+		wanClient: probeClient(false, wan.TLSName),
+		upClient:  probeClient(upstream.Insecure, upstream.TLSName),
 		perSecond: perSecond,
 		sources:   map[string]struct{}{},
 	}
 }
 
-func probeClient(insecure bool) *http.Client {
+func probeClient(insecure bool, tlsName string) *http.Client {
 	return &http.Client{
 		Timeout: probeTimeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure, ServerName: tlsName},
 		},
 		// A redirect is part of the answer: following it would hide the gate.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -119,6 +119,12 @@ func (r *Runner) Run(ctx context.Context, probes []Probe) ([]model.ScanEvidence,
 	return out, nil
 }
 
+// unreachableNote names the endpoint actually dialled and why it failed. A
+// bare "did not answer" hides whether the port, the address or TLS was wrong.
+func (r *Runner) unreachableNote(which string, ep Endpoint, err error) string {
+	return "the " + which + " endpoint " + ep.Label() + " did not answer: " + shortError(err)
+}
+
 // row builds an evidence row for a probe that was not sent.
 func (r *Runner) row(seq int, p Probe, verdict, note string) model.ScanEvidence {
 	return model.ScanEvidence{
@@ -145,7 +151,7 @@ func (r *Runner) probe(ctx context.Context, seq int, p Probe) model.ScanEvidence
 	}
 	if err != nil {
 		ev.Verdict = string(NotRun)
-		ev.Note = "the published path did not answer: " + shortError(err)
+		ev.Note = r.unreachableNote("published", r.wan, err)
 		return ev
 	}
 	ev.WANStatus = wan.status
@@ -175,7 +181,7 @@ func (r *Runner) probe(ctx context.Context, seq int, p Probe) model.ScanEvidence
 	up, err := r.send(ctx, r.upClient, r.upstream, p)
 	if err != nil {
 		ev.Verdict = string(Inconclusive)
-		ev.Note = "the upstream did not answer: " + shortError(err)
+		ev.Note = r.unreachableNote("upstream", r.upstream, err)
 		return ev
 	}
 	v, sim := verdictFor(wan, up)

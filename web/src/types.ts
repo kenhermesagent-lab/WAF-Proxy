@@ -446,6 +446,9 @@ export interface Proxy {
   // setting. body_skip paths are streamed without buffering or inspection.
   max_body: number;
   body_skip?: BodySkip[];
+  // deny_paths are the per-host path blocks the Security page installs when it
+  // closes an exposure; each covers its subtree and is refused before the gate.
+  deny_paths?: string[];
   created_at: string;
   upstreams: Upstream[];
   routes: Route[];

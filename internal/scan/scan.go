@@ -88,7 +88,33 @@ type Probe struct {
 type Endpoint struct {
 	URL  *url.URL
 	Host string
+	// TLSName is the name the certificate is checked against when URL.Host is a
+	// dial address (the listener) rather than the site's own name. Empty uses
+	// URL.Host.
+	TLSName string
 	// Insecure skips certificate verification for a backend that uses a
 	// self-signed one. The published side never sets it.
 	Insecure bool
+}
+
+// Label names the endpoint a probe dialled and the Host it claimed, so a
+// failure can say which address and port were tried instead of only that
+// "the published path did not answer".
+func (e Endpoint) Label() string {
+	if e.URL == nil {
+		return e.Host
+	}
+	addr := e.URL.Host
+	if addr == "" {
+		addr = e.Host
+	}
+	scheme := e.URL.Scheme
+	if scheme == "" {
+		scheme = "http"
+	}
+	label := scheme + "://" + addr
+	if e.Host != "" && e.Host != addr {
+		label += " (Host: " + e.Host + ")"
+	}
+	return label
 }

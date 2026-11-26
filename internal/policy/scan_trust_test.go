@@ -73,6 +73,40 @@ func TestScanTokenIsExemptFromAnExistingBan(t *testing.T) {
 	}
 }
 
+// The token lifts the decoy and ban rules, not the rate limit: a run has to be
+// able to observe a 429, and the refusal must not write a ban for the address
+// the node egresses from.
+func TestScanTokenStillPaysTheRateLimit(t *testing.T) {
+	pol, st, bans := newEngine(t)
+	pol.ScanTrust = func(token string) bool { return token == "run-token" }
+	if err := st.SetSetting("dos_rps", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("dos_burst", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	probe := func() *Request {
+		return &Request{
+			Addr: netip.MustParseAddr("203.0.113.11"), Method: "GET", Path: "/",
+			ScanToken: "run-token",
+		}
+	}
+	if first := pol.Screen(probe()); first.Action != "allow" {
+		t.Fatalf("first trusted probe = %+v, want the burst to admit it", first)
+	}
+	second := pol.Screen(probe())
+	if second.Stage != "dos" || second.Status != 429 {
+		t.Fatalf("the scan token was exempt from the rate limit: %+v", second)
+	}
+	if bans.Count() != 0 {
+		t.Fatalf("a rate-limit refusal from the scanner wrote %d ban(s)", bans.Count())
+	}
+}
+
 // The decoy ban is recorded asynchronously, so the count is only final once the
 // row appears.
 func waitBans(t *testing.T, bans interface{ Count() int }, want int) {

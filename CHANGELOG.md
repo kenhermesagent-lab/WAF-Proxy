@@ -60,9 +60,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **A scan no longer bans the node it runs on.** Probing a decoy path such as `/.env` wrote a
   permanent ban for the source address, which in production is the node's own egress address:
   every later probe was refused and the ban stayed. Each run now mints a random token that its
-  probes carry; traffic with a live token is exempt from the decoy, ban and rate-limit rules,
-  and any ban left on the run's own source address is removed when the run ends. The token is
-  held only for the run, never stored with the evidence and never forwarded to the backend.
+  probes carry; traffic with a live token is exempt from the decoy and ban rules, and any ban
+  left on the run's own source address is removed when the run ends. The token does not skip
+  the rate or login limits, so a run can observe the `429` a stranger gets, and the refusal
+  writes no ban. The token is held only for the run, never stored with the evidence and never
+  forwarded to the backend.
+- **A page-started scan dials the WAN listener instead of assuming 443 and public DNS.** The
+  endpoint is derived from the proxy record and the bound WAN listener — scheme, address and
+  port — and the hostname travels as `Host` and TLS SNI, so a WAN port that is not 443 or a
+  hostname that does not resolve inside the node no longer fails every run. A skip or evidence
+  row now names the endpoint actually dialled and the transport error.
 - **A manual scan is no longer refused on a standalone node.** The run endpoint treated any role other than `leader`
   as a standby, so the Run scan button answered `409` on every non-HA install; only a standby refuses now.
 - **A run's path, its end time and the reason it stopped are recorded.** The path is proved after the row exists and

@@ -1158,8 +1158,9 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
 /* ---------- drawer form rows ----------
    A drawer row is a grid while there is room and a stack on a phone, where
    several inputs and a remove button do not fit the drawer's width. */
-.upstream-row, .skip-row, .route-row { display: grid; gap: 8px; align-items: start; margin-bottom: 8px; }
+.upstream-row, .skip-row, .route-row, .deny-row { display: grid; gap: 8px; align-items: start; margin-bottom: 8px; }
 .upstream-row { grid-template-columns: minmax(0, 1fr) 90px auto; }
+.deny-row { grid-template-columns: minmax(0, 1fr) auto; }
 .skip-row { grid-template-columns: 100px minmax(0, 1fr) minmax(0, 1fr) auto; }
 .route-row { grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1.3fr) auto; }
 

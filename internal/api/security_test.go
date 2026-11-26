@@ -370,6 +370,16 @@ func TestRemediateExposureRequiresSecurityWrite(t *testing.T) {
 	}
 }
 
+// A page-started scan dials the WAN listener the node bound, not 443 on the
+// public hostname, so a non-standard port is reachable.
+func TestPublishedWANBaseUsesTheListener(t *testing.T) {
+	srv, _, _, _ := newObservabilityServer(t)
+	srv.cfg.ListenWAN = ":9443"
+	if got, want := srv.publishedWANBase(), "https://127.0.0.1:9443"; got != want {
+		t.Fatalf("published base = %q, want %q", got, want)
+	}
+}
+
 // A standalone install has no active node to defer to, so the role check must
 // not refuse its manual runs. A foreign target is still a 404.
 func TestRunAllowedOnStandaloneNode(t *testing.T) {
