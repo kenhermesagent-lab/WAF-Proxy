@@ -61,6 +61,9 @@ type Request struct {
 	// The WAF then drops its content-type and method policy rules, which would
 	// refuse a raw upload before the exemption could apply.
 	BodyStreamed bool
+	// ScanToken is the header the node's scanner sends with a probe. The engine
+	// asks ScanTrust; a token no run holds is treated as any other header.
+	ScanToken string
 }
 
 // WAFInfo describes the WAF outcome for logging.
@@ -120,6 +123,12 @@ type Engine struct {
 	wafs  *waf.Set
 	log   *slog.Logger
 	rl    *limiter
+
+	// ScanTrust validates a run token. A trusted request is this node's own
+	// scanner probing its published path: it is exempt from bans, decoys and
+	// rate limiting, so a probe cannot ban the address the node egresses from.
+	// Nil trusts nothing, which is what tests and simulations get.
+	ScanTrust func(token string) bool
 
 	mu         sync.RWMutex
 	global     ruleSet
@@ -728,8 +737,12 @@ func (e *Engine) screen(req *Request, live bool) model.Verdict {
 		country = strings.ToUpper(req.Loc.Country)
 	}
 
+	// A scan of this node's own published path must be able to measure the site
+	// it lives behind, and must never ban the address the node egresses from.
+	trusted := req.ScanToken != "" && e.ScanTrust != nil && e.ScanTrust(req.ScanToken)
+
 	// A permanent ban is absolute: no whitelist can override it.
-	if rec, ok := e.bans.Match(req.Addr); ok && rec.Permanent {
+	if rec, ok := e.bans.Match(req.Addr); ok && rec.Permanent && !trusted {
 		e.bans.NoteHit(req.Addr)
 		return model.Verdict{Action: "ban", Stage: "permanent-ban", Rule: rec.CIDR,
 			Reason: rec.Reason, Status: http.StatusForbidden, BanSource: rec.Source}
@@ -866,7 +879,12 @@ func (e *Engine) screen(req *Request, live bool) model.Verdict {
 	lowerPath := canonicalPath(req.Path)
 	for _, decoy := range rules.decoys {
 		if lowerPath == decoy || strings.HasPrefix(lowerPath, decoy+"/") {
-			if live {
+			action := "ban"
+			if trusted {
+				// The honeypot still refuses the probe, but a scan must not ban
+				// the node's own address for looking at it.
+				action = "block"
+			} else if live {
 				rawPath := req.Path
 				addr := req.Addr.String()
 				site := e.siteFor(req.Host)
@@ -874,7 +892,7 @@ func (e *Engine) screen(req *Request, live bool) model.Verdict {
 					_, _ = e.bans.AddFor(site, addr, "decoy path requested: "+rawPath, "decoy", "policy", 0)
 				}()
 			}
-			return model.Verdict{Action: "ban", Stage: "decoy", Rule: decoy,
+			return model.Verdict{Action: action, Stage: "decoy", Rule: decoy,
 				Reason: "decoy path", Status: http.StatusForbidden, BanSource: "decoy"}
 		}
 	}
@@ -908,7 +926,7 @@ func (e *Engine) screen(req *Request, live bool) model.Verdict {
 		}
 	}
 
-	if rec, ok := e.bans.Match(req.Addr); ok {
+	if rec, ok := e.bans.Match(req.Addr); ok && !trusted {
 		e.bans.NoteHit(req.Addr)
 		return model.Verdict{Action: "ban", Stage: "temp-ban", Rule: rec.CIDR,
 			Reason: rec.Reason, Status: http.StatusForbidden, BanSource: rec.Source}
@@ -934,7 +952,7 @@ func (e *Engine) screen(req *Request, live bool) model.Verdict {
 	if rules.rateBurst > 0 {
 		dosBurst = rules.rateBurst
 	}
-	if live {
+	if live && !trusted {
 		if allowed, strikeOut := e.rl.Allow(rateKey(req), dosRPS, dosBurst, e.now()); !allowed {
 			if strikeOut {
 				addr := req.Addr.String()

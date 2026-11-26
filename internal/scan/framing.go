@@ -8,6 +8,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scantrust"
 )
 
 // The raw wire shapes. net/http normalises every one of them away, so they are
@@ -56,6 +59,15 @@ func http10(probePath, host string) string {
 		"Host: " + host + "\r\n\r\n"
 }
 
+// withHeader inserts one header line after the request line, leaving the rest
+// of the hand-written request byte for byte as it was.
+func withHeader(raw, name, value string) string {
+	if i := strings.Index(raw, "\r\n"); i >= 0 {
+		return raw[:i+2] + name + ": " + value + "\r\n" + raw[i+2:]
+	}
+	return raw
+}
+
 // sendRaw writes a ready-made request to the published endpoint and reads the
 // answer. The connection is closed afterwards, so nothing that follows on the
 // wire can reach another request.
@@ -87,6 +99,10 @@ func (r *Runner) sendRaw(ctx context.Context, raw string) (answer, error) {
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
+	}
+	r.noteSource(conn.LocalAddr())
+	if r.Token != "" {
+		raw = withHeader(raw, scantrust.Header, r.Token)
 	}
 	if _, err := io.WriteString(conn, raw); err != nil {
 		return answer{}, err

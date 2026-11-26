@@ -44,6 +44,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/proxy"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scantrust"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/siteres"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/streaming"
@@ -592,6 +593,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// One registry for the whole process: a scan mints a token and every site's
+	// policy checks it, so probes are exempt from bans and decoys while the run
+	// is open.
+	scanTrust := scantrust.New()
 	feeds := intel.New(all, log, 32<<20)
 	// Signed signature packs. Each provider is one manifest plus the key it must
 	// be signed with; a provider missing either half stays off, and the service
@@ -631,7 +636,7 @@ func run() error {
 	// single-site install has always used, so an upgrade changes nothing.
 	res, err := siteres.New(siteres.Deps{
 		Store: st, Box: box, Log: log, Bans: bans, Feeds: feeds, Geo: geo,
-		Metrics: met, Bundles: bundles.Rules,
+		Metrics: met, Bundles: bundles.Rules, ScanTrust: scanTrust,
 		ACMEDirectory: cfg.ACMEDirectory, ACMECAFile: cfg.ACMECAFile,
 	})
 	if err != nil {

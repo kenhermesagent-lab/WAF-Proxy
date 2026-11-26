@@ -9,6 +9,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scan"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scantrust"
 )
 
 const securityMaxTargets = 4
@@ -395,8 +396,12 @@ func (s *Server) securityPerSecond(r *http.Request) int {
 }
 
 func (s *Server) securityDeps(r *http.Request) scan.ExecuteDeps {
+	var trust *scantrust.Registry
+	if b := s.siteRes(r); b != nil {
+		trust = b.ScanTrust
+	}
 	return scan.ExecuteDeps{
-		Store: s.db(r), Box: s.box, Notify: s.notify,
+		Store: s.db(r), Box: s.box, Notify: s.notify, Bans: s.bans, Trust: trust,
 		PerSecond: s.securityPerSecond(r), ConsoleHost: s.consoleHost(r), WANBase: s.securityWAN,
 	}
 }

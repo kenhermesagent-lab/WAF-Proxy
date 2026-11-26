@@ -9,12 +9,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"time"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/ban"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scantrust"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
@@ -38,7 +41,11 @@ type ExecuteDeps struct {
 	// WANBase builds the published endpoint for a hostname; nil means
 	// https://<hostname>, which is what a real deployment uses.
 	WANBase func(hostname string) string
-	Now     func() time.Time
+	// Trust mints the token that marks probes as this run's. Nil sends none.
+	Trust *scantrust.Registry
+	// Bans removes a ban this run left on the address it probed from.
+	Bans *ban.Engine
+	Now  func() time.Time
 }
 
 // sharedOSV keeps the advisory cache across runs.
@@ -87,6 +94,12 @@ func Execute(ctx context.Context, d ExecuteDeps, proxy model.Proxy, trigger, act
 
 	runner := NewRunner(target.WAN, target.Upstream, d.PerSecond)
 	runner.RunID = id
+	if d.Trust != nil {
+		if token, err := d.Trust.Begin(); err == nil {
+			runner.Token = token
+			defer d.Trust.End(token)
+		}
+	}
 	preflight, err := runner.RunPreflight(ctx, target)
 	if err != nil {
 		return finishRun(d, run, now, nil, err)
@@ -103,6 +116,7 @@ func Execute(ctx context.Context, d ExecuteDeps, proxy model.Proxy, trigger, act
 		KEV: loadKEV(d.Store), Advisories: advisorySource(d), Now: d.Now,
 	})
 	evidence = append(evidence, backend...)
+	cleanupScanBans(d.Bans, runner.Sources(), now)
 	for i := range evidence {
 		evidence[i].RunID = id
 		evidence[i].Seq = i
@@ -123,6 +137,40 @@ func Execute(ctx context.Context, d ExecuteDeps, proxy model.Proxy, trigger, act
 		d.Notify.EnqueueSecurityResolved(resolved)
 	}
 	return finishRun(d, run, now, evidence, nil)
+}
+
+// cleanupScanBans removes bans recorded against the addresses this run probed
+// from, when they were created after it started. A trusted probe no longer
+// writes one, so a leftover is a ban from a build that predates the token or a
+// rule the token never reached; either way the node must not stay banned for
+// scanning itself.
+func cleanupScanBans(bans *ban.Engine, sources []string, since time.Time) {
+	if bans == nil || len(sources) == 0 {
+		return
+	}
+	list, err := bans.List(false)
+	if err != nil {
+		return
+	}
+	// Ban timestamps are stored to the second, so the comparison starts at the
+	// second the run began rather than its fractional start.
+	cutoff := since.Truncate(time.Second)
+	for _, rec := range list {
+		if rec.CreatedAt.Before(cutoff) {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(rec.CIDR)
+		if err != nil {
+			continue
+		}
+		for _, src := range sources {
+			addr, err := netip.ParseAddr(src)
+			if err == nil && prefix.Contains(addr) {
+				_ = bans.Remove(rec.CIDR)
+				break
+			}
+		}
+	}
 }
 
 // finishRun closes the run with the time it actually ended. Using the start

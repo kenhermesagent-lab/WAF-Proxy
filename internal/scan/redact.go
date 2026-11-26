@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scantrust"
 )
 
 const maxDetailBytes = 2048
@@ -40,7 +42,10 @@ func RedactRequest(p Probe) string {
 	sort.Strings(names)
 	for _, name := range names {
 		value := strings.Join(p.Header.Values(name), ", ")
-		if secretHeaders[http.CanonicalHeaderKey(name)] {
+		// The scan token is a credential for the ban exemption, so it is
+		// redacted like any other secret even though the runner adds it only
+		// at send time.
+		if secretHeaders[http.CanonicalHeaderKey(name)] || strings.EqualFold(name, scantrust.Header) {
 			value = "REDACTED"
 		}
 		b.WriteString("\n" + name + ": " + value)

@@ -143,7 +143,7 @@ func securityScheduler(b *siteres.Bundle, box *crypto.Box, log *slog.Logger) *sc
 			}
 			deps := scan.ExecuteDeps{
 				Store: b.Store, Box: box, Notify: b.Notify, PerSecond: scan.ProbesPerSecond(b.Store),
-				ConsoleHost: b.Site.ConsoleHost,
+				ConsoleHost: b.Site.ConsoleHost, Bans: b.Bans, Trust: b.ScanTrust,
 			}
 			for _, p := range proxies {
 				if !p.Enabled || p.Maintenance {

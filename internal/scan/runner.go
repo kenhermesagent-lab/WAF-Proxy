@@ -6,12 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptrace"
+	"net/netip"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/gate"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scantrust"
 )
 
 // ErrAborted is returned when the published path refused the scanner often
@@ -37,6 +43,12 @@ type Runner struct {
 	// RunID tags every request for the request log. Zero leaves it untagged,
 	// which a preflight-only caller may do.
 	RunID int64
+	// Token marks every probe as this run's. The policy trusts it only while
+	// the registry holds it, so no other client can borrow the exemption.
+	Token string
+
+	mu      sync.Mutex
+	sources map[string]struct{}
 }
 
 // NewRunner builds a runner for one target. perSecond paces the probes; zero
@@ -48,6 +60,7 @@ func NewRunner(wan, upstream Endpoint, perSecond int) *Runner {
 		wanClient: probeClient(false),
 		upClient:  probeClient(upstream.Insecure),
 		perSecond: perSecond,
+		sources:   map[string]struct{}{},
 	}
 }
 
@@ -194,6 +207,9 @@ func (r *Runner) retry(ctx context.Context, p Probe, wan, up answer) (answer, an
 func (r *Runner) send(ctx context.Context, c *http.Client, ep Endpoint, p Probe) (answer, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) { r.noteSource(info.Conn.LocalAddr()) },
+	})
 
 	u := *ep.URL
 	u.Path = strings.TrimSuffix(u.Path, "/") + p.Path
@@ -210,6 +226,9 @@ func (r *Runner) send(ctx context.Context, c *http.Client, ep Endpoint, p Probe)
 		for _, value := range values {
 			req.Header.Add(name, value)
 		}
+	}
+	if r.Token != "" {
+		req.Header.Set(scantrust.Header, r.Token)
 	}
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", scanUserAgent)
@@ -239,6 +258,36 @@ func (r *Runner) tagProbe(p Probe, seq int) Probe {
 	header.Set(probeTagHeader, fmt.Sprintf("%d-%d", r.RunID, seq))
 	p.Header = header
 	return p
+}
+
+// noteSource remembers an address a probe left from, which is what makes a
+// run's leftover bans findable.
+func (r *Runner) noteSource(addr net.Addr) {
+	if addr == nil {
+		return
+	}
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		host = addr.String()
+	}
+	if _, err := netip.ParseAddr(host); err != nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sources[host] = struct{}{}
+}
+
+// Sources lists the addresses the probes left from, as the kernel chose them.
+func (r *Runner) Sources() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, 0, len(r.sources))
+	for src := range r.sources {
+		out = append(out, src)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // pace spaces probes so a run never looks like a flood.

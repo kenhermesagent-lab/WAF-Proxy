@@ -30,6 +30,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/notify"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scantrust"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/waf"
 )
@@ -47,6 +48,9 @@ type Deps struct {
 	Bundles func() []waf.Bundle
 	// Prober runs the canary check; nil uses the real network prober.
 	Prober canary.Probe
+	// ScanTrust holds the tokens of running scans, so their probes are exempt
+	// from bans, decoys and rate limiting.
+	ScanTrust *scantrust.Registry
 	// ACMEDirectory and ACMECAFile are host-wide: one CA, one staging switch.
 	ACMEDirectory string
 	ACMECAFile    string
@@ -63,6 +67,10 @@ type Bundle struct {
 	Canary  *canary.Monitor
 	ACME    *acme.Manager
 	Wafs    *waf.Set
+	// Bans and ScanTrust are process-wide; the loop and the API read them
+	// through the bundle they already have.
+	Bans      *ban.Engine
+	ScanTrust *scantrust.Registry
 
 	// started guards the background loops that must run once per instance.
 	started bool
@@ -143,19 +151,24 @@ func (s *Set) build(site model.Site) (*Bundle, error) {
 	if d.Bundles != nil {
 		pol.SetBundleRules(d.Bundles)
 	}
+	if d.ScanTrust != nil {
+		pol.ScanTrust = d.ScanTrust.Valid
+	}
 	prober := d.Prober
 	if prober == nil {
 		prober = canary.Prober{}
 	}
 	return &Bundle{
-		Site:    site,
-		Store:   scoped,
-		Policy:  pol,
-		Notify:  nt,
-		Anomaly: anomaly.New(scoped, d.Metrics, nt, d.Log),
-		Canary:  canary.NewMonitor(scoped, prober, nt),
-		ACME:    certs,
-		Wafs:    wafs,
+		Site:      site,
+		Store:     scoped,
+		Policy:    pol,
+		Notify:    nt,
+		Anomaly:   anomaly.New(scoped, d.Metrics, nt, d.Log),
+		Canary:    canary.NewMonitor(scoped, prober, nt),
+		ACME:      certs,
+		Wafs:      wafs,
+		Bans:      d.Bans,
+		ScanTrust: d.ScanTrust,
 	}, nil
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/botguard"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/policy"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scantrust"
 )
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -166,6 +167,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	preq := &policy.Request{
 		Proxy: &e.proxy, Host: host, Method: r.Method, Path: r.URL.Path,
 		Query: r.URL.RawQuery, UA: r.UserAgent(), Addr: ip, Loc: loc, HTTP: r,
+		ScanToken: r.Header.Get(scantrust.Header),
 	}
 
 	verdict := s.d.Policy.Screen(preq)
@@ -631,6 +633,8 @@ func cleanInboundHeaders(r *http.Request) {
 		"CF-Connecting-IP", "CF-Connecting-IPv4",
 		"Forwarded", "X-Original-Url", "X-Rewrite-Url", "X-Http-Method-Override",
 		"X-Forwarded-Server", "X-Forwarded-Port", "Proxy", "Proxy-Connection",
+		// The scan token is spent by now and is never the backend's business.
+		scantrust.Header,
 	}
 	for _, h := range drop {
 		r.Header.Del(h)

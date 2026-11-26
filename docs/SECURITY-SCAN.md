@@ -43,10 +43,12 @@ Four consequences worth stating plainly:
   (`?id=1`, no payload) runs alongside the attack payloads. If the control is itself refused —
   Under Attack mode, a geo or ASN block, a rate limit — every block in that class becomes
   `inconclusive`, because the run cannot tell a targeted rule from a blanket refusal.
-- **The scanner can trip Cloudflare, and the gate's own ban ladder.** It sends roughly 120
-  requests to the WAN hostname in a burst, and the gate bans a source address after three
-  failed logins in ten minutes. Limits (below) cap it at 12 requests/second, abort it on `429`,
-  and hold gate-login failures to two per run so the scanner cannot ban the node's own address.
+- **The scanner cannot ban the node it runs on.** A run mints a random token, sends it on every
+  probe, and holds it only while the run is open. Traffic carrying a live token is exempt from
+  the decoy, ban and rate-limit rules, so a `/.env` probe is still refused but no longer bans the
+  address the node egresses from; a ban left by an earlier build is removed when the run ends.
+  Limits (below) still cap it at 12 requests/second, abort it on `429`, and hold gate-login
+  failures to two per run. The scanner can still trip Cloudflare's own limits at the edge.
 - **A WAF miss is visible to the app.** A 404 is still handled by the application process. The
   probe path is random and read-only, so the app does nothing with it, but the request does
   arrive. That is the point: an unarmed scanner cannot prove a bypass.
@@ -64,6 +66,7 @@ SSRF gadget. It gets the same treatment as any other request-building code.
 | The test gate account becomes a back door | Accounts created for scanning are flagged `scan_only`, get no access to any hostname except the ones explicitly bound, and are listed on the Access gate page with the scanner as their origin |
 | Probe traffic hides in the logs forever | Every probe carries `X-Scan-Probe: <run-id>-<seq>`, and the request log keeps the row; retention follows the log's own retention |
 | A tenant scans the host console | A tenant run may only target proxies of its own site; console hostnames are host-console targets only |
+| A client forges the ban exemption | The token is 32 random bytes minted per run, held in memory only while that run is open, never written to evidence or forwarded upstream; a token no run holds is treated as any other header |
 
 ---
 
