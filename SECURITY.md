@@ -135,6 +135,32 @@ Out of scope:
   documented behaviour;
 - findings from an automated scanner with no demonstrated impact.
 
+## Security scan
+
+Since **1.77.0** this node can scan its own published hostnames from **System → Security
+scan**. What it claims, and what it does not:
+
+- It sends `GET`, `HEAD`, `OPTIONS` and `TRACE` to the application, and `POST` only to the
+gate's own login and to a random probe path preflight has proven returns the application's
+`404`. It never sends `PUT`, `PATCH` or `DELETE`, never uploads and never submits a form.
+- A WAF miss therefore reaches the application's `404` handler. The probe path is random and
+read-only, but the request does arrive; a scanner that never reached the app could not prove a
+bypass.
+- Targets are proxy records the signed-in site may read, resolved on the server. There is no
+free-form URL or host field, and a foreign target is a `404` before anything is sent.
+- It tests this node, not the edge in front of it. With hairpin NAT off, split-horizon DNS or a
+tunnel-only site, the probe measures this node's WAF and gate; the run records path `local` and
+the page says so.
+- Evidence keeps hashes, statuses, header names and a redacted request line. Cookies,
+`Authorization` and `?token=`/`?key=` values are stripped, and nothing is stored for paths that
+exist to leak credentials.
+- An empty or failed advisory answer is `unknown`, never clean. A stale feed makes every
+dependent claim unknown, and `not run` and `inconclusive` are shown as not clean.
+
+It is not a general-purpose penetration test, does not replace one, and cannot be aimed at a
+third party. The rules, the threat model and the residual risk are in
+[docs/SECURITY-SCAN.md](docs/SECURITY-SCAN.md).
+
 ## Hardening the deployment
 
 ![Readiness: the scored hardening checklist, with a fix for each gap](docs/screenshots/readiness.png)

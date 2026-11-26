@@ -88,6 +88,7 @@ export const api = {
   post: <T>(p: string, body?: unknown) => request<T>(p, { method: "POST", body }),
   postRaw: <T>(p: string, body: BodyInit, headers: Record<string, string>) => postRaw<T>(p, body, headers),
   put: <T>(p: string, body?: unknown, headers?: Record<string, string>) => request<T>(p, { method: "PUT", body, headers }),
+  patch: <T>(p: string, body?: unknown) => request<T>(p, { method: "PATCH", body }),
   del: <T>(p: string) => request<T>(p, { method: "DELETE" }),
   upload,
   download,

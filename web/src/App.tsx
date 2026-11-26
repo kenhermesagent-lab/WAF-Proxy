@@ -30,6 +30,7 @@ import SitesPage from "./pages/Sites";
 import HelpPage from "./help/HelpPage";
 import { helpPageFromHash } from "./help";
 import HAPage from "./pages/HA";
+import SecurityPage from "./pages/Security";
 
 type Phase = "loading" | "setup" | "enrol" | "login" | "app";
 
@@ -501,6 +502,9 @@ export default function App() {
               )}
               {page === "settings" && (
                 <SettingsPage onError={onError} onOK={onOK} version={me?.version ?? ""} me={me} onMeChanged={reloadMe} {...tabProps("settings")} />
+              )}
+              {page === "security" && (
+                <SecurityPage me={me} onError={onError} onOK={onOK} {...tabProps("security")} />
               )}
               {page === "ha" && <HAPage me={me} version={me?.version ?? ""} onError={onError} onOK={onOK} />}
               {page === "sites" && <SitesPage onError={onError} onOK={onOK} me={me} />}

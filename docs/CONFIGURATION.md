@@ -34,6 +34,7 @@ troubleshooting see the [operations runbook](OPERATIONS.md); for the wire API se
 - [Readiness](#readiness)
 - [Sites](#sites)
 - [High availability](#high-availability)
+- [Security scan](#security-scan)
 - [Account, administrators and roles](#account-administrators-and-roles)
 - [Environment variables](#environment-variables)
 - [Data directory and headless commands](#data-directory-and-headless-commands)
@@ -1013,6 +1014,92 @@ the upgrade order are in [HA.md](HA.md) and [Operations](OPERATIONS.md#upgrading
 Every action re-authenticates with the administrator password and, when enrolled, a current
 authenticator code; failover and unpair also need the cluster id typed again. The page and the
 Settings switch exist only on the default site's console.
+
+## Security scan
+
+The mockup is [docs/design/security-scan-mockup.html](design/security-scan-mockup.html).
+
+*The **Security scan** page (`#/security`, under **System** between **Cloudflare** and
+**Sites**) has five tabs: Overview, Scans, Findings, Vulnerability feed and Schedule.*
+
+It attacks this node's own published hostnames and records what each layer did with every
+probe. It is not a penetration test and it never aims at a third party: a target is a proxy id
+this site may read, resolved on the server, never a URL from the request.
+
+### Permissions
+
+Three tokens, so an operator can run a scan without also changing the schedule.
+
+| Token | Grants | Built-in roles |
+|-------|--------|----------------|
+| `security.read` | The page, runs, findings and feed state | Read-only, Operator, HostAdmin |
+| `security.run` | Start a manual run | Operator, HostAdmin |
+| `security.write` | Accept or reopen a finding, sync KEV, save schedule and limits | Administrator, wildcard |
+
+Settings permission does not imply any of them. A run started by an account is audited as
+`security.run` with the hostname; a finding decision as `security.finding`; a schedule save as
+`security.schedule`.
+
+### Tabs
+
+| Tab | Shows |
+|-----|-------|
+| **Overview** | Posture (`covered`, `exposed`, `unknown`), open findings by severity, the last five runs, feed freshness and the fixed authorization rules |
+| **Scans** | Run history and, per run, every probe with its stage, request, verdict and the WAN/upstream statuses |
+| **Findings** | The open, accepted and resolved findings, filterable, with the recommendation, CVE ids and KEV state |
+| **Vulnerability feed** | KEV and OSV: last success, age, staleness, record count, bytes; the storage budget; the components open findings name |
+| **Schedule** | Cadence, triggers and the safety limits |
+
+States, not grades: `not run` and `inconclusive` are shown in words as **not clean**, and a
+stale feed makes every dependent claim `unknown`. A run whose probes never left the node
+records path `local`, and its findings describe this node's WAF, not the operator's edge.
+
+### Schedule and limits
+
+| Control | Values | Effect |
+|---------|--------|--------|
+| Enabled | on / off | A disabled schedule runs nothing; a manual run still works |
+| Cadence | daily, weekly, monthly | Weekly uses day 0–6 (0 = Sunday); monthly 1–28 so every month has the day |
+| Hour | 0–23 UTC | The run starts inside that hour, with jitter |
+| Triggers | config change, upgrade, new KEV match | On top of the schedule; KEV only fires when that trigger is ticked |
+| Pause all scanning | `security_paused` | Refuses manual and scheduled runs |
+| Probes per second | `security_probes_per_second`, 1–50, default **12** | Request rate of every stage; a run also aborts on a sustained `429` |
+
+At most four hostnames per run, five minutes per run, and at most two gate credential failures
+per run so the scanner cannot trip the gate's own ban ladder. A tick skips a site whose proxy
+configuration and version are unchanged since its last run; the skip is still recorded as a run.
+
+The scheduler runs on the active node only. Hours are UTC and the jitter stays inside the hour,
+so two sites on the same cadence do not scan together.
+
+The console stores this per site (`scan_schedules`), so a tenant can only change its own row.
+
+### Findings
+
+Each finding has a stable key, the hostname, stage and class, a severity, the recommendation,
+any CVE ids, whether CISA KEV names it, and a product and version when the banner or a status
+endpoint reported one. States are `open`, `accepted` and `resolved`:
+
+- a finding keeps its first-seen time across runs;
+- accepting one requires a reason, which is shown next to it and survives later runs;
+- a resolved finding that the next run proves again reopens;
+- an open finding the next run no longer proves becomes resolved.
+
+Alerts use the **Notifications** channels: `security_new`, `security_resolved` and
+`security_kev`, deduped by finding key.
+
+### Feeds, storage and evidence
+
+KEV syncs daily and OSV is queried per component on demand and cached; three times a source's
+cadence counts as stale. Evidence keeps hashes, statuses, header names and a redacted request
+line — never a credential, a cookie value or a response body. The feature's storage budget is
+30 MB, with evidence retention trimming the oldest runs first and findings kept.
+
+### API
+
+`GET /api/security/overview`, `/runs`, `/runs/{id}`, `/findings`, `/feed`, `/schedule`,
+`/limits`; `POST /api/security/runs` and `/feed/sync`; `PUT /api/security/schedule` and
+`/limits`; `PATCH /api/security/findings/{key}`. See [openapi.yaml](openapi.yaml).
 
 ## Account, administrators and roles
 

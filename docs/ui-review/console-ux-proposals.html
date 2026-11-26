@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WAF-Proxy console — UX review and onboarding proposals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<style>
+  html { scroll-behavior: smooth; }
+  body { font-family: Inter, "SF Pro Text", -apple-system, "Segoe UI", sans-serif; font-feature-settings: "cv02","cv03","cv04","cv11"; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; }
+  ::selection { background: rgba(79,140,255,.28); }
+  .frame { box-shadow: 0 1px 1px rgba(0,0,0,.5), 0 30px 70px -30px rgba(0,0,0,.75); }
+  .pin { box-shadow: 0 0 0 4px #0a0c10; }
+  .doc-grid { background-image: radial-gradient(rgba(255,255,255,.045) 1px, transparent 0); background-size: 22px 22px; }
+  [id] { scroll-margin-top: 76px; }
+  .anon-frame::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 55%, rgba(10,12,16,.35)); pointer-events: none; }
+</style>
+</head>
+<body class="bg-[#0a0c10] text-[#e9edf3] text-[13.5px] leading-relaxed antialiased">
+
+<!-- ============ HEADER ============ -->
+<header class="doc-grid border-b border-[#232a35]">
+  <div class="mx-auto max-w-[1180px] px-5 sm:px-8 pt-12 pb-10">
+    <div class="flex items-center gap-3">
+      <div class="flex h-9 w-9 items-center justify-center rounded-[8px] border border-[#2f3846] bg-[#101419]">
+        <i data-lucide="shield" class="h-[18px] w-[18px] text-[#7fb0ff]"></i>
+      </div>
+      <div class="text-[11px] font-medium uppercase tracking-[0.16em] text-[#828b9a]">WAF-Proxy · console review</div>
+      <span class="ml-auto rounded-full border border-[#232a35] bg-[#101419] px-2.5 py-1 text-[11px] text-[#98a2b3]">v1.72.1</span>
+    </div>
+    <h1 class="mt-7 max-w-[820px] text-[30px] font-semibold leading-[1.15] tracking-tight sm:text-[38px]">
+      A console a junior can adopt without a call with you
+    </h1>
+    <p class="mt-4 max-w-[720px] text-[15px] leading-7 text-[#98a2b3]">
+      Visual review at 360, 768 and 1280, plus proposals for onboarding, guided configuration,
+      in-context help and troubleshooting. Every mockup uses the console's own tokens, fonts and density.
+    </p>
+    <div class="mt-6 flex flex-wrap gap-2 text-[11.5px] text-[#98a2b3]">
+      <span class="inline-flex items-center gap-1.5 rounded-md border border-[#232a35] bg-[#101419] px-2.5 py-1"><i data-lucide="monitor" class="h-3.5 w-3.5 text-[#7fb0ff]"></i> 1280 · 768 · 360</span>
+      <span class="inline-flex items-center gap-1.5 rounded-md border border-[#232a35] bg-[#101419] px-2.5 py-1"><i data-lucide="database" class="h-3.5 w-3.5 text-[#3ecf8e]"></i> seeded demo: 7 hostnames, 186 events</span>
+      <span class="inline-flex items-center gap-1.5 rounded-md border border-[#232a35] bg-[#101419] px-2.5 py-1"><i data-lucide="wifi-off" class="h-3.5 w-3.5 text-[#e5a54b]"></i> design must work offline</span>
+    </div>
+  </div>
+</header>
+
+<!-- ============ SECTION NAV ============ -->
+<nav class="sticky top-0 z-40 border-b border-[#1a2029] bg-[#0a0c10]/95 backdrop-blur">
+  <div class="mx-auto flex max-w-[1180px] gap-1 overflow-x-auto px-3 py-2 text-[12px] text-[#98a2b3] sm:px-8">
+    <a href="#findings" class="shrink-0 rounded-md px-2.5 py-1.5 hover:bg-[#171c24] hover:text-[#e9edf3]">What I found</a>
+    <a href="#setup" class="shrink-0 rounded-md px-2.5 py-1.5 hover:bg-[#171c24] hover:text-[#e9edf3]">1 · Start here</a>
+    <a href="#wizard" class="shrink-0 rounded-md px-2.5 py-1.5 hover:bg-[#171c24] hover:text-[#e9edf3]">2 · Guided proxy</a>
+    <a href="#help" class="shrink-0 rounded-md px-2.5 py-1.5 hover:bg-[#171c24] hover:text-[#e9edf3]">3 · Inline help</a>
+    <a href="#troubleshoot" class="shrink-0 rounded-md px-2.5 py-1.5 hover:bg-[#171c24] hover:text-[#e9edf3]">4 · Troubleshoot</a>
+    <a href="#nav" class="shrink-0 rounded-md px-2.5 py-1.5 hover:bg-[#171c24] hover:text-[#e9edf3]">5 · Navigation</a>
+    <a href="#flows" class="shrink-0 rounded-md px-2.5 py-1.5 hover:bg-[#171c24] hover:text-[#e9edf3]">6 · Diagrams</a>
+    <a href="#plan" class="shrink-0 rounded-md px-2.5 py-1.5 hover:bg-[#171c24] hover:text-[#e9edf3]">Plan</a>
+  </div>
+</nav>
+
+<main class="mx-auto max-w-[1180px] px-5 sm:px-8">
+
+<!-- ============ 1. FINDINGS ============ -->
+<section id="findings" class="py-14">
+  <div class="flex items-baseline gap-3">
+    <span class="mono text-[11px] text-[#4f8cff]">01</span>
+    <h2 class="text-[22px] font-semibold tracking-tight">What I found with fresh eyes</h2>
+  </div>
+  <p class="mt-2 max-w-[760px] text-[#98a2b3]">
+    The console is unusually complete and the visual language is consistent. The gaps are almost all
+    about <em class="not-italic text-[#e9edf3]">orientation</em>: a new admin can see every control but not the order to use them,
+    what "good" looks like, or what to do when a number is wrong.
+  </p>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <figure class="overflow-hidden rounded-lg border border-[#232a35] bg-[#0d1116]">
+      <img src="screens/before-360-proxies.png" alt="Hostnames on a 360px screen with hostnames broken mid-word" class="h-36 w-full object-cover object-top opacity-90" />
+      <figcaption class="border-t border-[#1a2029] px-2.5 py-2 text-[10.5px] leading-4 text-[#828b9a]"><span class="text-[#e9edf3]">360 · hostnames</span> break mid-label and hide the actions.</figcaption>
+    </figure>
+    <figure class="overflow-hidden rounded-lg border border-[#232a35] bg-[#0d1116]">
+      <img src="screens/before-768-proxies.png" alt="Hostname table at 768px with columns cut off" class="h-36 w-full object-cover object-top opacity-90" />
+      <figcaption class="border-t border-[#1a2029] px-2.5 py-2 text-[10.5px] leading-4 text-[#828b9a]"><span class="text-[#e9edf3]">768 · hostnames</span> needs an inner scrollbar most people miss.</figcaption>
+    </figure>
+    <figure class="overflow-hidden rounded-lg border border-[#232a35] bg-[#0d1116]">
+      <img src="screens/before-readiness.png" alt="Readiness checklist inside the eleventh Settings tab" class="h-36 w-full object-cover object-top opacity-90" />
+      <figcaption class="border-t border-[#1a2029] px-2.5 py-2 text-[10.5px] leading-4 text-[#828b9a]"><span class="text-[#e9edf3]">Readiness</span> is a strong checklist, 11 tabs deep.</figcaption>
+    </figure>
+    <figure class="overflow-hidden rounded-lg border border-[#232a35] bg-[#0d1116]">
+      <img src="screens/before-help-drawer.png" alt="The page help drawer with concepts and first tasks" class="h-36 w-full object-cover object-top opacity-90" />
+      <figcaption class="border-t border-[#1a2029] px-2.5 py-2 text-[10.5px] leading-4 text-[#828b9a]"><span class="text-[#e9edf3]">Page help</span> explains concepts well; it just has no audience yet.</figcaption>
+    </figure>
+  </div>
+
+  <div class="mt-7 grid gap-3 sm:grid-cols-2">
+    <div class="rounded-xl border border-[#232a35] bg-[#101419] p-4">
+      <div class="flex items-center gap-2 text-[12px] font-medium text-[#e5a54b]"><i data-lucide="alert-triangle" class="h-4 w-4"></i> Highest impact</div>
+      <h3 class="mt-2 text-[14px] font-semibold">The best onboarding asset is buried.</h3>
+      <p class="mt-1.5 text-[12.5px] leading-6 text-[#98a2b3]">
+        <span class="text-[#e9edf3]">Settings → Readiness</span> already holds a 7-step checklist with "Open Certificates" style links.
+        It is the 11th of 12 tabs, so a new admin meets it last — if at all. Promote it to a top-level
+        <span class="text-[#e9edf3]">Get set up</span> page and keep the hardening checklist where it is.
+      </p>
+      <div class="mt-3 flex items-center gap-1.5 text-[11px] text-[#828b9a]"><span class="mono rounded bg-[#0d1116] px-1.5 py-0.5">#/settings/readiness</span></div>
+    </div>
+    <div class="rounded-xl border border-[#232a35] bg-[#101419] p-4">
+      <div class="flex items-center gap-2 text-[12px] font-medium text-[#f0616d]"><i data-lucide="smartphone" class="h-4 w-4"></i> Broken at 360</div>
+      <h3 class="mt-2 text-[14px] font-semibold">The hostname table is unreadable on a phone.</h3>
+      <p class="mt-1.5 text-[12.5px] leading-6 text-[#98a2b3]">
+        Hostnames break mid-label (<span class="mono text-[11px]">dawaric / h.kendk</span>) and the columns a new admin
+        needs — requests, state, actions — sit off-screen behind an inner scrollbar. Switch to stacked
+        hostname cards below 640px; keep the table from 768px up.
+      </p>
+      <div class="mt-3 flex items-center gap-1.5 text-[11px] text-[#828b9a]"><span class="mono rounded bg-[#0d1116] px-1.5 py-0.5">#/proxies/sites</span></div>
+    </div>
+    <div class="rounded-xl border border-[#232a35] bg-[#101419] p-4">
+      <div class="flex items-center gap-2 text-[12px] font-medium text-[#e5a54b]"><i data-lucide="layers" class="h-4 w-4"></i> Duplication</div>
+      <h3 class="mt-2 text-[14px] font-semibold">Every Statistics tab repeats the same two cards.</h3>
+      <p class="mt-1.5 text-[12.5px] leading-6 text-[#98a2b3]">
+        Uptime monitor and Requests over time appear above Overview, Traffic, Access-gate logins and
+        Utilization, with an identical page description. On a phone that means scrolling past the same
+        two blocks to reach the tab you chose. Keep them on Overview only.
+      </p>
+      <div class="mt-3 flex items-center gap-1.5 text-[11px] text-[#828b9a]"><span class="mono rounded bg-[#0d1116] px-1.5 py-0.5">#/statistics/*</span></div>
+    </div>
+    <div class="rounded-xl border border-[#232a35] bg-[#101419] p-4">
+      <div class="flex items-center gap-2 text-[12px] font-medium text-[#7fb0ff]"><i data-lucide="compass" class="h-4 w-4"></i> Three ways to the same page</div>
+      <h3 class="mt-2 text-[14px] font-semibold">Activity, High availability and Threat intel each live twice.</h3>
+      <p class="mt-1.5 text-[12.5px] leading-6 text-[#98a2b3]">
+        They are sidebar destinations <em class="not-italic">and</em> Settings tabs. Settings also carries tenant
+        pages (GeoIP, Threat intel) beside host pages. That makes the Settings tab strip 12 wide on a tablet
+        and leaves no single answer to "where is that setting?".
+      </p>
+      <div class="mt-3 flex items-center gap-1.5 text-[11px] text-[#828b9a]"><span class="mono rounded bg-[#0d1116] px-1.5 py-0.5">nav.ts · settings tabs</span></div>
+    </div>
+    <div class="rounded-xl border border-[#232a35] bg-[#101419] p-4">
+      <div class="flex items-center gap-2 text-[12px] font-medium text-[#e5a54b]"><i data-lucide="mouse-pointer-click" class="h-4 w-4"></i> Unlabelled action</div>
+      <h3 class="mt-2 text-[14px] font-semibold">"360" means nothing on its own.</h3>
+      <p class="mt-1.5 text-[12.5px] leading-6 text-[#98a2b3]">
+        Each hostname row offers <span class="mono text-[11px]">360</span> and <span class="mono text-[11px]">Edit</span>.
+        Nothing explains that 360 opens the hostname's full traffic view. Use an eye icon with a tooltip,
+        or label it "Traffic".
+      </p>
+      <div class="mt-3 flex items-center gap-1.5 text-[11px] text-[#828b9a]"><span class="mono rounded bg-[#0d1116] px-1.5 py-0.5">Proxies · row actions</span></div>
+    </div>
+    <div class="rounded-xl border border-[#232a35] bg-[#101419] p-4">
+      <div class="flex items-center gap-2 text-[12px] font-medium text-[#3ecf8e]"><i data-lucide="badge-help" class="h-4 w-4"></i> Good bones, weak reach</div>
+      <h3 class="mt-2 text-[14px] font-semibold">Page help exists and is genuinely good — but hidden.</h3>
+      <p class="mt-1.5 text-[12.5px] leading-6 text-[#98a2b3]">
+        Every page ships offline help via a small <span class="mono text-[11px]">?</span> in the page head, plus a printable
+        copy and a <span class="mono text-[11px]">?</span> keyboard shortcut. The content explains concepts well; the problem is
+        discovery, and that it never points at the control that fixes the thing it describes.
+      </p>
+      <div class="mt-3 flex items-center gap-1.5 text-[11px] text-[#828b9a]"><span class="mono rounded bg-[#0d1116] px-1.5 py-0.5">web/src/help/*.md</span></div>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-3">
+    <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5">
+      <div class="text-[11px] uppercase tracking-wider text-[#828b9a]">Copy inconsistencies</div>
+      <p class="mt-1.5 text-[12.5px] text-[#98a2b3]">New / Add / Create are used for the same action: "New proxy", "Add policy", "Create site", "New agent token", "Add link".</p>
+    </div>
+    <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5">
+      <div class="text-[11px] uppercase tracking-wider text-[#828b9a]">Empty states disagree</div>
+      <p class="mt-1.5 text-[12.5px] text-[#98a2b3]">Some explain and offer a button ("Create an account"); others only explain ("No temporary bans"). None say what "good" looks like.</p>
+    </div>
+    <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5">
+      <div class="text-[11px] uppercase tracking-wider text-[#828b9a]">No safe first path</div>
+      <p class="mt-1.5 text-[12.5px] text-[#98a2b3]">A new hostname can be saved with a placeholder upstream and no certificate; nothing checks DNS or reachability, and the error appears later as a 502.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 2. START HERE ============ -->
+<section id="setup" class="border-t border-[#1a2029] py-14">
+  <div class="flex items-baseline gap-3">
+    <span class="mono text-[11px] text-[#4f8cff]">02</span>
+    <h2 class="text-[22px] font-semibold tracking-tight">Proposal 1 — "Get set up" as the third nav item</h2>
+  </div>
+  <p class="mt-2 max-w-[780px] text-[#98a2b3]">
+    One page that answers "is this install finished, and what should I do next?". It reuses the Readiness
+    checks, adds a plain-language reason to each, and gives every row a <span class="text-[#e9edf3]">Verify</span> action
+    where the console can actually test the thing (certificate present, request logged, alert delivered).
+  </p>
+
+  <div class="mt-7 overflow-hidden rounded-xl border border-[#2f3846] bg-[#101419] frame">
+    <div class="flex items-center gap-2 border-b border-[#1a2029] bg-[#0d1116] px-4 py-2.5">
+      <span class="h-2.5 w-2.5 rounded-full bg-[#3a4250]"></span>
+      <span class="h-2.5 w-2.5 rounded-full bg-[#3a4250]"></span>
+      <span class="h-2.5 w-2.5 rounded-full bg-[#3a4250]"></span>
+      <div class="ml-3 flex-1 rounded-md border border-[#232a35] bg-[#0a0c10] px-2.5 py-1 text-[11px] text-[#828b9a]">console.example.com <span class="text-[#4a5262]">/</span> #/setup</div>
+    </div>
+    <div class="flex min-h-[620px]">
+      <!-- mini sidebar -->
+      <div class="hidden w-[164px] shrink-0 border-r border-[#1a2029] bg-[#0d1116] p-3 sm:block">
+        <div class="flex items-center gap-2 px-1 pb-4 pt-1">
+          <div class="flex h-7 w-7 items-center justify-center rounded-[7px] border border-[#2f3846] bg-[#050a17]"><i data-lucide="shield" class="h-4 w-4 text-[#7fb0ff]"></i></div>
+          <span class="text-[12.5px] font-semibold tracking-tight">WAF-Proxy</span>
+        </div>
+        <div class="mb-1 px-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#5c6575]">Overview</div>
+        <div class="space-y-0.5">
+          <div class="flex items-center gap-2 rounded-md px-1.5 py-1.5 text-[12px] text-[#98a2b3]"><i data-lucide="layout-dashboard" class="h-4 w-4"></i> Dashboard</div>
+          <div class="flex items-center gap-2 rounded-md px-1.5 py-1.5 text-[12px] text-[#98a2b3]"><i data-lucide="chart-no-axes-column" class="h-4 w-4"></i> Statistics</div>
+          <div class="flex items-center gap-2 rounded-md bg-[#182130] px-1.5 py-1.5 text-[12px] font-medium text-[#e9edf3]"><i data-lucide="circle-check-big" class="h-4 w-4 text-[#4f8cff]"></i> Get set up <span class="ml-auto rounded bg-[#14233d] px-1 text-[10px] text-[#7fb0ff]">4/7</span></div>
+        </div>
+        <div class="mb-1 mt-4 px-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#5c6575]">Traffic</div>
+        <div class="space-y-0.5 text-[12px] text-[#98a2b3]">
+          <div class="flex items-center gap-2 px-1.5 py-1.5"><i data-lucide="waypoints" class="h-4 w-4"></i> Proxies</div>
+          <div class="flex items-center gap-2 px-1.5 py-1.5"><i data-lucide="shield" class="h-4 w-4"></i> Policies</div>
+          <div class="flex items-center gap-2 px-1.5 py-1.5"><i data-lucide="list" class="h-4 w-4"></i> Logs</div>
+        </div>
+        <div class="mb-1 mt-4 px-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#5c6575]">Threat</div>
+        <div class="space-y-0.5 text-[12px] text-[#98a2b3]">
+          <div class="flex items-center gap-2 px-1.5 py-1.5"><i data-lucide="radar" class="h-4 w-4"></i> Threat intel</div>
+          <div class="flex items-center gap-2 px-1.5 py-1.5"><i data-lucide="triangle-alert" class="h-4 w-4"></i> Anomalies</div>
+        </div>
+        <div class="mt-20 space-y-0.5 border-t border-[#1a2029] pt-2 text-[12px] text-[#98a2b3]">
+          <div class="flex items-center gap-2 px-1.5 py-1.5"><i data-lucide="life-buoy" class="h-4 w-4"></i> Help</div>
+          <div class="flex items-center gap-2 px-1.5 py-1.5"><i data-lucide="settings" class="h-4 w-4"></i> Settings</div>
+        </div>
+      </div>
+
+      <!-- content -->
+      <div class="min-w-0 flex-1 bg-[#0a0c10] p-4 sm:p-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[#5c6575]"><span class="h-1 w-1 rounded-full bg-[#4f8cff]"></span> Setup · 4 of 7</div>
+            <h3 class="mt-1.5 text-[20px] font-semibold tracking-tight">Get this install earning its keep</h3>
+            <p class="mt-1 max-w-[520px] text-[12px] text-[#98a2b3]">Each step takes a minute. Nothing here is permanent — every setting can be changed later.</p>
+          </div>
+          <button class="inline-flex items-center gap-1.5 rounded-md border border-[#232a35] bg-[#101419] px-2.5 py-1.5 text-[11.5px] text-[#98a2b3] hover:border-[#2f3846] hover:text-[#e9edf3]"><i data-lucide="git-fork" class="h-3.5 w-3.5"></i> Inherited this install?</button>
+        </div>
+
+        <!-- next step -->
+        <div class="mt-5 rounded-lg border border-[#27456f] bg-[#0f1c2e] p-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 text-[11px] font-medium text-[#7fb0ff]"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i> Next best step</div>
+              <h4 class="mt-1 text-[14px] font-semibold">Issue a certificate so HTTPS stops warning</h4>
+              <p class="mt-1 max-w-[460px] text-[12px] text-[#98a2b3]">No certificate is stored. Until one is, every visitor sees a browser warning and the Access gate cannot be used.</p>
+            </div>
+            <button class="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#4f8cff] px-3 py-2 text-[12px] font-medium text-white hover:bg-[#3d7bf0]">Open Certificates <i data-lucide="arrow-right" class="h-3.5 w-3.5"></i></button>
+          </div>
+          <div class="mt-4 h-1.5 overflow-hidden rounded-full bg-[#0a1424]"><div class="h-full w-[57%] rounded-full bg-[#4f8cff]"></div></div>
+          <div class="mt-1.5 flex justify-between text-[10.5px] text-[#5c6575]"><span>4 done</span><span>3 to go</span></div>
+        </div>
+
+        <div class="mt-5 flex items-center justify-between">
+          <div class="text-[12px] font-medium">Checklist</div>
+          <button class="text-[11px] text-[#828b9a] hover:text-[#e9edf3]">Hide 4 done</button>
+        </div>
+
+        <div class="mt-2 divide-y divide-[#1a2029] overflow-hidden rounded-lg border border-[#232a35] bg-[#101419]">
+          <!-- done rows -->
+          <div class="flex items-center gap-3 px-3 py-2.5 opacity-60">
+            <i data-lucide="circle-check-big" class="h-4 w-4 shrink-0 text-[#3ecf8e]"></i>
+            <div class="min-w-0 flex-1"><div class="text-[12.5px]">Base domain configured <span class="ml-1 rounded border border-[#1d4534] bg-[#0d241a] px-1.5 py-0.5 text-[10px] text-[#3ecf8e]">ready</span></div><div class="mono text-[10.5px] text-[#5c6575]">example.com</div></div>
+          </div>
+          <div class="flex items-center gap-3 px-3 py-2.5 opacity-60">
+            <i data-lucide="circle-check-big" class="h-4 w-4 shrink-0 text-[#3ecf8e]"></i>
+            <div class="min-w-0 flex-1"><div class="text-[12.5px]">A hostname is proxied <span class="ml-1 rounded border border-[#1d4534] bg-[#0d241a] px-1.5 py-0.5 text-[10px] text-[#3ecf8e]">ready</span></div><div class="text-[10.5px] text-[#5c6575]">7 hostnames configured.</div></div>
+            <button class="text-[11px] text-[#828b9a]">Open</button>
+          </div>
+          <!-- todo rows -->
+          <div class="flex flex-wrap items-center gap-3 px-3 py-3">
+            <i data-lucide="circle-dashed" class="h-4 w-4 shrink-0 text-[#5c6575]"></i>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px]">TLS certificate issued <span class="ml-1 rounded border border-[#552229] bg-[#2a1216] px-1.5 py-0.5 text-[10px] text-[#f0616d]">missing</span></div>
+              <div class="text-[10.5px] text-[#828b9a]">Visitors get a warning without it. <span class="text-[#5c6575]">Why it matters</span></div>
+            </div>
+            <button class="inline-flex items-center gap-1 rounded-md border border-[#2f3846] bg-[#151a21] px-2 py-1 text-[11px] hover:border-[#4f8cff] hover:text-white">Verify</button>
+            <button class="inline-flex items-center gap-1 rounded-md border border-[#232a35] px-2 py-1 text-[11px] text-[#98a2b3] hover:text-white">Open</button>
+          </div>
+          <div class="flex flex-wrap items-center gap-3 px-3 py-3">
+            <i data-lucide="circle-dashed" class="h-4 w-4 shrink-0 text-[#5c6575]"></i>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px]">Traffic has arrived <span class="ml-1 rounded border border-[#4a361a] bg-[#251b0d] px-1.5 py-0.5 text-[10px] text-[#e5a54b]">not yet</span></div>
+              <div class="text-[10.5px] text-[#828b9a]">Send one request through a hostname to prove DNS and the route.</div>
+            </div>
+            <button class="inline-flex items-center gap-1 rounded-md border border-[#2f3846] bg-[#151a21] px-2 py-1 text-[11px] hover:border-[#4f8cff] hover:text-white">Send test request</button>
+          </div>
+          <div class="flex flex-wrap items-center gap-3 px-3 py-3">
+            <i data-lucide="circle-dashed" class="h-4 w-4 shrink-0 text-[#5c6575]"></i>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px]">Notification target configured</div>
+              <div class="text-[10.5px] text-[#828b9a]">Without one, an alert fires into nothing.</div>
+            </div>
+            <button class="inline-flex items-center gap-1 rounded-md border border-[#2f3846] bg-[#151a21] px-2 py-1 text-[11px] hover:border-[#4f8cff] hover:text-white">Open</button>
+          </div>
+          <div class="flex flex-wrap items-center gap-3 px-3 py-3">
+            <i data-lucide="circle-dashed" class="h-4 w-4 shrink-0 text-[#5c6575]"></i>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px]">Second factor enrolled</div>
+              <div class="text-[10.5px] text-[#828b9a]">Password-only admin access on a public-facing box.</div>
+            </div>
+            <button class="inline-flex items-center gap-1 rounded-md border border-[#2f3846] bg-[#151a21] px-2 py-1 text-[11px] hover:border-[#4f8cff] hover:text-white">Open Account</button>
+          </div>
+        </div>
+
+        <div class="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-[#232a35] bg-[#0d1116] px-3 py-2.5 text-[11.5px] text-[#98a2b3]">
+          <i data-lucide="shield-check" class="h-4 w-4 text-[#3ecf8e]"></i>
+          <span><span class="text-[#e9edf3]">Hardened install</span> is a second checklist: GeoIP databases, kernel bans, backups.</span>
+          <a href="#flows" class="ml-auto text-[#7fb0ff]">See the flow</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-3 grid gap-3 sm:grid-cols-3">
+    <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5 text-[12px] text-[#98a2b3]"><span class="font-medium text-[#e9edf3]">Why third, not last.</span> It sits directly under Overview so the first thing a new admin opens answers "what now?". It disappears from the nav once 7/7 is done, and stays reachable from Settings.</div>
+    <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5 text-[12px] text-[#98a2b3]"><span class="font-medium text-[#e9edf3]">Verifiable, not just checked.</span> Rows the console can test offer Verify; the rest link to the control. No new data model: the existing readiness checks already know these seven.</div>
+    <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5 text-[12px] text-[#98a2b3]"><span class="font-medium text-[#e9edf3]">A second entry point.</span> "Inherited this install?" flips to a health check: kernel bans, GeoIP, backup age, expiring certs, disk. Same page, different intent.</div>
+  </div>
+</section>
+
+<!-- ============ 3. GUIDED PROXY ============ -->
+<section id="wizard" class="border-t border-[#1a2029] py-14">
+  <div class="flex items-baseline gap-3">
+    <span class="mono text-[11px] text-[#4f8cff]">03</span>
+    <h2 class="text-[22px] font-semibold tracking-tight">Proposal 2 — turn "New proxy" into a checked three-step flow</h2>
+  </div>
+  <p class="mt-2 max-w-[780px] text-[#98a2b3]">
+    Today the drawer opens on "Overview" with six fields, while the one field that makes the site work —
+    the upstream — sits behind the second tab. Nothing tests reachability or DNS. The proposal keeps the
+    same drawer and fields, but orders them around the decision a new admin is making, and adds two
+    checks the server can already perform.
+  </p>
+
+  <div class="mt-7 grid gap-4 lg:grid-cols-[1fr_260px]">
+    <div class="min-w-0">
+    <div class="relative overflow-hidden rounded-xl border border-[#2f3846] bg-[#101419] frame">
+      <div class="flex items-center gap-2 border-b border-[#1a2029] bg-[#0d1116] px-4 py-2.5">
+        <span class="h-2.5 w-2.5 rounded-full bg-[#3a4250]"></span><span class="h-2.5 w-2.5 rounded-full bg-[#3a4250]"></span><span class="h-2.5 w-2.5 rounded-full bg-[#3a4250]"></span>
+        <div class="ml-3 flex-1 rounded-md border border-[#232a35] bg-[#0a0c10] px-2.5 py-1 text-[11px] text-[#828b9a]">console.example.com <span class="text-[#4a5262]">/</span> Proxies → New proxy</div>
+      </div>
+      <div class="flex">
+        <div class="hidden w-[150px] shrink-0 border-r border-[#1a2029] bg-[#0b0f14] p-3 sm:block">
+          <div class="text-[10px] uppercase tracking-[0.14em] text-[#5c6575]">Behind the drawer</div>
+          <div class="mt-2 space-y-1.5 text-[11.5px] text-[#4a5262]"><div class="flex gap-1.5"><i data-lucide="waypoints" class="h-3.5 w-3.5"></i> Proxies</div><div class="flex gap-1.5"><i data-lucide="list" class="h-3.5 w-3.5"></i> Hostnames</div></div>
+        </div>
+        <div class="min-w-0 flex-1 bg-[#0d1116]">
+          <div class="border-b border-[#1a2029] bg-[#101419] px-5 py-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-[15px] font-semibold">Add a hostname</div>
+                <div class="mt-0.5 text-[11.5px] text-[#828b9a]">Three steps. You can change everything later.</div>
+              </div>
+              <i data-lucide="x" class="h-4 w-4 text-[#5c6575]"></i>
+            </div>
+            <div class="mt-4 flex flex-wrap items-center gap-2">
+              <div class="flex items-center gap-1.5 rounded-md bg-[#14233d] px-2 py-1 text-[10.5px] font-medium text-[#7fb0ff]"><span class="flex h-4 w-4 items-center justify-center rounded-full bg-[#4f8cff] text-[9px] text-white">1</span> What to publish</div>
+              <div class="h-px w-5 bg-[#232a35]"></div>
+              <div class="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10.5px] text-[#5c6575]"><span class="flex h-4 w-4 items-center justify-center rounded-full border border-[#2f3846] text-[9px]">2</span> Protect it</div>
+              <div class="h-px w-5 bg-[#232a35]"></div>
+              <div class="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10.5px] text-[#5c6575]"><span class="flex h-4 w-4 items-center justify-center rounded-full border border-[#2f3846] text-[9px]">3</span> Publish</div>
+            </div>
+          </div>
+          <div class="space-y-4 px-5 py-5">
+            <div>
+              <label class="text-[11.5px] font-medium text-[#c4ccd8]">Hostname</label>
+              <div class="mt-1.5 flex items-center rounded-md border border-[#2f3846] bg-[#0c1016] px-3 py-2 text-[12px]"><span class="mono text-[#5c6575]">https://</span><span class="mono ml-0.5 text-[#e9edf3]">photos</span><span class="mono text-[#e9edf3]">.example.com</span><span class="ml-0.5 h-4 w-px animate-pulse bg-[#4f8cff]"></span></div>
+              <div class="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-[#828b9a]"><i data-lucide="info" class="h-3 w-3"></i> One label under <span class="mono text-[#98a2b3]">example.com</span>. The apex is reserved for redirects.</div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between">
+                <label class="text-[11.5px] font-medium text-[#c4ccd8]">Where should it go?</label>
+                <button class="inline-flex items-center gap-1 text-[10.5px] text-[#7fb0ff]"><i data-lucide="scan-search" class="h-3 w-3"></i> Scan my network</button>
+              </div>
+              <div class="mt-1.5 flex items-stretch gap-2">
+                <div class="flex min-w-0 flex-1 items-center rounded-md border border-[#2f3846] bg-[#0c1016] px-3 py-2"><span class="mono text-[11px] text-[#5c6575]">http://192.168.1.20:8080</span></div>
+                <button class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#2f3846] bg-[#151a21] px-2.5 py-2 text-[11px] hover:border-[#4f8cff] hover:text-white"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i> Test</button>
+              </div>
+              <div class="mt-2 flex items-start gap-2 rounded-md border border-[#1d4534] bg-[#0d241a] px-2.5 py-2">
+                <i data-lucide="check" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#3ecf8e]"></i>
+                <div class="text-[10.5px] leading-5 text-[#9fd9bd]"><span class="font-medium text-[#3ecf8e]">Reached it.</span> HTTP 200 in 42 ms — looked like <span class="mono">Immich</span>. <button class="underline decoration-[#1d4534] underline-offset-2 hover:text-white">Use the Immich preset</button></div>
+              </div>
+            </div>
+            <div class="rounded-md border border-[#27456f] bg-[#0f1c2e] px-3 py-2.5 text-[10.5px] leading-5 text-[#9fc0ea]">
+              <span class="font-medium text-[#7fb0ff]">What happens next:</span> DNS <span class="mono">photos.example.com</span> → this host, a certificate is requested, and the preset fills the WAF profile. You can watch the first request under Logs.
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-2 border-t border-[#1a2029] bg-[#101419] px-5 py-3">
+            <button class="text-[11.5px] text-[#98a2b3]">Cancel</button>
+            <div class="flex gap-2"><button class="rounded-md border border-[#232a35] px-3 py-1.5 text-[11.5px] text-[#98a2b3]">Advanced</button><button class="inline-flex items-center gap-1.5 rounded-md bg-[#4f8cff] px-3 py-1.5 text-[11.5px] font-medium text-white">Continue <i data-lucide="arrow-right" class="h-3.5 w-3.5"></i></button></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="mt-3 space-y-2">
+      <div class="flex items-start gap-2.5 rounded-lg border border-[#232a35] bg-[#0d1116] px-3 py-2.5"><span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#4f8cff] text-[10px] font-semibold text-white">1</span><span class="text-[11.5px] leading-5 text-[#98a2b3]"><span class="text-[#e9edf3]">Explain the naming rule where the name is typed.</span> One label under the base domain; the apex is reserved. The hint replaces a support question, and the console validates the label live.</span></div>
+      <div class="flex items-start gap-2.5 rounded-lg border border-[#232a35] bg-[#0d1116] px-3 py-2.5"><span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#4f8cff] text-[10px] font-semibold text-white">2</span><span class="text-[11.5px] leading-5 text-[#98a2b3]"><span class="text-[#e9edf3]">Test before saving.</span> A server-side request with a short timeout turns an invisible 502 into a green line, and a 200 response suggests the matching preset. Never block Save: offer the test, do not force it.</span></div>
+    </div>
+    </div>
+
+    <aside class="space-y-3">
+      <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-4">
+        <div class="text-[11px] uppercase tracking-wider text-[#828b9a]">Why three steps</div>
+        <ul class="mt-2 space-y-2 text-[12px] leading-5 text-[#98a2b3]">
+          <li><span class="text-[#e9edf3]">One decision per screen.</span> "What am I publishing?" is the only question a non-technical admin can answer confidently.</li>
+          <li><span class="text-[#e9edf3]">Checks earn trust.</span> The Test button turns an invisible 502 into a green line before Save.</li>
+          <li><span class="text-[#e9edf3]">Presets stay.</span> The 35 application presets become a suggestion after detection, not a dropdown to decode.</li>
+        </ul>
+      </div>
+      <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-4">
+        <div class="text-[11px] uppercase tracking-wider text-[#828b9a]">Keep the safety rails</div>
+        <p class="mt-2 text-[12px] leading-5 text-[#98a2b3]">Advanced keeps every existing field: access profile, WAF profile, certificate, routes, maintenance mode. The wizard is an ordering, not a new form.</p>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ============ 4. INLINE HELP ============ -->
+<section id="help" class="border-t border-[#1a2029] py-14">
+  <div class="flex items-baseline gap-3">
+    <span class="mono text-[11px] text-[#4f8cff]">04</span>
+    <h2 class="text-[22px] font-semibold tracking-tight">Proposal 3 — help where the confusion happens</h2>
+  </div>
+  <p class="mt-2 max-w-[780px] text-[#98a2b3]">
+    The page help drawer already covers concepts, but it is a destination. A junior needs the definition
+    at the field, the consequence at the toggle, and a way to jump from an explanation to the control.
+    Three small surfaces, all fed by the existing Markdown.
+  </p>
+
+  <div class="mt-7 grid gap-4 lg:grid-cols-[1fr_300px]">
+    <!-- mock page with popovers -->
+    <div class="overflow-hidden rounded-xl border border-[#2f3846] bg-[#101419] frame">
+      <div class="flex items-center justify-between border-b border-[#1a2029] px-4 py-3">
+        <div class="flex items-center gap-2 text-[11px] text-[#828b9a]"><i data-lucide="chevron-left" class="h-3.5 w-3.5"></i> Policies <span class="text-[#4a5262]">/</span> <span class="text-[#e9edf3]">Profiles</span></div>
+        <div class="flex items-center gap-2"><span class="rounded border border-[#232a35] px-2 py-0.5 text-[10px] text-[#98a2b3]">Kernel bans off</span><i data-lucide="circle-help" class="h-4 w-4 text-[#828b9a]"></i></div>
+      </div>
+      <div class="relative p-4 sm:p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-[16px] font-semibold tracking-tight">Global profiles</h3>
+          <div class="flex gap-2"><button class="rounded-md border border-[#232a35] px-2.5 py-1 text-[11px] text-[#98a2b3]">Preflight</button><button class="rounded-md bg-[#4f8cff] px-2.5 py-1 text-[11px] font-medium text-white">Add profile</button></div>
+        </div>
+        <p class="mt-1 text-[11.5px] text-[#828b9a]">Applied before a hostname's own profile. Higher in the list wins.</p>
+
+        <div class="mt-4 space-y-2">
+          <div class="flex items-center gap-3 rounded-lg border border-[#232a35] bg-[#0d1116] px-3 py-2.5">
+            <span class="h-2 w-2 rounded-full bg-[#f0616d]"></span>
+            <div class="min-w-0 flex-1"><div class="text-[12px]">Block scanners <span class="rounded border border-[#552229] bg-[#2a1216] px-1.5 py-0.5 text-[9.5px] text-[#f0616d]">block</span></div><div class="text-[10.5px] text-[#5c6575]">Country + ASN · 4 countries</div></div>
+            <button class="text-[10.5px] text-[#828b9a]">Disable</button>
+          </div>
+          <div class="flex items-center gap-3 rounded-lg border border-[#232a35] bg-[#0d1116] px-3 py-2.5">
+            <span class="h-2 w-2 rounded-full bg-[#e5a54b]"></span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 text-[12px]">Watch new rules
+                <span class="group relative inline-flex">
+                  <span class="rounded border border-[#27456f] bg-[#0f1c2e] px-1.5 py-0.5 text-[9.5px] text-[#7fb0ff]">near miss</span>
+                  <i data-lucide="circle-help" class="h-3 w-3 text-[#4a5262]"></i>
+                </span>
+              </div>
+              <div class="text-[10.5px] text-[#5c6575]">Profile in detect mode · 12 logged, 0 blocked</div>
+            </div>
+            <button class="text-[10.5px] text-[#828b9a]">Disable</button>
+          </div>
+        </div>
+
+        <!-- popover preview, shown inline so it never hides the controls -->
+        <div class="mt-4 rounded-lg border border-[#27456f] bg-[#101c2d] p-3.5">
+          <div class="mb-2 flex items-center gap-1.5 text-[9.5px] uppercase tracking-[0.14em] text-[#5c8fd1]"><i data-lucide="mouse-pointer-2" class="h-3 w-3"></i> Definition popover · opens on click</div>
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-center gap-1.5 text-[11px] font-medium text-[#7fb0ff]"><i data-lucide="circle-help" class="h-3.5 w-3.5"></i> What is a near miss?</div>
+            <i data-lucide="x" class="h-3 w-3 text-[#5c6575]"></i>
+          </div>
+          <p class="mt-1.5 text-[11px] leading-5 text-[#9fc0ea]">A rule that matched but did not block, because the profile is in detect mode. It is what <em class="not-italic text-white">would</em> have been stopped under block mode.</p>
+          <div class="mt-2.5 flex gap-2"><button class="rounded border border-[#27456f] px-2 py-1 text-[10px] text-[#7fb0ff] hover:bg-[#14233d]">Show the 12 events</button><button class="rounded border border-[#27456f] px-2 py-1 text-[10px] text-[#7fb0ff] hover:bg-[#14233d]">Read more</button></div>
+        </div>
+
+        <div class="mt-4 rounded-lg border border-[#4a361a] bg-[#251b0d] px-3 py-2.5">
+          <div class="flex items-start gap-2">
+            <i data-lucide="triangle-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#e5a54b]"></i>
+            <div class="text-[11px] leading-5 text-[#e8cfa7]"><span class="font-medium text-[#e5a54b]">Kernel bans are off.</span> Bans still refuse requests in the proxy, but the source is not dropped at the firewall. <button class="underline decoration-[#4a361a] underline-offset-2 hover:text-white">Turn on kernel bans</button> <span class="text-[#a58a5e]">· needs nftables on the host</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="space-y-3">
+      <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-4">
+        <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-[#828b9a]"><i data-lucide="mouse-pointer-2" class="h-3.5 w-3.5"></i> Three surfaces, one source</div>
+        <ol class="mt-2 space-y-2.5 text-[12px] leading-5 text-[#98a2b3]">
+          <li><span class="text-[#e9edf3]">1. Term popover</span> on the jargon chip (near miss, preflight, upstream, kernel ban) with a one-sentence definition and a link to the matching rows.</li>
+          <li><span class="text-[#e9edf3]">2. Field hint</span> under an input: what to type, one example, and what breaks if it is wrong.</li>
+          <li><span class="text-[#e9edf3]">3. Status banner with an action</span> instead of a coloured chip that only reports.</li>
+        </ol>
+      </div>
+      <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-4">
+        <div class="text-[11px] uppercase tracking-wider text-[#828b9a]">Discoverability</div>
+        <div class="mt-2 space-y-2 text-[12px] leading-5 text-[#98a2b3]">
+          <p><span class="text-[#e9edf3]">Help &amp; troubleshoot</span> gets a permanent sidebar slot, above Settings.</p>
+          <p>The page-head <span class="mono text-[11px]">?</span> stays and gains the text "Page help · ?".</p>
+          <p><span class="text-[#e9edf3]">⌘K</span> searches help text and settings labels, not just pages.</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ============ 5. TROUBLESHOOT ============ -->
+<section id="troubleshoot" class="border-t border-[#1a2029] py-14">
+  <div class="flex items-baseline gap-3">
+    <span class="mono text-[11px] text-[#4f8cff]">05</span>
+    <h2 class="text-[22px] font-semibold tracking-tight">Proposal 4 — a troubleshooting page organised by symptom</h2>
+  </div>
+  <p class="mt-2 max-w-[780px] text-[#98a2b3]">
+    A new self-hoster does not search for "upstream health"; they search for "502". This page starts from
+    five symptoms and walks to the cause with checks that read live state, so the answer is "no request has
+    reached this host since 14:02" rather than "check your DNS".
+  </p>
+
+  <div class="mt-7 overflow-hidden rounded-xl border border-[#2f3846] bg-[#101419] frame">
+    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[#1a2029] px-5 py-4">
+      <div>
+        <div class="text-[16px] font-semibold tracking-tight">Help &amp; troubleshoot</div>
+        <div class="mt-0.5 text-[11.5px] text-[#828b9a]">Start from what you see. Every check runs against this install.</div>
+      </div>
+      <div class="flex w-full items-center gap-2 rounded-md border border-[#2f3846] bg-[#0c1016] px-3 py-2 sm:w-[320px]"><i data-lucide="search" class="h-3.5 w-3.5 text-[#5c6575]"></i><span class="text-[11.5px] text-[#5c6575]">Describe the problem — "502", "certificate", "locked out"…</span></div>
+    </div>
+    <div class="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_340px]">
+      <div class="grid gap-2 sm:grid-cols-2">
+        <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5 hover:border-[#2f3846]">
+          <div class="flex items-center gap-2 text-[12px] font-medium"><i data-lucide="globe" class="h-4 w-4 text-[#7fb0ff]"></i> A site shows 502 or 504</div>
+          <p class="mt-1 text-[10.5px] leading-5 text-[#828b9a]">The WAF let it through; the upstream did not answer.</p>
+        </div>
+        <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5 hover:border-[#2f3846]">
+          <div class="flex items-center gap-2 text-[12px] font-medium"><i data-lucide="ban" class="h-4 w-4 text-[#f0616d]"></i> Everyone gets 403</div>
+          <p class="mt-1 text-[10.5px] leading-5 text-[#828b9a]">A rule, list or geo policy is refusing good traffic.</p>
+        </div>
+        <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5 hover:border-[#2f3846]">
+          <div class="flex items-center gap-2 text-[12px] font-medium"><i data-lucide="lock-keyhole" class="h-4 w-4 text-[#e5a54b]"></i> I cannot sign in</div>
+          <p class="mt-1 text-[10.5px] leading-5 text-[#828b9a]">Lost authenticator, forgotten password, locked account.</p>
+        </div>
+        <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5 hover:border-[#2f3846]">
+          <div class="flex items-center gap-2 text-[12px] font-medium"><i data-lucide="shield-x" class="h-4 w-4 text-[#e5a54b]"></i> Certificate warning</div>
+          <p class="mt-1 text-[10.5px] leading-5 text-[#828b9a]">Missing, expired, or issued for the wrong name.</p>
+        </div>
+        <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5 hover:border-[#2f3846]">
+          <div class="flex items-center gap-2 text-[12px] font-medium"><i data-lucide="activity" class="h-4 w-4 text-[#3ecf8e]"></i> No traffic appears</div>
+          <p class="mt-1 text-[10.5px] leading-5 text-[#828b9a]">DNS, port forward, listener binding or a disabled host.</p>
+        </div>
+        <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3.5 hover:border-[#2f3846]">
+          <div class="flex items-center gap-2 text-[12px] font-medium"><i data-lucide="hard-drive" class="h-4 w-4 text-[#a78bfa]"></i> Disk full or slow</div>
+          <p class="mt-1 text-[10.5px] leading-5 text-[#828b9a]">Retention, backup copies, log growth, event volume.</p>
+        </div>
+      </div>
+
+      <!-- expanded symptom -->
+      <div class="rounded-lg border border-[#27456f] bg-[#0f1c2e] p-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 text-[12px] font-medium text-[#bfd6f5]"><i data-lucide="globe" class="h-4 w-4 text-[#7fb0ff]"></i> Site shows 502</div>
+          <span class="rounded border border-[#27456f] px-1.5 py-0.5 text-[9.5px] text-[#7fb0ff]">expanded</span>
+        </div>
+        <div class="mt-3 space-y-2.5">
+          <div class="flex items-start gap-2">
+            <i data-lucide="check-circle-2" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#3ecf8e]"></i>
+            <div class="text-[10.5px] leading-5"><span class="text-[#e9edf3]">Hostname enabled</span><div class="text-[#7f9cbf]">photos.example.com · enabled since Nov 2</div></div>
+          </div>
+          <div class="flex items-start gap-2">
+            <i data-lucide="x-circle" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#f0616d]"></i>
+            <div class="text-[10.5px] leading-5"><span class="text-[#e9edf3]">Upstream answered</span><div class="text-[#e0a6ab]">Connection refused at 192.168.1.20:8080 · last try 14:02:11</div></div>
+          </div>
+          <div class="flex items-start gap-2">
+            <i data-lucide="circle-dashed" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#7f9cbf]"></i>
+            <div class="text-[10.5px] leading-5"><span class="text-[#e9edf3]">Container on that address</span><div class="text-[#7f9cbf]">Nothing is listening on 8080 from this host. Start the app, or correct the port here.</div></div>
+          </div>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button class="rounded bg-[#4f8cff] px-2.5 py-1.5 text-[10.5px] font-medium text-white hover:bg-[#3d7bf0]">Edit upstream</button>
+          <button class="rounded border border-[#27456f] px-2.5 py-1.5 text-[10.5px] text-[#9fc0ea] hover:bg-[#14233d]">Copy diagnostics</button>
+          <button class="rounded border border-[#27456f] px-2.5 py-1.5 text-[10.5px] text-[#9fc0ea] hover:bg-[#14233d]">Open incident report</button>
+        </div>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-3 border-t border-[#1a2029] bg-[#0d1116] px-5 py-3 text-[10.5px] text-[#828b9a]">
+      <i data-lucide="terminal" class="h-3.5 w-3.5"></i>
+      <span>No shell needed for these checks. Every result is written to <span class="mono text-[#98a2b3]">Activity</span> as <span class="mono text-[#98a2b3]">troubleshoot:run</span>, so the next person sees what was tried.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 6. NAVIGATION ============ -->
+<section id="nav" class="border-t border-[#1a2029] py-14">
+  <div class="flex items-baseline gap-3">
+    <span class="mono text-[11px] text-[#4f8cff]">06</span>
+    <h2 class="text-[22px] font-semibold tracking-tight">Proposal 5 — one home per thing</h2>
+  </div>
+  <p class="mt-2 max-w-[780px] text-[#98a2b3]">
+    Move the duplicated destinations out of Settings, split host settings from tenant settings, and give
+    troubleshooting a permanent slot. The total item count goes down; discoverability goes up.
+  </p>
+
+  <div class="mt-7 grid gap-4 sm:grid-cols-2">
+    <!-- before -->
+    <div class="rounded-xl border border-[#2f3846] bg-[#101419] p-4">
+      <div class="flex items-center justify-between">
+        <div class="text-[11px] uppercase tracking-wider text-[#828b9a]">Today</div>
+        <span class="rounded border border-[#552229] bg-[#2a1216] px-1.5 py-0.5 text-[9.5px] text-[#f0616d]">17 destinations + 12 tabs</span>
+      </div>
+      <div class="mt-3 space-y-3 text-[11.5px]">
+        <div>
+          <div class="text-[9.5px] uppercase tracking-[0.14em] text-[#5c6575]">Overview</div>
+          <div class="text-[#98a2b3]">Dashboard · Statistics</div>
+        </div>
+        <div><div class="text-[9.5px] uppercase tracking-[0.14em] text-[#5c6575]">Traffic</div><div class="text-[#98a2b3]">Proxies · Policies · Logs</div></div>
+        <div><div class="text-[9.5px] uppercase tracking-[0.14em] text-[#5c6575]">Threat</div><div class="text-[#98a2b3]">Threat intel · Anomalies</div></div>
+        <div><div class="text-[9.5px] uppercase tracking-[0.14em] text-[#5c6575]">Access</div><div class="text-[#98a2b3]">Access gate · Activity</div></div>
+        <div><div class="text-[9.5px] uppercase tracking-[0.14em] text-[#5c6575]">System</div><div class="text-[#98a2b3]">Agent access · Notifications · Tailscale · Cloudflare · High availability · Sites</div></div>
+        <div class="rounded border border-[#4a361a] bg-[#251b0d] px-2.5 py-2 text-[10.5px] text-[#e8cfa7]">Settings: Network · Updates · Protection · Retention · <span class="underline decoration-[#4a361a]">High availability</span> · Backup · Runtime · GeoIP · <span class="underline decoration-[#4a361a]">Threat intel</span> · <span class="underline decoration-[#4a361a]">Activity</span> · Readiness · About</div>
+        <div class="text-[10.5px] text-[#828b9a]">No help destination. Page help hides behind a small <span class="mono">?</span>. Onboarding hides behind the 11th Settings tab.</div>
+      </div>
+    </div>
+
+    <!-- after -->
+    <div class="rounded-xl border border-[#27456f] bg-[#0f1420] p-4">
+      <div class="flex items-center justify-between">
+        <div class="text-[11px] uppercase tracking-wider text-[#7fb0ff]">Proposed</div>
+        <span class="rounded border border-[#1d4534] bg-[#0d241a] px-1.5 py-0.5 text-[9.5px] text-[#3ecf8e]">5 groups + help</span>
+      </div>
+      <div class="mt-3 space-y-3 text-[11.5px]">
+        <div>
+          <div class="text-[9.5px] uppercase tracking-[0.14em] text-[#5c6575]">Overview</div>
+          <div class="text-[#e9edf3]">Dashboard · Statistics · <span class="text-[#7fb0ff]">Get set up</span> <span class="rounded bg-[#14233d] px-1 text-[9px] text-[#7fb0ff]">4/7</span></div>
+        </div>
+        <div><div class="text-[9.5px] uppercase tracking-[0.14em] text-[#5c6575]">Traffic</div><div class="text-[#e9edf3]">Hostnames · Policies · Logs</div></div>
+        <div><div class="text-[9.5px] uppercase tracking-[0.14em] text-[#5c6575]">Threat</div><div class="text-[#e9edf3]">Threat intel · Anomalies</div></div>
+        <div><div class="text-[9.5px] uppercase tracking-[0.14em] text-[#5c6575]">Access</div><div class="text-[#e9edf3]">Access gate · Activity</div></div>
+        <div>
+          <div class="text-[9.5px] uppercase tracking-[0.14em] text-[#5c6575]">System</div>
+          <div class="text-[#e9edf3]">Integrations <span class="text-[10px] text-[#828b9a]">(Cloudflare, Tailscale, Agent, Notifications)</span> · Sites · High availability</div>
+        </div>
+        <div class="rounded border border-[#27456f] bg-[#101c2d] px-2.5 py-2 text-[10.5px] text-[#9fc0ea]"><span class="text-[#7fb0ff]">Help &amp; troubleshoot</span> — symptoms, live checks, glossary, printable page help</div>
+        <div class="text-[10.5px] text-[#9fc0ea]">Settings: Network · Protection · Retention · Backup &amp; updates · Runtime · About <span class="text-[#5c6575]">(6 tabs; Host-wide badge)</span></div>
+        <div class="text-[10.5px] text-[#828b9a]">Readiness and the hardening checklist move into Get set up. Activity, HA and Threat intel lose their Settings duplicates. Tenant-only controls follow the site switcher.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3">
+      <div class="text-[10px] uppercase tracking-wider text-[#5c6575]">Naming rule</div>
+      <p class="mt-1 text-[11.5px] leading-5 text-[#98a2b3]">Create = a new object. Add = a row inside an object. Run/Test = an action with a result.</p>
+    </div>
+    <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3">
+      <div class="text-[10px] uppercase tracking-wider text-[#5c6575]">One create verb</div>
+      <p class="mt-1 text-[11.5px] leading-5 text-[#98a2b3]">"New proxy / New ban / New account / Add policy / Create site" becomes "New hostname / New ban / New account / New profile / New site".</p>
+    </div>
+    <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3">
+      <div class="text-[10px] uppercase tracking-wider text-[#5c6575]">Label the mystery</div>
+      <p class="mt-1 text-[11.5px] leading-5 text-[#98a2b3]">"360" becomes a "Traffic" action with an eye icon and tooltip. "Preflight" gains "Test against recorded traffic".</p>
+    </div>
+    <div class="rounded-lg border border-[#232a35] bg-[#0d1116] p-3">
+      <div class="text-[10px] uppercase tracking-wider text-[#5c6575]">Status with an action</div>
+      <p class="mt-1 text-[11.5px] leading-5 text-[#98a2b3]">"Kernel bans off" becomes a banner with "Turn on kernel bans" and the host prerequisite.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 7. DIAGRAMS ============ -->
+<section id="flows" class="border-t border-[#1a2029] py-14">
+  <div class="flex items-baseline gap-3">
+    <span class="mono text-[11px] text-[#4f8cff]">07</span>
+    <h2 class="text-[22px] font-semibold tracking-tight">Diagrams to ship with the product</h2>
+  </div>
+  <p class="mt-2 max-w-[780px] text-[#98a2b3]">
+    The same three diagrams belong inside the console, not only in the docs: one shows where a request can
+    die, one shows the order of setup, one shows how to decide what is wrong.
+  </p>
+
+  <!-- request path -->
+  <div class="mt-7 rounded-xl border border-[#232a35] bg-[#101419] p-4 sm:p-5">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div><div class="text-[13px] font-medium">Where a request can stop</div><div class="text-[11px] text-[#828b9a]">Each stage names the console page that controls it.</div></div>
+      <span class="rounded border border-[#232a35] px-2 py-1 text-[10px] text-[#828b9a]">use on Logs, Troubleshoot, and hostname detail</span>
+    </div>
+    <div class="mt-4 flex flex-wrap items-center gap-1.5">
+      <div class="rounded-md border border-[#2f3846] bg-[#0d1116] px-2.5 py-2 text-center"><div class="text-[10.5px] text-[#e9edf3]">Visitor</div><div class="text-[9px] text-[#5c6575]">internet / VPN</div></div>
+      <i data-lucide="arrow-right" class="h-3.5 w-3.5 shrink-0 text-[#3a4250]"></i>
+      <div class="rounded-md border border-[#2f3846] bg-[#0d1116] px-2.5 py-2 text-center"><div class="text-[10.5px] text-[#e9edf3]">DNS</div><div class="text-[9px] text-[#5c6575]">DuckDNS · Cloudflare</div></div>
+      <i data-lucide="arrow-right" class="h-3.5 w-3.5 shrink-0 text-[#3a4250]"></i>
+      <div class="rounded-md border border-[#2f3846] bg-[#0d1116] px-2.5 py-2 text-center"><div class="text-[10.5px] text-[#e9edf3]">TLS</div><div class="text-[9px] text-[#5c6575]">Certificates</div></div>
+      <i data-lucide="arrow-right" class="h-3.5 w-3.5 shrink-0 text-[#3a4250]"></i>
+      <div class="rounded-md border border-[#2f3846] bg-[#0d1116] px-2.5 py-2 text-center"><div class="text-[10.5px] text-[#e9edf3]">Access gate</div><div class="text-[9px] text-[#5c6575]">Access gate</div></div>
+      <i data-lucide="arrow-right" class="h-3.5 w-3.5 shrink-0 text-[#3a4250]"></i>
+      <div class="rounded-md border border-[#2f3846] bg-[#0d1116] px-2.5 py-2 text-center"><div class="text-[10.5px] text-[#e9edf3]">WAF / CRS</div><div class="text-[9px] text-[#5c6575]">Policies · profiles</div></div>
+      <i data-lucide="arrow-right" class="h-3.5 w-3.5 shrink-0 text-[#3a4250]"></i>
+      <div class="rounded-md border border-[#2f3846] bg-[#0d1116] px-2.5 py-2 text-center"><div class="text-[10.5px] text-[#e9edf3]">Bans · rate</div><div class="text-[9px] text-[#5c6575]">Policies · bans</div></div>
+      <i data-lucide="arrow-right" class="h-3.5 w-3.5 shrink-0 text-[#3a4250]"></i>
+      <div class="rounded-md border border-[#27456f] bg-[#0f1c2e] px-2.5 py-2 text-center"><div class="text-[10.5px] text-[#e9edf3]">Upstream</div><div class="text-[9px] text-[#7fb0ff]">Hostnames · upstreams</div></div>
+      <i data-lucide="arrow-right" class="h-3.5 w-3.5 shrink-0 text-[#3a4250]"></i>
+      <div class="rounded-md border border-[#1d4534] bg-[#0d241a] px-2.5 py-2 text-center"><div class="text-[10.5px] text-[#e9edf3]">Your app</div><div class="text-[9px] text-[#3ecf8e]">200 · 3xx · 401</div></div>
+    </div>
+    <div class="mt-3 grid gap-2 text-[10.5px] sm:grid-cols-3">
+      <div class="rounded border border-[#232a35] bg-[#0a0c10] px-2.5 py-2 text-[#98a2b3]"><span class="text-[#3ecf8e]">200 + your body</span> — every stage passed.</div>
+      <div class="rounded border border-[#232a35] bg-[#0a0c10] px-2.5 py-2 text-[#98a2b3]"><span class="text-[#f0616d]">403 + block page</span> — stopped by TLS, gate, WAF or a ban.</div>
+      <div class="rounded border border-[#232a35] bg-[#0a0c10] px-2.5 py-2 text-[#98a2b3]"><span class="text-[#e5a54b]">502 / 504</span> — passed the WAF; the upstream or budget failed.</div>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-4 lg:grid-cols-2">
+    <!-- setup flow -->
+    <div class="rounded-xl border border-[#232a35] bg-[#101419] p-4 sm:p-5">
+      <div class="text-[13px] font-medium">First-run flow</div>
+      <div class="text-[11px] text-[#828b9a]">The order that works, with the page for each step.</div>
+      <ol class="mt-3 space-y-0">
+        <li class="relative flex gap-3 pb-3"><div class="flex flex-col items-center"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#14233d] text-[9px] font-semibold text-[#7fb0ff]">1</span><span class="mt-1 h-full w-px bg-[#232a35]"></span></div><div class="-mt-0.5"><div class="text-[11.5px] font-medium">Boot the box and finish the wizard</div><div class="text-[10px] text-[#828b9a]">interfaces · base domain · WAN + LAN addresses · first admin</div></div></li>
+        <li class="relative flex gap-3 pb-3"><div class="flex flex-col items-center"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#14233d] text-[9px] font-semibold text-[#7fb0ff]">2</span><span class="mt-1 h-full w-px bg-[#232a35]"></span></div><div class="-mt-0.5"><div class="text-[11.5px] font-medium">Point DNS at this host</div><div class="text-[10px] text-[#828b9a]">one label under the base domain · port 443 only · <span class="text-[#7fb0ff]">Get set up</span></div></div></li>
+        <li class="relative flex gap-3 pb-3"><div class="flex flex-col items-center"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#14233d] text-[9px] font-semibold text-[#7fb0ff]">3</span><span class="mt-1 h-full w-px bg-[#232a35]"></span></div><div class="-mt-0.5"><div class="text-[11.5px] font-medium">Issue the certificate</div><div class="text-[10px] text-[#828b9a]">wildcard covers every subdomain · <span class="text-[#7fb0ff]">Certificates</span> → Verify</div></div></li>
+        <li class="relative flex gap-3 pb-3"><div class="flex flex-col items-center"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#14233d] text-[9px] font-semibold text-[#7fb0ff]">4</span><span class="mt-1 h-full w-px bg-[#232a35]"></span></div><div class="-mt-0.5"><div class="text-[11.5px] font-medium">Add the hostname and test the upstream</div><div class="text-[10px] text-[#828b9a]">New hostname → Test (200) → preset · <span class="text-[#7fb0ff]">Hostnames</span></div></div></li>
+        <li class="relative flex gap-3 pb-3"><div class="flex flex-col items-center"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#14233d] text-[9px] font-semibold text-[#7fb0ff]">5</span><span class="mt-1 h-full w-px bg-[#232a35]"></span></div><div class="-mt-0.5"><div class="text-[11.5px] font-medium">Watch one request end to end</div><div class="text-[10px] text-[#828b9a]">Logs shows the stage and rule · <span class="text-[#7fb0ff]">Logs</span></div></div></li>
+        <li class="relative flex gap-3"><div class="flex flex-col items-center"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#14233d] text-[9px] font-semibold text-[#7fb0ff]">6</span></div><div class="-mt-0.5"><div class="text-[11.5px] font-medium">Make it survivable</div><div class="text-[10px] text-[#828b9a]">2FA, second admin, alerts, backup · <span class="text-[#7fb0ff]">Get set up</span></div></div></li>
+      </ol>
+    </div>
+
+    <!-- decision tree -->
+    <div class="rounded-xl border border-[#232a35] bg-[#101419] p-4 sm:p-5">
+      <div class="text-[13px] font-medium">Which check first?</div>
+      <div class="text-[11px] text-[#828b9a]">The order that finds the fault in the fewest steps.</div>
+      <div class="mt-3 space-y-2 text-[10.5px] leading-5">
+        <div class="rounded border border-[#232a35] bg-[#0d1116] px-2.5 py-2"><span class="text-[#e9edf3]">Did anything reach the proxy?</span> <span class="text-[#828b9a]">Logs → filter this host</span>
+          <div class="mt-1 flex gap-3"><span class="text-[#3ecf8e]">yes →</span><span class="text-[#98a2b3]">go to the stage column</span><span class="text-[#f0616d]">no →</span><span class="text-[#98a2b3]">DNS, port forward, hostname enabled</span></div>
+        </div>
+        <div class="ml-3 rounded border border-[#232a35] bg-[#0d1116] px-2.5 py-2"><span class="text-[#e9edf3]">Which stage refused it?</span> <span class="text-[#828b9a]">Logs → stage</span>
+          <div class="mt-1 grid gap-0.5 text-[#98a2b3]"><span><span class="text-[#7fb0ff]">tls / gate</span> → certificate or identity provider</span><span><span class="text-[#7fb0ff]">waf</span> → the rule id, profile, detect vs block</span><span><span class="text-[#7fb0ff]">ban</span> → Policies → Bans, release or wait</span><span><span class="text-[#7fb0ff]">upstream</span> → test the address and port</span></div>
+        </div>
+        <div class="ml-3 rounded border border-[#232a35] bg-[#0d1116] px-2.5 py-2"><span class="text-[#e9edf3]">Was it allowed and still wrong?</span> <span class="text-[#828b9a]">the app's status</span>
+          <div class="mt-1 grid gap-0.5 text-[#98a2b3]"><span><span class="text-[#7fb0ff]">502 / 504</span> → upstream, not the WAF</span><span><span class="text-[#7fb0ff]">401 / 403 from the app</span> → the app's own auth</span><span><span class="text-[#7fb0ff]">3xx loop</span> → forwarded headers / scheme</span></div>
+        </div>
+        <div class="rounded border border-[#27456f] bg-[#0f1c2e] px-2.5 py-2 text-[#9fc0ea]"><span class="text-[#7fb0ff]">Always:</span> open the request's <span class="mono">Why?</span> drawer before changing a rule. It shows the stage, rule id and the matched value.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PLAN ============ -->
+<section id="plan" class="border-t border-[#1a2029] py-14">
+  <div class="flex items-baseline gap-3">
+    <span class="mono text-[11px] text-[#4f8cff]">08</span>
+    <h2 class="text-[22px] font-semibold tracking-tight">Suggested order of work</h2>
+  </div>
+  <div class="mt-5 space-y-3">
+    <div class="flex flex-col gap-2 rounded-lg border border-[#232a35] bg-[#101419] p-4 sm:flex-row sm:items-center">
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#14233d] text-[11px] font-semibold text-[#7fb0ff]">1</div>
+      <div class="min-w-0 flex-1"><div class="text-[13px] font-medium">Navigation and consistency pass <span class="ml-1 rounded border border-[#1d4534] bg-[#0d241a] px-1.5 py-0.5 text-[9.5px] text-[#3ecf8e]">low risk</span></div><div class="text-[11.5px] text-[#828b9a]">One create verb, label "360", trim Settings tabs, remove duplicate destinations, fix the 360px hostname cards, stop repeating uptime on every Statistics tab. No new routes or data.</div></div>
+      <div class="shrink-0 text-[10.5px] text-[#828b9a]">~1 day</div>
+    </div>
+    <div class="flex flex-col gap-2 rounded-lg border border-[#232a35] bg-[#101419] p-4 sm:flex-row sm:items-center">
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#14233d] text-[11px] font-semibold text-[#7fb0ff]">2</div>
+      <div class="min-w-0 flex-1"><div class="text-[13px] font-medium">Get set up page <span class="ml-1 rounded border border-[#27456f] bg-[#0f1c2e] px-1.5 py-0.5 text-[9.5px] text-[#7fb0ff]">highest adoption payoff</span></div><div class="text-[11.5px] text-[#828b9a]">Promote Readiness to a nav page, add the seven plain-language reasons and Verify actions, add the "inherited this install" health view. Reuses the existing readiness endpoint.</div></div>
+      <div class="shrink-0 text-[10.5px] text-[#828b9a]">~2 days</div>
+    </div>
+    <div class="flex flex-col gap-2 rounded-lg border border-[#232a35] bg-[#101419] p-4 sm:flex-row sm:items-center">
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#14233d] text-[11px] font-semibold text-[#7fb0ff]">3</div>
+      <div class="min-w-0 flex-1"><div class="text-[13px] font-medium">Guided hostname flow with Test</div><div class="text-[11.5px] text-[#828b9a]">Three steps over the existing drawer, an upstream reachability check (server-side, short timeout) and a suggestion to use a preset from what answered. Worth doing only after the checks exist.</div></div>
+      <div class="shrink-0 text-[10.5px] text-[#828b9a]">~3 days</div>
+    </div>
+    <div class="flex flex-col gap-2 rounded-lg border border-[#232a35] bg-[#101419] p-4 sm:flex-row sm:items-center">
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#14233d] text-[11px] font-semibold text-[#7fb0ff]">4</div>
+      <div class="min-w-0 flex-1"><div class="text-[13px] font-medium">Help &amp; troubleshoot</div><div class="text-[11.5px] text-[#828b9a]">Symptom page with live checks, term popovers and field hints, ⌘K indexing help text, and the three diagrams in-product. The Markdown already has the raw material.</div></div>
+      <div class="shrink-0 text-[10.5px] text-[#828b9a]">~3–4 days</div>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-lg border border-[#27456f] bg-[#0f1c2e] p-4">
+    <div class="flex items-start gap-2.5">
+      <i data-lucide="git-pull-request-draft" class="mt-0.5 h-4 w-4 shrink-0 text-[#7fb0ff]"></i>
+      <p class="text-[12px] leading-6 text-[#9fc0ea]"><span class="font-medium text-[#bfd6f5]">Nothing here needs a redesign.</span> The console's layout, tokens and density hold up; these are additions to orientation and copy, plus one mobile table fix. Each proposal is independently shippable behind the existing routes.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="border-t border-[#1a2029]">
+  <div class="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-3 px-5 py-8 text-[11px] text-[#5c6575] sm:px-8">
+    <span>Reviewed against v1.72.1 · seeded demo data · real console in Cloud browser</span>
+    <span class="mono">docs/ui-review/console-ux-proposals.html</span>
+  </div>
+</footer>
+
+<script>lucide.createIcons();</script>
+</body>
+</html>

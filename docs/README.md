@@ -20,6 +20,8 @@
 
 **Operate**
 - [Operations runbook](OPERATIONS.md) — health, logs, backup, alerting, diagnostics, canary
+- [Security scan](SECURITY-SCAN.md) — the built-in scanner: what it is allowed to do, the five-tab
+  page, findings and vulnerability feeds, scheduling and its residual risk
 - [High availability](HA.md) — active/standby pair, pairing, moves, witness and fencing, the
   console page, failover and failback procedures, security prerequisites and the lab checklist
   (off by default)
