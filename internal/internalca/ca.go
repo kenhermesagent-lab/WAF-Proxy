@@ -117,6 +117,28 @@ func parse(certPEM, keyPEM []byte) (*Authority, error) {
 // RootPEM returns the trust anchor an operator installs on client devices.
 func (a *Authority) RootPEM() []byte { return a.certPEM }
 
+// RootsFor is the trust store a listener certificate this CA signed verifies
+// against: the system's own store plus the root in dir, so a site with a public
+// certificate still verifies. It reads only the root, creates nothing, and
+// returns nil when this install never issued from the internal CA.
+func RootsFor(dir string) *x509.CertPool {
+	if dir == "" {
+		return nil
+	}
+	certPEM, err := os.ReadFile(filepath.Join(dir, "internal-ca.pem"))
+	if err != nil {
+		return nil
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(certPEM) {
+		return nil
+	}
+	return pool
+}
+
 // Issue signs a leaf for the given hostnames. Wildcards are allowed in the
 // leftmost label only, which is what home installs need.
 func (a *Authority) Issue(hosts []string) (certPEM, keyPEM []byte, notBefore, notAfter time.Time, err error) {

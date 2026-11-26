@@ -157,6 +157,13 @@ function duration(run: Run): string {
   return ms < 1000 ? `${ms} ms` : `${Math.round(ms / 1000)} s`;
 }
 
+// A stopped run's reason names both endpoints and their errors, which would
+// stretch the table; the detail panel carries the whole sentence, so the row
+// shows the start of it and the title holds the rest.
+function clipReason(reason: string, max = 140): string {
+  return reason.length > max ? `${reason.slice(0, max - 1)}…` : reason;
+}
+
 // The Security page reads the site's scan state and offers the four writes the
 // server also checks: a run, a finding decision, a schedule and the limits.
 // A role without the token sees the same page with the action disabled and the
@@ -412,9 +419,9 @@ export default function SecurityPage({
             {targets.length === 0 ? (
               <p className="muted">This site has no hostnames yet.</p>
             ) : (
-              <div>
+              <div className="grid">
                 {targets.map((t) => (
-                  <label key={t.id} style={{ display: "block" }}>
+                  <label key={t.id} className="checkbox">
                     <input
                       type="checkbox"
                       checked={selected.includes(t.id)}
@@ -447,8 +454,10 @@ export default function SecurityPage({
                         <td>{r.trigger}</td>
                         <td>{fmtTime(r.started_at)}</td>
                         <td>{r.abandoned ? <Badge tone="warn">abandoned</Badge> : duration(r)}</td>
-                        <td>{r.skipped_reason ? <Badge tone="warn">{`skipped: ${r.skipped_reason}`}</Badge> : r.path || "—"}</td>
-                        <td>{parseVerdicts(r.verdicts).map(([v, n]) => `${VERDICT[v]?.label ?? v} ${n}`).join(", ") || "—"}</td>
+                        <td className="cell-wrap" title={r.skipped_reason}>
+                          {r.skipped_reason ? <><Badge tone="warn">skipped</Badge> {clipReason(r.skipped_reason)}</> : r.path || "—"}
+                        </td>
+                        <td className="cell-wrap">{parseVerdicts(r.verdicts).map(([v, n]) => `${VERDICT[v]?.label ?? v} ${n}`).join(", ") || "—"}</td>
                         <td><button onClick={() => { onTab?.("scans"); openDetail(r.id); }}>Detail</button></td>
                       </tr>
                     ))}
@@ -492,7 +501,9 @@ export default function SecurityPage({
                         <td>{r.actor || "—"}</td>
                         <td>{fmtTime(r.started_at)}</td>
                         <td>{r.abandoned ? <Badge tone="warn">abandoned</Badge> : duration(r)}</td>
-                        <td>{r.skipped_reason ? <Badge tone="warn">{`skipped: ${r.skipped_reason}`}</Badge> : r.path || "—"}</td>
+                        <td className="cell-wrap" title={r.skipped_reason}>
+                          {r.skipped_reason ? <><Badge tone="warn">skipped</Badge> {clipReason(r.skipped_reason)}</> : r.path || "—"}
+                        </td>
                         <td><button onClick={() => openDetail(r.id)}>Evidence</button></td>
                       </tr>
                     ))}
@@ -535,7 +546,7 @@ export default function SecurityPage({
                         <td>{verdictBadge(ev.verdict)}</td>
                         <td>{ev.wan_status || "—"}</td>
                         <td>{ev.upstream_status || "—"}</td>
-                        <td>{ev.detail || ev.note || ""}</td>
+                        <td className="cell-wrap">{ev.detail || ev.note || ""}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -579,7 +590,7 @@ export default function SecurityPage({
                 <tbody>
                   {visible.map((f) => (
                     <tr key={f.key}>
-                      <td>
+                      <td className="cell-wrap">
                         <div>{f.title}</div>
                         <div className="muted">{f.recommendation}</div>
                         {f.reason ? <div className="muted">Accepted reason: {f.reason}</div> : null}
@@ -720,9 +731,9 @@ export default function SecurityPage({
                   />
                 </Field>
                 <Field label="Triggers" hint="On top of the schedule.">
-                  <div>
+                  <div className="grid">
                     {TRIGGERS.map((t) => (
-                      <label key={t.id} style={{ display: "block" }}>
+                      <label key={t.id} className="checkbox">
                         <input
                           type="checkbox"
                           checked={(schedule.triggers ?? []).includes(t.id)}

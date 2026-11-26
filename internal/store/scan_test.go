@@ -56,3 +56,42 @@ func TestScanEvidencePurgeKeepsRun(t *testing.T) {
 		t.Fatalf("verdicts = %q", runs[0].Verdicts)
 	}
 }
+
+// A run outside the newest page of history is still readable by id, and a run
+// another site owns is not.
+func TestScanRunByIDReadsPastTheNewestPage(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	oldest, err := st.CreateScanRun(&model.ScanRun{Target: "old.example.com", Trigger: "manual", StartedAt: time.Now().Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// More runs than the largest page the list endpoint returns.
+	for i := 0; i < 201; i++ {
+		if _, err := st.CreateScanRun(&model.ScanRun{Target: "app.example.com", Trigger: "schedule", StartedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run, err := st.ScanRunByID(oldest)
+	if err != nil {
+		t.Fatalf("ScanRunByID = %v", err)
+	}
+	if run.Target != "old.example.com" {
+		t.Fatalf("target = %q, want the run asked for", run.Target)
+	}
+	if _, err := st.ScanRunByID(9999); err != ErrNotFound {
+		t.Fatalf("missing run = %v, want ErrNotFound", err)
+	}
+	other, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if _, err := other.ScanRunByID(oldest); err != ErrNotFound {
+		t.Fatalf("another site's run = %v, want ErrNotFound", err)
+	}
+}

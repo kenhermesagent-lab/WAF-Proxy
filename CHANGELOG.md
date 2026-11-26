@@ -77,6 +77,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   the limit reached 33 stored paths that its own editor then refused to save as a whole. The append is
   validated first: a full list answers `409` with the limit, stores nothing and starts no rerun, and a list at
   31 still takes its 32nd path.
+- **A site issued by this node's internal CA can be scanned.** The listener fallback dialled this node with the
+  site's hostname, but it was handed no trust store, so a certificate the internal CA signed failed verification and
+  every run against a `*.home.arpa` site stopped with `certificate signed by unknown authority`. The fallback now
+  trusts the internal root alongside the system store, in the console's run path and in the scheduler.
+- **A run older than the newest 200 opens again.** The detail endpoint searched that page for the id, so an older
+  run's row and evidence became unreachable while they were still stored; the run is now read by id, scoped to the
+  site.
+- **The Security page's hostname and trigger pickers are checkboxes, and a run's skip reason no longer widens the
+  table.** The bare labels inherited the console's full-width input style, so each checkbox rendered as a large empty
+  box above its text, and a skip reason or a finding's note stretched the row past the card, pushing *Block & retest*
+  and the verdict counts off-screen. The pickers use the console's checkbox style and the prose cells wrap.
 - **A manual scan is no longer refused on a standalone node.** The run endpoint treated any role other than `leader`
   as a standby, so the Run scan button answered `409` on every non-HA install; only a standby refuses now.
 - **A run's path, its end time and the reason it stopped are recorded.** The path is proved after the row exists and

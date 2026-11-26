@@ -39,9 +39,12 @@ Four consequences worth stating plainly:
   the node bound (a wildcard bind dials loopback) at the listener's address and port, with the
   proxy's hostname as `Host` and as the certificate name. A connection that is accepted and then
   never answers within the probe timeout is a timeout like any other, so a hostname that takes
-  the connection and stalls still falls back. A certificate error is not retried: the listener
-  presents the same name, so the error is reported instead. The run records which endpoint
-  answered: when the run proceeds after a fallback, its first evidence row names the listener
+  the connection and stalls still falls back. The fallback trusts this node's internal CA root
+  alongside the system store, so a site issued by it completes the handshake even though no
+  client device has that root; a certificate the listener cannot back with either is not
+  retried, because the listener presents the same name, so the error is reported instead. The
+  run records which endpoint answered: when the run proceeds after a fallback, its first
+  evidence row names the listener
   and the failed hostname; a run that stops says so in its skip reason, including both
   endpoints when both fail. Every run records the path it actually took: `edge` when the
   response carries `CF-Ray` and the same probe id appears in the request log, `local` when it

@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/config"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/internalca"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scan"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/siteres"
@@ -143,14 +145,17 @@ func securityScheduler(b *siteres.Bundle, box *crypto.Box, log *slog.Logger, cfg
 				return err
 			}
 			listen := ""
+			var roots *x509.CertPool
 			if cfg != nil {
 				listen = cfg.ListenWAN
+				roots = internalca.RootsFor(cfg.DataDir)
 			}
 			base := scan.ListenerBase(listen)
 			deps := scan.ExecuteDeps{
 				Store: b.Store, Box: box, Notify: b.Notify, PerSecond: scan.ProbesPerSecond(b.Store),
 				ConsoleHost: b.Site.ConsoleHost, Bans: b.Bans, Trust: b.ScanTrust,
 				WANFallback: func(string) string { return base },
+				WANRoots:    roots,
 			}
 			for _, p := range proxies {
 				if !p.Enabled || p.Maintenance {

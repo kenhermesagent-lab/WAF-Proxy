@@ -6,6 +6,7 @@ package scan
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +50,10 @@ type ExecuteDeps struct {
 	// with the hostname as Host and TLS SNI only when the published hostname
 	// does not resolve, refuses the connection or times out.
 	WANFallback func(hostname string) string
+	// WANRoots trusts the certificate the listener presents. A site issued by
+	// this node's internal CA has a certificate no system store knows, so the
+	// fallback cannot complete a handshake without it. Nil uses system roots.
+	WANRoots *x509.CertPool
 	// Trust mints the token that marks probes as this run's. Nil sends none.
 	Trust *scantrust.Registry
 	// Bans removes a ban this run left on the address it probed from.
@@ -238,7 +243,7 @@ func resolveTarget(d ExecuteDeps, proxy model.Proxy) (Target, error) {
 		if ferr != nil || u.Host == "" {
 			return Target{}, fmt.Errorf("the fallback endpoint is not a URL: %q", raw)
 		}
-		fallback = Endpoint{URL: u, Host: proxy.Hostname, TLSName: proxy.Hostname}
+		fallback = Endpoint{URL: u, Host: proxy.Hostname, TLSName: proxy.Hostname, Roots: d.WANRoots}
 	}
 	ups, err := d.Store.ListUpstreams(proxy.ID)
 	if err != nil {

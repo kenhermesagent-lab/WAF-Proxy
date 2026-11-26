@@ -446,6 +446,9 @@ button.primary:disabled:hover { background: var(--accent); }
 }
 .link-cell:hover { background: transparent; border-color: transparent; color: var(--accent); text-decoration: underline; }
 .link-cell.mono { font-family: var(--font-mono); }
+/* A cell whose text is prose (a finding's note, a run's skip reason) wraps
+   instead of widening the table past its card. */
+.cell-wrap { white-space: normal; overflow-wrap: anywhere; max-width: 460px; }
 .phone-only { display: none; }
 .log-time { white-space: nowrap; }
 .log-time-clock { display: none; }

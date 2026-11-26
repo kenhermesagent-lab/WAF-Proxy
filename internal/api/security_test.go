@@ -28,6 +28,7 @@ import (
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/auth"
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/internalca"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/rbac"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scan"
@@ -555,6 +556,66 @@ func TestPageRunReportsAnUntrustedListenerCertificate(t *testing.T) {
 	mu.Unlock()
 	if len(got) == 0 || got[0] != "app.invalid" {
 		t.Fatalf("TLS SNI = %v, want app.invalid dialled at the listener", got)
+	}
+}
+
+// A site issued by this node's internal CA presents a certificate no system
+// store knows, so the fallback must be handed that root or it can never
+// complete the handshake.
+func TestFallbackTrustsTheInternalCA(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	ca, err := internalca.Load(srv.cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM, keyPEM, _, _, err := ca.Issue([]string{"app.invalid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wan := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	wan.TLS = &tls.Config{Certificates: []tls.Certificate{leaf}}
+	wan.StartTLS()
+	t.Cleanup(wan.Close)
+	wan.Config.ErrorLog = log.New(io.Discard, "", 0)
+	srv.cfg.ListenWAN = strings.TrimPrefix(wan.URL, "https://")
+
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(app.Close)
+	id, err := st.CreateProxy(&model.Proxy{Hostname: "app.invalid", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceUpstreams(id, []model.Upstream{{ProxyID: id, URL: app.URL, Weight: 1, Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := securityDo(t, srv, http.MethodPost, "/api/security/runs", "gui.local", token, csrf,
+		map[string]any{"targets": []int64{id}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("run = %d (%s), want 201", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Runs []model.ScanRun `json:"runs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Runs) != 1 {
+		t.Fatalf("runs = %+v, want one", out.Runs)
+	}
+	if skip := out.Runs[0].Skipped; skip != "" {
+		t.Fatalf("the internal-CA fallback stopped: %s", skip)
+	}
+	if out.Runs[0].Path != scan.PathLocal {
+		t.Fatalf("path = %q, want local", out.Runs[0].Path)
 	}
 }
 

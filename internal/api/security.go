@@ -2,14 +2,17 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/internalca"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scan"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scantrust"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
 const securityMaxTargets = 4
@@ -23,11 +26,13 @@ const securityRunAbandonedAfter = 15 * time.Minute
 func markAbandoned(runs []model.ScanRun) []model.ScanRun {
 	now := time.Now()
 	for i := range runs {
-		if runs[i].EndedAt == nil && now.Sub(runs[i].StartedAt) > securityRunAbandonedAfter {
-			runs[i].Abandoned = true
-		}
+		runs[i].Abandoned = isAbandoned(runs[i], now)
 	}
 	return runs
+}
+
+func isAbandoned(run model.ScanRun, now time.Time) bool {
+	return run.EndedAt == nil && now.Sub(run.StartedAt) > securityRunAbandonedAfter
 }
 
 // getSecurityOverview reports the site's posture, its open findings and what
@@ -105,23 +110,16 @@ func (s *Server) getSecurityRun(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	runs, err := s.db(r).ListScanRuns(200)
+	run, err := s.db(r).ScanRunByID(id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	runs = markAbandoned(runs)
-	var run *model.ScanRun
-	for i := range runs {
-		if runs[i].ID == id {
-			run = &runs[i]
-			break
-		}
-	}
-	if run == nil {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
+	run.Abandoned = isAbandoned(*run, time.Now())
 	evidence, err := s.db(r).ListScanEvidence(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
@@ -516,6 +514,11 @@ func (s *Server) securityDeps(r *http.Request) scan.ExecuteDeps {
 	deps := scan.ExecuteDeps{
 		Store: s.db(r), Box: s.box, Notify: notifier, Bans: s.bans, Trust: trust,
 		PerSecond: s.securityPerSecond(r), ConsoleHost: s.consoleHost(r),
+	}
+	if s.cfg != nil {
+		// The listener may present a certificate this node's own CA signed,
+		// which no system store knows.
+		deps.WANRoots = internalca.RootsFor(s.cfg.DataDir)
 	}
 	if s.securityWAN != nil {
 		deps.WANBase = s.securityWAN

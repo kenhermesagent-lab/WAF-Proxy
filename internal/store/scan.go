@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
@@ -69,20 +71,44 @@ func (s *Store) ListScanRuns(limit int) ([]model.ScanRun, error) {
 	defer rows.Close()
 	out := []model.ScanRun{}
 	for rows.Next() {
-		var r model.ScanRun
-		var started, ended string
-		if err := rows.Scan(&r.ID, &r.SiteID, &r.Target, &r.Trigger, &r.Actor, &r.Path,
-			&started, &ended, &r.Verdicts, &r.Skipped, &r.AgentNode); err != nil {
+		r, err := scanRunRow(rows)
+		if err != nil {
 			return nil, err
-		}
-		r.StartedAt = parseStamp(started)
-		if ended != "" {
-			at := parseStamp(ended)
-			r.EndedAt = &at
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// ScanRunByID returns one run this site owns, or ErrNotFound. A run outside
+// the newest page of history is still readable, and so is its evidence.
+func (s *Store) ScanRunByID(id int64) (*model.ScanRun, error) {
+	row := s.db.QueryRow(`SELECT id, site_id, target, trigger, actor, path, started_at, ended_at,
+		verdicts, skipped_reason, agent_node FROM scan_runs
+		WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site)
+	r, err := scanRunRow(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &r, nil
+}
+
+func scanRunRow(row interface{ Scan(...any) error }) (model.ScanRun, error) {
+	var r model.ScanRun
+	var started, ended string
+	if err := row.Scan(&r.ID, &r.SiteID, &r.Target, &r.Trigger, &r.Actor, &r.Path,
+		&started, &ended, &r.Verdicts, &r.Skipped, &r.AgentNode); err != nil {
+		return r, err
+	}
+	r.StartedAt = parseStamp(started)
+	if ended != "" {
+		at := parseStamp(ended)
+		r.EndedAt = &at
+	}
+	return r, nil
 }
 
 // ListScanEvidence returns one run's probe results in probe order.
