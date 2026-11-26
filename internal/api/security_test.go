@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	wfcrypto "github.com/kenhermesagent-lab/waf-proxy-docker/internal/crypto"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/rbac"
+	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/scan"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
@@ -246,6 +248,125 @@ func TestAcceptedReasonSurvivesReopen(t *testing.T) {
 	got := listed.Findings[0]
 	if got.State != "open" || got.Reason != "risk accepted until Q3" || got.Note != "served HTTP 200" {
 		t.Fatalf("after reopen: %+v, want open with the reason and the scan note kept", got)
+	}
+}
+
+// remediationFixture wires a target whose application serves /.env and a
+// published path that answers it with wanStatus.
+func remediationFixture(t *testing.T, srv *Server, st *store.Store, wanStatus int) int64 {
+	t.Helper()
+	if err := st.SetSetting("security_probes_per_second", "50"); err != nil {
+		t.Fatal(err)
+	}
+	serve := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.env" {
+			_, _ = io.WriteString(w, "DB_PASSWORD=hunter2")
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}
+	app := httptest.NewServer(http.HandlerFunc(serve))
+	t.Cleanup(app.Close)
+	wan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.env" {
+			w.WriteHeader(wanStatus)
+			if wanStatus == http.StatusOK {
+				_, _ = io.WriteString(w, "DB_PASSWORD=hunter2")
+			}
+			return
+		}
+		serve(w, r)
+	}))
+	t.Cleanup(wan.Close)
+	srv.securityWAN = func(string) string { return wan.URL }
+
+	id, err := st.CreateProxy(&model.Proxy{Hostname: "app.example.com", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceUpstreams(id, []model.Upstream{{ProxyID: id, URL: app.URL, Weight: 1, Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.MergeScanFindings(st.SiteID(), "app.example.com", []model.ScanFinding{{
+		Key: "exposure:/.env", Stage: "backend", Class: "exposure",
+		Title: "The application serves /.env", Severity: scan.SeverityHigh,
+		Recommendation: "Remove the file", Note: "served HTTP 200",
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// One click installs the per-host block and reruns the target. Only the rerun's
+// own evidence may resolve the finding, and here it proves the path closed.
+func TestRemediateExposureBlocksThePathAndResolvesOnProof(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	id := remediationFixture(t, srv, st, http.StatusForbidden)
+
+	rec := securityDo(t, srv, http.MethodPost, "/api/security/findings/exposure%3A%2F.env/remediate", "gui.local", token, csrf, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("remediate = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Proved  bool              `json:"proved"`
+		Run     model.ScanRun     `json:"run"`
+		Finding model.ScanFinding `json:"finding"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Proved || out.Run.Trigger != scan.TriggerRemediation || out.Run.ID == 0 {
+		t.Fatalf("remediation = %+v, want a proved remediation run", out)
+	}
+	if out.Finding.State != "resolved" {
+		t.Fatalf("finding = %+v, want it resolved by the proof", out.Finding)
+	}
+	proxy, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scan.PathBlocked(proxy.DenyPaths, "/.env") {
+		t.Fatalf("proxy deny list = %v, want the path closed on this host", proxy.DenyPaths)
+	}
+	listed, err := st.ListScanFindings("", "")
+	if err != nil || len(listed) != 1 || listed[0].State != "resolved" {
+		t.Fatalf("stored findings = %+v, %v; want the one resolved", listed, err)
+	}
+}
+
+// The block is saved, but a rerun that still reaches the file is not proof:
+// the finding stays open and says so.
+func TestRemediateExposureKeepsTheFindingWithoutProof(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	remediationFixture(t, srv, st, http.StatusOK)
+
+	rec := securityDo(t, srv, http.MethodPost, "/api/security/findings/exposure%3A%2F.env/remediate", "gui.local", token, csrf, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("remediate = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Proved bool `json:"proved"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Proved {
+		t.Fatal("a rerun that still served the file counted as proof")
+	}
+	listed, err := st.ListScanFindings("", "")
+	if err != nil || len(listed) != 1 || listed[0].State != "open" {
+		t.Fatalf("stored findings = %+v, %v; want the finding left open", listed, err)
+	}
+}
+
+// The action is a write like any other decision on a finding.
+func TestRemediateExposureRequiresSecurityWrite(t *testing.T) {
+	srv, st, _, _ := newObservabilityServer(t)
+	token, csrf := securitySession(t, st, "security-reader", []string{rbac.Permission("security", "read")})
+
+	rec := securityDo(t, srv, http.MethodPost, "/api/security/findings/exposure%3A%2F.env/remediate", "gui.local", token, csrf, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("read-only remediate = %d (%s), want 403", rec.Code, rec.Body.String())
 	}
 }
 

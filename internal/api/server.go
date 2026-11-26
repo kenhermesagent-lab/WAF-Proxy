@@ -426,6 +426,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/security/runs/{id}", s.authed(s.getSecurityRun))
 	m.HandleFunc("GET /api/security/findings", s.authed(s.listSecurityFindings))
 	m.HandleFunc("PATCH /api/security/findings/{key}", s.authed(s.patchSecurityFinding))
+	m.HandleFunc("POST /api/security/findings/{key}/remediate", s.authed(s.remediateSecurityFinding))
 	m.HandleFunc("GET /api/security/feed", s.authed(s.getSecurityFeed))
 	m.HandleFunc("POST /api/security/feed/sync", s.authed(s.syncSecurityFeed))
 	m.HandleFunc("GET /api/security/schedule", s.authed(s.getSecuritySchedule))

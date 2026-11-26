@@ -110,6 +110,10 @@ const schemaBlock = `    Proxy:
         tls_min_version: {type: string, enum: ["1.2", "1.3"]}
         upstream_timeout_s: {type: integer}
         retries: {type: integer}
+        deny_paths:
+          type: array
+          items: {type: string}
+          description: Absolute paths this host refuses with 403 before the gate and WAF
     Upstream:
       type: object
       properties:

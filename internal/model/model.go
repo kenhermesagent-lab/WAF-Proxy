@@ -57,6 +57,10 @@ type Proxy struct {
 	// BodySkip paths stream their body without inspection. Method, path and
 	// header rules, lists, rate limits, bans and the access gate still apply.
 	BodySkip []BodySkip `json:"body_skip"`
+	// DenyPaths are paths this host refuses with 403 before the gate and the
+	// WAF. The security scan adds one when an exposure finding is closed from
+	// the page; an entry also covers everything below it.
+	DenyPaths []string `json:"deny_paths"`
 	// UpstreamTimeout bounds a whole upstream exchange in seconds; zero keeps
 	// the transport default. Retries applies to idempotent requests only.
 	UpstreamTimeout int `json:"upstream_timeout"`

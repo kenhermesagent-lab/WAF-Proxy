@@ -897,6 +897,16 @@ func (e *Engine) screen(req *Request, live bool) model.Verdict {
 		}
 	}
 
+	// A path closed from a security finding is refused on this host before the
+	// gate and the WAF. A live scan token does not exempt it: the scanner has to
+	// see the same refusal a stranger gets, which is what proves the exposure
+	// closed. This also beats an allow list, because an explicit path block is a
+	// narrower rule than an address grant.
+	if pathInList(p, lowerPath) {
+		return model.Verdict{Action: "block", Stage: "path-block", Rule: lowerPath,
+			Reason: "path closed on this site by a security finding", Status: http.StatusForbidden}
+	}
+
 	if !allowlisted {
 		if country != "" && rules.countryDeny[country] {
 			return model.Verdict{Action: "block", Stage: "country-block", Rule: "country:" + country,
@@ -1077,6 +1087,25 @@ func (e *Engine) ProfileFor(p *model.Proxy) *model.Profile {
 		return nil
 	}
 	return &prof
+}
+
+// pathInList reports whether the proxy's own deny list covers a canonical
+// path. An entry covers itself and everything below it, so closing "/.git"
+// also refuses "/.git/config".
+func pathInList(p *model.Proxy, clean string) bool {
+	if p == nil {
+		return false
+	}
+	for _, entry := range p.DenyPaths {
+		prefix := strings.TrimSuffix(canonicalPath(entry), "/")
+		if prefix == "" {
+			continue
+		}
+		if clean == prefix || strings.HasPrefix(clean, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // pathUnderAny reports whether a path is one of the listed prefixes or below

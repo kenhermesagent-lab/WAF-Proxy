@@ -18,7 +18,7 @@ func (s *Store) ListProxies() ([]model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version, max_body, body_skip, site_id FROM proxies WHERE (? = 0 OR site_id = ?) ORDER BY hostname`, s.site, s.site)
+		request_headers, response_headers, tls_min_version, max_body, body_skip, deny_paths, site_id FROM proxies WHERE (? = 0 OR site_id = ?) ORDER BY hostname`, s.site, s.site)
 	if err != nil {
 		return nil, err
 	}
@@ -38,12 +38,12 @@ func scanProxy(row interface{ Scan(...any) error }) (*model.Proxy, error) {
 	var p model.Proxy
 	var certID, profileID, protectionID, accessID, providerID sql.NullInt64
 	var enabled, maint int
-	var created, reqHeaders, respHeaders, bodySkip string
+	var created, reqHeaders, respHeaders, bodySkip, denyPaths string
 	err := row.Scan(&p.ID, &p.Hostname, &enabled, &certID, &profileID, &p.GateMode, &p.GateSecret,
 		&p.GateTOTPHint, &p.Fingerprint, &p.BotLevel, &maint, &p.WAFMode, &created, &protectionID, &accessID, &providerID,
 		&p.LBPolicy, &p.HealthPath, &p.HealthExpect, &p.HealthInterval, &p.HealthFailAfter,
 		&p.MaxInflight, &p.MaxInflightPerClient, &p.UpstreamTimeout, &p.Retries, &reqHeaders, &respHeaders,
-		&p.TLSMinVersion, &p.MaxBody, &bodySkip, &p.SiteID)
+		&p.TLSMinVersion, &p.MaxBody, &bodySkip, &denyPaths, &p.SiteID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -71,6 +71,7 @@ func scanProxy(row interface{ Scan(...any) error }) (*model.Proxy, error) {
 	p.RequestHeaders = parseHeaderOps(reqHeaders)
 	p.ResponseHeaders = parseHeaderOps(respHeaders)
 	p.BodySkip = parseBodySkip(bodySkip)
+	p.DenyPaths = parsePathList(denyPaths)
 	return &p, nil
 }
 
@@ -89,6 +90,23 @@ func parseBodySkip(raw string) []model.BodySkip {
 	var entries []model.BodySkip
 	_ = json.Unmarshal([]byte(raw), &entries)
 	return entries
+}
+
+func pathListJSON(paths []string) string {
+	if len(paths) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(paths)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+func parsePathList(raw string) []string {
+	var paths []string
+	_ = json.Unmarshal([]byte(raw), &paths)
+	return paths
 }
 
 func headerOpsJSON(ops []model.HeaderOp) string {
@@ -115,7 +133,7 @@ func (s *Store) GetProxy(id int64) (*model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version, max_body, body_skip, site_id FROM proxies WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
+		request_headers, response_headers, tls_min_version, max_body, body_skip, deny_paths, site_id FROM proxies WHERE id = ? AND (? = 0 OR site_id = ?)`, id, s.site, s.site))
 }
 
 // ProxyByHost loads a proxy by hostname.
@@ -125,7 +143,7 @@ func (s *Store) ProxyByHost(host string) (*model.Proxy, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version, max_body, body_skip, site_id FROM proxies WHERE hostname = ? AND (? = 0 OR site_id = ?)`, host, s.site, s.site))
+		request_headers, response_headers, tls_min_version, max_body, body_skip, deny_paths, site_id FROM proxies WHERE hostname = ? AND (? = 0 OR site_id = ?)`, host, s.site, s.site))
 }
 
 // CreateProxy inserts a proxy and returns its ID.
@@ -135,15 +153,15 @@ func (s *Store) CreateProxy(p *model.Proxy) (int64, error) {
 		protection_profile_id, access_profile_id, auth_provider_id,
 		lb_policy, health_path, health_expect, health_interval, health_fail_after,
 		max_inflight, max_inflight_per_client, upstream_timeout, retries,
-		request_headers, response_headers, tls_min_version, max_body, body_skip, site_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		request_headers, response_headers, tls_min_version, max_body, body_skip, deny_paths, site_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Hostname, b2i(p.Enabled), p.CertID, p.ProfileID, p.GateMode, p.GateSecret,
 		p.GateTOTPHint, p.Fingerprint, defaultStr(p.BotLevel, "light"), b2i(p.Maintenance), p.WAFMode,
 		stamp(time.Now()), p.ProtectionProfileID, p.AccessProfileID, p.AuthProviderID,
 		defaultStr(p.LBPolicy, "weighted_rr"), defaultStr(p.HealthPath, "/"), defaultStr(p.HealthExpect, "200-399"),
 		p.HealthInterval, p.HealthFailAfter, p.MaxInflight, p.MaxInflightPerClient,
 		p.UpstreamTimeout, p.Retries, headerOpsJSON(p.RequestHeaders), headerOpsJSON(p.ResponseHeaders),
-		p.TLSMinVersion, p.MaxBody, bodySkipJSON(p.BodySkip), s.site)
+		p.TLSMinVersion, p.MaxBody, bodySkipJSON(p.BodySkip), pathListJSON(p.DenyPaths), s.site)
 	if err != nil {
 		return 0, err
 	}
@@ -157,7 +175,7 @@ func (s *Store) UpdateProxy(p *model.Proxy) error {
 		protection_profile_id = ?, access_profile_id = ?, auth_provider_id = ?,
 		lb_policy = ?, health_path = ?, health_expect = ?, health_interval = ?, health_fail_after = ?,
 		max_inflight = ?, max_inflight_per_client = ?, upstream_timeout = ?, retries = ?,
-		request_headers = ?, response_headers = ?, tls_min_version = ?, max_body = ?, body_skip = ?
+		request_headers = ?, response_headers = ?, tls_min_version = ?, max_body = ?, body_skip = ?, deny_paths = ?
 		WHERE id = ? AND (? = 0 OR site_id = ?)`,
 		p.Hostname, b2i(p.Enabled), p.CertID, p.ProfileID, p.GateMode, p.GateSecret,
 		p.GateTOTPHint, p.Fingerprint, defaultStr(p.BotLevel, "light"), b2i(p.Maintenance), p.WAFMode,
@@ -165,7 +183,7 @@ func (s *Store) UpdateProxy(p *model.Proxy) error {
 		defaultStr(p.LBPolicy, "weighted_rr"), defaultStr(p.HealthPath, "/"), defaultStr(p.HealthExpect, "200-399"),
 		p.HealthInterval, p.HealthFailAfter, p.MaxInflight, p.MaxInflightPerClient,
 		p.UpstreamTimeout, p.Retries, headerOpsJSON(p.RequestHeaders), headerOpsJSON(p.ResponseHeaders),
-		p.TLSMinVersion, p.MaxBody, bodySkipJSON(p.BodySkip), p.ID, s.site, s.site)
+		p.TLSMinVersion, p.MaxBody, bodySkipJSON(p.BodySkip), pathListJSON(p.DenyPaths), p.ID, s.site, s.site)
 	return err
 }
 

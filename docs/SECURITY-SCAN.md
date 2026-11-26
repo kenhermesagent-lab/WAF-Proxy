@@ -52,6 +52,14 @@ Four consequences worth stating plainly:
 - **A WAF miss is visible to the app.** A 404 is still handled by the application process. The
   probe path is random and read-only, so the app does nothing with it, but the request does
   arrive. That is the point: an unarmed scanner cannot prove a bypass.
+- **An exposure finding is closed by a control and a proving rerun, not by a click alone.** The
+  finding's row offers *Block & retest*: it adds the leaking path to that hostname's own block
+  list, so the proxy answers the path (and everything below it) with `403` before the gate and the
+  WAF, then reruns the target with trigger `remediation`. The finding resolves only when the new
+  run's evidence shows the published path refused the probe or the application no longer serves
+  it; a skipped, failed or still-reachable rerun leaves it open. The block never exempts the
+  scanner, so the rerun observes the same refusal a stranger gets. It closes reachability, not
+  the leak: removing the file is still the application's job.
 
 ### The scanner's own threat model
 
@@ -217,6 +225,11 @@ Then exposure, by status code only: `/.git/config`, `/.env`, `/server-status` an
 `/actuator/env`. For these the scanner keeps the status, the length and the header names —
 **no body bytes at all**. A scanner must never keep a copy of the file that exists precisely
 because it holds credentials; the finding says which path answered and which handler served it.
+
+When the published path refuses a served file, the finding is still raised unless the refusal
+comes from that host's own block list — the control the finding's *Block & retest* action
+installs. A path covered by that list is no longer reported, and a reachable one is a high
+finding again if the block is later removed.
 
 Then the join: `product + version` → advisories → KEV flag → the finding that matters, e.g.
 *"Nextcloud 27.1.2 matches CVE-2024-XXXX, added to KEV 2024-09-02; the WAF has no signature
@@ -404,6 +417,7 @@ POST   /api/security/runs                     {targets:[proxy_id], classes:[...]
 GET    /api/security/runs/{id}                stages + evidence
 GET    /api/security/findings?state=&severity=
 PATCH  /api/security/findings/{key}           {state, note}
+POST   /api/security/findings/{key}/remediate  add the host's path block, rerun, resolve only on proof
 GET    /api/security/feed                     sources, ages, disk use, sync log
 POST   /api/security/feed/sync                {source}
 GET    /api/security/schedule

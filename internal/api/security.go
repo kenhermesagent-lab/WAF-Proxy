@@ -130,23 +130,30 @@ func (s *Server) getSecurityRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"run": run, "evidence": evidence})
 }
 
-// createSecurityRun starts a scan of targets the signed-in site may read. A
-// foreign site's proxy is a 404, never a scan.
-func (s *Server) createSecurityRun(w http.ResponseWriter, r *http.Request) {
+// securityRunRefused explains why this node cannot start a scan right now.
+// A standalone install and an active node both scan; only a standby refuses,
+// because two nodes scanning would double the traffic and the gate's failure
+// budget. The pause switch stops both the button and a remediation retest.
+func (s *Server) securityRunRefused(r *http.Request) string {
 	if s.securityPaused(r) {
-		writeError(w, http.StatusConflict, "security scanning is paused")
-		return
+		return "security scanning is paused"
 	}
 	if s.haStatus != nil {
-		// A standalone install and an active node both scan; only a standby
-		// refuses, because two nodes scanning would double the traffic and the
-		// gate's failure budget.
 		switch s.haStatus().Role {
 		case "", "leader", "standalone", "active":
 		default:
-			writeError(w, http.StatusConflict, "only the active node runs scans")
-			return
+			return "only the active node runs scans"
 		}
+	}
+	return ""
+}
+
+// createSecurityRun starts a scan of targets the signed-in site may read. A
+// foreign site's proxy is a 404, never a scan.
+func (s *Server) createSecurityRun(w http.ResponseWriter, r *http.Request) {
+	if msg := s.securityRunRefused(r); msg != "" {
+		writeError(w, http.StatusConflict, msg)
+		return
 	}
 	var in struct {
 		Targets []int64 `json:"targets"`
@@ -179,6 +186,101 @@ func (s *Server) createSecurityRun(w http.ResponseWriter, r *http.Request) {
 		runs = append(runs, run)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"runs": runs})
+}
+
+// remediateSecurityFinding installs the concrete control that closes an
+// exposure finding — this host refuses the leaking path before the gate and
+// the WAF — then reruns the target. The finding is resolved only when the new
+// run's own evidence proves the path is no longer served; a skipped, failed or
+// still-reachable rerun leaves it open.
+func (s *Server) remediateSecurityFinding(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	exposedPath, ok := strings.CutPrefix(key, "exposure:")
+	if !ok || !scan.IsExposurePath(exposedPath) {
+		writeError(w, http.StatusBadRequest, "only an exposure finding can be closed this way")
+		return
+	}
+	if msg := s.securityRunRefused(r); msg != "" {
+		writeError(w, http.StatusConflict, msg)
+		return
+	}
+	findings, err := s.db(r).ListScanFindings("", "")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	var current *model.ScanFinding
+	for i := range findings {
+		if findings[i].Key == key {
+			current = &findings[i]
+			break
+		}
+	}
+	if current == nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if current.Class != "exposure" {
+		writeError(w, http.StatusBadRequest, "only an exposure finding can be closed this way")
+		return
+	}
+	if current.State != "" && current.State != "open" {
+		writeError(w, http.StatusConflict, "only an open finding is remediated; reopen it first")
+		return
+	}
+	proxy, err := s.db(r).ProxyByHost(current.Target)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "the finding's hostname no longer exists")
+		return
+	}
+
+	// The control is a per-host path block, so closing "actuator/env" cannot
+	// affect any other hostname. It is idempotent: clicking twice adds no
+	// duplicate and still retests.
+	if !scan.PathBlocked(proxy.DenyPaths, exposedPath) {
+		proxy.DenyPaths = append(proxy.DenyPaths, exposedPath)
+		if err := s.db(r).UpdateProxy(proxy); err != nil {
+			writeError(w, http.StatusInternalServerError, "cannot save the block")
+			return
+		}
+		s.reload(r.Context())
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	sess := sessionFrom(r)
+	run, err := scan.Execute(ctx, s.securityDeps(r), *proxy, scan.TriggerRemediation, sess.Username)
+	s.db(r).AddAudit(sess.Username, "security.remediate", key+" "+proxy.Hostname, clientIP(r))
+	if err != nil && run.ID == 0 {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	evidence, _ := s.db(r).ListScanEvidence(run.ID)
+	proved := scan.ExposureClosed(evidence, exposedPath)
+	state := "open"
+	if proved {
+		state = "resolved"
+	}
+	// A run whose backend stage could not answer leaves no finding behind, and
+	// the merge treats that as resolved. The evidence is what decides here, so
+	// an unproved path is put back to open.
+	if err := s.db(r).UpdateScanFinding(key, state, nil); err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	latest, err := s.db(r).ListScanFindings("", "")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	var finding *model.ScanFinding
+	for i := range latest {
+		if latest[i].Key == key {
+			finding = &latest[i]
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"run": run, "finding": finding, "proved": proved})
 }
 
 func (s *Server) listSecurityFindings(w http.ResponseWriter, r *http.Request) {
@@ -400,8 +502,14 @@ func (s *Server) securityDeps(r *http.Request) scan.ExecuteDeps {
 	if b := s.siteRes(r); b != nil {
 		trust = b.ScanTrust
 	}
+	// A nil *notify.Manager kept in the interface is not a nil interface, so a
+	// run that resolved a finding would call a method on nothing.
+	var notifier scan.Notifier
+	if s.notify != nil {
+		notifier = s.notify
+	}
 	return scan.ExecuteDeps{
-		Store: s.db(r), Box: s.box, Notify: s.notify, Bans: s.bans, Trust: trust,
+		Store: s.db(r), Box: s.box, Notify: notifier, Bans: s.bans, Trust: trust,
 		PerSecond: s.securityPerSecond(r), ConsoleHost: s.consoleHost(r), WANBase: s.securityWAN,
 	}
 }

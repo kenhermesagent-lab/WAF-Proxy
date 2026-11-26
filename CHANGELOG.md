@@ -41,6 +41,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   hour with jitter, skipped when the proxy configuration and WAF-Proxy version are unchanged, plus config-change,
   upgrade and new-KEV-match triggers. The loop runs on the active node only; a pause switch stops manual and
   scheduled runs alike.
+- **An exposure finding can be closed from its row, and only a proving rerun resolves it.** One click installs the
+  concrete control — a per-host path block that refuses the leaking path with `403` before the gate and the WAF,
+  covering the whole subtree — and rescans that target with trigger `remediation`. The finding is resolved only when
+  the new run's own evidence shows the published path refused or the application no longer serves it; a skipped,
+  failed or still-reachable rerun leaves it open. The block never exempts the scanner, so the rerun sees the same
+  refusal a stranger gets. It closes reachability, not the file: removing the file stays the application's job.
 
 ### Security
 
@@ -69,6 +75,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   reads, so hostnames can be chosen again.
 - **The scanner's rate limit applies to scheduled runs too.** The scheduler used a fixed 12 probes a second instead of
   the site's saved limit.
+- **A run that resolves a finding no longer panics on a node with no notification channels.** The scan dependencies
+  stored a nil `*notify.Manager` in the interface, which is not a nil interface, so the resolved branch called a
+  method on nothing. A nil notifier now leaves the run silent.
 
 ## [1.76.0] — 2026-11-25
 

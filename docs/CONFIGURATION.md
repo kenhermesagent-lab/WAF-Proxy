@@ -338,6 +338,7 @@ site unless the upstream overrides them. They are not all exposed in the drawer.
 | `max_inflight_per_client` | Concurrent requests per client address, 0–10000; 0 inherits. | 0 |
 | `max_body` | Buffered request-body ceiling in bytes for this site, 0 (inherit the host setting) to 1073741824. | 0 |
 | `body_skip` | Paths streamed without inspection: `{method, prefix, list_ids}` in the API and `{method, prefix, lists}` by name in YAML, POST/PUT/PATCH only; at most 16. An entry whose list or prefix cannot be resolved on import is dropped and reported. | empty |
+| `deny_paths` | Absolute paths this host answers with `403` before the gate and WAF, each also covering its subtree; at most 32, no query, wildcard or `..`. The Security scan's *Block & retest* action adds one when it closes an exposure finding. | empty |
 | `upstream_timeout` | Whole upstream exchange in seconds, 0–3600; 0 keeps the transport default. | 0 |
 | `retries` | Retries for idempotent requests only, 0–5. | 0 |
 | `tls_min_version` | **1.2** or 1.3 for this site. | 1.2 |

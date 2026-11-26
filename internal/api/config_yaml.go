@@ -71,6 +71,7 @@ type configProxy struct {
 	MaxInflightClient int              `json:"max_inflight_per_client,omitempty"`
 	MaxBody           int64            `json:"max_body,omitempty"`
 	BodySkip          []configBodySkip `json:"body_skip,omitempty"`
+	DenyPaths         []string         `json:"deny_paths,omitempty"`
 	UpstreamTimeout   int              `json:"upstream_timeout,omitempty"`
 	Retries           int              `json:"retries,omitempty"`
 	TLSMinVersion     string           `json:"tls_min_version,omitempty"`
@@ -203,6 +204,7 @@ func (s *Server) configDocument(r *http.Request) (configDoc, error) {
 			HealthInterval: p.HealthInterval, HealthFailAfter: p.HealthFailAfter,
 			MaxInflight: p.MaxInflight, MaxInflightClient: p.MaxInflightPerClient,
 			MaxBody:         p.MaxBody,
+			DenyPaths:       p.DenyPaths,
 			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries, TLSMinVersion: p.TLSMinVersion,
 			RequestHeaders: p.RequestHeaders, ResponseHeaders: p.ResponseHeaders,
 		}
@@ -544,6 +546,13 @@ func (s *Server) applyConfigProxies(r *http.Request, in []configProxy, problems 
 			UpstreamTimeout: p.UpstreamTimeout, Retries: p.Retries, TLSMinVersion: p.TLSMinVersion,
 			RequestHeaders: p.RequestHeaders, ResponseHeaders: p.ResponseHeaders,
 		}}
+		for _, denied := range p.DenyPaths {
+			if msg := validateDenyPaths([]string{denied}); msg != "" {
+				problems = append(problems, "proxy "+p.Hostname+": denied path "+denied+": "+msg+", entry skipped")
+				continue
+			}
+			bp.Proxy.DenyPaths = append(bp.Proxy.DenyPaths, denied)
+		}
 		for _, s := range p.BodySkip {
 			entry := model.BodySkip{Method: s.Method, Prefix: s.Prefix}
 			resolved := true

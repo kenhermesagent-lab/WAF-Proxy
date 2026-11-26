@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path"
 	"path/filepath"
 	rmetrics "runtime/metrics"
 	"sort"
@@ -79,6 +80,7 @@ type proxyBody struct {
 	MaxInflightPerClient *int             `json:"max_inflight_per_client"`
 	MaxBody              *int64           `json:"max_body"`
 	BodySkip             []model.BodySkip `json:"body_skip"`
+	DenyPaths            []string         `json:"deny_paths"`
 	UpstreamTimeout      *int             `json:"upstream_timeout"`
 	Retries              *int             `json:"retries"`
 	RequestHeaders       []model.HeaderOp `json:"request_headers"`
@@ -152,6 +154,7 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	applyProxyNumbers(p, in)
 	p.BodySkip = in.BodySkip
+	p.DenyPaths = in.DenyPaths
 	if in.Maintenance != nil {
 		p.Maintenance = *in.Maintenance
 	}
@@ -335,6 +338,9 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 	if in.BodySkip != nil {
 		current.BodySkip = in.BodySkip
 	}
+	if in.DenyPaths != nil {
+		current.DenyPaths = in.DenyPaths
+	}
 	if msg := validateProxyOptions(in); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
@@ -389,6 +395,33 @@ func applyProxyNumbers(p *model.Proxy, in proxyBody) {
 	if in.MaxBody != nil {
 		p.MaxBody = *in.MaxBody
 	}
+}
+
+// validateDenyPaths keeps the one-click control narrow: a handful of absolute
+// paths, with no query, wildcard or traversal syntax to widen by accident.
+func validateDenyPaths(paths []string) string {
+	if len(paths) > 32 {
+		return "at most 32 blocked paths are allowed"
+	}
+	seen := map[string]bool{}
+	for _, entry := range paths {
+		entry = strings.TrimSpace(entry)
+		if !strings.HasPrefix(entry, "/") || entry == "/" {
+			return "a blocked path must start with / and not be the root"
+		}
+		if len(entry) > 256 || strings.ContainsAny(entry, " \t\r\n?#*") {
+			return "a blocked path contains invalid characters"
+		}
+		if strings.Contains(entry, "..") {
+			return "a blocked path must not contain .."
+		}
+		clean := strings.ToLower(path.Clean(entry))
+		if seen[clean] {
+			return "a blocked path is listed twice: " + entry
+		}
+		seen[clean] = true
+	}
+	return ""
 }
 
 // validateBodySkip keeps an exemption narrow enough to be a deliberate choice:
@@ -538,6 +571,9 @@ func validateProxyOptions(in proxyBody) string {
 		return "the site body ceiling must be between 0 (inherit) and 1 GiB"
 	}
 	if msg := validateBodySkip(in.BodySkip); msg != "" {
+		return msg
+	}
+	if msg := validateDenyPaths(in.DenyPaths); msg != "" {
 		return msg
 	}
 	if in.UpstreamTimeout != nil && (*in.UpstreamTimeout < 0 || *in.UpstreamTimeout > 3600) {

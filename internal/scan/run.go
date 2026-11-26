@@ -21,8 +21,12 @@ import (
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/store"
 )
 
-// TriggerManual names an operator-started run.
-const TriggerManual = "manual"
+// TriggerManual names an operator-started run. TriggerRemediation names the
+// retest a one-click exposure fix starts, so the run history says why it ran.
+const (
+	TriggerManual      = "manual"
+	TriggerRemediation = "remediation"
+)
 
 // Notifier delivers a run's findings. A nil notifier keeps the run silent.
 type Notifier interface {

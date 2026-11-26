@@ -380,6 +380,7 @@ CREATE TABLE IF NOT EXISTS proxies (
   waf_mode TEXT NOT NULL DEFAULT 'inherit',
   max_body INTEGER NOT NULL DEFAULT 0,
   body_skip TEXT NOT NULL DEFAULT '[]',
+  deny_paths TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS protection_profiles (
@@ -872,6 +873,8 @@ func (s *Store) migrateAddColumns() error {
 		// stream selected upload paths without buffering or inspecting them.
 		{"proxies", "max_body", `ALTER TABLE proxies ADD COLUMN max_body INTEGER NOT NULL DEFAULT 0`},
 		{"proxies", "body_skip", `ALTER TABLE proxies ADD COLUMN body_skip TEXT NOT NULL DEFAULT '[]'`},
+		// Paths a security finding closed; the proxy serves them as 403.
+		{"proxies", "deny_paths", `ALTER TABLE proxies ADD COLUMN deny_paths TEXT NOT NULL DEFAULT '[]'`},
 		// Every configurable row belongs to a site. migrateSites runs after
 		// this pass and hands the rows written before sites existed to the
 		// default site, so 0 only survives for the shared builtin profiles.

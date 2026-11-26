@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -246,12 +247,17 @@ func (r *Runner) exposure(ctx context.Context, target Target) ([]model.ScanEvide
 			up.status, len(up.body), headerNames(up.header))
 		wan, wanErr := r.send(ctx, r.wanClient, r.wan, p)
 		if wanErr == nil && wanRefusal(wan.status) {
-			ev := evidenceAt(r, rows, p, &up, BlockedWAF,
-				served+fmt.Sprintf("; the published path refuses it with HTTP %d", wan.status))
+			note := served + fmt.Sprintf("; the published path refuses it with HTTP %d", wan.status)
+			ev := evidenceAt(r, rows, p, &up, BlockedWAF, note)
 			ev.WANStatus, ev.WANHash = wan.status, wan.hash()
 			rows = append(rows, ev)
-			findings = append(findings, exposureFinding(path, SeverityMedium,
-				served+"; blocked at the edge, but the file itself is still there"))
+			// The site's own path block is the control the finding's one-click
+			// action installs. When it is what refuses the path, the exposure is
+			// covered and the next run must not keep reporting it.
+			if !PathBlocked(target.Proxy.DenyPaths, path) {
+				findings = append(findings, exposureFinding(path, SeverityMedium,
+					served+"; blocked at the edge, but the file itself is still there"))
+			}
 			continue
 		}
 		note := served
@@ -262,6 +268,50 @@ func (r *Runner) exposure(ctx context.Context, target Target) ([]model.ScanEvide
 		findings = append(findings, exposureFinding(path, exposureSeverity(path), note))
 	}
 	return rows, findings
+}
+
+// IsExposurePath reports whether path is one of the secret-bearing paths the
+// backend stage tests. The one-click control only writes a rule for these,
+// because a finding key is the only thing the action accepts.
+func IsExposurePath(p string) bool {
+	for _, candidate := range exposurePaths {
+		if candidate == p {
+			return true
+		}
+	}
+	return false
+}
+
+// PathBlocked reports whether a host's deny list covers a path. Entries are
+// canonical and cover everything below them.
+func PathBlocked(list []string, p string) bool {
+	clean := strings.ToLower(path.Clean("/" + p))
+	for _, entry := range list {
+		prefix := strings.TrimSuffix(strings.ToLower(path.Clean("/"+entry)), "/")
+		if prefix == "" {
+			continue
+		}
+		if clean == prefix || strings.HasPrefix(clean, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// ExposureClosed reports whether a run's evidence proves the path is no longer
+// served: the published path refused it, or the application no longer answers
+// it. A probe that did not run proves nothing, so it never counts.
+func ExposureClosed(rows []model.ScanEvidence, p string) bool {
+	for _, row := range rows {
+		if row.Class != "exposure" || !strings.EqualFold(row.Path, p) {
+			continue
+		}
+		switch row.Verdict {
+		case string(BlockedWAF), string(Passed):
+			return true
+		}
+	}
+	return false
 }
 
 func exposureFinding(path, severity, note string) model.ScanFinding {

@@ -254,6 +254,25 @@ export default function SecurityPage({
     }
   };
 
+  // One click installs the concrete control — a per-host path block — and
+  // reruns the target. The server resolves the finding only when that run's own
+  // evidence proves the path closed, so the message says what the run proved.
+  const remediate = async (finding: Finding) => {
+    setBusy(finding.key);
+    try {
+      const r = await api.post<{ run: Run; finding: Finding; proved: boolean }>(
+        `/api/security/findings/${encodeURIComponent(finding.key)}/remediate`, {});
+      onOK(r.proved
+        ? `${finding.target || "The hostname"} now refuses ${exposurePath(finding)}, and the rerun proved it`
+        : `The block is saved, but the rerun did not prove ${exposurePath(finding)} closed — see run #${r.run.id}`);
+      load();
+    } catch (e) {
+      onError(errText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const syncFeed = async () => {
     setBusy("feed");
     try {
@@ -547,7 +566,7 @@ export default function SecurityPage({
               </select>
             </span>
           }
-          sub="Accepting a finding records who and why; it stays accepted across runs until it is reopened."
+          sub="Accepting a finding records who and why; it stays accepted across runs until it is reopened. An exposure finding can instead be blocked on its host and retested, and only resolves when the new run proves the path closed."
         >
           {visible.length === 0 ? (
             <Empty title="No findings match">Nothing is proven open with these filters. A stale feed still makes the state unknown, not clean.</Empty>
@@ -577,6 +596,15 @@ export default function SecurityPage({
                       <td>{f.first_seen ? fmtAgo(f.first_seen) : "—"}</td>
                       <td>
                         <span className="actions">
+                          {f.class === "exposure" && (
+                            <button
+                              disabled={!canWrite || busy === f.key || (f.state || "open") !== "open"}
+                              title={canWrite ? "Block this path on its host and rerun the target; the finding resolves only if the rerun proves it closed." : "Your role cannot change findings."}
+                              onClick={() => remediate(f)}
+                            >
+                              {busy === f.key ? "Blocking…" : "Block & retest"}
+                            </button>
+                          )}
                           <button
                             disabled={!canWrite || busy === f.key || f.state === "accepted"}
                             title={canWrite ? undefined : "Your role cannot change findings."}
@@ -781,6 +809,9 @@ export default function SecurityPage({
     </>
   );
 }
+
+const exposurePath = (f: Finding) =>
+  f.key.startsWith("exposure:") ? f.key.slice("exposure:".length) : f.title;
 
 function FeedTable({ sources }: { sources: FeedSource[] }) {
   if (sources.length === 0) return <p className="muted">Reading feed state…</p>;

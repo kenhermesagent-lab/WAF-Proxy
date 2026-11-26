@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SecurityPage from "./Security";
 import type { Me } from "../types";
 
@@ -11,12 +11,13 @@ import { api } from "../api";
 
 const get = vi.mocked(api.get);
 const patch = vi.mocked(api.patch);
+const post = vi.mocked(api.post);
 
 const finding = (over: Record<string, unknown> = {}) => ({
   key: "exposure:/billing.env",
   target: "billing.example.com",
   stage: "exposure",
-  class: "sensitive-file",
+  class: "exposure",
   title: ".env is readable through the proxy",
   severity: "high",
   exploitation: "Known exploited",
@@ -93,6 +94,7 @@ function renderPage(tab: string, me: Me = reader) {
 describe("Security scan page", () => {
   beforeEach(() => {
     get.mockReset();
+    post.mockReset();
     mockAPI();
   });
 
@@ -194,6 +196,23 @@ describe("Security scan page", () => {
       state: "accepted",
       reason: "keys rotated, rule pending",
     });
+  });
+
+  it("closes an exposure finding with a block and retest, and offers it only to a writer", async () => {
+    renderPage("findings");
+    expect(((await screen.findAllByRole("button", { name: "Block & retest" }))[0] as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+
+    post.mockResolvedValue({ proved: true, run: { ...run, id: 8, trigger: "remediation" }, finding: finding({ state: "resolved" }) });
+    const ok = vi.fn();
+    render(<SecurityPage me={writer} tab="findings" onTab={vi.fn()} onError={vi.fn()} onOK={ok} />);
+    const block = (await screen.findAllByRole("button", { name: "Block & retest" }))[0] as HTMLButtonElement;
+    expect(block.disabled).toBe(false);
+    fireEvent.click(block);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/security/findings/exposure%3A%2Fbilling.env/remediate", {}),
+    );
+    expect(ok).toHaveBeenCalledWith(expect.stringContaining("rerun proved it"));
   });
 
   it("keeps the schedule read-only for a reader and saveable for a writer", async () => {
