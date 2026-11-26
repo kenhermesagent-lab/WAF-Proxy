@@ -166,6 +166,52 @@ func TestUnfinishedRunShowsAbandoned(t *testing.T) {
 	}
 }
 
+// Accepting through the API needs a reason, not just the page. A missing or
+// blank reason is refused and nothing is written; a real one is stored trimmed.
+func TestAcceptRequiresReason(t *testing.T) {
+	srv, st, token, csrf := newObservabilityServer(t)
+	if _, _, err := st.MergeScanFindings(st.SiteID(), "app.example.com", []model.ScanFinding{{
+		Key: "exposure:/.env", Stage: "backend", Class: "exposure",
+		Title: "The application serves /.env", Severity: "high",
+		Recommendation: "Remove the file", Note: "served HTTP 200",
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, body := range []map[string]any{
+		{"state": "accepted"},
+		{"state": "accepted", "reason": "   "},
+	} {
+		rec := securityDo(t, srv, http.MethodPatch, "/api/security/findings/exposure%3A%2F.env", "gui.local", token, csrf, body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("accept %v = %d (%s), want 400", body, rec.Code, rec.Body.String())
+		}
+	}
+	listed, err := st.ListScanFindings("", "")
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("findings = %+v, %v", listed, err)
+	}
+	if listed[0].State != "open" || listed[0].Reason != "" {
+		t.Fatalf("a refused accept changed the finding: %+v", listed[0])
+	}
+
+	rec := securityDo(t, srv, http.MethodPatch, "/api/security/findings/exposure%3A%2F.env", "gui.local", token, csrf,
+		map[string]any{"state": "accepted", "reason": "  risk accepted until Q3  "})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accept with a reason = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	listed, err = st.ListScanFindings("", "")
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("findings = %+v, %v", listed, err)
+	}
+	if listed[0].State != "accepted" || listed[0].Reason != "risk accepted until Q3" {
+		t.Fatalf("accepted finding = %+v, want the reason stored trimmed", listed[0])
+	}
+	if listed[0].Note != "served HTTP 200" {
+		t.Fatalf("scan note = %q, want it untouched", listed[0].Note)
+	}
+}
+
 // Accepting stores the reason in its own field, and a reopen keeps it while
 // the scan's note stays what the run wrote.
 func TestAcceptedReasonSurvivesReopen(t *testing.T) {

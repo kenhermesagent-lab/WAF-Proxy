@@ -210,6 +210,12 @@ func (s *Server) patchSecurityFinding(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "state must be open, accepted or resolved")
 		return
 	}
+	// Accepting a finding is an explicit risk decision, so the API requires the
+	// reason the page asks for: the page is not the only client.
+	if in.State == "accepted" && (in.Reason == nil || strings.TrimSpace(*in.Reason) == "") {
+		writeError(w, http.StatusBadRequest, "a reason is required to accept a finding")
+		return
+	}
 	findings, err := s.db(r).ListScanFindings("", "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
@@ -230,7 +236,14 @@ func (s *Server) patchSecurityFinding(w http.ResponseWriter, r *http.Request) {
 	if in.State != "" {
 		state = in.State
 	}
-	if err := s.db(r).UpdateScanFinding(key, state, in.Reason); err != nil {
+	// Only an accept writes a reason, and it is stored trimmed. Any other
+	// transition leaves the operator's existing reason alone.
+	var reason *string
+	if in.State == "accepted" && in.Reason != nil {
+		trimmed := strings.TrimSpace(*in.Reason)
+		reason = &trimmed
+	}
+	if err := s.db(r).UpdateScanFinding(key, state, reason); err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
