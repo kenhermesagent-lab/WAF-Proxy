@@ -135,6 +135,13 @@ export default function Proxies({
     load();
   }, []);
 
+  // A host with a trusted-source exemption on its access profile is marked in
+  // the list, so the exemption is visible without opening the profile.
+  const wafSkipProfile = (p: Proxy) => {
+    const ap = accessProfiles.find((a) => a.id === p.access_profile_id);
+    return ap && (ap.waf_skip_list_ids ?? []).length > 0 ? ap : undefined;
+  };
+
   const openNew = () => {
     setDrawerTab("overview");
     setDraft({
@@ -298,12 +305,22 @@ export default function Proxies({
                     </tr>
                   </thead>
                   <tbody>
-                    {visible.map((p) => (
+                    {visible.map((p) => {
+                      const skip = wafSkipProfile(p);
+                      return (
                       <tr key={p.id} className="clickable" onClick={() => openEdit(p)}>
                         <td>
-                          <div className="row" style={{ gap: 8 }}>
+                          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                             <span className={`env-dot ${p.enabled && !p.maintenance ? "" : "warn"}`} style={p.enabled && !p.maintenance ? undefined : { background: p.maintenance ? "var(--warn)" : "var(--faint)" }} />
                             <span className="mono" style={{ color: "var(--text)", fontSize: 12 }}>{p.hostname}</span>
+                            {skip && (
+                              <Badge
+                                tone="warn"
+                                title={`Trusted-source WAF skip: the ${skip.name} access profile skips the WAF stage for ${skip.waf_skip_list_ids.length} trust list(s)`}
+                              >
+                                WAF skip
+                              </Badge>
+                            )}
                           </div>
                           <div className="faint small-text">{p.upstreams.length} upstream{p.upstreams.length === 1 ? "" : "s"}{p.maintenance ? " · maintenance" : ""}</div>
                         </td>
@@ -330,7 +347,8 @@ export default function Proxies({
                           <button className="xsmall" onClick={() => openEdit(p)}>Edit</button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </TableWrap>

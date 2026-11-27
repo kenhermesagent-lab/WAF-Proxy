@@ -377,7 +377,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if skip, lists := s.d.Policy.WAFSkip(preq); skip {
 		wafSkipped = true
 		event.Stage, event.RuleID = "waf-skip", "trusted-source"
-		event.RuleMsg = "source is trusted by the access profile; WAF inspection skipped"
+		event.RuleMsg = "source is trusted by the access profile; CRS, bundle and normalization checks skipped"
 		if len(lists) > 0 {
 			event.RuleMsg += " (trust lists: " + strings.Join(lists, ", ") + ")"
 		}

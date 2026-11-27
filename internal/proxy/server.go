@@ -69,7 +69,8 @@ type PolicyEngine interface {
 	// body-skip trust.
 	InList(req *policy.Request, ids []int64) bool
 	// WAFSkip reports whether the site's access profile trusts this source
-	// enough to skip CRS inspection, and names the lists that do.
+	// enough to skip the WAF stage (CRS, bundles and normalization), and names
+	// the lists that do.
 	WAFSkip(req *policy.Request) (bool, []string)
 }
 

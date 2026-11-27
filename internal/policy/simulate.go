@@ -112,7 +112,7 @@ func (e *Engine) Simulate(in SimRequest) SimResult {
 		verdict, _, matches := e.inspect(&req)
 		res.Matches = matches
 		stage := SimStage{Stage: "waf-skip", Verdict: "skipped",
-			Skipped: "this source is trusted by the access profile, so CRS inspection is skipped"}
+			Skipped: "this source is trusted by the access profile, so the WAF stage is skipped: CRS rules, signature bundles and normalization checks do not run"}
 		if len(lists) > 0 {
 			stage.Skipped += " (trust lists: " + strings.Join(lists, ", ") + ")"
 		}

@@ -306,8 +306,9 @@ export default function AccessProfiles({
               </div>
             )}
             <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
-              A source on one of these lists skips CRS inspection on every host using this profile. Bans, lists, rate
-              limits, the access gate and routing still apply, and each skipped request is logged as stage waf-skip.
+              A source on one of these lists skips the whole WAF stage on every host using this profile: CRS rules,
+              signature bundles and normalization checks do not run. Bans, lists, rate limits, the access gate and
+              routing still apply, and each skipped request is logged as stage waf-skip.
               Leave this empty unless you mean it: a WAF skip exposes headers, query, cookies and body unfiltered to
               everything the list covers, including a whole NAT.
             </p>

@@ -298,8 +298,8 @@ func TestRolledUpPermanentBanBeatsTheAllowList(t *testing.T) {
 }
 
 // A whitelist named as a WAF skip on the site's access profile exempts only its
-// sources from CRS inspection; an address outside it, or a site without the
-// skip, keeps the normal WAF stage.
+// sources from the WAF stage (CRS, bundles and normalization); an address
+// outside it, or a site without the skip, keeps the normal WAF stage.
 func TestAccessProfileWAFSkipTrustsOnlyItsLists(t *testing.T) {
 	pol, st, _ := newEngine(t)
 	list := &model.AccessList{Kind: "whitelist", Name: "office", IPs: "203.0.113.0/24"}

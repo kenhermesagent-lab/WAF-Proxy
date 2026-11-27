@@ -310,8 +310,9 @@ export interface AccessProfile {
   list_ids: number[];
   waf_profile_id: number | null;
   protection_profile_id: number | null;
-  // Whitelists whose sources skip CRS inspection for this profile's hosts.
-  // Bans, lists, rate limits, the gate and routing still apply.
+  // Whitelists whose sources skip the WAF stage for this profile's hosts: CRS
+  // rules, signature bundles and normalization checks. Bans, lists, rate
+  // limits, the gate and routing still apply.
   waf_skip_list_ids: number[];
 }
 

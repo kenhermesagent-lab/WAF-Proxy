@@ -310,9 +310,9 @@ export function Drawer({
   );
 }
 
-export function Badge({ tone, children }: { tone?: "ok" | "warn" | "bad" | "info" | ""; children: ReactNode }) {
+export function Badge({ tone, title, children }: { tone?: "ok" | "warn" | "bad" | "info" | ""; title?: string; children: ReactNode }) {
   return (
-    <span className={`badge ${tone ?? ""}`}>
+    <span className={`badge ${tone ?? ""}`} title={title}>
       {tone ? <span className="dot" aria-hidden="true" /> : null}
       {children}
     </span>

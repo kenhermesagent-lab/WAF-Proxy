@@ -1413,9 +1413,10 @@ func (e *Engine) InList(req *Request, ids []int64) bool {
 }
 
 // WAFSkip reports whether the request's source is trusted by the access
-// profile on its proxy, which skips CRS inspection for that site, and names
-// the lists that trust it. Only a named list counts; a deleted list matches
-// nothing, so the exemption fails closed.
+// profile on its proxy, which skips the WAF stage for that site (CRS rules,
+// signature bundles and normalization checks), and names the lists that trust
+// it. Only a named list counts; a deleted list matches nothing, so the
+// exemption fails closed.
 func (e *Engine) WAFSkip(req *Request) (bool, []string) {
 	if req == nil || req.Proxy == nil || req.Proxy.AccessProfileID == nil {
 		return false, nil
