@@ -679,6 +679,22 @@ The body carries the summary, verdict counts, the newest 50 events and the audit
 actions that mention the subject; an empty window says so instead of inventing
 a timeline.
 
+## Auditing a WAF exemption
+
+An access profile can trust a whitelist past the WAF (`waf_skip_list_ids`); those requests are in the
+event log with stage `waf-skip` and rule `trusted-source`. The console answers "which hosts, which
+sources, how often" on **Logs → Stage → `waf-skip`**, where the *Stage summary* card counts the whole
+filtered range by host and by source, and a row links to the requests behind the count. The same
+grouping is available to a runbook from the same filter set:
+
+```sh
+# Who is skipping the WAF in the last 24 hours, busiest first (top 50 per side).
+curl -s -b jar.txt 'https://console.example.com/api/events/summary?stage=waf-skip&hours=24' | jq
+```
+
+It takes `hours`, `ip`, `host`, `country`, `stage`, `action` and `blocked`, the same parameters as
+`/api/events`, so a summary and its rows always describe the same events.
+
 ## Release tags
 
 A release is published with an annotated `vX.Y.Z` tag on the commit that carries its

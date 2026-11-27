@@ -12,6 +12,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Every push to `main` has a matching section here; a release is published with an annotated
   `vX.Y.Z` tag on the commit that carries its section.
 
+## [1.77.1] — 2026-11-27
+
+### Added
+
+- **An access profile can trust whitelist sources past the whole WAF stage.** A profile's *Skip the WAF for
+  these sources* holds whitelists only — a blocklist is refused with a message naming it — and a source on one
+  of them skips the CRS rules, the installed signature bundles and the normalization checks on that profile's
+  hosts. Everything decided before the WAF still applies: bans, lists, country and ASN policy, feeds, rate
+  limits, the access gate and routing. Each skipped request is recorded with stage `waf-skip` and rule
+  `trusted-source`, and `GET /api/simulate` reports the stage as skipped together with the rules that would
+  have matched, so a `log`-only install can see what an exemption hides.
+- **The log's stage filter and a per-host, per-source summary make a WAF skip auditable.** **Logs → Stage →
+  `waf-skip`** lists the exempted requests with their host and source, and a *Stage summary* card counts the
+  whole filtered range — not the visible page — grouping by host and by source, busiest first, from the new
+  `GET /api/events/summary` route that reads the same filter and site scope as `GET /api/events`. Selecting a
+  host or a source row sets that filter and reruns the search, so the counts lead to the requests behind them.
+- **The preset WAF entries name the profile their exception belongs to.** A preset's `waf_profile` is filled
+  in, and the editor shows the preset's exception beside the profile field in a wide modal with a reference
+  card, instead of pointing at a rule the reader has to go and find.
+
+### Changed
+
+- **A proxy host whose access profile trusts sources carries a `WAF skip` badge**, with the trust lists in its
+  tooltip. It stays off a host whose WAF mode is `off`, where no WAF runs and the exemption means nothing.
+
+### Fixed
+
+- **A list still attached to a profile as a trust list can no longer be deleted.** The delete guard only
+  counted the block/allow lists, so deleting a whitelist that was only a WAF skip silently ended the exemption
+  — or, after re-creating it with new entries, widened it.
+- **The simulator no longer says a would-be verdict was "loged"**, and its skip check no longer reads the
+  access profile before checking that one is set.
+
 ## [1.77.0] — 2026-11-26
 
 ### Added

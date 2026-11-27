@@ -135,6 +135,9 @@ its anomaly score, and **Why?** replays it against the current rules without tou
   in every event; escalating bans applied by nftables in the kernel; CrowdSec LAPI bouncer.
 - ed25519-signed signature bundles between releases — rules only, atomic swap, off/log/block per
   profile — plus three built-in packs for secret probes, exploit payloads and scanner tools.
+- Access-profile trust lists: a whitelisted source can skip the entire WAF stage — CRS rules, signature
+  bundles and normalization checks — on that profile's hosts, still subject to bans, lists, rate limits, the
+  gate and routing. Every skip is logged as `waf-skip`, so the exemption is auditable rather than invisible.
 - Access gates per site: shared passphrase, named accounts, or accounts plus TOTP. Lockout survives
   an IP change and the session cookie is bound to the client network.
 - A built-in scanner attacks this node's own published hostnames the way a stranger would: read-only,
@@ -162,7 +165,8 @@ its anomaly score, and **Why?** replays it against the current rules without tou
 **Operations**
 
 - Dashboard with live traffic, an attack map that separates what was blocked from what reached your apps, top sources and upstream health; statistics, an event log
-  with the "Why?" request simulator, anomaly events and uptime history.
+  with the "Why?" request simulator, a stage filter whose summary counts the filtered range by host and by
+  source, anomaly events and uptime history.
 - Backups to a directory, SFTP, FTP or a Git remote, optionally AES-256-GCM encrypted; declarative
   YAML/JSON export and import that references names, so a file restores onto another install.
 - Tamper-evident audit log (SHA-256 chain with anchored head), CSV export, webhook notifications.

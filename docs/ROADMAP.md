@@ -1,9 +1,10 @@
 # WAF-Proxy roadmap: 1.30 → 1.34 (delivered)
 
-> **Status (2026-11-26):** this plan covered 1.30–1.34 and is kept as delivered history. The
-> current release is **1.77.0**, which adds the built-in security scanner (page, API, findings,
-> feeds and scheduling — see [SECURITY-SCAN.md](SECURITY-SCAN.md)); every shipped change is in
-> [CHANGELOG.md](../CHANGELOG.md). The deferred list at the end is still accurate.
+> **Status (2026-11-27):** this plan covered 1.30–1.34 and is kept as delivered history. The
+> current release is **1.77.1**; **1.77.0** added the built-in security scanner (page, API, findings,
+> feeds and scheduling — see [SECURITY-SCAN.md](SECURITY-SCAN.md)) and 1.77.1 added auditable
+> trusted-source WAF exemptions; every shipped change is in [CHANGELOG.md](../CHANGELOG.md). The
+> deferred list at the end is still accurate.
 
 Release numbers below are provisional: each phase shipped as the next minor version in
 `VERSION` at the time, because the console work lands in parallel.
