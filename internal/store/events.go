@@ -82,6 +82,43 @@ func (s *Store) QueryEvents(f EventFilter) ([]model.Event, int, error) {
 	return out, total, rows.Err()
 }
 
+// EventCount is one grouped key and how many matching events carry it.
+type EventCount struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+}
+
+// SumEvents groups the events matching f by host and by source, busiest first.
+// It shares QueryEvents' WHERE, so a summary always describes the same rows.
+func (s *Store) SumEvents(f EventFilter) (hosts, sources []EventCount, err error) {
+	conds, args := s.eventWhere(f)
+	group := func(col string) ([]EventCount, error) {
+		query := `SELECT ` + col + `, COUNT(*) FROM events WHERE ` + conds +
+			` AND ` + col + ` != '' GROUP BY ` + col + ` ORDER BY COUNT(*) DESC, ` + col + ` LIMIT ?`
+		rows, err := s.db.Query(query, append(append([]any{}, args...), 50)...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		out := []EventCount{}
+		for rows.Next() {
+			var c EventCount
+			if err := rows.Scan(&c.Key, &c.Count); err != nil {
+				return nil, err
+			}
+			out = append(out, c)
+		}
+		return out, rows.Err()
+	}
+	if hosts, err = group("host"); err != nil {
+		return nil, nil, err
+	}
+	if sources, err = group("src_ip"); err != nil {
+		return nil, nil, err
+	}
+	return hosts, sources, nil
+}
+
 // eventWhere limits a filter to this store's site. Events carry no site of
 // their own; the proxy that recorded them does.
 func (s *Store) eventWhere(f EventFilter) (string, []any) {

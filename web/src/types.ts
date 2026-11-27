@@ -732,6 +732,17 @@ export interface Event {
   request_id?: string;
 }
 
+// One grouped key (host or source) with how many filtered events carry it.
+export interface EventCount {
+  key: string;
+  count: number;
+}
+
+export interface EventSummary {
+  hosts: EventCount[];
+  sources: EventCount[];
+}
+
 export interface AnalyticsBucket {
   bucket: string;
   requests: number;

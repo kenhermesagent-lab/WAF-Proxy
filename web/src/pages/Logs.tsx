@@ -3,7 +3,7 @@ import { api } from "../api";
 import Simulator from "../components/Simulator";
 import IncidentReport, { reportFilename } from "../components/IncidentReport";
 import { Badge, Card, Empty, Field, confirmDialog, errText, fmtTime, PageHead } from "../ui";
-import { Event } from "../types";
+import { Event, EventSummary } from "../types";
 
 const PAGE = 50;
 const LIVE_MS = 2000;
@@ -82,6 +82,9 @@ export default function Logs({
 }) {
   const [events, setEvents] = useState<Event[]>([]);
   const [total, setTotal] = useState(0);
+  // Per-host and per-source counts for the applied filters, shown once a stage
+  // is chosen: the rows answer "who", the summary answers "how often".
+  const [summary, setSummary] = useState<EventSummary | null>(null);
   const [offset, setOffset] = useState(0);
   const [filters, setFilters] = useState(() => filtersFromQuery(query));
   const [loading, setLoading] = useState(false);
@@ -120,6 +123,14 @@ export default function Logs({
       setEvents(r.events || []);
       setTotal(r.total || 0);
       setOffset(nextOffset);
+      if (!active.stage) {
+        setSummary(null);
+      } else {
+        api
+          .get<EventSummary>(`/api/events/summary?${queryOf(active).toString()}`)
+          .then((s) => mine === seq.current && setSummary(s))
+          .catch(() => mine === seq.current && setSummary(null));
+      }
     } catch (e) {
       // A poll that fails is retried in two seconds; do not stack toasts for it.
       if (mine === seq.current && !quiet) onError(errText(e));
@@ -380,6 +391,46 @@ export default function Logs({
           <button className="primary" style={{ marginTop: 18 }} onClick={() => load(0)} disabled={loading}>{loading ? "Loading…" : "Search"}</button>
         </div>
       </Card>
+
+      {filters.stage && (
+        <Card
+          title={`Stage summary · ${filters.stage}`}
+          actions={<span className="muted">{total.toLocaleString()} in range</span>}
+        >
+          {!summary || total === 0 ? (
+            <p className="muted" style={{ marginBottom: 0 }}>
+              No {filters.stage} events match these filters in the range.
+            </p>
+          ) : (
+            <>
+              <div className="grid cols-2" style={{ gap: 14 }}>
+                {([["By host", summary.hosts, ""], ["By source", summary.sources, "mono"]] as const).map(([label, rows, cls]) => (
+                  <div key={label}>
+                    <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>{label}</div>
+                    {rows.length === 0 ? (
+                      <div className="faint">None.</div>
+                    ) : (
+                      <div className="table-wrap"><table>
+                        <tbody>
+                          {rows.map((r) => (
+                            <tr key={r.key}>
+                              <td className={cls}>{r.key}</td>
+                              <td className="num">{r.count.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table></div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+                Counts cover the whole filtered range, busiest first, up to 50 rows per side.
+              </p>
+            </>
+          )}
+        </Card>
+      )}
 
       <Card
         title={`Events (${total.toLocaleString()})`}

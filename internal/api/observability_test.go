@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -131,5 +132,49 @@ func TestEventCSVExportAndIPExplorer(t *testing.T) {
 	csRec := get("/api/crowdsec/status")
 	if csRec.Code != http.StatusOK || !strings.Contains(csRec.Body.String(), "\"configured\":false") {
 		t.Fatalf("crowdsec status = %d %s", csRec.Code, csRec.Body.String())
+	}
+}
+
+// The stage summary groups the same filtered rows the log lists, so a waf-skip
+// filter says which host and which source skipped the WAF and how often.
+func TestEventSummaryGroupsTheFilteredStage(t *testing.T) {
+	srv, st, token, _ := newObservabilityServer(t)
+	now := time.Now().UTC()
+	ev := func(host, ip, stage string) model.Event {
+		return model.Event{TS: now.Add(-time.Second), SrcIP: ip, Host: host, Method: "GET",
+			Path: "/", Status: http.StatusOK, Action: "allow", Stage: stage}
+	}
+	if err := st.InsertEvents([]model.Event{
+		ev("a.example.com", "203.0.113.7", "waf-skip"),
+		ev("a.example.com", "203.0.113.7", "waf-skip"),
+		ev("a.example.com", "198.51.100.9", "waf-skip"),
+		ev("a.example.com", "203.0.113.7", "waf"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/events/summary?hours=24&stage=waf-skip", nil)
+	req.Host = "gui.local"
+	req.RemoteAddr = "10.0.0.10:5000"
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("summary status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Hosts   []store.EventCount `json:"hosts"`
+		Sources []store.EventCount `json:"sources"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	wantHosts := []store.EventCount{{Key: "a.example.com", Count: 3}}
+	wantSources := []store.EventCount{{Key: "203.0.113.7", Count: 2}, {Key: "198.51.100.9", Count: 1}}
+	if !reflect.DeepEqual(got.Hosts, wantHosts) {
+		t.Fatalf("hosts = %+v, want %+v", got.Hosts, wantHosts)
+	}
+	if !reflect.DeepEqual(got.Sources, wantSources) {
+		t.Fatalf("sources = %+v, want %+v", got.Sources, wantSources)
 	}
 }

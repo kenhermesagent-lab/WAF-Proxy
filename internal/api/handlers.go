@@ -2146,6 +2146,18 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"events": events, "total": total})
 }
 
+// summarizeEvents answers the same filters as listEvents grouped by host and by
+// source, so a log view can say who is exempt without paging through it.
+func (s *Server) summarizeEvents(w http.ResponseWriter, r *http.Request) {
+	f := eventFilterFromQuery(r.URL.Query())
+	hosts, sources, err := s.db(r).SumEvents(f)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"hosts": hosts, "sources": sources})
+}
+
 func (s *Server) getGlobe(w http.ResponseWriter, r *http.Request) {
 	points, err := s.db(r).Globe(globeSince(r))
 	if err != nil {

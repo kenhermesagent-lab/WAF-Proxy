@@ -1733,6 +1733,20 @@ paths:
           description: Missing or expired session
         "400":
           description: Invalid request
+  /api/events/summary:
+    get:
+      operationId: getApiEventsSummary
+      tags: [events]
+      summary: Authed
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Missing or expired session
+        "400":
+          description: Invalid request
   /api/feeds:
     get:
       operationId: getApiFeeds
