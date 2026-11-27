@@ -131,6 +131,38 @@ func TestBodyCeilingsStayInMemoryBudget(t *testing.T) {
 
 // The drawer draws the list in the order the API returns it, so the order is
 // the library's, not each caller's.
+// Every rule a preset suggests is explained, so the console's reference card
+// never shows an ID without saying why the application trips it.
+func TestSuggestedExceptionsAreExplained(t *testing.T) {
+	saw := false
+	for _, p := range All() {
+		want := len(strings.Split(strings.TrimSpace(p.Exceptions), ","))
+		if strings.TrimSpace(p.Exceptions) == "" {
+			want = 0
+		}
+		if len(p.ExceptionRules) != want {
+			t.Errorf("%s has %d explained rules, want %d", p.ID, len(p.ExceptionRules), want)
+		}
+		for _, r := range p.ExceptionRules {
+			saw = true
+			if strings.TrimSpace(r.Rule) == "" || strings.TrimSpace(r.Why) == "" {
+				t.Errorf("%s has an unexplained exception %+v", p.ID, r)
+			}
+			if exceptionReasons[r.Rule] == "" {
+				t.Errorf("%s suggests rule %s with no written reason", p.ID, r.Rule)
+			}
+		}
+	}
+	if !saw {
+		t.Fatal("the library suggests no exceptions at all")
+	}
+	// Get serves the drawer, so it must carry the same explanations as All.
+	p, _ := Get("nextcloud")
+	if len(p.ExceptionRules) != 2 {
+		t.Fatalf("Get returned %+v", p.ExceptionRules)
+	}
+}
+
 func TestPresetsComeBackAlphabetical(t *testing.T) {
 	list := All()
 	if len(list) < 5 {

@@ -564,6 +564,9 @@ export interface Preset {
   // own login is the right control (or whose clients a gate would break).
   gate: string;
   exceptions: string;
+  // The suggested rule IDs with the reason each one fires, shown beside the
+  // profile's exception field. The library writes it; the console only draws it.
+  exception_rules?: { rule: string; why: string }[];
   notes: string[];
   // proxy_max_body and body_skip_paths ("METHOD /prefix") prefill the site
   // drawer; steps is the ordered setup guide it shows.

@@ -6,7 +6,7 @@ import { COUNTRIES, countryFlag, countryName } from "../countries";
 import { confirmDialog, Badge, Card, Empty, Field, Modal, PageHead, PageTabs, errText, fmtAgo } from "../ui";
 import EndToEndCheck from "../components/EndToEndCheck";
 import { NAV, type NavTab } from "../nav";
-import { ASNRecommendations, ASNSuggestion, Ban, BundleHit, BundlesSnapshot, GlobalLists, Policy, PolicyPreflight, Profile, Proxy } from "../types";
+import { ASNRecommendations, ASNSuggestion, Ban, BundleHit, BundlesSnapshot, GlobalLists, Policy, PolicyPreflight, Preset, Profile, Proxy } from "../types";
 import AccessLists from "../components/AccessLists";
 import AccessProfiles from "../components/AccessProfiles";
 import BotFilter from "../components/BotFilter";
@@ -238,6 +238,7 @@ export default function Policies({
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [presets, setPresets] = useState<Preset[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [kernel, setKernel] = useState<{ active: boolean; reason: string } | null>(null);
@@ -283,6 +284,7 @@ export default function Policies({
     api.get<Policy[]>("/api/policies").then(setPolicies).catch((e) => onError(errText(e)));
     api.get<Proxy[]>("/api/proxies").then(setProxies).catch(() => undefined);
         api.get<Profile[]>("/api/profiles").then(setProfiles).catch(() => undefined);
+    api.get<Preset[]>("/api/presets").then(setPresets).catch(() => undefined);
     api.get<BundlesSnapshot>("/api/bundles").then(setBundles).catch(() => undefined);
     api
       .get<{ hours: number; rules: BundleHit[] }>("/api/bundles/hits?hours=24")
@@ -507,6 +509,37 @@ export default function Policies({
     admin_ips: "",
     bundle_modes: {},
   });
+
+  // A preset's profile is named after it ("Nextcloud (cloud.example.com)"), so
+  // the reference can link a suggestion to the profile an operator already made.
+  const presetProfile = (name: string) =>
+    profiles.find((p) => p.name === name || p.name.startsWith(name + " ("));
+
+  // The reference groups the library by rule ID: the reason is written once and
+  // every preset that suggests the rule is listed under it.
+  const exceptionReference = (() => {
+    const byRule = new Map<string, { why: string; presets: { name: string; profile?: Profile }[] }>();
+    for (const pre of presets) {
+      for (const r of pre.exception_rules ?? []) {
+        const row = byRule.get(r.rule) ?? { why: r.why, presets: [] as { name: string; profile?: Profile }[] };
+        row.presets.push({ name: pre.name, profile: presetProfile(pre.name) });
+        byRule.set(r.rule, row);
+      }
+    }
+    return [...byRule.entries()];
+  })();
+
+  // Opening a profile from the reference replaces this draft, so say so when it
+  // holds edits that are not stored yet.
+  const openPresetProfile = async (next: Profile) => {
+    if (profile) {
+      const stored = profile.id !== 0 ? profiles.find((p) => p.id === profile.id) : undefined;
+      const blankNew = profile.id === 0 && !profile.name.trim() && !profile.exceptions.trim();
+      const changed = !blankNew && (!stored || JSON.stringify(stored) !== JSON.stringify(profile));
+      if (changed && !(await confirmDialog(`Discard unsaved changes to ${profile.name || "this profile"}?`))) return;
+    }
+    setProfile({ ...next });
+  };
 
   const needle = banSearch.trim().toLowerCase();
   const matches = needle
@@ -1049,13 +1082,65 @@ export default function Policies({
               onChange={(e) => setProfile({ ...profile, max_body: Number(e.target.value) })}
             />
           </Field>
-          <Field label="Disabled CRS rule IDs (comma separated, e.g. 942100,930120)">
-            <textarea
-              value={profile.exceptions}
-              onChange={(e) => setProfile({ ...profile, exceptions: e.target.value })}
-              placeholder="only the rules this application needs removed"
-            />
-          </Field>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start", marginBottom: 12 }}>
+            <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+              <Field label="Disabled CRS rule IDs (comma separated, e.g. 942100,930120)">
+                <textarea
+                  value={profile.exceptions}
+                  onChange={(e) => setProfile({ ...profile, exceptions: e.target.value })}
+                  placeholder="only the rules this application needs removed"
+                />
+              </Field>
+            </div>
+            <div
+              style={{
+                flex: "1 1 280px",
+                minWidth: 0,
+                maxWidth: 320,
+                maxHeight: 240,
+                overflowY: "auto",
+                border: "1px solid var(--border)",
+                borderRadius: 9,
+                padding: "9px 10px",
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 600 }}>Preset rule reference</div>
+              <p className="faint" style={{ fontSize: 11, margin: "2px 0 8px", lineHeight: 1.5 }}>
+                What the application presets suggest removing, and why the rule fires. Nothing is applied from here: the
+                field on the left is the whole exception list.
+              </p>
+              {exceptionReference.length === 0 ? (
+                <div className="faint" style={{ fontSize: 11 }}>No preset suggests an exception.</div>
+              ) : (
+                exceptionReference.map(([rule, row]) => (
+                  <div key={rule} style={{ marginBottom: 10 }}>
+                    <span className="mono" style={{ fontSize: 12 }}>{rule}</span>
+                    <p className="faint" style={{ fontSize: 11, margin: "2px 0 4px", lineHeight: 1.5 }}>{row.why}</p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                      <span className="faint" style={{ fontSize: 11 }}>Suggested for</span>
+                      {row.presets.map(({ name, profile: match }) =>
+                        match ? (
+                          <button
+                            key={name}
+                            className="small"
+                            title={`Open ${match.name}`}
+                            onClick={() => openPresetProfile(match)}
+                          >
+                            {name}
+                          </button>
+                        ) : (
+                          <span key={name} className="faint" style={{ fontSize: 11 }}>{name}</span>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+              <p className="faint" style={{ fontSize: 11, margin: 0, lineHeight: 1.5 }}>
+                A preset name in a button opens the profile it created in this editor.
+              </p>
+            </div>
+          </div>
           {installedBundles.length > 0 && (
             <div style={{ marginBottom: 12 }}>
               <label>Signature bundle rules</label>

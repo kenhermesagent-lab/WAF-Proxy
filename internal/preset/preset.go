@@ -48,9 +48,46 @@ type Preset struct {
 	// this application. They are suggestions: check them in detect mode first.
 	Exceptions string   `json:"exceptions"`
 	Notes      []string `json:"notes"`
+	// ExceptionRules is Exceptions with the reason each rule fires, filled in by
+	// All and Get. The console draws it as the reference beside the profile's
+	// exception field, so the reason lives with the rule rather than in the UI.
+	ExceptionRules []ExceptionRule `json:"exception_rules,omitempty"`
 	// Protection is the response hardening this application needs beyond the
 	// baseline every site gets; a field is set only where the app needs more.
 	Protection Protection `json:"protection"`
+}
+
+// ExceptionRule is one CRS rule a preset suggests disabling, with the reason
+// the application trips it.
+type ExceptionRule struct {
+	Rule string `json:"rule"`
+	Why  string `json:"why"`
+}
+
+// exceptionReasons explains the CRS rules the library suggests excepting. A rule
+// means the same thing wherever it is excepted, so the text is written once
+// instead of on every preset that names it.
+var exceptionReasons = map[string]string{
+	"920350": "The Host header is a bare IP address, which CRS treats as a host-header attack. It fires only when the site is reached by IP instead of by a hostname.",
+	"920440": "The URL ends in an extension CRS restricts by policy (.dll, .bat, .ini, .asa). A sync or upload client can store a file with that name, so the upload path trips the rule.",
+}
+
+// ExceptionList returns the preset's suggested rule IDs with the reason each
+// one fires, in the order the preset names them.
+func (p Preset) ExceptionList() []ExceptionRule {
+	var out []ExceptionRule
+	for _, raw := range strings.Split(p.Exceptions, ",") {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		why := exceptionReasons[id]
+		if why == "" {
+			why = "The application reports this rule as a false positive; confirm it in detect mode before disabling it."
+		}
+		out = append(out, ExceptionRule{Rule: id, Why: why})
+	}
+	return out
 }
 
 // Protection is the response-hardening a preset ships beside its WAF profile,
@@ -755,6 +792,9 @@ var all = []Preset{
 func All() []Preset {
 	out := make([]Preset, len(all))
 	copy(out, all)
+	for i := range out {
+		out[i].ExceptionRules = out[i].ExceptionList()
+	}
 	sort.SliceStable(out, func(i, j int) bool { return sortKey(out[i].Name) < sortKey(out[j].Name) })
 	return out
 }
@@ -767,6 +807,7 @@ func sortKey(name string) string {
 func Get(id string) (Preset, bool) {
 	for _, p := range all {
 		if p.ID == id {
+			p.ExceptionRules = p.ExceptionList()
 			return p, true
 		}
 	}
