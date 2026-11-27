@@ -518,11 +518,11 @@ export default function Policies({
   // The reference groups the library by rule ID: the reason is written once and
   // every preset that suggests the rule is listed under it.
   const exceptionReference = (() => {
-    const byRule = new Map<string, { why: string; presets: { name: string; profile?: Profile }[] }>();
+    const byRule = new Map<string, { why: string; presets: { preset: Preset; profile?: Profile }[] }>();
     for (const pre of presets) {
       for (const r of pre.exception_rules ?? []) {
-        const row = byRule.get(r.rule) ?? { why: r.why, presets: [] as { name: string; profile?: Profile }[] };
-        row.presets.push({ name: pre.name, profile: presetProfile(pre.name) });
+        const row = byRule.get(r.rule) ?? { why: r.why, presets: [] as { preset: Preset; profile?: Profile }[] };
+        row.presets.push({ preset: pre, profile: presetProfile(pre.name) });
         byRule.set(r.rule, row);
       }
     }
@@ -530,15 +530,20 @@ export default function Policies({
   })();
 
   // Opening a profile from the reference replaces this draft, so say so when it
-  // holds edits that are not stored yet.
-  const openPresetProfile = async (next: Profile) => {
+  // holds edits that are not stored yet. With no stored profile the preset's own
+  // profile is started as a new draft, so every entry leads somewhere.
+  const openPresetProfile = async (pre: Preset, stored?: Profile) => {
     if (profile) {
-      const stored = profile.id !== 0 ? profiles.find((p) => p.id === profile.id) : undefined;
+      const saved = profile.id !== 0 ? profiles.find((p) => p.id === profile.id) : undefined;
       const blankNew = profile.id === 0 && !profile.name.trim() && !profile.exceptions.trim();
-      const changed = !blankNew && (!stored || JSON.stringify(stored) !== JSON.stringify(profile));
+      const changed = !blankNew && (!saved || JSON.stringify(saved) !== JSON.stringify(profile));
       if (changed && !(await confirmDialog(`Discard unsaved changes to ${profile.name || "this profile"}?`))) return;
     }
-    setProfile({ ...next });
+    setProfile(
+      stored
+        ? { ...stored }
+        : { ...pre.waf_profile, id: 0, builtin: false, bundle_modes: pre.waf_profile.bundle_modes ?? {} },
+    );
   };
 
   const needle = banSearch.trim().toLowerCase();
@@ -1022,7 +1027,7 @@ export default function Policies({
 
 
       {profile && (
-        <Modal title={profile.id === 0 ? "New CRS profile" : `Edit ${profile.name}`} onClose={() => setProfile(null)}>
+        <Modal wide title={profile.id === 0 ? "New CRS profile" : `Edit ${profile.name}`} onClose={() => setProfile(null)}>
           {profile.id === 0 && (
             <Field label="Profile name">
               <input
@@ -1086,6 +1091,7 @@ export default function Policies({
             <div style={{ flex: "1 1 260px", minWidth: 0 }}>
               <Field label="Disabled CRS rule IDs (comma separated, e.g. 942100,930120)">
                 <textarea
+                  style={{ minHeight: 168 }}
                   value={profile.exceptions}
                   onChange={(e) => setProfile({ ...profile, exceptions: e.target.value })}
                   placeholder="only the rules this application needs removed"
@@ -1094,11 +1100,10 @@ export default function Policies({
             </div>
             <div
               style={{
-                flex: "1 1 280px",
+                flex: "1 1 300px",
                 minWidth: 0,
-                maxWidth: 320,
-                maxHeight: 240,
-                overflowY: "auto",
+                maxHeight: 280,
+                overflow: "auto",
                 border: "1px solid var(--border)",
                 borderRadius: 9,
                 padding: "9px 10px",
@@ -1118,26 +1123,24 @@ export default function Policies({
                     <p className="faint" style={{ fontSize: 11, margin: "2px 0 4px", lineHeight: 1.5 }}>{row.why}</p>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                       <span className="faint" style={{ fontSize: 11 }}>Suggested for</span>
-                      {row.presets.map(({ name, profile: match }) =>
-                        match ? (
-                          <button
-                            key={name}
-                            className="small"
-                            title={`Open ${match.name}`}
-                            onClick={() => openPresetProfile(match)}
-                          >
-                            {name}
-                          </button>
-                        ) : (
-                          <span key={name} className="faint" style={{ fontSize: 11 }}>{name}</span>
-                        ),
-                      )}
+                      {row.presets.map(({ preset: pre, profile: match }) => (
+                        <button
+                          key={pre.id}
+                          className="small"
+                          style={{ whiteSpace: "normal", textAlign: "left", maxWidth: "100%" }}
+                          title={match ? `Open ${match.name}` : `Start a new profile from the ${pre.name} preset`}
+                          onClick={() => openPresetProfile(pre, match)}
+                        >
+                          {pre.name}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 ))
               )}
               <p className="faint" style={{ fontSize: 11, margin: 0, lineHeight: 1.5 }}>
-                A preset name in a button opens the profile it created in this editor.
+                A preset name opens the profile it created, or starts a new one prefilled from the preset when none
+                exists yet.
               </p>
             </div>
           </div>

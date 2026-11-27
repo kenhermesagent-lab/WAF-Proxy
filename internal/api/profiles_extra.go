@@ -278,6 +278,9 @@ func (s *Server) updateAccessProfile(w http.ResponseWriter, r *http.Request) {
 	if _, ok := sent["protection_profile_id"]; ok {
 		current.ProtectionProfileID = in.ProtectionProfileID
 	}
+	if _, ok := sent["waf_skip_list_ids"]; ok {
+		current.WAFSkipListIDs = in.WAFSkipListIDs
+	}
 	if msg := s.validateAccessProfile(r, current); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
@@ -345,6 +348,17 @@ func (s *Server) validateAccessProfile(r *http.Request, a *model.AccessProfile) 
 	for _, id := range a.ListIDs {
 		if _, err := s.db(r).GetAccessList(id); err != nil {
 			return "list " + strconv.FormatInt(id, 10) + " does not exist"
+		}
+	}
+	// Only a whitelist can trust a source past the WAF: a blocklist there
+	// would read as an exemption list an operator never meant to grant.
+	for _, id := range a.WAFSkipListIDs {
+		l, err := s.db(r).GetAccessList(id)
+		if err != nil {
+			return "WAF-skip list " + strconv.FormatInt(id, 10) + " does not exist"
+		}
+		if l.Kind != "whitelist" {
+			return "WAF-skip list \"" + l.Name + "\" is a blocklist; only a whitelist can trust a source"
 		}
 	}
 	if a.WAFProfileID != nil {

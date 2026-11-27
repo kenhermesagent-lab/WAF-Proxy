@@ -296,3 +296,46 @@ func TestRolledUpPermanentBanBeatsTheAllowList(t *testing.T) {
 		t.Fatalf("the rest of the allowed prefix was refused: %+v", v)
 	}
 }
+
+// A whitelist named as a WAF skip on the site's access profile exempts only its
+// sources from CRS inspection; an address outside it, or a site without the
+// skip, keeps the normal WAF stage.
+func TestAccessProfileWAFSkipTrustsOnlyItsLists(t *testing.T) {
+	pol, st, _ := newEngine(t)
+	list := &model.AccessList{Kind: "whitelist", Name: "office", IPs: "203.0.113.0/24"}
+	if err := st.CreateAccessList(list); err != nil {
+		t.Fatal(err)
+	}
+	prof := &model.AccessProfile{Name: "office waf skip", WAFSkipListIDs: []int64{list.ID}}
+	if err := st.CreateAccessProfile(prof); err != nil {
+		t.Fatal(err)
+	}
+	if err := pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	site := &model.Proxy{ID: 21, Hostname: "app.example.com", AccessProfileID: &prof.ID}
+
+	trusted := &Request{Proxy: site, Addr: netip.MustParseAddr("203.0.113.7")}
+	if ok, names := pol.WAFSkip(trusted); !ok {
+		t.Fatalf("a listed source was not trusted: %v", names)
+	} else if len(names) != 1 || names[0] != "office" {
+		t.Fatalf("the trust list was not named: %v", names)
+	}
+	if ok, _ := pol.WAFSkip(&Request{Proxy: site, Addr: netip.MustParseAddr("198.51.100.7")}); ok {
+		t.Fatal("an address outside the trust list was exempted")
+	}
+	if ok, _ := pol.WAFSkip(&Request{Proxy: &model.Proxy{ID: 22}, Addr: netip.MustParseAddr("203.0.113.7")}); ok {
+		t.Fatal("a site without an access profile was exempted")
+	}
+
+	// Deleting the list removes the exemption rather than widening it.
+	if err := st.DeleteAccessList(list.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := pol.WAFSkip(trusted); ok {
+		t.Fatal("a deleted trust list still exempted its sources")
+	}
+}

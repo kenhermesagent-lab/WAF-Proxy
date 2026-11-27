@@ -246,6 +246,10 @@ type AccessProfile struct {
 	ListIDs             []int64      `json:"list_ids"`
 	WAFProfileID        *int64       `json:"waf_profile_id,omitempty"`
 	ProtectionProfileID *int64       `json:"protection_profile_id,omitempty"`
+	// WAFSkipListIDs are whitelists whose sources skip CRS inspection for the
+	// hosts on this profile. Bans, lists, rate limits, the gate and routing
+	// still apply; only the WAF stage is skipped.
+	WAFSkipListIDs []int64 `json:"waf_skip_list_ids"`
 }
 
 // PolicyIDs returns the referenced list IDs, for callers that only need them.

@@ -113,15 +113,15 @@ func (s *Store) seedProtectionProfiles() error {
 	return err
 }
 
-const accessProfileColumns = `id, name, policy_ids, rule_roles, list_ids, waf_profile_id, protection_profile_id`
+const accessProfileColumns = `id, name, policy_ids, rule_roles, list_ids, waf_profile_id, protection_profile_id, waf_skip_list_ids`
 
 // The roles column is parallel to the id list, so a profile can mark the same
 // list allow in one profile and deny in another.
 func scanAccessProfile(row interface{ Scan(...any) error }) (*model.AccessProfile, error) {
 	var a model.AccessProfile
-	var ids, roles, listIDs string
+	var ids, roles, listIDs, skipIDs string
 	var waf, prot sql.NullInt64
-	err := row.Scan(&a.ID, &a.Name, &ids, &roles, &listIDs, &waf, &prot)
+	err := row.Scan(&a.ID, &a.Name, &ids, &roles, &listIDs, &waf, &prot, &skipIDs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -142,6 +142,7 @@ func scanAccessProfile(row interface{ Scan(...any) error }) (*model.AccessProfil
 		a.Rules = append(a.Rules, model.AccessRule{PolicyID: id, Role: role})
 	}
 	a.ListIDs = parseIDList(listIDs)
+	a.WAFSkipListIDs = parseIDList(skipIDs)
 	if waf.Valid {
 		v := waf.Int64
 		a.WAFProfileID = &v
@@ -221,8 +222,9 @@ func (s *Store) CreateAccessProfile(a *model.AccessProfile) error {
 		return ErrDuplicate
 	}
 	ids, roles := accessProfileValues(a)
-	res, err := s.db.Exec(`INSERT INTO access_profiles(name, policy_ids, rule_roles, list_ids, waf_profile_id, protection_profile_id, site_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?)`, a.Name, ids, roles, accessListValues(a), a.WAFProfileID, a.ProtectionProfileID, s.site)
+	res, err := s.db.Exec(`INSERT INTO access_profiles(name, policy_ids, rule_roles, list_ids, waf_profile_id, protection_profile_id, waf_skip_list_ids, site_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, a.Name, ids, roles, accessListValues(a), a.WAFProfileID, a.ProtectionProfileID,
+		accessListValues(&model.AccessProfile{ListIDs: a.WAFSkipListIDs}), s.site)
 	if err != nil {
 		return err
 	}
@@ -233,9 +235,10 @@ func (s *Store) CreateAccessProfile(a *model.AccessProfile) error {
 // UpdateAccessProfile replaces a profile's lists, roles and protection choice.
 func (s *Store) UpdateAccessProfile(a *model.AccessProfile) error {
 	ids, roles := accessProfileValues(a)
-	_, err := s.db.Exec(`UPDATE access_profiles SET policy_ids = ?, rule_roles = ?, list_ids = ?, waf_profile_id = ?, protection_profile_id = ?
-		WHERE id = ? AND (? = 0 OR site_id = ?)`, ids, roles, accessListValues(a), a.WAFProfileID,
-		a.ProtectionProfileID, a.ID, s.site, s.site)
+	_, err := s.db.Exec(`UPDATE access_profiles SET policy_ids = ?, rule_roles = ?, list_ids = ?, waf_profile_id = ?,
+		protection_profile_id = ?, waf_skip_list_ids = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
+		ids, roles, accessListValues(a), a.WAFProfileID, a.ProtectionProfileID,
+		accessListValues(&model.AccessProfile{ListIDs: a.WAFSkipListIDs}), a.ID, s.site, s.site)
 	return err
 }
 

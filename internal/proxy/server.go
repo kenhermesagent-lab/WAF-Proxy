@@ -68,6 +68,9 @@ type PolicyEngine interface {
 	// InList matches the request's client against the named lists, for
 	// body-skip trust.
 	InList(req *policy.Request, ids []int64) bool
+	// WAFSkip reports whether the site's access profile trusts this source
+	// enough to skip CRS inspection, and names the lists that do.
+	WAFSkip(req *policy.Request) (bool, []string)
 }
 
 type Deps struct {

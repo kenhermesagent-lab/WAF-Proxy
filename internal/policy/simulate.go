@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/geoip"
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
@@ -103,6 +104,28 @@ func (e *Engine) Simulate(in SimRequest) SimResult {
 	}
 	res.Stages = append(res.Stages, SimStage{Stage: "rate-limit", Verdict: "skipped",
 		Skipped: "state is per client; a simulation must not spend it"})
+
+	// A trusted source skips the WAF, so the stage is reported as skipped. The
+	// rules are still evaluated so an operator can see what the exemption lets
+	// through; nothing is refused on that basis.
+	if ok, lists := e.WAFSkip(&req); ok {
+		verdict, _, matches := e.inspect(&req)
+		res.Matches = matches
+		stage := SimStage{Stage: "waf-skip", Verdict: "skipped",
+			Skipped: "this source is trusted by the access profile, so CRS inspection is skipped"}
+		if len(lists) > 0 {
+			stage.Skipped += " (trust lists: " + strings.Join(lists, ", ") + ")"
+		}
+		for _, m := range matches {
+			stage.RuleIDs = append(stage.RuleIDs, strconv.Itoa(m.RuleID))
+		}
+		if verdict.Action == "block" || verdict.Action == "log" {
+			stage.Skipped += "; the request would have been " + verdict.Action + "ed: " + verdict.Reason
+		}
+		res.Stages = append(res.Stages, stage)
+		res.Verdict = overall
+		return e.withException(res, in)
+	}
 
 	verdict, _, matches := e.inspect(&req)
 	res.Matches = matches

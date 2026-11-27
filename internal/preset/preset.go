@@ -52,6 +52,10 @@ type Preset struct {
 	// All and Get. The console draws it as the reference beside the profile's
 	// exception field, so the reason lives with the rule rather than in the UI.
 	ExceptionRules []ExceptionRule `json:"exception_rules,omitempty"`
+	// WAFProfile is the profile Profile builds for a hostname, filled in by All
+	// and Get. The console starts a new profile from it for a preset that has
+	// no stored profile yet, so every entry in the reference leads somewhere.
+	WAFProfile model.Profile `json:"waf_profile"`
 	// Protection is the response hardening this application needs beyond the
 	// baseline every site gets; a field is set only where the app needs more.
 	Protection Protection `json:"protection"`
@@ -794,6 +798,7 @@ func All() []Preset {
 	copy(out, all)
 	for i := range out {
 		out[i].ExceptionRules = out[i].ExceptionList()
+		out[i].WAFProfile = out[i].Profile("")
 	}
 	sort.SliceStable(out, func(i, j int) bool { return sortKey(out[i].Name) < sortKey(out[j].Name) })
 	return out
@@ -808,6 +813,7 @@ func Get(id string) (Preset, bool) {
 	for _, p := range all {
 		if p.ID == id {
 			p.ExceptionRules = p.ExceptionList()
+			p.WAFProfile = p.Profile("")
 			return p, true
 		}
 	}

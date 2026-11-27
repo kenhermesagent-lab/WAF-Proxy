@@ -1412,6 +1412,32 @@ func (e *Engine) InList(req *Request, ids []int64) bool {
 	return false
 }
 
+// WAFSkip reports whether the request's source is trusted by the access
+// profile on its proxy, which skips CRS inspection for that site, and names
+// the lists that trust it. Only a named list counts; a deleted list matches
+// nothing, so the exemption fails closed.
+func (e *Engine) WAFSkip(req *Request) (bool, []string) {
+	if req == nil || req.Proxy == nil || req.Proxy.AccessProfileID == nil {
+		return false, nil
+	}
+	e.mu.RLock()
+	prof, ok := e.accessProfiles[*req.Proxy.AccessProfileID]
+	ids := append([]int64(nil), prof.WAFSkipListIDs...)
+	e.mu.RUnlock()
+	if !ok || len(ids) == 0 || !e.InList(req, ids) {
+		return false, nil
+	}
+	names := make([]string, 0, len(ids))
+	e.mu.RLock()
+	for _, id := range ids {
+		if l, ok := e.lists[id]; ok {
+			names = append(names, l.name)
+		}
+	}
+	e.mu.RUnlock()
+	return true, names
+}
+
 // NoteTraffic records request volume for sampling decisions.
 func (e *Engine) NoteTraffic() { e.rl.noteTraffic() }
 

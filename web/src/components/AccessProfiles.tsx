@@ -129,6 +129,18 @@ export default function AccessProfiles({
     setDraft({ ...draft, list_ids: ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id] });
   };
 
+  const toggleWAFSkip = (id: number) => {
+    if (!draft) return;
+    const ids = draft.waf_skip_list_ids ?? [];
+    setDraft({ ...draft, waf_skip_list_ids: ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id] });
+  };
+
+  const wafSkipNames = (a: AccessProfile) =>
+    (a.waf_skip_list_ids ?? [])
+      .map((id) => lists.find((l) => l.id === id)?.name)
+      .filter(Boolean)
+      .join(" · ");
+
   const wafName = (id: number | null) => wafProfiles.find((p) => p.id === id)?.name;
   const protectionName = (id: number | null) => protections.find((p) => p.id === id)?.name;
 
@@ -138,7 +150,7 @@ export default function AccessProfiles({
       actions={
         <button
           className="small primary"
-          onClick={() => setDraft({ id: 0, name: "", rules: [], list_ids: [], waf_profile_id: null, protection_profile_id: null })}
+          onClick={() => setDraft({ id: 0, name: "", rules: [], list_ids: [], waf_profile_id: null, protection_profile_id: null, waf_skip_list_ids: [] })}
         >
           New profile
         </button>
@@ -153,7 +165,7 @@ export default function AccessProfiles({
         <div style={{ overflowX: "auto" }}>
           <div className="table-wrap"><table>
             <thead>
-              <tr><th>Profile</th><th>Lists</th><th>Block/allow lists</th><th>Protection</th><th /></tr>
+              <tr><th>Profile</th><th>Lists</th><th>Block/allow lists</th><th>Protection</th><th>WAF skip</th><th /></tr>
             </thead>
             <tbody>
               {list.map((a) => {
@@ -170,6 +182,9 @@ export default function AccessProfiles({
                     </td>
                     <td className="muted" style={{ fontSize: 12 }}>
                       {[wafName(a.waf_profile_id), protectionName(a.protection_profile_id)].filter(Boolean).join(" · ") || "none"}
+                    </td>
+                    <td className="muted" style={{ fontSize: 12 }}>
+                      {wafSkipNames(a) || "none"}
                     </td>
                     <td className="right" style={{ whiteSpace: "nowrap" }}>
                       <button className="small" onClick={() => setDraft({ ...a })}>Edit</button>{" "}
@@ -262,6 +277,40 @@ export default function AccessProfiles({
                 ))}
               </div>
             )}
+          </Field>
+
+          <Field label="Skip the WAF for these sources (whitelists)">
+            {lists.filter((l) => l.kind === "whitelist").length === 0 ? (
+              <p className="muted" style={{ fontSize: 12 }}>
+                No whitelist yet. Create one on the Lists tab; a blocklist cannot be a trust list.
+              </p>
+            ) : (
+              <div style={{ maxHeight: 160, overflowY: "auto", display: "grid", gap: 4 }}>
+                {lists.filter((l) => l.kind === "whitelist").map((l) => (
+                  <label
+                    key={l.id}
+                    style={{ margin: 0, display: "flex", gap: 8, alignItems: "center", textTransform: "none", letterSpacing: 0 }}
+                  >
+                    <input
+                      type="checkbox"
+                      style={{ width: "auto" }}
+                      checked={(draft.waf_skip_list_ids ?? []).includes(l.id)}
+                      onChange={() => toggleWAFSkip(l.id)}
+                    />
+                    <span>{l.name}</span>
+                    <span className="muted" style={{ fontSize: 11 }}>
+                      {countLabel(entries(l.ips) + entries(l.countries))}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
+              A source on one of these lists skips CRS inspection on every host using this profile. Bans, lists, rate
+              limits, the access gate and routing still apply, and each skipped request is logged as stage waf-skip.
+              Leave this empty unless you mean it: a WAF skip exposes headers, query, cookies and body unfiltered to
+              everything the list covers, including a whole NAT.
+            </p>
           </Field>
 
           <div className="row grow">

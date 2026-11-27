@@ -310,6 +310,9 @@ export interface AccessProfile {
   list_ids: number[];
   waf_profile_id: number | null;
   protection_profile_id: number | null;
+  // Whitelists whose sources skip CRS inspection for this profile's hosts.
+  // Bans, lists, rate limits, the gate and routing still apply.
+  waf_skip_list_ids: number[];
 }
 
 // A named blocklist or whitelist an access profile attaches as a whole.
@@ -567,6 +570,9 @@ export interface Preset {
   // The suggested rule IDs with the reason each one fires, shown beside the
   // profile's exception field. The library writes it; the console only draws it.
   exception_rules?: { rule: string; why: string }[];
+  // The WAF profile built for a hostname, so the console can start a new
+  // profile from a preset that has no stored one yet.
+  waf_profile: Profile;
   notes: string[];
   // proxy_max_body and body_skip_paths ("METHOD /prefix") prefill the site
   // drawer; steps is the ordered setup guide it shows.

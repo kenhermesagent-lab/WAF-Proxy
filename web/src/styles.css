@@ -701,6 +701,9 @@ th .sort-arrow { color: var(--accent); margin-left: 4px; font-size: 10px; }
   border-radius: var(--radius-lg); padding: 22px;
   box-shadow: var(--shadow-3);
 }
+/* A form that holds a field beside a reference card needs more than the
+   default width; the card keeps its own column instead of being squeezed. */
+.modal.wide { width: min(980px, 100%); }
 .modal h2 { margin: 0 0 16px; font-size: 16px; letter-spacing: -.015em; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 

@@ -422,6 +422,15 @@ func (r *Router) InList(req *policy.Request, ids []int64) bool {
 	return false
 }
 
+// WAFSkip reports whether the site's access profile trusts this source past
+// the WAF stage.
+func (r *Router) WAFSkip(req *policy.Request) (bool, []string) {
+	if e := r.requestEngine(req); e != nil {
+		return e.WAFSkip(req)
+	}
+	return false, nil
+}
+
 // Inspect runs the body stages for the request's site.
 func (r *Router) Inspect(req *policy.Request) (model.Verdict, policy.WAFInfo) {
 	if e := r.requestEngine(req); e != nil {

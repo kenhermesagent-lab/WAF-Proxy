@@ -236,16 +236,19 @@ export function Modal({
   onClose,
   children,
   footer,
+  wide,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  // A wider panel for a form that carries a reference card beside a field.
+  wide?: boolean;
 }) {
   const ref = useDialogFocus(true, onClose);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref} tabIndex={-1}>
+      <div className={`modal${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-label={title} ref={ref} tabIndex={-1}>
         <h2>{title}</h2>
         {children}
         {footer ? <div className="modal-actions">{footer}</div> : null}

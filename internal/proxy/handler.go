@@ -370,25 +370,41 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if verdict, info := s.d.Policy.Inspect(preq); verdict.Action != "allow" {
-		event.Stage, event.RuleID, event.RuleMsg = verdict.Stage, verdict.Rule, verdict.Reason
-		if info.Matched {
-			event.RuleID = itoa(info.RuleID)
-			// The reason is the rule's own message and names what it objected
-			// to ("... restricted by policy (/expect/)"); replacing it with the
-			// label left the operator with "protocol-violation" and nothing to
-			// act on.
-			if event.RuleMsg == "" {
-				event.RuleMsg = info.Label
+	// A trusted source skips only the CRS stage: the bans, lists, rate limits
+	// and access gate above have already had their say, and routing below still
+	// applies. The decision is recorded so the exemption is auditable.
+	wafSkipped := false
+	if skip, lists := s.d.Policy.WAFSkip(preq); skip {
+		wafSkipped = true
+		event.Stage, event.RuleID = "waf-skip", "trusted-source"
+		event.RuleMsg = "source is trusted by the access profile; WAF inspection skipped"
+		if len(lists) > 0 {
+			event.RuleMsg += " (trust lists: " + strings.Join(lists, ", ") + ")"
+		}
+	}
+	// Inspect is not called at all for a trusted source: the point of the
+	// exemption is that the site does not spend the inspection.
+	if !wafSkipped {
+		if verdict, info := s.d.Policy.Inspect(preq); verdict.Action != "allow" {
+			event.Stage, event.RuleID, event.RuleMsg = verdict.Stage, verdict.Rule, verdict.Reason
+			if info.Matched {
+				event.RuleID = itoa(info.RuleID)
+				// The reason is the rule's own message and names what it objected
+				// to ("... restricted by policy (/expect/)"); replacing it with the
+				// label left the operator with "protocol-violation" and nothing to
+				// act on.
+				if event.RuleMsg == "" {
+					event.RuleMsg = info.Label
+				}
 			}
+			if verdict.Action == "block" {
+				blocked = true
+				event.Action = "block"
+				respondVerdict(rw, verdict)
+				return
+			}
+			event.Action = "log"
 		}
-		if verdict.Action == "block" {
-			blocked = true
-			event.Action = "block"
-			respondVerdict(rw, verdict)
-			return
-		}
-		event.Action = "log"
 	}
 
 	route, done := s.applyRoutes(rw, r, e)

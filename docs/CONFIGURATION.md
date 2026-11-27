@@ -555,6 +555,13 @@ One profile per site bundles lists, WAF and protection so creating a host means 
 | Blocklists and whitelists | Named lists attached to the profile. |
 | WAF profile | WAF profile to apply, or inherit the default. |
 | Protection profile | Response-hardening profile, or none. |
+| Skip the WAF for these sources | Whitelists whose sources skip CRS inspection on this profile's hosts. |
+
+A skip list trusts its sources past the WAF stage only. Bans, the lists, the rate limits, the
+access gate and routing still apply, and `GET /api/simulate` reports the stage as `waf-skip` with
+the rules that would have matched. Each skipped request is logged with stage `waf-skip` and rule
+`trusted-source`, so the exemption is auditable. Only a whitelist can be a skip list; a blocklist
+is refused when the profile is saved, and a deleted list stops trusting its sources.
 
 ### Identity providers
 

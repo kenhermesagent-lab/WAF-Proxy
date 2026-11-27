@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,5 +126,59 @@ func TestSimulateSkipsRateLimiting(t *testing.T) {
 		if res.Verdict.Action != "allow" {
 			t.Fatalf("simulation %d verdict = %+v; it spent the rate limit", i, res.Verdict)
 		}
+	}
+}
+
+// A trusted source skips the WAF stage, and the simulation still names the rules
+// that would have fired so the exemption is visible rather than silent.
+func TestSimulateShowsATrustedSourceSkippingTheWAF(t *testing.T) {
+	pol, st, _ := newEngine(t)
+	profiles, err := st.ListProfiles()
+	if err != nil || len(profiles) == 0 {
+		t.Fatalf("profiles: %v (%d)", err, len(profiles))
+	}
+	list := &model.AccessList{Kind: "whitelist", Name: "office", IPs: "203.0.113.0/24"}
+	if err := st.CreateAccessList(list); err != nil {
+		t.Fatal(err)
+	}
+	ap := &model.AccessProfile{Name: "office skip", WAFSkipListIDs: []int64{list.ID}}
+	if err := st.CreateAccessProfile(ap); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.CreateProxy(&model.Proxy{Hostname: "skip.example.com", Enabled: true,
+		ProfileID: &profiles[0].ID, WAFMode: "block", AccessProfileID: &ap.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.GetProxy(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pol.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	res := pol.Simulate(SimRequest{
+		Proxy: p, Host: p.Hostname, Method: "GET", Path: "/search",
+		Query: "q=%3Cscript%3Ealert(1)%3C/script%3E",
+		Addr:  netip.MustParseAddr("203.0.113.7"),
+	})
+	if res.Verdict.Action != "allow" {
+		t.Fatalf("verdict = %+v, want the trusted source allowed", res.Verdict)
+	}
+	var skip *SimStage
+	for i := range res.Stages {
+		if res.Stages[i].Stage == "waf-skip" {
+			skip = &res.Stages[i]
+		}
+	}
+	if skip == nil {
+		t.Fatalf("stages = %+v, want a waf-skip stage", res.Stages)
+	}
+	if skip.Verdict != "skipped" || !strings.Contains(skip.Skipped, "trust lists: office") {
+		t.Fatalf("skip stage = %+v, want it named and skipped", skip)
+	}
+	if len(skip.RuleIDs) == 0 {
+		t.Fatalf("skip stage = %+v, want the would-be rule IDs", skip)
 	}
 }

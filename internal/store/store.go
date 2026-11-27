@@ -825,6 +825,8 @@ func (s *Store) migrateAddColumns() error {
 		{"access_profiles", "protection_profile_id", `ALTER TABLE access_profiles ADD COLUMN protection_profile_id INTEGER REFERENCES protection_profiles(id) ON DELETE SET NULL`},
 		// Named blocklist/whitelist bundles a profile attaches as a whole.
 		{"access_profiles", "list_ids", `ALTER TABLE access_profiles ADD COLUMN list_ids TEXT NOT NULL DEFAULT ''`},
+		// Whitelists whose sources skip CRS inspection for this profile's hosts.
+		{"access_profiles", "waf_skip_list_ids", `ALTER TABLE access_profiles ADD COLUMN waf_skip_list_ids TEXT NOT NULL DEFAULT ''`},
 		// A rolled-up permanent-ban list is enforced even for allowlisted
 		// addresses, matching the ban it replaced.
 		{"feeds", "always_block", `ALTER TABLE feeds ADD COLUMN always_block INTEGER NOT NULL DEFAULT 0`},
