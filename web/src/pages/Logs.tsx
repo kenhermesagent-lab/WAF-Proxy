@@ -82,9 +82,10 @@ export default function Logs({
 }) {
   const [events, setEvents] = useState<Event[]>([]);
   const [total, setTotal] = useState(0);
-  // Per-host and per-source counts for the applied filters, shown once a stage
-  // is chosen: the rows answer "who", the summary answers "how often".
-  const [summary, setSummary] = useState<EventSummary | null>(null);
+  // Per-host and per-source counts for the filters that were actually applied,
+  // carrying that stage with them: the card can never rename itself ahead of
+  // the numbers it shows.
+  const [summary, setSummary] = useState<{ stage: string; counts: EventSummary } | null>(null);
   const [offset, setOffset] = useState(0);
   const [filters, setFilters] = useState(() => filtersFromQuery(query));
   const [loading, setLoading] = useState(false);
@@ -126,9 +127,10 @@ export default function Logs({
       if (!active.stage) {
         setSummary(null);
       } else {
+        const stage = active.stage;
         api
           .get<EventSummary>(`/api/events/summary?${queryOf(active).toString()}`)
-          .then((s) => mine === seq.current && setSummary(s))
+          .then((counts) => mine === seq.current && setSummary({ stage, counts }))
           .catch(() => mine === seq.current && setSummary(null));
       }
     } catch (e) {
@@ -392,19 +394,16 @@ export default function Logs({
         </div>
       </Card>
 
-      {filters.stage && (
-        <Card
-          title={`Stage summary · ${filters.stage}`}
-          actions={<span className="muted">{total.toLocaleString()} in range</span>}
-        >
-          {!summary || total === 0 ? (
+      {summary && (
+        <Card title={`Stage summary · ${summary.stage}`}>
+          {summary.counts.hosts.length === 0 && summary.counts.sources.length === 0 ? (
             <p className="muted" style={{ marginBottom: 0 }}>
-              No {filters.stage} events match these filters in the range.
+              No {summary.stage} events match these filters in the range.
             </p>
           ) : (
             <>
               <div className="grid cols-2" style={{ gap: 14 }}>
-                {([["By host", summary.hosts, ""], ["By source", summary.sources, "mono"]] as const).map(([label, rows, cls]) => (
+                {([["By host", summary.counts.hosts, ""], ["By source", summary.counts.sources, "mono"]] as const).map(([label, rows, cls]) => (
                   <div key={label}>
                     <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>{label}</div>
                     {rows.length === 0 ? (
