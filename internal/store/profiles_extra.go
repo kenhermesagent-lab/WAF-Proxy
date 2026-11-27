@@ -171,12 +171,12 @@ func accessProfileValues(a *model.AccessProfile) (string, string) {
 	return strings.Join(ids, ","), strings.Join(roles, ",")
 }
 
-// accessListValues serialises the attached list ids, deduplicated so a double
-// click in the console cannot add the same list twice.
-func accessListValues(a *model.AccessProfile) string {
+// accessListValues serialises list ids, deduplicated so a double click in the
+// console cannot add the same list twice.
+func accessListValues(raw []int64) string {
 	seen := map[int64]bool{}
-	ids := make([]string, 0, len(a.ListIDs))
-	for _, id := range a.ListIDs {
+	ids := make([]string, 0, len(raw))
+	for _, id := range raw {
 		if id <= 0 || seen[id] {
 			continue
 		}
@@ -223,8 +223,8 @@ func (s *Store) CreateAccessProfile(a *model.AccessProfile) error {
 	}
 	ids, roles := accessProfileValues(a)
 	res, err := s.db.Exec(`INSERT INTO access_profiles(name, policy_ids, rule_roles, list_ids, waf_profile_id, protection_profile_id, waf_skip_list_ids, site_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, a.Name, ids, roles, accessListValues(a), a.WAFProfileID, a.ProtectionProfileID,
-		accessListValues(&model.AccessProfile{ListIDs: a.WAFSkipListIDs}), s.site)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, a.Name, ids, roles, accessListValues(a.ListIDs), a.WAFProfileID,
+		a.ProtectionProfileID, accessListValues(a.WAFSkipListIDs), s.site)
 	if err != nil {
 		return err
 	}
@@ -237,8 +237,8 @@ func (s *Store) UpdateAccessProfile(a *model.AccessProfile) error {
 	ids, roles := accessProfileValues(a)
 	_, err := s.db.Exec(`UPDATE access_profiles SET policy_ids = ?, rule_roles = ?, list_ids = ?, waf_profile_id = ?,
 		protection_profile_id = ?, waf_skip_list_ids = ? WHERE id = ? AND (? = 0 OR site_id = ?)`,
-		ids, roles, accessListValues(a), a.WAFProfileID, a.ProtectionProfileID,
-		accessListValues(&model.AccessProfile{ListIDs: a.WAFSkipListIDs}), a.ID, s.site, s.site)
+		ids, roles, accessListValues(a.ListIDs), a.WAFProfileID, a.ProtectionProfileID,
+		accessListValues(a.WAFSkipListIDs), a.ID, s.site, s.site)
 	return err
 }
 

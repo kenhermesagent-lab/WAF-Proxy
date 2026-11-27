@@ -1423,9 +1423,12 @@ func (e *Engine) WAFSkip(req *Request) (bool, []string) {
 	}
 	e.mu.RLock()
 	prof, ok := e.accessProfiles[*req.Proxy.AccessProfileID]
-	ids := append([]int64(nil), prof.WAFSkipListIDs...)
+	var ids []int64
+	if ok {
+		ids = append(ids, prof.WAFSkipListIDs...)
+	}
 	e.mu.RUnlock()
-	if !ok || len(ids) == 0 || !e.InList(req, ids) {
+	if len(ids) == 0 || !e.InList(req, ids) {
 		return false, nil
 	}
 	names := make([]string, 0, len(ids))

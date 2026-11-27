@@ -138,6 +138,7 @@ export default function Proxies({
   // A host with a trusted-source exemption on its access profile is marked in
   // the list, so the exemption is visible without opening the profile.
   const wafSkipProfile = (p: Proxy) => {
+    if (p.waf_mode === "off") return undefined;
     const ap = accessProfiles.find((a) => a.id === p.access_profile_id);
     return ap && (ap.waf_skip_list_ids ?? []).length > 0 ? ap : undefined;
   };
@@ -308,45 +309,45 @@ export default function Proxies({
                     {visible.map((p) => {
                       const skip = wafSkipProfile(p);
                       return (
-                      <tr key={p.id} className="clickable" onClick={() => openEdit(p)}>
-                        <td>
-                          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                            <span className={`env-dot ${p.enabled && !p.maintenance ? "" : "warn"}`} style={p.enabled && !p.maintenance ? undefined : { background: p.maintenance ? "var(--warn)" : "var(--faint)" }} />
-                            <span className="mono" style={{ color: "var(--text)", fontSize: 12 }}>{p.hostname}</span>
-                            {skip && (
-                              <Badge
-                                tone="warn"
-                                title={`Trusted-source WAF skip: the ${skip.name} access profile skips the WAF stage for ${skip.waf_skip_list_ids.length} trust list(s)`}
-                              >
-                                WAF skip
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="faint small-text">{p.upstreams.length} upstream{p.upstreams.length === 1 ? "" : "s"}{p.maintenance ? " · maintenance" : ""}</div>
-                        </td>
-                        <td className="muted mono" style={{ fontSize: 11.5 }}>
-                          {p.upstreams[0]?.url ?? "—"}
-                          {p.upstreams.length > 1 ? <div className="faint">+{p.upstreams.length - 1} more</div> : null}
-                        </td>
-                        <td>
-                          <div className="row" style={{ gap: 5 }}>
-                            <Badge tone={p.waf_mode === "off" ? "warn" : "info"}>{WAF_LABELS[p.waf_mode] ?? p.waf_mode}</Badge>
-                            <Badge>{BOT_LABELS[p.bot_level] ?? p.bot_level}</Badge>
-                          </div>
-                        </td>
-                        <td><Badge tone={p.gate_mode === "off" ? "" : "ok"}>{GATE_LABELS[p.gate_mode] ?? p.gate_mode}</Badge></td>
-                        <td className="num">{(p.requests ?? 0).toLocaleString()}</td>
-                        <td className="num">{(p.blocked ?? 0).toLocaleString()}</td>
-                        <td>
-                          <Badge tone={p.maintenance ? "warn" : p.enabled ? "ok" : ""}>
-                            {p.maintenance ? "Maintenance" : p.enabled ? "Enabled" : "Disabled"}
-                          </Badge>
-                        </td>
-                        <td className="right" onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
-                          <button className="xsmall" title="Configuration, traffic and upstream health" onClick={() => setInspect(p)}>360</button>{" "}
-                          <button className="xsmall" onClick={() => openEdit(p)}>Edit</button>
-                        </td>
-                      </tr>
+                        <tr key={p.id} className="clickable" onClick={() => openEdit(p)}>
+                          <td>
+                            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                              <span className={`env-dot ${p.enabled && !p.maintenance ? "" : "warn"}`} style={p.enabled && !p.maintenance ? undefined : { background: p.maintenance ? "var(--warn)" : "var(--faint)" }} />
+                              <span className="mono" style={{ color: "var(--text)", fontSize: 12 }}>{p.hostname}</span>
+                              {skip && (
+                                <Badge
+                                  tone="warn"
+                                  title={`Trusted-source WAF skip: the ${skip.name} access profile skips the WAF stage for ${skip.waf_skip_list_ids.length} trust list${skip.waf_skip_list_ids.length === 1 ? "" : "s"}`}
+                                >
+                                  WAF skip
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="faint small-text">{p.upstreams.length} upstream{p.upstreams.length === 1 ? "" : "s"}{p.maintenance ? " · maintenance" : ""}</div>
+                          </td>
+                          <td className="muted mono" style={{ fontSize: 11.5 }}>
+                            {p.upstreams[0]?.url ?? "—"}
+                            {p.upstreams.length > 1 ? <div className="faint">+{p.upstreams.length - 1} more</div> : null}
+                          </td>
+                          <td>
+                            <div className="row" style={{ gap: 5 }}>
+                              <Badge tone={p.waf_mode === "off" ? "warn" : "info"}>{WAF_LABELS[p.waf_mode] ?? p.waf_mode}</Badge>
+                              <Badge>{BOT_LABELS[p.bot_level] ?? p.bot_level}</Badge>
+                            </div>
+                          </td>
+                          <td><Badge tone={p.gate_mode === "off" ? "" : "ok"}>{GATE_LABELS[p.gate_mode] ?? p.gate_mode}</Badge></td>
+                          <td className="num">{(p.requests ?? 0).toLocaleString()}</td>
+                          <td className="num">{(p.blocked ?? 0).toLocaleString()}</td>
+                          <td>
+                            <Badge tone={p.maintenance ? "warn" : p.enabled ? "ok" : ""}>
+                              {p.maintenance ? "Maintenance" : p.enabled ? "Enabled" : "Disabled"}
+                            </Badge>
+                          </td>
+                          <td className="right" onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
+                            <button className="xsmall" title="Configuration, traffic and upstream health" onClick={() => setInspect(p)}>360</button>{" "}
+                            <button className="xsmall" onClick={() => openEdit(p)}>Edit</button>
+                          </td>
+                        </tr>
                       );
                     })}
                   </tbody>

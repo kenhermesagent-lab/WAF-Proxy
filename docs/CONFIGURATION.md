@@ -561,9 +561,10 @@ A skip list trusts its sources past the WAF stage only, and the whole stage is s
 rules do not run, an installed signature bundle is not evaluated, and the normalization checks
 (request smuggling and duplicate parameters) do not run either. Bans, the lists, the rate limits,
 the access gate and routing still apply, and `GET /api/simulate` reports the stage as `waf-skip`
-with the CRS rules that would have matched. Each skipped request is logged with stage `waf-skip` and rule
-`trusted-source`, so the exemption is auditable. Only a whitelist can be a skip list; a blocklist
-is refused when the profile is saved, and a deleted list stops trusting its sources.
+with the CRS rules that would have matched. Each skipped request is logged with stage `waf-skip`
+and rule `trusted-source`, so the exemption is auditable from the Logs page by filtering on the
+stage. Only a whitelist can be a skip list; a blocklist is refused when the profile is saved, and a
+list attached to a profile cannot be deleted.
 
 ### Identity providers
 

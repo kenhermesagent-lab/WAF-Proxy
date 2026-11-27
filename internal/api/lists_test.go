@@ -114,3 +114,19 @@ func TestAccessListAttachesToProfileAndRefusesDeleteInUse(t *testing.T) {
 		t.Fatalf("unknown list reference = %d, want 400 (%s)", bad.Code, bad.Body.String())
 	}
 }
+
+// A list trusted for a WAF skip is attached to a profile too: deleting it would
+// silently end the exemption.
+func TestTrustListAttachedToProfileRefusesDelete(t *testing.T) {
+	srv, _, token, csrf := newObservabilityServer(t)
+	l := createList(t, srv, token, csrf, `{"kind":"whitelist","name":"Office","ips":"203.0.113.0/24"}`)
+	rec := authed(t, srv, token, csrf, http.MethodPost, "/api/access-profiles",
+		`{"name":"Office skip","rules":[],"waf_skip_list_ids":[`+listIDStr(l.ID)+`]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /api/access-profiles = %d: %s", rec.Code, rec.Body.String())
+	}
+	del := authed(t, srv, token, csrf, http.MethodDelete, "/api/lists/"+listIDStr(l.ID), "")
+	if del.Code != http.StatusConflict {
+		t.Fatalf("delete a trust list = %d, want 409 (%s)", del.Code, del.Body.String())
+	}
+}

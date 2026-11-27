@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/kenhermesagent-lab/waf-proxy-docker/internal/model"
@@ -77,7 +78,9 @@ func (s *Store) UpdateAccessList(l *model.AccessList) error {
 	return err
 }
 
-// AccessListInUse counts the access profiles that attach a list.
+// AccessListInUse counts the access profiles that attach a list, either as a
+// block/allow list or as a WAF-skip trust list. Deleting one of those would
+// change a host's WAF posture without the operator asking.
 func (s *Store) AccessListInUse(id int64) (int, error) {
 	profiles, err := s.ListAccessProfiles()
 	if err != nil {
@@ -85,11 +88,8 @@ func (s *Store) AccessListInUse(id int64) (int, error) {
 	}
 	n := 0
 	for _, a := range profiles {
-		for _, ref := range a.ListIDs {
-			if ref == id {
-				n++
-				break
-			}
+		if slices.Contains(a.ListIDs, id) || slices.Contains(a.WAFSkipListIDs, id) {
+			n++
 		}
 	}
 	return n, nil

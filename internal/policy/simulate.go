@@ -119,8 +119,11 @@ func (e *Engine) Simulate(in SimRequest) SimResult {
 		for _, m := range matches {
 			stage.RuleIDs = append(stage.RuleIDs, strconv.Itoa(m.RuleID))
 		}
-		if verdict.Action == "block" || verdict.Action == "log" {
-			stage.Skipped += "; the request would have been " + verdict.Action + "ed: " + verdict.Reason
+		switch verdict.Action {
+		case "block":
+			stage.Skipped += "; the request would have been blocked: " + verdict.Reason
+		case "log":
+			stage.Skipped += "; the request would have been logged: " + verdict.Reason
 		}
 		res.Stages = append(res.Stages, stage)
 		res.Verdict = overall

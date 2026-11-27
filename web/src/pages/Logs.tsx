@@ -342,6 +342,7 @@ export default function Logs({
             <select value={filters.stage} onChange={(e) => setFilters({ ...filters, stage: e.target.value })}>
               <option value="">any</option>
               <option value="waf">waf</option>
+              <option value="waf-skip">waf-skip</option>
               <option value="response-waf">response-waf</option>
               <option value="response-skipped">response-skipped</option>
               <option value="whitelist">whitelist</option>

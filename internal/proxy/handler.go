@@ -370,7 +370,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A trusted source skips only the CRS stage: the bans, lists, rate limits
+	// A trusted source skips only the WAF stage: the bans, lists, rate limits
 	// and access gate above have already had their say, and routing below still
 	// applies. The decision is recorded so the exemption is auditable.
 	wafSkipped := false
