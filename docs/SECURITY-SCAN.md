@@ -273,8 +273,10 @@ because it holds credentials; the finding says which path answered and which han
 
 When the published path refuses a served file, the finding is still raised unless the refusal
 comes from that host's own block list — the control the finding's *Block & retest* action
-installs. A path covered by that list is no longer reported, and a reachable one is a high
-finding again if the block is later removed.
+installs. That finding is **covered, not patched**: the Security page labels it so, because the
+edge refuses the path while the application still serves the file, so it stays open until the
+file is removed. A path covered by that list is no longer reported, and a reachable one is a
+high finding again if the block is later removed.
 
 Then the join: `product + version` → advisories → KEV flag → the finding that matters, e.g.
 *"Nextcloud 27.1.2 matches CVE-2024-XXXX, added to KEV 2024-09-02; the WAF has no signature

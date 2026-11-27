@@ -65,8 +65,13 @@ func exposureFindingFor(findings []model.ScanFinding, key string) *model.ScanFin
 func TestBlockedExposureIsAFindingWithoutAControl(t *testing.T) {
 	target, runner := newExposureRun(t, http.StatusForbidden, nil)
 	_, findings := runner.RunBackend(context.Background(), target, Intel{})
-	if exposureFindingFor(findings, "exposure:/.env") == nil {
+	f := exposureFindingFor(findings, "exposure:/.env")
+	if f == nil {
 		t.Fatalf("findings = %+v, want the blocked exposure reported", findings)
+	}
+	// Refused at the published path but still served: covered, not patched.
+	if !f.Covered {
+		t.Fatalf("finding = %+v, want it marked covered", f)
 	}
 }
 
@@ -91,6 +96,9 @@ func TestControlThatDoesNotRefuseIsStillAFinding(t *testing.T) {
 	f := exposureFindingFor(findings, "exposure:/.env")
 	if f == nil || f.Severity != SeverityHigh {
 		t.Fatalf("findings = %+v, want the reachable path reported high", findings)
+	}
+	if f.Covered {
+		t.Fatalf("finding = %+v, want nothing called covered while the path is served", f)
 	}
 	if ExposureClosed(rows, "/.env") {
 		t.Fatalf("evidence = %+v, want no proof while the path is served", rows)

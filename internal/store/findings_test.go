@@ -20,7 +20,7 @@ func TestAcceptedReasonSurvivesReopen(t *testing.T) {
 	finding := model.ScanFinding{
 		Key: "exposure:/.env", Stage: "backend", Class: "exposure",
 		Title: "The application serves /.env", Severity: "high",
-		Recommendation: "Remove the file", Note: "served HTTP 200",
+		Recommendation: "Remove the file", Note: "served HTTP 200", Covered: true,
 	}
 	if _, _, err := st.MergeScanFindings(st.SiteID(), "app.example.com", []model.ScanFinding{finding}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -41,6 +41,9 @@ func TestAcceptedReasonSurvivesReopen(t *testing.T) {
 	}
 	if stored.Note != finding.Note {
 		t.Fatalf("scan note = %q, want %q", stored.Note, finding.Note)
+	}
+	if !stored.Covered {
+		t.Fatal("covered was lost by the merge, so the page would call it patched")
 	}
 
 	// Reopening keeps the reason and leaves the scan note alone.

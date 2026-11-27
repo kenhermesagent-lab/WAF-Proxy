@@ -255,8 +255,12 @@ func (r *Runner) exposure(ctx context.Context, target Target) ([]model.ScanEvide
 			// action installs. When it is what refuses the path, the exposure is
 			// covered and the next run must not keep reporting it.
 			if !PathBlocked(target.Proxy.DenyPaths, path) {
-				findings = append(findings, exposureFinding(path, SeverityMedium,
-					served+"; blocked at the edge, but the file itself is still there"))
+				f := exposureFinding(path, SeverityMedium,
+					served+"; blocked at the edge, but the file itself is still there")
+				// The published path refuses it, so the exposure is covered — but
+				// the application still serves the file, so it is not patched.
+				f.Covered = true
+				findings = append(findings, f)
 			}
 			continue
 		}

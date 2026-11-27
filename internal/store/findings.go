@@ -19,7 +19,7 @@ func (s *Store) MergeScanFindings(siteID int64, target string, found []model.Sca
 
 	prior := map[string]model.ScanFinding{}
 	rows, err := tx.Query(`SELECT key, target, stage, class, title, severity, cvss, exploitation,
-		cve_ids, product, version, recommendation, note, accepted_note, state, first_seen
+		cve_ids, product, version, recommendation, note, covered, accepted_note, state, first_seen
 		FROM scan_findings WHERE site_id = ? AND target = ?`, siteID, target)
 	if err != nil {
 		return nil, nil, err
@@ -59,17 +59,17 @@ func (s *Store) MergeScanFindings(siteID int64, target string, found []model.Sca
 			opened = append(opened, f)
 		}
 		if _, err := tx.Exec(`INSERT INTO scan_findings(site_id, key, target, stage, class, title, severity,
-			cvss, exploitation, cve_ids, product, version, recommendation, note, accepted_note, state, first_seen, last_seen)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
+			cvss, exploitation, cve_ids, product, version, recommendation, note, covered, accepted_note, state, first_seen, last_seen)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
 			ON CONFLICT(site_id, key) DO UPDATE SET target = excluded.target, stage = excluded.stage,
 				class = excluded.class, title = excluded.title, severity = excluded.severity,
 				cvss = excluded.cvss, exploitation = excluded.exploitation, cve_ids = excluded.cve_ids,
 				product = excluded.product, version = excluded.version,
-				recommendation = excluded.recommendation, note = excluded.note,
+				recommendation = excluded.recommendation, note = excluded.note, covered = excluded.covered,
 				-- accepted_note is the operator's, never the excluded scan note.
 				state = excluded.state, last_seen = excluded.last_seen`,
 			siteID, f.Key, f.Target, f.Stage, f.Class, f.Title, f.Severity, f.CVSS, f.Exploitation,
-			strings.Join(f.CVEIDs, ","), f.Product, f.Version, f.Recommendation, f.Note, state,
+			strings.Join(f.CVEIDs, ","), f.Product, f.Version, f.Recommendation, f.Note, b2i(f.Covered), state,
 			first, stamp(now)); err != nil {
 			return nil, nil, err
 		}
@@ -91,7 +91,7 @@ func (s *Store) MergeScanFindings(siteID int64, target string, found []model.Sca
 // and severity. Empty filters return everything.
 func (s *Store) ListScanFindings(state, severity string) ([]model.ScanFinding, error) {
 	rows, err := s.db.Query(`SELECT key, target, stage, class, title, severity, cvss, exploitation,
-		cve_ids, product, version, recommendation, note, accepted_note, state, first_seen
+		cve_ids, product, version, recommendation, note, covered, accepted_note, state, first_seen
 		FROM scan_findings WHERE (? = '' OR state = ?) AND (? = '' OR severity = ?)
 			AND (? = 0 OR site_id = ?)
 		ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
@@ -140,12 +140,14 @@ func derefString(v *string) string {
 func scanFindingRow(row interface{ Scan(...any) error }, siteID int64) (model.ScanFinding, error) {
 	var f model.ScanFinding
 	var cves, firstSeen string
+	var covered int
 	if err := row.Scan(&f.Key, &f.Target, &f.Stage, &f.Class, &f.Title, &f.Severity, &f.CVSS,
-		&f.Exploitation, &cves, &f.Product, &f.Version, &f.Recommendation, &f.Note, &f.Reason, &f.State,
+		&f.Exploitation, &cves, &f.Product, &f.Version, &f.Recommendation, &f.Note, &covered, &f.Reason, &f.State,
 		&firstSeen); err != nil {
 		return model.ScanFinding{}, err
 	}
 	f.SiteID = siteID
+	f.Covered = covered != 0
 	f.FirstSeen = parseStamp(firstSeen)
 	f.CVEIDs = splitList(cves)
 	return f, nil

@@ -70,6 +70,10 @@ type ScanFinding struct {
 	Product        string   `json:"product,omitempty"`
 	Version        string   `json:"version,omitempty"`
 	Recommendation string   `json:"recommendation"`
+	// Covered is true for an exposure the published path refuses while the
+	// application still serves the file: covered at the edge, not patched, so
+	// the finding stays open until the file is gone.
+	Covered bool `json:"covered,omitempty"`
 	// Note is the scan's own evidence for this finding. Reason is the
 	// operator's acceptance reason, kept apart so a reopen keeps it.
 	Note   string `json:"note,omitempty"`

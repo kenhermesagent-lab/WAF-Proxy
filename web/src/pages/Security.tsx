@@ -19,7 +19,10 @@ type Finding = {
   cve_ids?: string[];
   product?: string;
   version?: string;
-  	recommendation: string;
+  recommendation: string;
+  // covered means the published path refuses the exposure while the
+  // application still serves the file: covered, not patched.
+  covered?: boolean;
 	note?: string;
 	reason?: string;
 	state?: string;
@@ -384,7 +387,7 @@ export default function SecurityPage({
             )}
           </Card>
 
-          <Card title="Needs attention" sub="Ordered by severity; a KEV hit means it is being exploited in the wild.">
+          <Card title="Needs attention" sub="Ordered by severity; a KEV hit means it is being exploited in the wild. A covered exposure is refused at the published path, not patched: the file is still behind the proxy.">
             {attention.length === 0 ? (
               <Empty title="Nothing open">A run that found nothing is not the same as a run that did not happen; the posture above says which one this is.</Empty>
             ) : (
@@ -402,7 +405,16 @@ export default function SecurityPage({
                   <tbody>
                     {attention.map((f) => (
                       <tr key={f.key}>
-                        <td>{f.title}</td>
+                        <td>
+                          <div>{f.title}</div>
+                          {f.covered ? (
+                            <div>
+                              <span title="The published path refuses it, but the application still serves the file: covered, not patched.">
+                                <Badge tone="info">Covered — not patched</Badge>
+                              </span>
+                            </div>
+                          ) : null}
+                        </td>
                         <td>{f.target || "—"}</td>
                         <td><Badge tone={SEVERITY_TONE[f.severity]}>{f.severity}</Badge></td>
                         <td>{f.exploitation ? <Badge tone="bad">{f.exploitation}</Badge> : <span className="muted">none known</span>}</td>
@@ -577,7 +589,7 @@ export default function SecurityPage({
               </select>
             </span>
           }
-          sub="Accepting a finding records who and why; it stays accepted across runs until it is reopened. An exposure finding can instead be blocked on its host and retested, and only resolves when the new run proves the path closed."
+          sub="Accepting a finding records who and why; it stays accepted across runs until it is reopened. An exposure finding can instead be blocked on its host and retested, and only resolves when the new run proves the path closed. An exposure the published path refuses is covered, not patched: the file is still served upstream, so it stays open until the file is removed."
         >
           {visible.length === 0 ? (
             <Empty title="No findings match">Nothing is proven open with these filters. A stale feed still makes the state unknown, not clean.</Empty>
@@ -592,6 +604,13 @@ export default function SecurityPage({
                     <tr key={f.key}>
                       <td className="cell-wrap">
                         <div>{f.title}</div>
+                        {f.covered ? (
+                          <div>
+                            <span title="The published path refuses it, but the application still serves the file: covered, not patched.">
+                              <Badge tone="info">Covered — not patched</Badge>
+                            </span>
+                          </div>
+                        ) : null}
                         <div className="muted">{f.recommendation}</div>
                         {f.reason ? <div className="muted">Accepted reason: {f.reason}</div> : null}
                         {f.note ? <div className="muted">Scan note: {f.note}</div> : null}

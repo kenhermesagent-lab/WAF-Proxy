@@ -734,6 +734,7 @@ CREATE TABLE IF NOT EXISTS scan_findings (
   version TEXT NOT NULL DEFAULT '',
   recommendation TEXT NOT NULL DEFAULT '',
   note TEXT NOT NULL DEFAULT '',
+  covered INTEGER NOT NULL DEFAULT 0,
   accepted_note TEXT NOT NULL DEFAULT '',
   state TEXT NOT NULL DEFAULT 'open',
   first_seen TEXT NOT NULL,
@@ -754,7 +755,7 @@ CREATE TABLE IF NOT EXISTS vuln_sources (
 
 // schemaVersion is bumped whenever migrateAddColumns gains a step, so operators
 // can tell which additive migrations a database has seen.
-const schemaVersion = "33"
+const schemaVersion = "34"
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
@@ -795,6 +796,10 @@ func (s *Store) migrateAddColumns() error {
 		// The operator's acceptance reason is kept apart from the scan's own
 		// note, so a reopen does not overwrite it with the next run's evidence.
 		{"scan_findings", "accepted_note", `ALTER TABLE scan_findings ADD COLUMN accepted_note TEXT NOT NULL DEFAULT ''`},
+		// An exposure the published path refuses is covered, not patched: the file
+		// is still served upstream. The page needs the distinction, so the scan
+		// records it instead of leaving it in the note's prose.
+		{"scan_findings", "covered", `ALTER TABLE scan_findings ADD COLUMN covered INTEGER NOT NULL DEFAULT 0`},
 		{"users", "role_id", `ALTER TABLE users ADD COLUMN role_id INTEGER NOT NULL DEFAULT 0`},
 		{"users", "auth_source", `ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'`},
 		// Password-reset mail goes to the administrator's own address.

@@ -29,6 +29,16 @@ const finding = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+// An exposure the published path refuses while the application still serves it.
+const coveredFinding = finding({
+  key: "exposure:/server-status",
+  title: "The application serves /server-status",
+  severity: "medium",
+  covered: true,
+  recommendation: "Remove the file from the web root, or keep the published path refused until it is gone",
+  note: "the application served HTTP 200, 12 bytes, headers: date; the published path refuses it with HTTP 403; blocked at the edge, but the file itself is still there",
+});
+
 const run = {
   id: 7,
   target: "billing.example.com",
@@ -42,9 +52,9 @@ const run = {
 
 const overview = {
   posture: "unknown",
-  open_findings: 1,
-  severities: { high: 1 },
-  findings: [finding()],
+  open_findings: 2,
+  severities: { high: 1, medium: 1 },
+  findings: [finding(), coveredFinding],
   runs: [run],
   sources: [
     { source: "kev", stale: true, bytes: 1024, records: 1200, last_error: "fetch failed" },
@@ -68,7 +78,7 @@ function mockAPI() {
       case "/api/security/runs/7":
         return { run, evidence };
       case "/api/security/findings":
-        return { findings: [finding(), finding({ key: "exposure:/git", title: "git config exposed", state: "accepted", severity: "medium", reason: "WAF rule blocks it", note: "scans say served 200" })] };
+        return { findings: [finding(), coveredFinding, finding({ key: "exposure:/git", title: "git config exposed", state: "accepted", severity: "medium", reason: "WAF rule blocks it", note: "scans say served 200" })] };
       case "/api/security/feed":
         return { sources: overview.sources, storage_cap_bytes: 30 << 20 };
       case "/api/security/schedule":
@@ -111,6 +121,17 @@ describe("Security scan page", () => {
     expect(screen.getByText(/unknown — not clean/i)).toBeTruthy();
     expect(screen.queryByText(/^Covered$/)).toBeNull();
     expect(screen.getByText(/stale — claims unknown/i)).toBeTruthy();
+  });
+
+  it("says an exposure the published path refuses is covered, not patched", async () => {
+    renderPage("overview");
+    const covered = (await screen.findByText("The application serves /server-status")).closest("tr");
+    expect(within(covered as HTMLElement).getByText("Covered — not patched")).toBeTruthy();
+
+    // The same list must not label an exposure nobody refuses as covered.
+    const plain = screen.getByText(".env is readable through the proxy").closest("tr");
+    expect(within(plain as HTMLElement).queryByText("Covered — not patched")).toBeNull();
+    expect(screen.getByText(/not patched: the file is still behind the proxy/)).toBeTruthy();
   });
 
   it("disables a run for a role without security.run and explains why", async () => {
