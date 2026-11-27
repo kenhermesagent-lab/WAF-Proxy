@@ -14,11 +14,11 @@ database schema and the unit files.
 | Version | Supported |
 |---|---|
 | 1.77.x | Yes |
-| 1.76.x | Yes — until 1.78.0 ships |
+| 1.76.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
 | 1.75.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
-| 1.73.x | Yes — until 1.75.0 ships |
-| 1.72.x | No |
-| 1.70.x | Yes — until 1.71.0 ships |
+| 1.73.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
+| 1.72.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
+| 1.70.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
 | 1.69.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
 | 1.68.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
 | 1.65.x | No — upgrade first (`deploy/install.sh`, or the Update button) |
