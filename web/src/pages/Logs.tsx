@@ -85,7 +85,7 @@ export default function Logs({
   // Per-host and per-source counts for the filters that were actually applied,
   // carrying that stage with them: the card can never rename itself ahead of
   // the numbers it shows.
-  const [summary, setSummary] = useState<{ stage: string; counts: EventSummary } | null>(null);
+  const [summary, setSummary] = useState<{ filters: Filters; stage: string; counts: EventSummary } | null>(null);
   const [offset, setOffset] = useState(0);
   const [filters, setFilters] = useState(() => filtersFromQuery(query));
   const [loading, setLoading] = useState(false);
@@ -130,7 +130,7 @@ export default function Logs({
         const stage = active.stage;
         api
           .get<EventSummary>(`/api/events/summary?${queryOf(active).toString()}`)
-          .then((counts) => mine === seq.current && setSummary({ stage, counts }))
+          .then((counts) => mine === seq.current && setSummary({ filters: active, stage, counts }))
           .catch(() => mine === seq.current && setSummary(null));
       }
     } catch (e) {
@@ -403,28 +403,42 @@ export default function Logs({
           ) : (
             <>
               <div className="grid cols-2" style={{ gap: 14 }}>
-                {([["By host", summary.counts.hosts, ""], ["By source", summary.counts.sources, "mono"]] as const).map(([label, rows, cls]) => (
-                  <div key={label}>
-                    <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>{label}</div>
-                    {rows.length === 0 ? (
+                {([
+                  { label: "By host", field: "host", rows: summary.counts.hosts, cls: "" },
+                  { label: "By source", field: "ip", rows: summary.counts.sources, cls: " mono" },
+                ] as const).map((col) => (
+                  <div key={col.label}>
+                    <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>{col.label}</div>
+                    {col.rows.length === 0 ? (
                       <div className="faint">None.</div>
                     ) : (
-                      <div className="table-wrap"><table>
-                        <tbody>
-                          {rows.map((r) => (
-                            <tr key={r.key}>
-                              <td className={cls}>{r.key}</td>
-                              <td className="num">{r.count.toLocaleString()}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table></div>
+                      <div className="summary-rows">
+                        {col.rows.map((r) => (
+                          <button
+                            key={r.key}
+                            className={"summary-row" + col.cls}
+                            aria-label={`Filter the log by ${col.field === "host" ? "host" : "source"} ${r.key}`}
+                            title={`Filter the log by ${col.field === "host" ? "host" : "source"} ${r.key}`}
+                            onClick={() => {
+                              const next = col.field === "host"
+                                ? { ...summary.filters, host: r.key }
+                                : { ...summary.filters, ip: r.key };
+                              setFilters(next);
+                              load(0, next);
+                            }}
+                          >
+                            <span>{r.key}</span>
+                            <span className="num">{r.count.toLocaleString()}</span>
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ))}
               </div>
               <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
                 Counts cover the whole filtered range, busiest first, up to 50 rows per side.
+                Selecting a row filters the log on it.
               </p>
             </>
           )}

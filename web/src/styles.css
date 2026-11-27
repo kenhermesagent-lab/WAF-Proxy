@@ -446,6 +446,17 @@ button.primary:disabled:hover { background: var(--accent); }
 }
 .link-cell:hover { background: transparent; border-color: transparent; color: var(--accent); text-decoration: underline; }
 .link-cell.mono { font-family: var(--font-mono); }
+/* A row of the log's stage summary, which filters the log on that host or
+   source: a whole-row button so the count is part of the target too. */
+.summary-rows { display: flex; flex-direction: column; gap: 2px; }
+.summary-row {
+  display: flex; justify-content: space-between; gap: 10px; width: 100%;
+  min-height: 0; padding: 6px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: inherit; font: inherit; text-align: left;
+}
+.summary-row:hover { background: var(--bg-hover); color: var(--accent); }
+.summary-row .num { color: var(--muted); font-variant-numeric: tabular-nums; }
+.summary-row.mono { font-family: var(--font-mono); }
 /* A cell whose text is prose (a finding's note, a run's skip reason) wraps
    instead of widening the table past its card. */
 .cell-wrap { white-space: normal; overflow-wrap: anywhere; max-width: 460px; }
